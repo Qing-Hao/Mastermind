@@ -8,6 +8,21 @@ const PX_PER_WEEK = 42;
 const PX_PER_DAY = PX_PER_WEEK / 7;
 const MS_PER_DAY = 86400000;
 
+// Six months of week columns is about as much as stays readable at 42px each.
+// The cap applies to a custom range too, which is clamped rather than refused.
+//
+// Presets are sized in whole weeks, not months, so every page of a given preset
+// is the same width. That is what makes the back and forward arrows exact
+// inverses -- month-derived widths vary between 13 and 14 weeks, and stepping
+// back by the current width would then drift.
+const MAX_WINDOW_WEEKS = 26;
+const WINDOW_PRESETS = [
+  { label: "1 month", weeks: 4 },
+  { label: "2 months", weeks: 9 },
+  { label: "3 months", weeks: 13 },
+  { label: "6 months", weeks: MAX_WINDOW_WEEKS },
+];
+
 let state = {
   view: "project",
   projects: [],
@@ -16,6 +31,10 @@ let state = {
   portfolio: null,
   settings: null,
   expandedPhases: new Set(),
+  // Both charts share one viewport, so switching tabs keeps your place.
+  // `start` is an ISO date, or null meaning "the week containing today".
+  // `weeks` is null while a custom range is set, in which case `customEnd` holds it.
+  window: { start: null, weeks: MAX_WINDOW_WEEKS, customEnd: null },
 };
 
 // --- api --------------------------------------------------------------------
@@ -81,19 +100,35 @@ const addDays = (date, days) => {
   return moved;
 };
 
-// Sizes `chart`, gives it a ruler, and returns the grid origin plus the element
-// bars belong in. Bars must be positioned against the returned origin, which is
-// the Monday on or before `earliest` -- not `earliest` itself.
-function weekGrid(chart, earliest, latest, gutter) {
-  const origin = weekStart(earliest);
-  const weeks = Math.max(Math.ceil((daysBetween(origin, latest) + 1) / 7), 1);
+// The visible viewport, in whole week columns. Everything else measures against
+// this -- the grid is drawn for the full window even where nothing is planned.
+function resolveWindow() {
+  const origin = weekStart(
+    state.window.start ? parseDate(state.window.start) : new Date());
+  // A custom range is rounded out to whole weeks, since a week is the column.
+  const requested = state.window.weeks === null
+    ? Math.ceil((daysBetween(origin, parseDate(state.window.customEnd)) + 1) / 7)
+    : state.window.weeks;
+
+  // A cleared or reversed custom range would otherwise give NaN or a negative,
+  // and a chart sized NaN renders as nothing at all.
+  const weeks = Number.isFinite(requested)
+    ? Math.min(Math.max(requested, 1), MAX_WINDOW_WEEKS)
+    : MAX_WINDOW_WEEKS;
+  return { origin, weeks, totalDays: weeks * 7, clamped: requested > MAX_WINDOW_WEEKS };
+}
+
+// Sizes `chart` to the window, gives it a ruler, and returns the element bars
+// belong in. Bars are positioned against the window origin, which is always the
+// Monday on or before the window start.
+function weekGrid(chart, origin, weeks, gutter) {
   chart.style.width = `${weeks * PX_PER_WEEK + gutter}px`;
   chart.appendChild(weekRuler(origin, weeks));
 
   const body = element("div", "grid-body");
   body.style.width = `${weeks * PX_PER_WEEK}px`;
   chart.appendChild(body);
-  return { origin, body };
+  return body;
 }
 
 function weekRuler(origin, weeks) {
@@ -128,6 +163,114 @@ function weekRuler(origin, weeks) {
 
   ruler.append(monthRow, weekRow);
   return ruler;
+}
+
+// --- window controls --------------------------------------------------------
+
+// Moving the viewport changes nothing on the server, so redraw from the data
+// already in hand rather than refetching the plan on every click.
+function redraw() {
+  if (state.view === "project") {
+    if (state.plan) renderProjectView();
+  } else if (state.portfolio) {
+    renderPortfolio();
+  }
+}
+
+// Rebuilt from scratch on every render. Both views call this with their own
+// container, and both drive the same state.window, so the two stay in step.
+function renderWindowBar(container) {
+  container.innerHTML = "";
+  const { origin, weeks, clamped } = resolveWindow();
+  const custom = state.window.weeks === null;
+
+  const step = (direction) => {
+    // Page by exactly the span on screen, so consecutive windows tile with no
+    // gap or overlap and stay Monday-aligned.
+    const shift = direction * weeks * 7;
+    state.window.start = formatDate(addDays(origin, shift));
+    if (custom) {
+      state.window.customEnd = formatDate(
+        addDays(parseDate(state.window.customEnd), shift));
+    }
+    redraw();
+  };
+
+  const back = element("button", "nav", "‹");
+  back.title = "Previous period";
+  back.onclick = () => step(-1);
+
+  const today = element("button", null, "Today");
+  today.title = "Jump back to the period starting this week";
+  today.onclick = () => {
+    state.window.start = formatDate(weekStart(new Date()));
+    if (custom) {
+      state.window.customEnd = formatDate(addDays(weekStart(new Date()), weeks * 7 - 1));
+    }
+    redraw();
+  };
+
+  const forward = element("button", "nav", "›");
+  forward.title = "Next period";
+  forward.onclick = () => step(1);
+
+  const select = element("select");
+  for (const preset of WINDOW_PRESETS) {
+    const option = element("option", null, preset.label);
+    option.value = String(preset.weeks);
+    select.appendChild(option);
+  }
+  const customOption = element("option", null, "Custom…");
+  customOption.value = "custom";
+  select.appendChild(customOption);
+  select.value = custom ? "custom" : String(state.window.weeks);
+
+  select.onchange = () => {
+    if (select.value === "custom") {
+      state.window.weeks = null;
+      // Seed the range from whatever was on screen, so nothing jumps.
+      state.window.customEnd = formatDate(addDays(origin, weeks * 7 - 1));
+    } else {
+      state.window.weeks = Number(select.value);
+      state.window.customEnd = null;
+    }
+    redraw();
+  };
+
+  container.append(back, today, forward, select);
+
+  if (custom) {
+    const from = element("input");
+    from.type = "date";
+    from.value = formatDate(origin);
+    from.onchange = () => {
+      if (from.value) state.window.start = from.value;
+      redraw();
+    };
+
+    const to = element("input");
+    to.type = "date";
+    to.value = state.window.customEnd;
+    to.onchange = () => {
+      if (to.value) state.window.customEnd = to.value;
+      redraw();
+    };
+
+    container.append(element("span", "window-sep", "from"), from,
+                     element("span", "window-sep", "to"), to);
+  }
+
+  const last = addDays(origin, weeks * 7 - 1);
+  const range = element("span", "window-range",
+    `${origin.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}`
+    + ` – ${last.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}`
+    + ` (${weeks} weeks)`);
+  container.appendChild(range);
+
+  if (clamped) {
+    container.appendChild(element("span", "error",
+      `Capped at ${MAX_WINDOW_WEEKS} weeks (about 6 months).`));
+  }
 }
 
 // --- loading ----------------------------------------------------------------
@@ -261,6 +404,7 @@ function warnedPhaseIds() {
 }
 
 function renderTimeline() {
+  renderWindowBar($("timeline-window"));
   const timeline = $("timeline");
   timeline.innerHTML = "";
   timeline.style.width = "";
@@ -273,28 +417,52 @@ function renderTimeline() {
     return;
   }
 
-  const starts = phases.map((p) => parseDate(p.start_date));
-  if (state.plan.project.start_date) {
-    starts.push(parseDate(state.plan.project.start_date));
-  }
-  const earliest = new Date(Math.min(...starts));
-  const latest = new Date(Math.max(...phases.map((p) => parseDate(p.end_date))));
-  const { origin, body } = weekGrid(timeline, earliest, latest, 200);
+  const view = resolveWindow();
+  const visible = phases.filter((phase) => inWindow(phase, view));
+  offWindowNote(timeline, phases.length - visible.length);
 
+  const body = weekGrid(timeline, view.origin, view.weeks, 200);
   const warned = warnedPhaseIds();
-  for (const phase of phases) {
-    body.appendChild(phaseBar(phase, origin, warned.has(phase.id)));
+  for (const phase of visible) {
+    body.appendChild(phaseBar(phase, view, warned.has(phase.id)));
   }
 }
 
-function phaseBar(phase, origin, isWarned) {
-  const offset = daysBetween(origin, parseDate(phase.start_date));
-  const span = Math.max(
-    daysBetween(parseDate(phase.start_date), parseDate(phase.end_date)), 1
-  );
+// Half-open against the window: a phase touching the last day is still in.
+function phaseSpan(phase, view) {
+  return {
+    from: daysBetween(view.origin, parseDate(phase.start_date)),
+    to: daysBetween(view.origin, parseDate(phase.end_date)),
+  };
+}
+
+function inWindow(phase, view) {
+  const { from, to } = phaseSpan(phase, view);
+  return to > 0 && from < view.totalDays;
+}
+
+function offWindowNote(chart, count) {
+  if (count > 0) {
+    chart.appendChild(element("p", "muted",
+      `${count} scheduled phase(s) outside this window.`));
+  }
+}
+
+// Positions a bar inside the window, trimming whatever falls off either end.
+// The trimmed edge is marked so a clipped bar cannot be misread as a short one.
+function placeBar(bar, from, to, totalDays) {
+  const left = Math.max(from, 0);
+  const right = Math.min(to, totalDays);
+  bar.style.marginLeft = `${left * PX_PER_DAY}px`;
+  bar.style.width = `${Math.max(right - left, 1) * PX_PER_DAY}px`;
+  bar.classList.toggle("clip-start", from < 0);
+  bar.classList.toggle("clip-end", to > totalDays);
+}
+
+function phaseBar(phase, view, isWarned) {
+  const { from, to } = phaseSpan(phase, view);
   const bar = element("div", `bar status-${phase.status}${isWarned ? " bar-warn" : ""}`);
-  bar.style.marginLeft = `${offset * PX_PER_DAY}px`;
-  bar.style.width = `${span * PX_PER_DAY}px`;
+  placeBar(bar, from, to, view.totalDays);
   bar.title = `${phase.name}: ${phase.start_date} to ${phase.end_date} `
     + `(${phase.duration_weeks}w, ${phase.effort_points} pts)`;
   bar.textContent = phase.name;
@@ -516,6 +684,7 @@ function renderDependencies() {
 // --- portfolio view ---------------------------------------------------------
 
 function renderPortfolio() {
+  renderWindowBar($("portfolio-window"));
   const chart = $("portfolio-chart");
   chart.innerHTML = "";
   chart.style.width = "";
@@ -533,32 +702,34 @@ function renderPortfolio() {
       `${unscheduled} phase(s) not shown — no start date yet.`));
   }
 
-  const earliest = new Date(Math.min(...phases.map((p) => parseDate(p.start_date))));
-  const latest = new Date(Math.max(...phases.map((p) => parseDate(p.end_date))));
-  const { origin, body } = weekGrid(chart, earliest, latest, 240);
+  const view = resolveWindow();
+  const visible = phases.filter((phase) => inWindow(phase, view));
+  offWindowNote(chart, phases.length - visible.length);
+
+  const body = weekGrid(chart, view.origin, view.weeks, 240);
 
   for (const project of projects) {
-    const own = phases.filter((phase) => phase.project_id === project.id);
+    const own = visible.filter((phase) => phase.project_id === project.id);
     if (own.length === 0) continue;
 
     const lane = element("div", "lane");
     lane.appendChild(element("div", "lane-title", project.name));
     for (const phase of own) {
-      const bar = phaseBar(phase, origin, false);
+      const bar = phaseBar(phase, view, false);
       bar.classList.add("draggable");
       bar.title += "  (drag to move; hold Alt for day steps)";
-      makeDraggable(bar, phase, origin);
+      makeDraggable(bar, phase, view);
       lane.appendChild(bar);
     }
     body.appendChild(lane);
   }
 }
 
-function makeDraggable(bar, phase, origin) {
+function makeDraggable(bar, phase, view) {
   bar.onmousedown = (event) => {
     event.preventDefault();
     const startX = event.clientX;
-    const startOffset = daysBetween(origin, parseDate(phase.start_date));
+    const { from, to } = phaseSpan(phase, view);
     const label = bar.textContent;
     let dayDelta = 0;
     bar.classList.add("dragging");
@@ -569,8 +740,10 @@ function makeDraggable(bar, phase, origin) {
       // Alt drops back to whole days for a phase that must start mid-week.
       dayDelta = moveEvent.altKey
         ? Math.round(rawDelta)
-        : Math.round((startOffset + rawDelta) / 7) * 7 - startOffset;
-      bar.style.marginLeft = `${(startOffset + dayDelta) * PX_PER_DAY}px`;
+        : Math.round((from + rawDelta) / 7) * 7 - from;
+      // Re-clip as it moves, so dragging a bar off the edge of the window
+      // shortens it against the boundary instead of overflowing the chart.
+      placeBar(bar, from + dayDelta, to + dayDelta, view.totalDays);
       bar.textContent = dayDelta === 0
         ? label
         : `${label} → ${shiftDate(phase.start_date, dayDelta)}`;

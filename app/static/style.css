@@ -175,6 +175,37 @@ tr.rollup-row td {
     to right, #ededed 0 1px, transparent 1px var(--week-px, 42px));
 }
 
+/* --- window controls --- */
+.window-bar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+.window-bar .nav { width: 28px; font-size: 15px; line-height: 1; }
+.window-sep { font-size: 12px; color: #888; }
+.window-range {
+  font-size: 12px;
+  color: #666;
+  font-variant-numeric: tabular-nums;
+  margin-left: 4px;
+}
+.window-bar .error { font-size: 12px; }
+
+/* A bar running past either edge of the window is cut square and flagged, so a
+   trimmed bar is never mistaken for a short one. */
+.bar.clip-start {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 3px dotted #5c6bc0;
+}
+.bar.clip-end {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: 3px dotted #5c6bc0;
+}
+
 .lane { padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
 .lane-title { font-size: 12px; font-weight: 600; color: #555; margin-bottom: 4px; }
 
