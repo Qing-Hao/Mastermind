@@ -322,6 +322,48 @@ def check_phase_within_project(phase, project):
     )
 
 
+# --- Project-level summaries ------------------------------------------------
+
+# These answer "how is this going?" rather than "is this wrong?", so they are
+# not rules and never produce a PlanWarning. The map view reads them.
+
+
+def project_progress(phases):
+    """Finished phases against the total. A project with no phases is 0 of 0."""
+    return {
+        "done": sum(1 for phase in phases if phase.get("status") == "done"),
+        "total": len(phases),
+    }
+
+
+def project_effort_points(phases):
+    """Top-down points across a project. Deliverable rollups deliberately do not
+    feed this -- V5 exists precisely because the two can disagree, and the phase
+    estimate is the one the user committed to."""
+    return sum(int(phase.get("effort_points") or 0) for phase in phases)
+
+
+def next_milestone(phases, today):
+    """The next phase boundary falling on or after `today`, or None.
+
+    Starts and ends both count: the next thing to happen to a project is either
+    work beginning or work landing. Unscheduled phases have no boundary at all
+    and are skipped, so a fully unscheduled project returns None.
+    """
+    today = as_date(today)
+    upcoming = []
+
+    for phase in phases:
+        start = as_optional_date(phase.get("start_date"))
+        if start is None:
+            continue
+        for boundary in (start, phase_end_date(phase)):
+            if boundary is not None and boundary >= today:
+                upcoming.append(boundary)
+
+    return min(upcoming).isoformat() if upcoming else None
+
+
 # --- Whole-plan entry point -------------------------------------------------
 
 

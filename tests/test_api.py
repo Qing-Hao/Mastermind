@@ -395,3 +395,138 @@ def test_deleting_a_project_removes_its_phases(client):
     client.delete(f"/api/projects/{project['id']}")
     assert client.get(f"/api/projects/{project['id']}").status_code == 404
     assert client.get("/api/export").json()["phases"] == []
+
+
+# --- future directions ------------------------------------------------------
+
+
+def make_direction(client, name="Build caching", track=""):
+    response = client.post("/api/projects", json={
+        "name": name, "start_date": "", "stage": "idea", "track": track,
+    })
+    assert response.status_code == 201
+    return response.json()
+
+
+def test_a_project_is_active_with_no_track_by_default(client):
+    project = make_project(client)
+    assert project["stage"] == "active"
+    assert project["track"] == ""
+
+
+def test_an_unknown_stage_is_rejected_rather_than_stored(client):
+    response = client.post("/api/projects", json={"name": "Odd", "stage": "maybe"})
+    assert response.status_code == 422
+    assert "maybe" in response.json()["detail"]
+
+    project = make_project(client)
+    assert client.put(f"/api/projects/{project['id']}",
+                      json={"stage": "shipped"}).status_code == 422
+    assert client.get(f"/api/projects/{project['id']}").json()["project"]["stage"] \
+        == "active"
+
+
+def test_promoting_a_direction_keeps_its_id_and_everything_written_on_it(client):
+    idea = make_direction(client, "Build caching", track="Developer experience")
+    client.put(f"/api/projects/{idea['id']}", json={"goal": "Cut CI to 5 minutes."})
+
+    promoted = client.put(f"/api/projects/{idea['id']}", json={"stage": "active"}).json()
+    assert promoted["id"] == idea["id"]
+    assert promoted["stage"] == "active"
+    assert promoted["track"] == "Developer experience"
+    assert promoted["goal"] == "Cut CI to 5 minutes."
+
+
+def test_a_direction_stays_off_the_portfolio_timeline(client):
+    project = make_project(client, start="2026-09-01")
+    make_phase(client, project["id"], "Dated", "2026-09-01", 1, 10)
+    idea = make_direction(client)
+    # Even with a scheduled phase hung off it, an uncommitted idea stays off.
+    make_phase(client, idea["id"], "Sketch", "2026-09-01", 1, 10)
+
+    portfolio = client.get("/api/portfolio").json()
+    assert [p["id"] for p in portfolio["projects"]] == [project["id"]]
+    assert len(portfolio["phases"]) == 1
+    assert portfolio["unscheduled_count"] == 0
+
+
+# --- map view ---------------------------------------------------------------
+
+
+def test_graph_reports_progress_size_and_what_lands_next(client):
+    project = make_project(client, start="2026-01-05")
+    client.put(f"/api/projects/{project['id']}", json={"track": "Payments"})
+    design = make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+    make_phase(client, project["id"], "Build", "2026-02-02", 6, 60)
+    client.put(f"/api/phases/{design['id']}", json={"status": "done"})
+
+    node = client.get("/api/graph").json()["projects"][0]
+    assert node["track"] == "Payments"
+    assert (node["phases_done"], node["phases_total"]) == (1, 2)
+    assert node["effort_points"] == 100
+    # Dates are all in the past by the time this runs, so nothing is upcoming.
+    assert node["next_date"] is None
+
+
+def test_graph_next_date_is_the_soonest_boundary_still_ahead(client):
+    project = make_project(client, start="2099-01-05")
+    make_phase(client, project["id"], "Build", "2099-01-05", 2, 20)
+    node = client.get("/api/graph").json()["projects"][0]
+    assert node["next_date"] == "2099-01-05"
+
+
+def test_graph_includes_directions_with_nothing_planned(client):
+    make_direction(client, "Build caching", track="Developer experience")
+    node = client.get("/api/graph").json()["projects"][0]
+    assert node["stage"] == "idea"
+    assert (node["phases_done"], node["phases_total"]) == (0, 0)
+    assert node["effort_points"] == 0
+    assert node["next_date"] is None
+
+
+def test_department_name_defaults_empty_and_persists(client):
+    assert client.get("/api/graph").json()["department_name"] == ""
+    client.put("/api/settings", json={"department_name": "Platform Engineering | Product"})
+    assert client.get("/api/graph").json()["department_name"] \
+        == "Platform Engineering | Product"
+
+
+def test_stage_track_and_department_survive_a_round_trip(client):
+    client.put("/api/settings", json={"department_name": "Platform Engineering"})
+    make_project(client, "Payments")
+    make_direction(client, "Build caching", track="Developer experience")
+
+    exported = client.get("/api/export").json()
+    assert exported["version"] == 3
+
+    for existing in client.get("/api/projects").json():
+        client.delete(f"/api/projects/{existing['id']}")
+    assert client.post("/api/import", json=exported).status_code == 200
+
+    reimported = client.get("/api/export").json()
+    assert reimported["projects"] == exported["projects"]
+    assert reimported["settings"]["department_name"] == "Platform Engineering"
+
+
+def test_a_version_2_export_still_imports(client):
+    """Files written before stage/track existed must not need hand-editing."""
+    legacy = {
+        "version": 2,
+        "settings": {"default_velocity_points_per_sprint": 20,
+                     "sprint_length_days": 14,
+                     "v1_tolerance_pct": 5.0, "v5_tolerance_pct": 5.0},
+        "projects": [{"id": 1, "name": "Payments", "description": "",
+                      "goal": "Ship it.", "start_date": "2026-01-05",
+                      "velocity_override": None,
+                      "created_at": "2026-01-01T00:00:00+00:00",
+                      "updated_at": "2026-01-01T00:00:00+00:00"}],
+        "phases": [], "deliverables": [], "dependencies": [],
+    }
+    assert client.post("/api/import", json=legacy).status_code == 200
+
+    project = client.get("/api/projects").json()[0]
+    assert project["goal"] == "Ship it."
+    # Everything in a v2 file was committed work, so 'active' is the honest read.
+    assert project["stage"] == "active"
+    assert project["track"] == ""
+    assert client.get("/api/graph").json()["department_name"] == ""

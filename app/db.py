@@ -17,7 +17,9 @@ CREATE TABLE IF NOT EXISTS settings (
     default_velocity_points_per_sprint INTEGER NOT NULL DEFAULT 20,
     sprint_length_days                INTEGER NOT NULL DEFAULT 14,
     v1_tolerance_pct                  REAL    NOT NULL DEFAULT 5.0,
-    v5_tolerance_pct                  REAL    NOT NULL DEFAULT 5.0
+    v5_tolerance_pct                  REAL    NOT NULL DEFAULT 5.0,
+    -- The hub of the map view. Free text: whatever the team is called.
+    department_name                   TEXT    NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS project (
@@ -27,6 +29,13 @@ CREATE TABLE IF NOT EXISTS project (
     goal              TEXT NOT NULL DEFAULT '',
     start_date        TEXT NOT NULL,
     velocity_override INTEGER,
+    -- 'idea' is a future direction: something worth doing that nobody has
+    -- committed to yet. It is a project row so promoting it keeps the id and
+    -- anything already written against it -- no copy, nothing lost.
+    stage             TEXT NOT NULL DEFAULT 'active'
+                      CHECK (stage IN ('idea', 'active', 'done')),
+    -- Free-text grouping for the map view, e.g. 'Developer experience'.
+    track             TEXT NOT NULL DEFAULT '',
     created_at        TEXT NOT NULL,
     updated_at        TEXT NOT NULL
 );
@@ -72,7 +81,13 @@ CREATE INDEX IF NOT EXISTS idx_deliverable_phase ON deliverable(phase_id);
 ADDED_COLUMNS = [
     ("project", "goal", "TEXT NOT NULL DEFAULT ''"),
     ("settings", "v5_tolerance_pct", "REAL NOT NULL DEFAULT 5.0"),
+    ("project", "stage", "TEXT NOT NULL DEFAULT 'active' "
+                         "CHECK (stage IN ('idea', 'active', 'done'))"),
+    ("project", "track", "TEXT NOT NULL DEFAULT ''"),
+    ("settings", "department_name", "TEXT NOT NULL DEFAULT ''"),
 ]
+
+STAGES = ("idea", "active", "done")
 
 _db_path = DEFAULT_DB_PATH
 
@@ -132,6 +147,7 @@ def update_settings(fields):
         "sprint_length_days",
         "v1_tolerance_pct",
         "v5_tolerance_pct",
+        "department_name",
     }
     updates = {key: value for key, value in fields.items() if key in allowed}
     if updates:
@@ -146,10 +162,21 @@ def update_settings(fields):
 # --- projects ---------------------------------------------------------------
 
 
-def list_projects():
+def list_projects(stages=None):
+    """Every project, or only those in `stages`.
+
+    Ideas sort last: they have no start date, so ordering by date alone would
+    scatter them through the committed work.
+    """
+    query = ("SELECT * FROM project ORDER BY stage = 'idea', start_date = '', "
+             "start_date, id")
     with connect() as connection:
-        rows = connection.execute("SELECT * FROM project ORDER BY start_date, id").fetchall()
-    return rows_to_dicts(rows)
+        rows = connection.execute(query).fetchall()
+    projects = rows_to_dicts(rows)
+    if stages is None:
+        return projects
+    wanted = set(stages)
+    return [project for project in projects if project["stage"] in wanted]
 
 
 def get_project(project_id):
@@ -158,21 +185,25 @@ def get_project(project_id):
     return dict(row) if row else None
 
 
-def create_project(name, start_date, description="", goal="", velocity_override=None):
+def create_project(name, start_date, description="", goal="", velocity_override=None,
+                   stage="active", track=""):
     timestamp = now_iso()
     with connect() as connection:
         cursor = connection.execute(
             """INSERT INTO project (name, description, goal, start_date,
-                                    velocity_override, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (name, description, goal, start_date, velocity_override, timestamp, timestamp),
+                                    velocity_override, stage, track,
+                                    created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (name, description, goal, start_date, velocity_override, stage, track,
+             timestamp, timestamp),
         )
         project_id = cursor.lastrowid
     return get_project(project_id)
 
 
 def update_project(project_id, fields):
-    allowed = {"name", "description", "goal", "start_date", "velocity_override"}
+    allowed = {"name", "description", "goal", "start_date", "velocity_override",
+               "stage", "track"}
     updates = {key: value for key, value in fields.items() if key in allowed}
     if updates:
         updates["updated_at"] = now_iso()
@@ -252,6 +283,14 @@ def list_all_phases():
             "SELECT * FROM phase ORDER BY project_id, sort_order, start_date, id"
         ).fetchall()
     return rows_to_dicts(rows)
+
+
+def phases_by_project():
+    """Every phase grouped by project id, for the map view."""
+    grouped = {}
+    for phase in list_all_phases():
+        grouped.setdefault(phase["project_id"], []).append(phase)
+    return grouped
 
 
 # --- deliverables -----------------------------------------------------------
@@ -378,7 +417,9 @@ def export_all():
         deliverables = rows_to_dicts(connection.execute("SELECT * FROM deliverable").fetchall())
         dependencies = rows_to_dicts(connection.execute("SELECT * FROM dependency").fetchall())
     return {
-        "version": 2,
+        # 3 added project.stage/track and settings.department_name. Reads stay
+        # tolerant of a version-2 file, so an older export still imports.
+        "version": 3,
         "exported_at": now_iso(),
         "settings": get_settings(),
         "projects": projects,
@@ -405,25 +446,31 @@ def import_all(payload):
             connection.execute(
                 """UPDATE settings SET default_velocity_points_per_sprint = ?,
                                        sprint_length_days = ?, v1_tolerance_pct = ?,
-                                       v5_tolerance_pct = ?
+                                       v5_tolerance_pct = ?, department_name = ?
                    WHERE id = 1""",
                 (
                     settings.get("default_velocity_points_per_sprint", 20),
                     settings.get("sprint_length_days", 14),
                     settings.get("v1_tolerance_pct", 5.0),
                     settings.get("v5_tolerance_pct", 5.0),
+                    settings.get("department_name", ""),
                 ),
             )
 
         for project in payload.get("projects", []):
             connection.execute(
                 """INSERT INTO project (id, name, description, goal, start_date,
-                                        velocity_override, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                                        velocity_override, stage, track,
+                                        created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     project["id"], project["name"], project.get("description", ""),
                     project.get("goal", ""),
                     project["start_date"], project.get("velocity_override"),
+                    # A version-2 file has neither: everything in it was a
+                    # committed project, so 'active' with no track is right.
+                    project.get("stage") or "active",
+                    project.get("track", ""),
                     project.get("created_at") or now_iso(),
                     project.get("updated_at") or now_iso(),
                 ),

@@ -229,3 +229,49 @@ tr.rollup-row td {
 
 .bar.draggable { cursor: grab; }
 .bar.dragging { cursor: grabbing; opacity: 0.75; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3); }
+
+/* --- map view --- */
+/* Positions are computed in app.js; everything here is colour and type only,
+   so the layout stays in one place. */
+#map-canvas { border: 1px solid #eee; overflow: hidden; }
+.map { display: block; width: 100%; }
+
+.map-edge { stroke: #d5d5d5; stroke-width: 1.5; }
+.map-edge-idea { stroke-dasharray: 4 4; stroke: #ddd; }
+
+.map-hub circle { fill: #1a1a1a; }
+.map-hub text { fill: #fff; font-size: 12px; font-weight: 600; }
+
+.map-track circle { fill: #9e9e9e; }
+.map-track text { fill: #555; font-size: 11px; font-weight: 600; }
+
+.map-node { cursor: pointer; }
+.map-node circle { fill: #90caf9; stroke: #5c6bc0; stroke-width: 1.5; }
+.map-node.stage-done circle { fill: #cfd8dc; stroke: #90a4ae; }
+/* Dashed and hollow: an idea is a shape, not yet a commitment. */
+.map-node.stage-idea circle {
+  fill: #fff;
+  stroke: #bbb;
+  stroke-dasharray: 5 4;
+}
+.map-node:hover circle, .map-node:focus circle { stroke: #1a1a1a; stroke-width: 2.5; }
+.map-node:focus { outline: none; }
+
+.map-label { pointer-events: none; }
+.map-name { fill: #1a1a1a; font-size: 12px; font-weight: 600; }
+.map-meta { fill: #888; font-size: 10px; }
+
+/* --- future directions --- */
+.directions { list-style: none; padding: 0; margin: 8px 0; }
+.directions li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 620px;
+  padding: 5px 8px;
+  border: 1px dashed #ccc;
+  border-radius: 3px;
+  margin-bottom: 4px;
+  background: #fcfcfc;
+}
+.direction-name { font-weight: 500; flex: 1; }

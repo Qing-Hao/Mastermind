@@ -33,6 +33,7 @@ let state = {
   currentProjectId: null,
   plan: null,
   portfolio: null,
+  graph: null,
   settings: null,
   expandedPhases: new Set(),
   // Both charts share one viewport, so switching tabs keeps your place.
@@ -201,6 +202,8 @@ function weekRuler({ origin, weeks, pxPerWeek }) {
 function redraw() {
   if (state.view === "project") {
     if (state.plan) renderProjectView();
+  } else if (state.view === "map") {
+    if (state.graph) renderMap();
   } else if (state.portfolio) {
     renderPortfolio();
   }
@@ -309,7 +312,10 @@ async function loadProjects() {
   const select = $("project-select");
   select.innerHTML = "";
   for (const project of state.projects) {
-    const option = element("option", null, project.name);
+    // Ideas stay selectable so you can open one and write its goal; the ring
+    // marks them as uncommitted so they cannot be mistaken for real work.
+    const label = project.stage === "idea" ? `◌ ${project.name}` : project.name;
+    const option = element("option", null, label);
     option.value = project.id;
     select.appendChild(option);
   }
@@ -317,29 +323,37 @@ async function loadProjects() {
   if (state.projects.length === 0) {
     state.currentProjectId = null;
     state.plan = null;
-    $("workspace").hidden = true;
-    $("portfolio-view").hidden = true;
-    $("empty-state").hidden = false;
-    return;
+  } else {
+    if (!state.projects.some((p) => p.id === state.currentProjectId)) {
+      state.currentProjectId = state.projects[0].id;
+    }
+    select.value = state.currentProjectId;
   }
-  if (!state.projects.some((p) => p.id === state.currentProjectId)) {
-    state.currentProjectId = state.projects[0].id;
-  }
-  select.value = state.currentProjectId;
-  $("empty-state").hidden = true;
   await refreshView();
 }
 
 async function refreshView() {
   const isProject = state.view === "project";
-  $("workspace").hidden = !isProject || !state.currentProjectId;
-  $("portfolio-view").hidden = isProject;
+  const isPortfolio = state.view === "portfolio";
+  const isMap = state.view === "map";
+  // The map is still worth showing with nothing planned -- it is where the
+  // first future direction gets captured.
+  const noProjects = state.projects.length === 0;
+
+  $("empty-state").hidden = !(isProject && noProjects);
+  $("workspace").hidden = !isProject || noProjects;
+  $("portfolio-view").hidden = !isPortfolio;
+  $("map-view").hidden = !isMap;
   $("tab-project").classList.toggle("active", isProject);
-  $("tab-portfolio").classList.toggle("active", !isProject);
+  $("tab-portfolio").classList.toggle("active", isPortfolio);
+  $("tab-map").classList.toggle("active", isMap);
+
   if (isProject) {
-    await loadPlan();
-  } else {
+    if (!noProjects) await loadPlan();
+  } else if (isPortfolio) {
     await loadPortfolio();
+  } else {
+    await loadGraph();
   }
 }
 
@@ -353,6 +367,12 @@ async function loadPlan() {
 async function loadPortfolio() {
   state.portfolio = await api("/api/portfolio");
   renderPortfolio();
+}
+
+async function loadGraph() {
+  state.graph = await api("/api/graph");
+  renderMap();
+  renderDirections();
 }
 
 // --- project view -----------------------------------------------------------
@@ -394,6 +414,8 @@ function renderProjectFields() {
   $("project-goal").value = project.goal || "";
   $("project-name").value = project.name;
   $("project-start").value = project.start_date;
+  $("project-stage").value = project.stage;
+  $("project-track").value = project.track || "";
   $("project-velocity").value = project.velocity_override ?? "";
 }
 
@@ -797,6 +819,265 @@ function makeDraggable(bar, phase, view) {
   };
 }
 
+// --- map view ---------------------------------------------------------------
+
+// A hand-rolled radial layout rather than a force simulation: the same projects
+// land in the same places every time the page opens, so the shape of the team's
+// work is something you can learn to read rather than re-decipher.
+const SVG_NS = "http://www.w3.org/2000/svg";
+const MAP_HEIGHT = 620;
+// Rings are ellipses, not circles: a page-wide canvas is far wider than it is
+// tall, and a circle sized to the height would leave the sides empty and crowd
+// everything into the middle. The margins differ for the same reason -- a label
+// spreads sideways, a node's label block hangs below it.
+const MAP_MARGIN_X = 130;
+const MAP_MARGIN_Y = 92;
+const HUB_RADIUS = 54;
+const MIN_NODE_R = 16;
+const MAX_NODE_R = 38;
+// Ring positions as fractions of the usable radius. Ideas sit furthest out:
+// distance from the centre reads as distance from being committed to.
+const TRACK_RING = 0.40;
+const PROJECT_RING = 0.74;
+const IDEA_RING = 1.0;
+
+function svgElement(tag, attributes = {}, text) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [key, value] of Object.entries(attributes)) {
+    node.setAttribute(key, String(value));
+  }
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+const truncate = (text, limit) =>
+  text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
+
+const polar = (cx, cy, rings, fraction, angle) => ({
+  x: cx + rings.x * fraction * Math.cos(angle),
+  y: cy + rings.y * fraction * Math.sin(angle),
+});
+
+// Area carries the comparison, not radius -- twice the points should look twice
+// as big, which is what the square root gives.
+function nodeRadius(points, largest) {
+  if (!largest) return MIN_NODE_R;
+  return MIN_NODE_R + (MAX_NODE_R - MIN_NODE_R)
+    * Math.sqrt(Math.max(points, 0) / largest);
+}
+
+// Tracks sorted by name, projects by id, so nothing reshuffles between renders.
+// Untracked projects come last and hang straight off the hub.
+function mapGroups(projects) {
+  const byTrack = new Map();
+  for (const project of projects) {
+    const key = (project.track || "").trim();
+    if (!byTrack.has(key)) byTrack.set(key, []);
+    byTrack.get(key).push(project);
+  }
+
+  const groups = [...byTrack.keys()]
+    .filter((key) => key !== "")
+    .sort()
+    .map((track) => ({ track, projects: byTrack.get(track) }));
+  if (byTrack.has("")) groups.push({ track: null, projects: byTrack.get("") });
+
+  for (const group of groups) group.projects.sort((a, b) => a.id - b.id);
+  return groups;
+}
+
+function renderMap() {
+  const canvas = $("map-canvas");
+  canvas.innerHTML = "";
+  $("department-name").value = state.graph.department_name || "";
+
+  const projects = state.graph.projects;
+  if (projects.length === 0) {
+    canvas.appendChild(element("p", "muted",
+      "Nothing here yet. Capture a future direction below to start the map."));
+    return;
+  }
+
+  const width = Math.max(canvas.clientWidth || 900, 480);
+  const cx = width / 2;
+  const cy = MAP_HEIGHT / 2;
+  // Floored so a narrow container still leaves the rings clear of the hub
+  // rather than collapsing them onto it.
+  const rings = {
+    x: Math.max(width / 2 - MAP_MARGIN_X, HUB_RADIUS + MAX_NODE_R),
+    y: Math.max(MAP_HEIGHT / 2 - MAP_MARGIN_Y, HUB_RADIUS + MAX_NODE_R),
+  };
+
+  const svg = svgElement("svg", {
+    class: "map", width, height: MAP_HEIGHT,
+    viewBox: `0 0 ${width} ${MAP_HEIGHT}`,
+  });
+  const edges = svgElement("g", { class: "map-edges" });
+  const nodes = svgElement("g", { class: "map-nodes" });
+  svg.append(edges, nodes);
+
+  const largest = Math.max(...projects.map((project) => project.effort_points), 0);
+  const groups = mapGroups(projects);
+  // A wedge per group, sized by how many projects it holds, so a busy track
+  // gets the room it needs instead of every track getting an equal slice.
+  const weight = groups.reduce(
+    (total, group) => total + Math.max(group.projects.length, 1), 0);
+
+  let angle = -Math.PI / 2;  // start at 12 o'clock and go clockwise
+  for (const group of groups) {
+    const span = (Math.max(group.projects.length, 1) / weight) * Math.PI * 2;
+
+    let anchor = { x: cx, y: cy };
+    if (group.track) {
+      anchor = polar(cx, cy, rings, TRACK_RING, angle + span / 2);
+      edges.appendChild(svgElement("line", {
+        class: "map-edge", x1: cx, y1: cy, x2: anchor.x, y2: anchor.y,
+      }));
+      nodes.appendChild(trackNode(group.track, anchor));
+    }
+
+    const step = span / (group.projects.length + 1);
+    group.projects.forEach((project, index) => {
+      const isIdea = project.stage === "idea";
+      const point = polar(cx, cy, rings, isIdea ? IDEA_RING : PROJECT_RING,
+        angle + step * (index + 1));
+      edges.appendChild(svgElement("line", {
+        class: `map-edge${isIdea ? " map-edge-idea" : ""}`,
+        x1: anchor.x, y1: anchor.y, x2: point.x, y2: point.y,
+      }));
+      nodes.appendChild(
+        projectNode(project, point, nodeRadius(project.effort_points, largest)));
+    });
+
+    angle += span;
+  }
+
+  // Last, so the hub draws over any spoke that passes near the centre.
+  nodes.appendChild(hubNode(state.graph.department_name, cx, cy));
+  canvas.appendChild(svg);
+}
+
+function hubNode(name, cx, cy) {
+  const group = svgElement("g", { class: "map-hub" });
+  group.appendChild(svgElement("circle", { cx, cy, r: HUB_RADIUS }));
+
+  // "Platform Engineering | Product" reads as two lines; the pipe is the break.
+  const parts = (name || "Your department")
+    .split("|").map((part) => part.trim()).filter(Boolean);
+  const text = svgElement("text", { x: cx, y: cy, "text-anchor": "middle" });
+  parts.forEach((part, index) => {
+    text.appendChild(svgElement("tspan", {
+      x: cx,
+      dy: index === 0 ? 4 - (parts.length - 1) * 7 : 14,
+    }, truncate(part, 18)));
+  });
+
+  group.appendChild(text);
+  return group;
+}
+
+function trackNode(track, point) {
+  const group = svgElement("g", { class: "map-track" });
+  group.appendChild(svgElement("circle", { cx: point.x, cy: point.y, r: 6 }));
+  group.appendChild(svgElement("text", {
+    x: point.x, y: point.y - 13, "text-anchor": "middle",
+  }, truncate(track, 22)));
+  return group;
+}
+
+function projectNode(project, point, radius) {
+  const group = svgElement("g", {
+    class: `map-node stage-${project.stage}`, tabindex: "0", role: "button",
+  });
+  group.appendChild(svgElement("circle", { cx: point.x, cy: point.y, r: radius }));
+
+  const meta = [];
+  if (project.stage === "idea") {
+    meta.push("future direction");
+  } else if (project.phases_total > 0) {
+    meta.push(`${project.phases_done}/${project.phases_total} phases`);
+  } else {
+    meta.push("no phases yet");
+  }
+  if (project.next_date) meta.push(`next ${project.next_date}`);
+
+  const label = svgElement("text", {
+    class: "map-label", x: point.x, y: point.y + radius + 15,
+    "text-anchor": "middle",
+  });
+  label.appendChild(svgElement("tspan",
+    { x: point.x, class: "map-name" }, truncate(project.name, 20)));
+  for (const line of meta) {
+    label.appendChild(svgElement("tspan",
+      { x: point.x, dy: 13, class: "map-meta" }, line));
+  }
+  group.appendChild(label);
+
+  // The full name and goal live in the tooltip, since the label is truncated.
+  group.appendChild(svgElement("title", {}, [
+    `${project.name} — ${project.stage}`,
+    `${project.effort_points} pts`,
+    project.phases_total ? `${project.phases_done}/${project.phases_total} phases done` : null,
+    project.next_date ? `next ${project.next_date}` : null,
+    project.goal || null,
+  ].filter(Boolean).join("\n")));
+
+  const open = async () => {
+    state.currentProjectId = project.id;
+    state.view = "project";
+    state.expandedPhases.clear();
+    $("project-select").value = project.id;
+    await refreshView();
+  };
+  group.onclick = open;
+  group.onkeydown = (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      open();
+    }
+  };
+  return group;
+}
+
+function renderDirections() {
+  const list = $("direction-list");
+  const ideas = state.graph.projects.filter((project) => project.stage === "idea");
+  $("direction-count").textContent = ideas.length;
+  list.innerHTML = "";
+
+  if (ideas.length === 0) {
+    list.appendChild(element("li", "muted", "No future directions captured yet."));
+    return;
+  }
+
+  for (const idea of ideas) {
+    const item = element("li");
+    item.appendChild(element("span", "direction-name", idea.name));
+    if (idea.track) item.appendChild(element("span", "muted", idea.track));
+
+    const promote = element("button", null, "Promote to project");
+    promote.title = "Make this active, keeping everything already written against it";
+    promote.onclick = async () => {
+      await api(`/api/projects/${idea.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ stage: "active" }),
+      });
+      await loadProjects();
+    };
+
+    const remove = element("button", null, "✕");
+    remove.title = "Delete this direction";
+    remove.onclick = async () => {
+      if (!confirm(`Delete the direction "${idea.name}"?`)) return;
+      await api(`/api/projects/${idea.id}`, { method: "DELETE" });
+      await loadProjects();
+    };
+
+    item.append(promote, remove);
+    list.appendChild(item);
+  }
+}
+
 // --- events -----------------------------------------------------------------
 
 function bindEvents() {
@@ -806,6 +1087,10 @@ function bindEvents() {
   };
   $("tab-portfolio").onclick = async () => {
     state.view = "portfolio";
+    await refreshView();
+  };
+  $("tab-map").onclick = async () => {
+    state.view = "map";
     await refreshView();
   };
 
@@ -844,14 +1129,47 @@ function bindEvents() {
         name: $("project-name").value,
         goal: $("project-goal").value,
         start_date: $("project-start").value,
+        stage: $("project-stage").value,
+        track: $("project-track").value,
         velocity_override: velocity === "" ? null : Number(velocity),
       }),
     });
     await loadProjects();
   };
-  for (const id of ["project-name", "project-goal", "project-start", "project-velocity"]) {
+  for (const id of ["project-name", "project-goal", "project-start",
+                    "project-stage", "project-track", "project-velocity"]) {
     $(id).onchange = saveProject;
   }
+
+  $("department-name").onchange = async () => {
+    await api("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify({ department_name: $("department-name").value }),
+    });
+    await loadGraph();
+  };
+
+  $("add-direction").onclick = async () => {
+    const name = $("new-direction-name").value.trim();
+    if (!name) return;
+    // No start date and no phases: a direction is a note to yourself until the
+    // day it gets promoted.
+    await api("/api/projects", {
+      method: "POST",
+      body: JSON.stringify({
+        name,
+        start_date: "",
+        stage: "idea",
+        track: $("new-direction-track").value.trim(),
+      }),
+    });
+    $("new-direction-name").value = "";
+    $("new-direction-track").value = "";
+    await loadProjects();
+  };
+  $("new-direction-name").onkeydown = (event) => {
+    if (event.key === "Enter") $("add-direction").click();
+  };
 
   const saveSettings = async () => {
     await api("/api/settings", {

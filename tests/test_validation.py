@@ -11,7 +11,10 @@ from app.validation import (
     effective_velocity,
     find_dependency_cycle,
     implied_weeks,
+    next_milestone,
     phase_end_date,
+    project_effort_points,
+    project_progress,
     rollup_deliverables,
     validate_plan,
 )
@@ -287,3 +290,52 @@ def test_validate_plan_ignores_dependencies_pointing_at_missing_phases():
     phases = [make_phase(1, "Design", start="2026-01-05", weeks=4, points=40)]
     deps = [{"predecessor_phase_id": 1, "successor_phase_id": 99}]
     assert validate_plan(PROJECT, phases, deps) == []
+
+
+# --- project summaries (map view) -------------------------------------------
+
+
+def test_progress_counts_only_done_phases():
+    phases = [
+        {**make_phase(1), "status": "done"},
+        {**make_phase(2), "status": "in_progress"},
+        {**make_phase(3), "status": "planned"},
+    ]
+    assert project_progress(phases) == {"done": 1, "total": 3}
+
+
+def test_progress_of_a_project_with_no_phases_is_zero_of_zero():
+    assert project_progress([]) == {"done": 0, "total": 0}
+
+
+def test_effort_points_sum_the_phases_own_estimates():
+    phases = [make_phase(1, points=40), make_phase(2, points=15)]
+    assert project_effort_points(phases) == 55
+
+
+def test_effort_points_of_a_project_with_no_phases_is_zero():
+    assert project_effort_points([]) == 0
+
+
+def test_next_milestone_picks_the_soonest_boundary_ahead():
+    phases = [
+        make_phase(1, "Design", start="2026-01-05", weeks=4),   # ends 2026-02-02
+        make_phase(2, "Build", start="2026-03-02", weeks=2),
+    ]
+    # The Design end date beats the Build start date.
+    assert next_milestone(phases, date(2026, 1, 10)) == "2026-02-02"
+
+
+def test_next_milestone_ignores_boundaries_already_passed():
+    phases = [make_phase(1, "Design", start="2026-01-05", weeks=4)]
+    assert next_milestone(phases, date(2026, 3, 1)) is None
+
+
+def test_next_milestone_counts_a_boundary_falling_today():
+    phases = [make_phase(1, "Design", start="2026-01-05", weeks=4)]
+    assert next_milestone(phases, date(2026, 1, 5)) == "2026-01-05"
+
+
+def test_next_milestone_is_none_while_everything_is_unscheduled():
+    phases = [make_phase(1, "Design", start=""), make_phase(2, "Build", start="")]
+    assert next_milestone(phases, date(2026, 1, 5)) is None

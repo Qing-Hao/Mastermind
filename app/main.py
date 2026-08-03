@@ -7,6 +7,7 @@ The only rule enforced at write time is V3 (dependency cycles), which returns
 
 import os
 from contextlib import asynccontextmanager
+from datetime import date
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -19,11 +20,18 @@ from app.validation import (
     as_optional_date,
     find_dependency_cycle,
     is_scheduled,
+    next_milestone,
     phase_end_date,
+    project_effort_points,
+    project_progress,
     rollup_deliverables,
     sequential_layout,
     validate_plan,
 )
+
+# Projects that occupy real time. An idea has not been committed to, so it is
+# kept off the portfolio timeline.
+SCHEDULABLE_STAGES = ("active", "done")
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
@@ -45,6 +53,7 @@ class SettingsIn(BaseModel):
     sprint_length_days: int | None = None
     v1_tolerance_pct: float | None = None
     v5_tolerance_pct: float | None = None
+    department_name: str | None = None
 
 
 class ProjectIn(BaseModel):
@@ -54,6 +63,9 @@ class ProjectIn(BaseModel):
     description: str = ""
     goal: str = ""
     velocity_override: int | None = None
+    # 'idea' captures a future direction before anyone commits to it.
+    stage: str = "active"
+    track: str = ""
 
 
 class ProjectPatch(BaseModel):
@@ -62,6 +74,8 @@ class ProjectPatch(BaseModel):
     description: str | None = None
     goal: str | None = None
     velocity_override: int | None = None
+    stage: str | None = None
+    track: str | None = None
 
 
 class PhaseIn(BaseModel):
@@ -139,6 +153,21 @@ def clean_date(value):
     return parsed.isoformat()
 
 
+def clean_stage(value):
+    """Reject an unknown stage at the boundary rather than at the CHECK.
+
+    The column has the same constraint, but SQLite would surface it as a 500
+    with an opaque message; this names the valid values instead.
+    """
+    if value not in db.STAGES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"'{value}' is not a valid stage. Use one of: "
+                   f"{', '.join(db.STAGES)}.",
+        )
+    return value
+
+
 def require_project(project_id):
     project = db.get_project(project_id)
     if not project:
@@ -182,6 +211,8 @@ def add_project(body: ProjectIn):
         description=body.description,
         goal=body.goal,
         velocity_override=body.velocity_override,
+        stage=clean_stage(body.stage),
+        track=body.track,
     )
 
 
@@ -219,15 +250,51 @@ def read_portfolio():
 
     Unscheduled phases are omitted: there is nowhere honest to draw them.
     `unscheduled_count` lets the view say how much is still unplaced.
+
+    Future directions are omitted too -- an idea nobody has committed to does
+    not belong on a delivery timeline. It shows on the map view instead.
     """
-    projects = db.list_projects()
-    phases = db.list_all_phases()
+    projects = db.list_projects(stages=SCHEDULABLE_STAGES)
+    committed = {project["id"] for project in projects}
+    phases = [phase for phase in db.list_all_phases()
+              if phase["project_id"] in committed]
     scheduled = [with_end_date(phase) for phase in phases if is_scheduled(phase)]
     return {
         "projects": projects,
         "phases": scheduled,
         "unscheduled_count": len(phases) - len(scheduled),
     }
+
+
+@app.get("/api/graph")
+def read_graph():
+    """The map view: the department at the centre, every project around it.
+
+    One payload so the page renders from a single fetch. Numbers here answer
+    "how is this going?" -- progress, size and what lands next -- rather than
+    "is this wrong?", which is what the warning list is for.
+    """
+    settings = db.get_settings()
+    grouped = db.phases_by_project()
+    today = date.today()
+
+    nodes = []
+    for project in db.list_projects():
+        phases = grouped.get(project["id"], [])
+        progress = project_progress(phases)
+        nodes.append({
+            "id": project["id"],
+            "name": project["name"],
+            "stage": project["stage"],
+            "track": project["track"],
+            "goal": project["goal"],
+            "phases_done": progress["done"],
+            "phases_total": progress["total"],
+            "effort_points": project_effort_points(phases),
+            "next_date": next_milestone(phases, today),
+        })
+
+    return {"department_name": settings["department_name"], "projects": nodes}
 
 
 @app.post("/api/projects/{project_id}/layout")
@@ -258,6 +325,10 @@ def edit_project(project_id: int, body: ProjectPatch):
     fields = body.model_dump(exclude_unset=True)
     if "start_date" in fields:
         fields["start_date"] = clean_date(fields["start_date"])
+    # Promoting a future direction is this same edit with stage='active': the
+    # row keeps its id, goal and anything else already written against it.
+    if "stage" in fields:
+        fields["stage"] = clean_stage(fields["stage"])
     return db.update_project(project_id, fields)
 
 

@@ -12,6 +12,7 @@
     <span class="tabs">
       <button id="tab-project" class="tab active">Project</button>
       <button id="tab-portfolio" class="tab">Portfolio</button>
+      <button id="tab-map" class="tab">Map</button>
     </span>
     <select id="project-select"></select>
     <button id="new-project">New project</button>
@@ -41,6 +42,17 @@
         <div class="row">
           <label>Name <input id="project-name" type="text"></label>
           <label>Start date <input id="project-start" type="date"></label>
+          <label>Stage
+            <select id="project-stage" title="An idea is a future direction nobody has committed to yet">
+              <option value="idea">idea</option>
+              <option value="active">active</option>
+              <option value="done">done</option>
+            </select>
+          </label>
+          <label>Track
+            <input id="project-track" type="text" placeholder="e.g. Developer experience"
+              title="Free-text grouping, used to cluster the map view">
+          </label>
           <label>Velocity override
             <input id="project-velocity" type="number" min="1" placeholder="global">
           </label>
@@ -144,6 +156,40 @@
         <div id="portfolio-window" class="window-bar"></div>
         <div id="portfolio-scroll">
           <div id="portfolio-chart"></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ---------------- Map view ---------------- -->
+    <div id="map-view" hidden>
+      <section>
+        <h2>Team map</h2>
+        <p class="hint">
+          Your department at the centre, tracks around it, projects on the
+          outside. Circle size is total effort points; each label shows phases
+          done and what lands next. Dashed circles are future directions
+          &mdash; ideas nobody has committed to yet. Click a project to open it.
+        </p>
+        <div class="row">
+          <label>Department
+            <input id="department-name" type="text"
+              placeholder="e.g. Platform Engineering | Product">
+          </label>
+        </div>
+        <div id="map-canvas"></div>
+      </section>
+
+      <section>
+        <h2>Future directions <span id="direction-count" class="pill">0</span></h2>
+        <p class="hint">
+          Somewhere to park an idea as it occurs to you. Promoting one keeps
+          its id and anything you have already written against it.
+        </p>
+        <ul id="direction-list" class="directions"></ul>
+        <div class="row">
+          <input id="new-direction-name" type="text" placeholder="New future direction">
+          <input id="new-direction-track" type="text" placeholder="Track (optional)">
+          <button id="add-direction">Capture idea</button>
         </div>
       </section>
     </div>
