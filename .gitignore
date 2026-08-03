@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Local data file - never committed
+*.db
+*.sqlite3
+data/
+
+# Personal status doc, not for the team
+STATUS.md

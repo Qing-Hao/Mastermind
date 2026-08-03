@@ -1,0 +1,106 @@
+/* Deliberately minimal. Layout and legibility only -- visual design comes
+   after the tool proves useful. */
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #1a1a1a;
+  background: #fff;
+}
+
+header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid #ddd;
+  background: #f7f7f7;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.spacer { flex: 1; }
+
+main { padding: 16px; max-width: 1100px; }
+
+section { margin-bottom: 28px; }
+
+h2 {
+  font-size: 15px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #555;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 4px;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+
+label { display: flex; flex-direction: column; font-size: 12px; color: #666; gap: 2px; }
+
+input, select, button { font: inherit; padding: 4px 6px; }
+input[type="number"] { width: 90px; }
+button { cursor: pointer; }
+
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #eee; }
+th { font-size: 12px; color: #666; }
+td input { width: 100%; min-width: 80px; }
+
+.muted { color: #888; }
+.error { color: #b00020; }
+.ok { color: #2e7d32; }
+
+.pill {
+  display: inline-block;
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: #e0e0e0;
+  font-size: 12px;
+  text-align: center;
+}
+.pill-warn { background: #ffd54f; }
+
+.warnings, .deps { list-style: none; padding: 0; margin: 8px 0; }
+.warnings li, .deps li { padding: 4px 0; border-bottom: 1px solid #f2f2f2; }
+.deps li button { margin-left: 10px; }
+
+.rule {
+  display: inline-block;
+  background: #b00020;
+  color: #fff;
+  border-radius: 3px;
+  padding: 0 5px;
+  font-size: 11px;
+  margin-right: 6px;
+}
+
+#timeline-scroll { overflow-x: auto; border: 1px solid #eee; padding: 10px; }
+#timeline { min-height: 20px; }
+
+.bar {
+  height: 24px;
+  margin-bottom: 4px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: #90caf9;
+  white-space: nowrap;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 20px;
+}
+.bar.status-in_progress { background: #a5d6a7; }
+.bar.status-done { background: #cfd8dc; }
+.bar-warn { outline: 2px solid #b00020; }
+
+tr.row-warn td { background: #fff8e1; }

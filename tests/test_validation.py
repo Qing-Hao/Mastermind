@@ -1,0 +1,194 @@
+from datetime import date
+
+import pytest
+
+from app.validation import (
+    DEFAULT_SETTINGS,
+    check_dependency_order,
+    check_effort_duration_mismatch,
+    check_phase_within_project,
+    effective_velocity,
+    find_dependency_cycle,
+    implied_weeks,
+    phase_end_date,
+    validate_plan,
+)
+
+PROJECT = {
+    "id": 1,
+    "name": "Payments",
+    "start_date": "2026-01-05",
+    "velocity_override": None,
+}
+
+
+# At the default velocity of 20 over a 14-day sprint, a consistent phase has
+# points == weeks * 10. Fixtures below stick to that unless testing V1.
+def make_phase(phase_id=1, name="Phase", start="2026-01-05", weeks: float = 6, points=60):
+    return {
+        "id": phase_id,
+        "project_id": 1,
+        "name": name,
+        "start_date": start,
+        "duration_weeks": weeks,
+        "effort_points": points,
+    }
+
+
+# --- derived values ---------------------------------------------------------
+
+
+def test_end_date_is_derived_from_start_plus_duration():
+    phase = make_phase(start="2026-01-05", weeks=6)
+    assert phase_end_date(phase) == date(2026, 2, 16)
+
+
+def test_fractional_duration_rounds_down_to_whole_days():
+    phase = make_phase(start="2026-01-05", weeks=1.5)
+    assert phase_end_date(phase) == date(2026, 1, 15)
+
+
+def test_project_override_beats_global_velocity():
+    assert effective_velocity(PROJECT, DEFAULT_SETTINGS) == 20
+    overridden = {**PROJECT, "velocity_override": 35}
+    assert effective_velocity(overridden, DEFAULT_SETTINGS) == 35
+
+
+def test_implied_weeks_matches_the_worked_example():
+    assert implied_weeks(55, 20, 14) == pytest.approx(5.5)
+
+
+def test_implied_weeks_is_none_when_velocity_is_zero():
+    assert implied_weeks(55, 0, 14) is None
+
+
+# --- V1 ---------------------------------------------------------------------
+
+
+def test_v1_fires_on_the_acceptance_criterion_example():
+    """6 weeks entered against 55 pts at velocity 20 implies 5.5 weeks."""
+    phase = make_phase(weeks=6, points=55)
+    warning = check_effort_duration_mismatch(phase, 20, DEFAULT_SETTINGS)
+    assert warning is not None
+    assert warning.rule == "V1"
+    assert "5.5 weeks" in warning.message
+    assert "6 weeks" in warning.message
+
+
+def test_v1_silent_when_duration_matches_effort_exactly():
+    phase = make_phase(weeks=6, points=60)
+    assert check_effort_duration_mismatch(phase, 20, DEFAULT_SETTINGS) is None
+
+
+def test_v1_respects_a_widened_tolerance():
+    phase = make_phase(weeks=6, points=55)
+    relaxed = {**DEFAULT_SETTINGS, "v1_tolerance_pct": 20.0}
+    assert check_effort_duration_mismatch(phase, 20, relaxed) is None
+
+
+def test_v1_skipped_for_zero_duration():
+    phase = make_phase(weeks=0, points=55)
+    assert check_effort_duration_mismatch(phase, 20, DEFAULT_SETTINGS) is None
+
+
+# --- V2 ---------------------------------------------------------------------
+
+
+def test_v2_fires_when_successor_starts_before_predecessor_ends():
+    predecessor = make_phase(1, "Design", start="2026-01-05", weeks=4)
+    successor = make_phase(2, "Build", start="2026-01-19", weeks=4)
+    warning = check_dependency_order(predecessor, successor)
+    assert warning is not None
+    assert warning.rule == "V2"
+    assert warning.phase_id == 2
+    assert warning.related_phase_id == 1
+
+
+def test_v2_silent_when_successor_starts_exactly_at_handoff():
+    predecessor = make_phase(1, "Design", start="2026-01-05", weeks=4)
+    successor = make_phase(2, "Build", start="2026-02-02", weeks=4)
+    assert phase_end_date(predecessor) == date(2026, 2, 2)
+    assert check_dependency_order(predecessor, successor) is None
+
+
+# --- V3 ---------------------------------------------------------------------
+
+
+def test_v3_returns_none_for_an_acyclic_graph():
+    deps = [
+        {"predecessor_phase_id": 1, "successor_phase_id": 2},
+        {"predecessor_phase_id": 2, "successor_phase_id": 3},
+        {"predecessor_phase_id": 1, "successor_phase_id": 3},
+    ]
+    assert find_dependency_cycle(deps) is None
+
+
+def test_v3_detects_a_simple_cycle():
+    deps = [
+        {"predecessor_phase_id": 1, "successor_phase_id": 2},
+        {"predecessor_phase_id": 2, "successor_phase_id": 1},
+    ]
+    cycle = find_dependency_cycle(deps)
+    assert cycle is not None
+    assert cycle[0] == cycle[-1]
+    assert set(cycle) == {1, 2}
+
+
+def test_v3_detects_a_longer_cycle():
+    deps = [
+        {"predecessor_phase_id": 1, "successor_phase_id": 2},
+        {"predecessor_phase_id": 2, "successor_phase_id": 3},
+        {"predecessor_phase_id": 3, "successor_phase_id": 1},
+    ]
+    cycle = find_dependency_cycle(deps)
+    assert cycle is not None
+    assert set(cycle) == {1, 2, 3}
+
+
+def test_v3_detects_a_self_dependency():
+    deps = [{"predecessor_phase_id": 4, "successor_phase_id": 4}]
+    assert find_dependency_cycle(deps) == [4, 4]
+
+
+# --- V4 ---------------------------------------------------------------------
+
+
+def test_v4_fires_when_phase_precedes_its_project():
+    phase = make_phase(start="2025-12-01")
+    warning = check_phase_within_project(phase, PROJECT)
+    assert warning is not None
+    assert warning.rule == "V4"
+
+
+def test_v4_silent_when_phase_starts_on_project_start():
+    assert check_phase_within_project(make_phase(start="2026-01-05"), PROJECT) is None
+
+
+# --- whole plan -------------------------------------------------------------
+
+
+def test_validate_plan_collects_warnings_from_every_rule():
+    # Design sits before the project start (V4) and ends 2025-12-29; Build
+    # starts before that handoff (V2) with effort that implies 5.5w not 6w (V1).
+    phases = [
+        make_phase(1, "Design", start="2025-12-01", weeks=4, points=40),
+        make_phase(2, "Build", start="2025-12-20", weeks=6, points=55),
+    ]
+    deps = [{"predecessor_phase_id": 1, "successor_phase_id": 2}]
+    warnings = validate_plan(PROJECT, phases, deps)
+    assert {w.rule for w in warnings} == {"V1", "V2", "V4"}
+
+
+def test_validate_plan_is_clean_for_a_consistent_plan():
+    phases = [
+        make_phase(1, "Design", start="2026-01-05", weeks=4, points=40),
+        make_phase(2, "Build", start="2026-02-02", weeks=6, points=60),
+    ]
+    deps = [{"predecessor_phase_id": 1, "successor_phase_id": 2}]
+    assert validate_plan(PROJECT, phases, deps) == []
+
+
+def test_validate_plan_ignores_dependencies_pointing_at_missing_phases():
+    phases = [make_phase(1, "Design", start="2026-01-05", weeks=4, points=40)]
+    deps = [{"predecessor_phase_id": 1, "successor_phase_id": 99}]
+    assert validate_plan(PROJECT, phases, deps) == []

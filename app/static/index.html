@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Roadmap Planner</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <strong>Roadmap Planner</strong>
+    <select id="project-select"></select>
+    <button id="new-project">New project</button>
+    <button id="delete-project">Delete project</button>
+    <span class="spacer"></span>
+    <button id="export">Export JSON</button>
+    <button id="import">Import JSON</button>
+    <input type="file" id="import-file" accept="application/json" hidden>
+  </header>
+
+  <main>
+    <section id="empty-state">
+      <p>No project selected. Create one to start planning.</p>
+    </section>
+
+    <div id="workspace" hidden>
+      <section>
+        <h2>Project</h2>
+        <div class="row">
+          <label>Name <input id="project-name" type="text"></label>
+          <label>Start date <input id="project-start" type="date"></label>
+          <label>Velocity override
+            <input id="project-velocity" type="number" min="1" placeholder="global">
+          </label>
+        </div>
+        <div class="row">
+          <label>Global velocity (pts/sprint)
+            <input id="setting-velocity" type="number" min="1">
+          </label>
+          <label>Sprint length (days)
+            <input id="setting-sprint-days" type="number" min="1">
+          </label>
+          <label>V1 tolerance (%)
+            <input id="setting-tolerance" type="number" min="0" step="0.5">
+          </label>
+        </div>
+      </section>
+
+      <section>
+        <h2>Warnings <span id="warning-count" class="pill">0</span></h2>
+        <ul id="warning-list" class="warnings"></ul>
+      </section>
+
+      <section>
+        <h2>Timeline</h2>
+        <div id="timeline-scroll">
+          <div id="timeline"></div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Phases</h2>
+        <table id="phase-table">
+          <thead>
+            <tr>
+              <th>Name</th><th>Start</th><th>Weeks</th><th>Points</th>
+              <th>Status</th><th>Ends</th><th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <div class="row">
+          <input id="new-phase-name" type="text" placeholder="New phase name">
+          <input id="new-phase-start" type="date">
+          <input id="new-phase-weeks" type="number" min="0.5" step="0.5" value="2" title="weeks">
+          <input id="new-phase-points" type="number" min="0" value="20" title="points">
+          <button id="add-phase">Add phase</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Dependencies</h2>
+        <ul id="dependency-list" class="deps"></ul>
+        <div class="row">
+          <select id="dep-predecessor"></select>
+          <span>must finish before</span>
+          <select id="dep-successor"></select>
+          <button id="add-dependency">Link</button>
+        </div>
+        <p id="dep-error" class="error" hidden></p>
+      </section>
+    </div>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
