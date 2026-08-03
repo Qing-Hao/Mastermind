@@ -139,8 +139,11 @@ tr.rollup-row td {
 #portfolio-chart { min-height: 40px; }
 
 /* --- week grid (both charts) --- */
-/* --week-px is set from PX_PER_WEEK in app.js; the fallback only matters if
-   the script has not run yet. */
+/* --week-px is fitted to the container by weekGrid() in app.js and set on the
+   chart element, so the gridlines and ruler cells here land exactly where the
+   bars are drawn. The fallback only matters if the script has not run yet.
+   The scroll boxes keep overflow-x as a safety valve: a window narrow enough to
+   drive the columns below MIN_WEEK_PX scrolls rather than becoming unreadable. */
 .ruler { margin-bottom: 6px; }
 .ruler-row { display: flex; }
 .ruler-months { border-bottom: 1px solid #eee; }

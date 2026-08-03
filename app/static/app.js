@@ -2,13 +2,17 @@
 // camelCase here because that is the JS ecosystem standard; the Python side
 // uses snake_case. API payload keys stay snake_case end to end.
 
-// The week is the unit the eye reads, so the column width is the real constant
-// and the per-day figure is derived from it.
-const PX_PER_WEEK = 42;
-const PX_PER_DAY = PX_PER_WEEK / 7;
+// The week is the unit the eye reads, so the column is the unit of layout. Its
+// width is fitted to the space the chart actually has at render time rather
+// than fixed, so a full window fills the page instead of scrolling off it. The
+// per-day figure is derived from it and travels on the view object.
+const MIN_WEEK_PX = 22;   // narrower than this and the week labels stop reading
+const MAX_WEEK_PX = 64;   // wider than this a short window just looks stretched
+const FALLBACK_WEEK_PX = 42;  // only used before the chart has been laid out
 const MS_PER_DAY = 86400000;
 
-// Six months of week columns is about as much as stays readable at 42px each.
+// Six months of week columns is about as much as a page-wide chart can hold
+// before the columns get too narrow to read.
 // The cap applies to a custom range too, which is clamped rather than refused.
 //
 // Presets are sized in whole weeks, not months, so every page of a given preset
@@ -119,19 +123,44 @@ function resolveWindow() {
 }
 
 // Sizes `chart` to the window, gives it a ruler, and returns the element bars
-// belong in. Bars are positioned against the window origin, which is always the
-// Monday on or before the window start.
-function weekGrid(chart, origin, weeks, gutter) {
-  chart.style.width = `${weeks * PX_PER_WEEK + gutter}px`;
-  chart.appendChild(weekRuler(origin, weeks));
+// belong in. The column width is fitted here and hung on `view`, so everything
+// that draws against the grid afterwards measures with the same figure. Bars
+// are positioned against the window origin, which is always the Monday on or
+// before the window start.
+function weekGrid(chart, view) {
+  // Cleared before measuring: a width left over from the previous render would
+  // otherwise be what we measured, and the chart would never resize back down.
+  chart.style.width = "";
+  view.pxPerWeek = fitWeekPx(chart, view.weeks);
+  view.pxPerDay = view.pxPerWeek / 7;
+
+  // Set on the chart rather than the document, since each chart fits its own
+  // container. The stylesheet reads it for the gridlines and the ruler cells,
+  // which is what keeps them from drifting off where the bars are drawn.
+  chart.style.setProperty("--week-px", `${view.pxPerWeek}px`);
+
+  const width = view.weeks * view.pxPerWeek;
+  chart.style.width = `${width}px`;
+  chart.appendChild(weekRuler(view));
 
   const body = element("div", "grid-body");
-  body.style.width = `${weeks * PX_PER_WEEK}px`;
+  body.style.width = `${width}px`;
   chart.appendChild(body);
   return body;
 }
 
-function weekRuler(origin, weeks) {
+// With its own width cleared the chart is a plain block, so it reports exactly
+// the room its container gives it. Whole pixels only: a fractional column
+// accumulates over 26 of them and pushes the last one past the edge, which is
+// the horizontal scrollbar this is meant to avoid.
+function fitWeekPx(chart, weeks) {
+  const available = chart.clientWidth;
+  if (!available) return FALLBACK_WEEK_PX;  // hidden or not yet laid out
+  const fitted = Math.floor(available / weeks);
+  return Math.min(Math.max(fitted, MIN_WEEK_PX), MAX_WEEK_PX);
+}
+
+function weekRuler({ origin, weeks, pxPerWeek }) {
   const ruler = element("div", "ruler");
   const monthRow = element("div", "ruler-row ruler-months");
   const weekRow = element("div", "ruler-row ruler-weeks");
@@ -154,7 +183,7 @@ function weekRuler(origin, weeks) {
       monthRow.appendChild(block);
     }
     blockWeeks += 1;
-    block.style.width = `${blockWeeks * PX_PER_WEEK}px`;
+    block.style.width = `${blockWeeks * pxPerWeek}px`;
 
     const cell = element("div", "week", String(monday.getDate()));
     cell.title = `Week of ${formatDate(monday)}`;
@@ -421,7 +450,7 @@ function renderTimeline() {
   const visible = phases.filter((phase) => inWindow(phase, view));
   offWindowNote(timeline, phases.length - visible.length);
 
-  const body = weekGrid(timeline, view.origin, view.weeks, 200);
+  const body = weekGrid(timeline, view);
   const warned = warnedPhaseIds();
   for (const phase of visible) {
     body.appendChild(phaseBar(phase, view, warned.has(phase.id)));
@@ -450,19 +479,19 @@ function offWindowNote(chart, count) {
 
 // Positions a bar inside the window, trimming whatever falls off either end.
 // The trimmed edge is marked so a clipped bar cannot be misread as a short one.
-function placeBar(bar, from, to, totalDays) {
+function placeBar(bar, from, to, view) {
   const left = Math.max(from, 0);
-  const right = Math.min(to, totalDays);
-  bar.style.marginLeft = `${left * PX_PER_DAY}px`;
-  bar.style.width = `${Math.max(right - left, 1) * PX_PER_DAY}px`;
+  const right = Math.min(to, view.totalDays);
+  bar.style.marginLeft = `${left * view.pxPerDay}px`;
+  bar.style.width = `${Math.max(right - left, 1) * view.pxPerDay}px`;
   bar.classList.toggle("clip-start", from < 0);
-  bar.classList.toggle("clip-end", to > totalDays);
+  bar.classList.toggle("clip-end", to > view.totalDays);
 }
 
 function phaseBar(phase, view, isWarned) {
   const { from, to } = phaseSpan(phase, view);
   const bar = element("div", `bar status-${phase.status}${isWarned ? " bar-warn" : ""}`);
-  placeBar(bar, from, to, view.totalDays);
+  placeBar(bar, from, to, view);
   bar.title = `${phase.name}: ${phase.start_date} to ${phase.end_date} `
     + `(${phase.duration_weeks}w, ${phase.effort_points} pts)`;
   bar.textContent = phase.name;
@@ -706,7 +735,7 @@ function renderPortfolio() {
   const visible = phases.filter((phase) => inWindow(phase, view));
   offWindowNote(chart, phases.length - visible.length);
 
-  const body = weekGrid(chart, view.origin, view.weeks, 240);
+  const body = weekGrid(chart, view);
 
   for (const project of projects) {
     const own = visible.filter((phase) => phase.project_id === project.id);
@@ -735,7 +764,7 @@ function makeDraggable(bar, phase, view) {
     bar.classList.add("dragging");
 
     const onMove = (moveEvent) => {
-      const rawDelta = (moveEvent.clientX - startX) / PX_PER_DAY;
+      const rawDelta = (moveEvent.clientX - startX) / view.pxPerDay;
       // Land on a column edge so the drop point is readable off the grid.
       // Alt drops back to whole days for a phase that must start mid-week.
       dayDelta = moveEvent.altKey
@@ -743,7 +772,7 @@ function makeDraggable(bar, phase, view) {
         : Math.round((from + rawDelta) / 7) * 7 - from;
       // Re-clip as it moves, so dragging a bar off the edge of the window
       // shortens it against the boundary instead of overflowing the chart.
-      placeBar(bar, from + dayDelta, to + dayDelta, view.totalDays);
+      placeBar(bar, from + dayDelta, to + dayDelta, view);
       bar.textContent = dayDelta === 0
         ? label
         : `${label} → ${shiftDate(phase.start_date, dayDelta)}`;
@@ -921,9 +950,14 @@ function bindEvents() {
   };
 }
 
-// Column width lives in JS; the stylesheet reads it so the gridlines and the
-// ruler cells can never drift apart from where the bars are drawn.
-document.documentElement.style.setProperty("--week-px", `${PX_PER_WEEK}px`);
+// Column width is measured from the container, so a resized window has to
+// redraw to stay fitted. Debounced because dragging a window edge fires this
+// continuously and every render rebuilds a whole chart.
+let resizeTimer = null;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(redraw, 150);
+});
 
 bindEvents();
 loadProjects();
