@@ -24,7 +24,6 @@ from app.validation import (
     phase_end_date,
     project_effort_points,
     project_progress,
-    rollup_deliverables,
     sequential_layout,
     validate_plan,
 )
@@ -52,7 +51,6 @@ class SettingsIn(BaseModel):
     default_velocity_points_per_sprint: int | None = None
     sprint_length_days: int | None = None
     v1_tolerance_pct: float | None = None
-    v5_tolerance_pct: float | None = None
     department_name: str | None = None
 
 
@@ -98,16 +96,14 @@ class PhasePatch(BaseModel):
 
 
 class DeliverableIn(BaseModel):
+    # No estimate: a deliverable names what a phase produces, and the phase
+    # holds the weeks and points for all of it.
     name: str
-    duration_weeks: float = 0
-    effort_points: int = 0
     description: str = ""
 
 
 class DeliverablePatch(BaseModel):
     name: str | None = None
-    duration_weeks: float | None = None
-    effort_points: int | None = None
     description: str | None = None
     sort_order: int | None = None
 
@@ -218,21 +214,19 @@ def add_project(body: ProjectIn):
 
 @app.get("/api/projects/{project_id}")
 def read_project_plan(project_id: int):
-    """Project, phases with derived dates and rollups, dependencies, warnings."""
+    """Project, phases with derived dates and deliverables, dependencies, warnings."""
     project = require_project(project_id)
     phases = db.list_phases(project_id)
     dependencies = db.list_dependencies(project_id)
     grouped = db.deliverables_by_phase(project_id)
     settings = db.get_settings()
-    warnings = validate_plan(project, phases, dependencies, settings, grouped)
+    warnings = validate_plan(project, phases, dependencies, settings)
 
     enriched = []
     for phase in phases:
-        deliverables = grouped.get(phase["id"], [])
         enriched.append({
             **with_end_date(phase),
-            "deliverables": deliverables,
-            "rollup": rollup_deliverables(deliverables),
+            "deliverables": grouped.get(phase["id"], []),
         })
 
     return {
@@ -393,8 +387,6 @@ def add_deliverable(phase_id: int, body: DeliverableIn):
     return db.create_deliverable(
         phase_id=phase_id,
         name=body.name,
-        duration_weeks=body.duration_weeks,
-        effort_points=body.effort_points,
         description=body.description,
     )
 

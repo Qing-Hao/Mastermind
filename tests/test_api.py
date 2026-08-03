@@ -135,8 +135,7 @@ def test_export_then_import_restores_the_identical_dataset(client):
     client.put(f"/api/projects/{project['id']}", json={"goal": "Ship payments v1."})
     design = make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
     build = make_phase(client, project["id"], "Build", "2026-02-02", 6, 60)
-    client.post(f"/api/phases/{design['id']}/deliverables",
-                json={"name": "Wireframes", "duration_weeks": 2.0, "effort_points": 20})
+    client.post(f"/api/phases/{design['id']}/deliverables", json={"name": "Wireframes"})
     client.post("/api/dependencies", json={
         "predecessor_phase_id": design["id"], "successor_phase_id": build["id"],
     })
@@ -199,11 +198,10 @@ def test_estimate_rules_still_run_on_undated_phases(client):
     """The whole point: estimate first, schedule later."""
     project = make_project(client, start="")
     phase = make_phase(client, project["id"], "Build", "", 6, 55)
-    client.post(f"/api/phases/{phase['id']}/deliverables",
-                json={"name": "Chunk", "duration_weeks": 2.0, "effort_points": 20})
+    client.post(f"/api/phases/{phase['id']}/deliverables", json={"name": "Chunk"})
 
     rules = {w["rule"] for w in plan_of(client, project["id"])["warnings"]}
-    assert "V1" in rules and "V5" in rules
+    assert "V1" in rules
 
 
 def test_date_rules_are_skipped_while_unscheduled(client):
@@ -290,48 +288,35 @@ def test_project_goal_defaults_empty_and_persists(client):
     )
 
 
-# --- deliverables and bottom-up rollup --------------------------------------
+# --- deliverables -----------------------------------------------------------
 
 
-def add_deliverable(client, phase_id, name, weeks, points):
-    response = client.post(
-        f"/api/phases/{phase_id}/deliverables",
-        json={"name": name, "duration_weeks": weeks, "effort_points": points},
-    )
+def add_deliverable(client, phase_id, name):
+    response = client.post(f"/api/phases/{phase_id}/deliverables", json={"name": name})
     assert response.status_code == 201
     return response.json()
 
 
-def test_rollup_is_returned_with_each_phase(client):
+def test_deliverables_are_returned_with_their_phase(client):
     project = make_project(client)
     phase = make_phase(client, project["id"], "Core", "2026-01-05", 5.5, 55)
-    add_deliverable(client, phase["id"], "Payment intent API", 2.0, 20)
-    add_deliverable(client, phase["id"], "Webhook receiver", 1.5, 15)
-    add_deliverable(client, phase["id"], "Refund flow", 2.0, 20)
+    add_deliverable(client, phase["id"], "Payment intent API")
+    add_deliverable(client, phase["id"], "Webhook receiver")
+    add_deliverable(client, phase["id"], "Refund flow")
 
     returned = plan_of(client, project["id"])["phases"][0]
-    assert returned["rollup"] == {"duration_weeks": 5.5, "effort_points": 55, "count": 3}
-    assert len(returned["deliverables"]) == 3
-    assert not any(w["rule"] == "V5" for w in plan_of(client, project["id"])["warnings"])
+    names = [deliverable["name"] for deliverable in returned["deliverables"]]
+    assert names == ["Payment intent API", "Webhook receiver", "Refund flow"]
 
 
-def test_v5_fires_when_deliverables_disagree_with_the_phase(client):
+def test_deliverable_carries_no_estimate(client):
+    """Weeks and points live on the phase; a deliverable is just an entry."""
     project = make_project(client)
     phase = make_phase(client, project["id"], "Core", "2026-01-05", 6, 60)
-    add_deliverable(client, phase["id"], "Payment intent API", 3.0, 40)
-    add_deliverable(client, phase["id"], "Webhook receiver", 3.0, 30)
+    deliverable = add_deliverable(client, phase["id"], "Only one")
 
-    warnings = plan_of(client, project["id"])["warnings"]
-    v5 = [w for w in warnings if w["rule"] == "V5"]
-    assert len(v5) == 1
-    assert v5[0]["phase_id"] == phase["id"]
-    assert "70" in v5[0]["message"]
-
-
-def test_deliverables_never_overwrite_the_phase_estimate(client):
-    project = make_project(client)
-    phase = make_phase(client, project["id"], "Core", "2026-01-05", 6, 60)
-    add_deliverable(client, phase["id"], "Only one", 1.0, 5)
+    assert "duration_weeks" not in deliverable
+    assert "effort_points" not in deliverable
 
     returned = plan_of(client, project["id"])["phases"][0]
     assert returned["duration_weeks"] == 6
@@ -339,21 +324,14 @@ def test_deliverables_never_overwrite_the_phase_estimate(client):
     assert returned["end_date"] == "2026-02-16"
 
 
-def test_phase_without_deliverables_has_null_rollup(client):
-    project = make_project(client)
-    make_phase(client, project["id"], "Core", "2026-01-05", 4, 40)
-    assert plan_of(client, project["id"])["phases"][0]["rollup"] is None
-
-
 def test_deliverable_can_be_edited_and_deleted(client):
     project = make_project(client)
     phase = make_phase(client, project["id"], "Core", "2026-01-05", 4, 40)
-    deliverable = add_deliverable(client, phase["id"], "Draft", 1.0, 10)
+    deliverable = add_deliverable(client, phase["id"], "Draft")
 
     updated = client.put(f"/api/deliverables/{deliverable['id']}",
-                         json={"effort_points": 30}).json()
-    assert updated["effort_points"] == 30
-    assert updated["name"] == "Draft"
+                         json={"name": "Final draft"}).json()
+    assert updated["name"] == "Final draft"
 
     assert client.delete(f"/api/deliverables/{deliverable['id']}").status_code == 204
     assert plan_of(client, project["id"])["phases"][0]["deliverables"] == []
@@ -362,7 +340,7 @@ def test_deliverable_can_be_edited_and_deleted(client):
 def test_deleting_a_phase_removes_its_deliverables(client):
     project = make_project(client)
     phase = make_phase(client, project["id"], "Core", "2026-01-05", 4, 40)
-    add_deliverable(client, phase["id"], "Draft", 1.0, 10)
+    add_deliverable(client, phase["id"], "Draft")
     client.delete(f"/api/phases/{phase['id']}")
     assert client.get("/api/export").json()["deliverables"] == []
 
@@ -497,7 +475,7 @@ def test_stage_track_and_department_survive_a_round_trip(client):
     make_direction(client, "Build caching", track="Developer experience")
 
     exported = client.get("/api/export").json()
-    assert exported["version"] == 3
+    assert exported["version"] == 4
 
     for existing in client.get("/api/projects").json():
         client.delete(f"/api/projects/{existing['id']}")
@@ -530,3 +508,31 @@ def test_a_version_2_export_still_imports(client):
     assert project["stage"] == "active"
     assert project["track"] == ""
     assert client.get("/api/graph").json()["department_name"] == ""
+
+
+def test_a_version_3_export_imports_without_its_deliverable_estimates(client):
+    """Deliverables used to carry weeks and points. The fields are ignored now."""
+    legacy = {
+        "version": 3,
+        "settings": {"default_velocity_points_per_sprint": 20,
+                     "sprint_length_days": 14,
+                     "v1_tolerance_pct": 5.0, "v5_tolerance_pct": 5.0},
+        "projects": [{"id": 1, "name": "Payments", "description": "",
+                      "goal": "", "start_date": "2026-01-05",
+                      "velocity_override": None, "stage": "active", "track": "",
+                      "created_at": "2026-01-01T00:00:00+00:00",
+                      "updated_at": "2026-01-01T00:00:00+00:00"}],
+        "phases": [{"id": 1, "project_id": 1, "name": "Design", "description": "",
+                    "start_date": "2026-01-05", "duration_weeks": 4,
+                    "effort_points": 40, "status": "planned", "sort_order": 0}],
+        "deliverables": [{"id": 1, "phase_id": 1, "name": "Wireframes",
+                          "description": "", "duration_weeks": 2.0,
+                          "effort_points": 20, "sort_order": 0}],
+        "dependencies": [],
+    }
+    assert client.post("/api/import", json=legacy).status_code == 200
+
+    deliverable = client.get("/api/export").json()["deliverables"][0]
+    assert deliverable["name"] == "Wireframes"
+    assert "duration_weeks" not in deliverable
+    assert "effort_points" not in deliverable

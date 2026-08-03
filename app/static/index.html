@@ -78,9 +78,6 @@
             <label>V1 tolerance (%)
               <input id="setting-tolerance" type="number" min="0" step="0.5">
             </label>
-            <label>V5 rollup tolerance (%)
-              <input id="setting-rollup-tolerance" type="number" min="0" step="0.5">
-            </label>
           </div>
         </details>
       </section>
@@ -107,14 +104,14 @@
       <section>
         <h2>Phases &amp; deliverables</h2>
         <p class="hint">
-          Expand a phase to break it into deliverables and estimate bottom-up.
-          Rollups never overwrite the phase estimate &mdash; they are cross-checked (V5).
+          Expand a phase to list what it produces. Deliverables are named, not
+          estimated &mdash; the weeks and points stay on the phase.
         </p>
         <table id="phase-table">
           <thead>
             <tr>
               <th></th><th>Name</th><th>Start</th><th>Weeks</th><th>Points</th>
-              <th>Status</th><th>Ends</th><th>Rollup</th><th></th>
+              <th>Status</th><th>Ends</th><th></th>
             </tr>
           </thead>
           <tbody></tbody>

@@ -80,7 +80,6 @@ function shiftDate(iso, days) {
 }
 
 const todayISO = () => formatDate(new Date());
-const round2 = (value) => Math.round(value * 100) / 100;
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -423,7 +422,6 @@ function renderSettingsFields() {
   $("setting-velocity").value = state.settings.default_velocity_points_per_sprint;
   $("setting-sprint-days").value = state.settings.sprint_length_days;
   $("setting-tolerance").value = state.settings.v1_tolerance_pct;
-  $("setting-rollup-tolerance").value = state.settings.v5_tolerance_pct;
 }
 
 function renderWarnings() {
@@ -563,10 +561,6 @@ function renderPhases() {
 
     row.appendChild(element("td", "muted", phase.end_date || "unscheduled"));
 
-    const rollup = phase.rollup;
-    row.appendChild(element("td", "muted rollup",
-      rollup ? `${round2(rollup.duration_weeks)}w / ${rollup.effort_points}p` : "—"));
-
     const actionCell = element("td");
     const remove = element("button", null, "Delete");
     remove.onclick = async () => {
@@ -586,11 +580,11 @@ function renderPhases() {
 function deliverableRow(phase) {
   const row = element("tr", "deliverable-row");
   const cell = element("td");
-  cell.colSpan = 9;
+  cell.colSpan = 8;
 
   const table = element("table", "deliverables");
   const head = element("tr");
-  for (const heading of ["Deliverable", "Weeks", "Points", ""]) {
+  for (const heading of ["Deliverable", ""]) {
     head.appendChild(element("th", null, heading));
   }
   table.appendChild(head);
@@ -598,10 +592,6 @@ function deliverableRow(phase) {
   for (const deliverable of phase.deliverables) {
     const line = element("tr");
     line.appendChild(fieldCell(deliverable, "name", "text", saveDeliverable));
-    line.appendChild(fieldCell(deliverable, "duration_weeks", "number", saveDeliverable,
-      { step: "0.5", min: "0" }));
-    line.appendChild(fieldCell(deliverable, "effort_points", "number", saveDeliverable,
-      { step: "1", min: "0" }));
 
     const actionCell = element("td");
     const remove = element("button", null, "✕");
@@ -615,36 +605,11 @@ function deliverableRow(phase) {
     table.appendChild(line);
   }
 
-  if (phase.rollup) {
-    const totals = element("tr", "rollup-row");
-    totals.appendChild(element("td", null, `Rollup of ${phase.rollup.count}`));
-    totals.appendChild(element("td", null, `${round2(phase.rollup.duration_weeks)}w`));
-    totals.appendChild(element("td", null, `${phase.rollup.effort_points}p`));
-    totals.appendChild(element("td", null,
-      `vs ${phase.duration_weeks}w / ${phase.effort_points}p entered`));
-    table.appendChild(totals);
-  }
-
   const adder = element("tr");
   const nameCell = element("td");
   const nameInput = element("input");
   nameInput.placeholder = "New deliverable";
   nameCell.appendChild(nameInput);
-
-  const weeksCell = element("td");
-  const weeksInput = element("input");
-  weeksInput.type = "number";
-  weeksInput.step = "0.5";
-  weeksInput.min = "0";
-  weeksInput.value = "1";
-  weeksCell.appendChild(weeksInput);
-
-  const pointsCell = element("td");
-  const pointsInput = element("input");
-  pointsInput.type = "number";
-  pointsInput.min = "0";
-  pointsInput.value = "10";
-  pointsCell.appendChild(pointsInput);
 
   const buttonCell = element("td");
   const add = element("button", null, "Add");
@@ -653,18 +618,14 @@ function deliverableRow(phase) {
     if (!name) return;
     await api(`/api/phases/${phase.id}/deliverables`, {
       method: "POST",
-      body: JSON.stringify({
-        name,
-        duration_weeks: Number(weeksInput.value),
-        effort_points: Number(pointsInput.value),
-      }),
+      body: JSON.stringify({ name }),
     });
     await loadPlan();
   };
   nameInput.onkeydown = (event) => { if (event.key === "Enter") add.click(); };
   buttonCell.appendChild(add);
 
-  adder.append(nameCell, weeksCell, pointsCell, buttonCell);
+  adder.append(nameCell, buttonCell);
   table.appendChild(adder);
 
   cell.appendChild(table);
@@ -1178,13 +1139,11 @@ function bindEvents() {
         default_velocity_points_per_sprint: Number($("setting-velocity").value),
         sprint_length_days: Number($("setting-sprint-days").value),
         v1_tolerance_pct: Number($("setting-tolerance").value),
-        v5_tolerance_pct: Number($("setting-rollup-tolerance").value),
       }),
     });
     await loadPlan();
   };
-  for (const id of ["setting-velocity", "setting-sprint-days",
-                    "setting-tolerance", "setting-rollup-tolerance"]) {
+  for (const id of ["setting-velocity", "setting-sprint-days", "setting-tolerance"]) {
     $(id).onchange = saveSettings;
   }
 

@@ -17,7 +17,6 @@ CREATE TABLE IF NOT EXISTS settings (
     default_velocity_points_per_sprint INTEGER NOT NULL DEFAULT 20,
     sprint_length_days                INTEGER NOT NULL DEFAULT 14,
     v1_tolerance_pct                  REAL    NOT NULL DEFAULT 5.0,
-    v5_tolerance_pct                  REAL    NOT NULL DEFAULT 5.0,
     -- The hub of the map view. Free text: whatever the team is called.
     department_name                   TEXT    NOT NULL DEFAULT ''
 );
@@ -62,14 +61,14 @@ CREATE TABLE IF NOT EXISTS dependency (
 
 -- Deliverables are planning units, not tasks: no assignee, no status, no
 -- comments. They become tasks in a downstream system once the plan is agreed.
+-- They carry no estimate either: naming what a phase produces is the point, and
+-- the phase itself holds the weeks and points.
 CREATE TABLE IF NOT EXISTS deliverable (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    phase_id       INTEGER NOT NULL REFERENCES phase(id) ON DELETE CASCADE,
-    name           TEXT NOT NULL,
-    description    TEXT NOT NULL DEFAULT '',
-    duration_weeks REAL NOT NULL DEFAULT 0,
-    effort_points  INTEGER NOT NULL DEFAULT 0,
-    sort_order     INTEGER NOT NULL DEFAULT 0
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    phase_id    INTEGER NOT NULL REFERENCES phase(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    sort_order  INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_phase_project ON phase(project_id);
@@ -80,11 +79,20 @@ CREATE INDEX IF NOT EXISTS idx_deliverable_phase ON deliverable(phase_id);
 # EXISTS", so `migrate` checks PRAGMA table_info before each ALTER.
 ADDED_COLUMNS = [
     ("project", "goal", "TEXT NOT NULL DEFAULT ''"),
-    ("settings", "v5_tolerance_pct", "REAL NOT NULL DEFAULT 5.0"),
     ("project", "stage", "TEXT NOT NULL DEFAULT 'active' "
                          "CHECK (stage IN ('idea', 'active', 'done'))"),
     ("project", "track", "TEXT NOT NULL DEFAULT ''"),
     ("settings", "department_name", "TEXT NOT NULL DEFAULT ''"),
+]
+
+# Columns retired after the first release. Deliverables stopped carrying their
+# own estimate, which left the V5 rollup rule -- and its tolerance setting --
+# with nothing to compare. Dropping the column discards whatever was estimated
+# against it, so back the file up before upgrading.
+DROPPED_COLUMNS = [
+    ("deliverable", "duration_weeks"),
+    ("deliverable", "effort_points"),
+    ("settings", "v5_tolerance_pct"),
 ]
 
 STAGES = ("idea", "active", "done")
@@ -115,13 +123,24 @@ def init_db():
         migrate(connection)
 
 
+def columns_of(connection, table):
+    return {row["name"] for row in
+            connection.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
 def migrate(connection):
-    """Add columns introduced after the first release to an existing file."""
+    """Bring an existing file up to the current schema.
+
+    Additions run before removals so a file that skipped several releases still
+    ends up in the same shape as one created from `SCHEMA` today.
+    """
     for table, column, definition in ADDED_COLUMNS:
-        existing = {row["name"] for row in
-                    connection.execute(f"PRAGMA table_info({table})").fetchall()}
-        if column not in existing:
+        if column not in columns_of(connection, table):
             connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+    for table, column in DROPPED_COLUMNS:
+        if column in columns_of(connection, table):
+            connection.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
 
 
 def now_iso():
@@ -146,7 +165,6 @@ def update_settings(fields):
         "default_velocity_points_per_sprint",
         "sprint_length_days",
         "v1_tolerance_pct",
-        "v5_tolerance_pct",
         "department_name",
     }
     updates = {key: value for key, value in fields.items() if key in allowed}
@@ -329,25 +347,23 @@ def get_deliverable(deliverable_id):
     return dict(row) if row else None
 
 
-def create_deliverable(phase_id, name, duration_weeks: float = 0, effort_points=0,
-                       description=""):
+def create_deliverable(phase_id, name, description=""):
     with connect() as connection:
         next_order = connection.execute(
             "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM deliverable WHERE phase_id = ?",
             (phase_id,),
         ).fetchone()[0]
         cursor = connection.execute(
-            """INSERT INTO deliverable (phase_id, name, description, duration_weeks,
-                                        effort_points, sort_order)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (phase_id, name, description, duration_weeks, effort_points, next_order),
+            """INSERT INTO deliverable (phase_id, name, description, sort_order)
+               VALUES (?, ?, ?, ?)""",
+            (phase_id, name, description, next_order),
         )
         deliverable_id = cursor.lastrowid
     return get_deliverable(deliverable_id)
 
 
 def update_deliverable(deliverable_id, fields):
-    allowed = {"name", "description", "duration_weeks", "effort_points", "sort_order"}
+    allowed = {"name", "description", "sort_order"}
     updates = {key: value for key, value in fields.items() if key in allowed}
     if updates:
         assignments = ", ".join(f"{key} = ?" for key in updates)
@@ -417,9 +433,11 @@ def export_all():
         deliverables = rows_to_dicts(connection.execute("SELECT * FROM deliverable").fetchall())
         dependencies = rows_to_dicts(connection.execute("SELECT * FROM dependency").fetchall())
     return {
-        # 3 added project.stage/track and settings.department_name. Reads stay
-        # tolerant of a version-2 file, so an older export still imports.
-        "version": 3,
+        # 3 added project.stage/track and settings.department_name; 4 dropped
+        # the deliverable estimate and the V5 tolerance. Reads stay tolerant of
+        # older files, so a version-2 or -3 export still imports -- the fields
+        # that no longer exist are simply ignored.
+        "version": 4,
         "exported_at": now_iso(),
         "settings": get_settings(),
         "projects": projects,
@@ -446,13 +464,12 @@ def import_all(payload):
             connection.execute(
                 """UPDATE settings SET default_velocity_points_per_sprint = ?,
                                        sprint_length_days = ?, v1_tolerance_pct = ?,
-                                       v5_tolerance_pct = ?, department_name = ?
+                                       department_name = ?
                    WHERE id = 1""",
                 (
                     settings.get("default_velocity_points_per_sprint", 20),
                     settings.get("sprint_length_days", 14),
                     settings.get("v1_tolerance_pct", 5.0),
-                    settings.get("v5_tolerance_pct", 5.0),
                     settings.get("department_name", ""),
                 ),
             )
@@ -490,15 +507,14 @@ def import_all(payload):
             )
 
         for deliverable in payload.get("deliverables", []):
+            # A version-3 file still carries duration_weeks and effort_points.
+            # Nothing reads them any more, so they are dropped on the way in.
             connection.execute(
-                """INSERT INTO deliverable (id, phase_id, name, description,
-                                            duration_weeks, effort_points, sort_order)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                """INSERT INTO deliverable (id, phase_id, name, description, sort_order)
+                   VALUES (?, ?, ?, ?, ?)""",
                 (
                     deliverable["id"], deliverable["phase_id"], deliverable["name"],
                     deliverable.get("description", ""),
-                    deliverable.get("duration_weeks", 0),
-                    deliverable.get("effort_points", 0),
                     deliverable.get("sort_order", 0),
                 ),
             )
