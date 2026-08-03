@@ -1,4 +1,4 @@
-"""Plan validation rules V1-V4.
+"""Plan validation rules V1-V5.
 
 Pure functions only: no database, no framework, no I/O. Every rule reports a
 problem and never repairs it -- the timeline must never auto-reschedule, so a
@@ -16,12 +16,20 @@ Inputs are plain mappings so this module stays decoupled from storage:
     dependency:  predecessor_phase_id, successor_phase_id
 
 Dates may be ``datetime.date`` objects or ISO-8601 strings; both are accepted.
+
+A start date may also be **empty**, which means "not scheduled yet". Planning
+starts with week and point estimates only; dates get committed once the shape of
+the work is settled. Empty is stored as ``""`` rather than NULL so it round-trips
+through an HTML ``<input type="date">`` untouched. Rules that need a date (V2,
+V4) skip unscheduled records; the estimate rules (V1, V5) do not care about dates
+and keep working throughout.
 """
 
 from dataclasses import dataclass
 from datetime import date, timedelta
 
 DAYS_PER_WEEK = 7
+UNSCHEDULED = ""
 
 DEFAULT_SETTINGS = {
     "default_velocity_points_per_sprint": 20,
@@ -54,16 +62,73 @@ class PlanWarning:
 
 
 def as_date(value):
-    """Accept a date or an ISO-8601 string and return a date."""
+    """Accept a date or an ISO-8601 string and return a date. Strict."""
     if isinstance(value, date):
         return value
     return date.fromisoformat(str(value))
 
 
+def as_optional_date(value):
+    """Like `as_date`, but an unset or unreadable date means "unscheduled".
+
+    Unscheduled is a first-class state: a phase can be fully estimated in weeks
+    and points long before anyone commits to a date. Reads are deliberately
+    lenient -- a single bad value must never take down the whole project view.
+    Writes are validated strictly at the API boundary instead.
+    """
+    if value is None:
+        return None
+    if isinstance(value, date):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def is_scheduled(record):
+    return as_optional_date(record.get("start_date")) is not None
+
+
 def phase_end_date(phase):
-    """Derived end date. Never stored -- always computed from start + duration."""
-    start = as_date(phase["start_date"])
+    """Derived end date, or None while the phase is unscheduled.
+
+    Never stored -- always computed from start + duration.
+    """
+    start = as_optional_date(phase.get("start_date"))
+    if start is None:
+        return None
     return start + timedelta(days=float(phase["duration_weeks"]) * DAYS_PER_WEEK)
+
+
+def sequential_layout(phases, project_start):
+    """Place unscheduled phases back to back from `project_start`, in order.
+
+    Phases that already have a date are left exactly where they are; they only
+    push the cursor forward so newly-placed work lands after them. Returns
+    {phase_id: iso_date} for the phases that should be given a date.
+    """
+    cursor = as_optional_date(project_start)
+    if cursor is None:
+        return {}
+    placements = {}
+
+    for phase in phases:
+        start = as_optional_date(phase.get("start_date"))
+        if start is not None:
+            end = phase_end_date(phase)
+            if end and end > cursor:
+                cursor = end
+            continue
+        placements[phase["id"]] = cursor.isoformat()
+        cursor = cursor + timedelta(
+            days=float(phase["duration_weeks"]) * DAYS_PER_WEEK
+        )
+
+    return placements
 
 
 def effective_velocity(project, settings):
@@ -112,9 +177,15 @@ def check_effort_duration_mismatch(phase, velocity, settings):
 
 
 def check_dependency_order(predecessor, successor):
-    """V2: successor starts before its predecessor finishes."""
-    successor_start = as_date(successor["start_date"])
+    """V2: successor starts before its predecessor finishes.
+
+    Skipped while either end is unscheduled -- work with no date yet cannot be
+    in the wrong order.
+    """
+    successor_start = as_optional_date(successor.get("start_date"))
     predecessor_end = phase_end_date(predecessor)
+    if successor_start is None or predecessor_end is None:
+        return None
     if successor_start >= predecessor_end:
         return None
 
@@ -230,9 +301,14 @@ def check_rollup_mismatch(phase, deliverables, settings):
 
 
 def check_phase_within_project(phase, project):
-    """V4: phase starts before the project it belongs to."""
-    phase_start = as_date(phase["start_date"])
-    project_start = as_date(project["start_date"])
+    """V4: phase starts before the project it belongs to.
+
+    Skipped while either the phase or the project is still undated.
+    """
+    phase_start = as_optional_date(phase.get("start_date"))
+    project_start = as_optional_date(project.get("start_date"))
+    if phase_start is None or project_start is None:
+        return None
     if phase_start >= project_start:
         return None
 

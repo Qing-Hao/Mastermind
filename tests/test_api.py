@@ -178,6 +178,105 @@ def test_widening_tolerance_silences_v1(client):
     assert not any(w["rule"] == "V1" for w in plan_of(client, project["id"])["warnings"])
 
 
+# --- unscheduled planning ---------------------------------------------------
+
+
+def test_empty_start_date_does_not_break_the_project_view(client):
+    """Regression: '' used to raise ValueError and 500 the whole project."""
+    project = make_project(client, start="")
+    make_phase(client, project["id"], "Dev", "", 1, 20)
+    response = client.get(f"/api/projects/{project['id']}")
+    assert response.status_code == 200
+    assert response.json()["phases"][0]["end_date"] == ""
+
+
+def test_a_project_can_be_created_with_no_start_date(client):
+    project = make_project(client, start="")
+    assert project["start_date"] == ""
+
+
+def test_estimate_rules_still_run_on_undated_phases(client):
+    """The whole point: estimate first, schedule later."""
+    project = make_project(client, start="")
+    phase = make_phase(client, project["id"], "Build", "", 6, 55)
+    client.post(f"/api/phases/{phase['id']}/deliverables",
+                json={"name": "Chunk", "duration_weeks": 2.0, "effort_points": 20})
+
+    rules = {w["rule"] for w in plan_of(client, project["id"])["warnings"]}
+    assert "V1" in rules and "V5" in rules
+
+
+def test_date_rules_are_skipped_while_unscheduled(client):
+    project = make_project(client, start="2026-01-05")
+    design = make_phase(client, project["id"], "Design", "", 4, 40)
+    build = make_phase(client, project["id"], "Build", "", 4, 40)
+    client.post("/api/dependencies", json={
+        "predecessor_phase_id": design["id"], "successor_phase_id": build["id"],
+    })
+    rules = {w["rule"] for w in plan_of(client, project["id"])["warnings"]}
+    assert "V2" not in rules and "V4" not in rules
+
+
+def test_a_garbage_date_is_rejected_rather_than_stored(client):
+    project = make_project(client)
+    response = client.post(f"/api/projects/{project['id']}/phases",
+                           json={"name": "Bad", "start_date": "not-a-date"})
+    assert response.status_code == 422
+
+
+def test_clearing_a_date_returns_a_phase_to_unscheduled(client):
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Dev", "2026-01-05", 2, 20)
+    updated = client.put(f"/api/phases/{phase['id']}", json={"start_date": ""}).json()
+    assert updated["start_date"] == ""
+    assert updated["end_date"] == ""
+
+
+# --- sequential layout ------------------------------------------------------
+
+
+def test_layout_places_undated_phases_back_to_back(client):
+    project = make_project(client, start="2026-09-01")
+    make_phase(client, project["id"], "Dev", "", 1, 10)
+    make_phase(client, project["id"], "Validation", "", 2, 20)
+    make_phase(client, project["id"], "Rollout", "", 1, 10)
+
+    assert client.post(f"/api/projects/{project['id']}/layout").json()["placed"] == 3
+
+    dates = [p["start_date"] for p in plan_of(client, project["id"])["phases"]]
+    assert dates == ["2026-09-01", "2026-09-08", "2026-09-22"]
+
+
+def test_layout_leaves_already_dated_phases_alone(client):
+    project = make_project(client, start="2026-09-01")
+    pinned = make_phase(client, project["id"], "Pinned", "2026-10-01", 1, 10)
+    make_phase(client, project["id"], "Floating", "", 1, 10)
+
+    client.post(f"/api/projects/{project['id']}/layout")
+    phases = {p["name"]: p for p in plan_of(client, project["id"])["phases"]}
+    assert phases["Pinned"]["start_date"] == "2026-10-01"
+    assert phases["Floating"]["start_date"] == "2026-10-08"
+    assert pinned["start_date"] == "2026-10-01"
+
+
+def test_layout_refuses_without_a_project_start_date(client):
+    project = make_project(client, start="")
+    make_phase(client, project["id"], "Dev", "", 1, 10)
+    response = client.post(f"/api/projects/{project['id']}/layout")
+    assert response.status_code == 400
+    assert "start date" in response.json()["detail"].lower()
+
+
+def test_portfolio_omits_unscheduled_phases_but_counts_them(client):
+    project = make_project(client, start="2026-09-01")
+    make_phase(client, project["id"], "Dated", "2026-09-01", 1, 10)
+    make_phase(client, project["id"], "Undated", "", 1, 10)
+
+    portfolio = client.get("/api/portfolio").json()
+    assert len(portfolio["phases"]) == 1
+    assert portfolio["unscheduled_count"] == 1
+
+
 # --- project goal -----------------------------------------------------------
 
 
@@ -285,7 +384,9 @@ def test_portfolio_returns_every_project_and_phase(client):
 
 
 def test_portfolio_is_empty_when_nothing_is_planned(client):
-    assert client.get("/api/portfolio").json() == {"projects": [], "phases": []}
+    assert client.get("/api/portfolio").json() == {
+        "projects": [], "phases": [], "unscheduled_count": 0,
+    }
 
 
 def test_deleting_a_project_removes_its_phases(client):

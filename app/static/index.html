@@ -44,7 +44,16 @@
           <label>Velocity override
             <input id="project-velocity" type="number" min="1" placeholder="global">
           </label>
+          <label>&nbsp;
+            <button id="layout-phases" title="Give every undated phase a date, back to back from the project start">
+              Lay out sequentially
+            </button>
+          </label>
         </div>
+        <p class="hint">
+          Dates are optional. Estimate in weeks and points first; leave start dates
+          empty until the plan settles, then set the project start and lay them out.
+        </p>
         <details>
           <summary>Settings</summary>
           <div class="row">
@@ -67,6 +76,12 @@
       <section>
         <h2>Warnings <span id="warning-count" class="pill">0</span></h2>
         <ul id="warning-list" class="warnings"></ul>
+      </section>
+
+      <section id="unscheduled-section" hidden>
+        <h2>Unscheduled <span id="unscheduled-count" class="pill">0</span></h2>
+        <p class="hint">Estimated but not yet placed on the timeline.</p>
+        <ul id="unscheduled-list" class="unscheduled"></ul>
       </section>
 
       <section>

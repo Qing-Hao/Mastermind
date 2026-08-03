@@ -117,13 +117,36 @@ async function loadPortfolio() {
 
 // --- project view -----------------------------------------------------------
 
+// A phase is scheduled once it has a real start date. Everything else is still
+// just an estimate, and the server reports both dates as "" for those.
+const isScheduled = (phase) => Boolean(phase.start_date && phase.end_date);
+
 function renderProjectView() {
   renderProjectFields();
   renderSettingsFields();
   renderWarnings();
+  renderUnscheduled();
   renderTimeline();
   renderPhases();
   renderDependencies();
+}
+
+function renderUnscheduled() {
+  const pending = state.plan.phases.filter((phase) => !isScheduled(phase));
+  const section = $("unscheduled-section");
+  const list = $("unscheduled-list");
+
+  section.hidden = pending.length === 0;
+  $("unscheduled-count").textContent = pending.length;
+  list.innerHTML = "";
+
+  for (const phase of pending) {
+    const item = element("li");
+    item.appendChild(element("span", "unscheduled-name", phase.name));
+    item.appendChild(element("span", "muted",
+      `${phase.duration_weeks}w · ${phase.effort_points} pts`));
+    list.appendChild(item);
+  }
 }
 
 function renderProjectFields() {
@@ -172,14 +195,19 @@ function warnedPhaseIds() {
 function renderTimeline() {
   const timeline = $("timeline");
   timeline.innerHTML = "";
-  const phases = state.plan.phases;
+  const phases = state.plan.phases.filter(isScheduled);
   if (phases.length === 0) {
-    timeline.appendChild(element("p", "muted", "Add a phase to see the timeline."));
+    timeline.appendChild(element("p", "muted",
+      state.plan.phases.length === 0
+        ? "Add a phase to see the timeline."
+        : "No phase has a start date yet. Estimate first, then lay them out."));
     return;
   }
 
   const starts = phases.map((p) => parseDate(p.start_date));
-  starts.push(parseDate(state.plan.project.start_date));
+  if (state.plan.project.start_date) {
+    starts.push(parseDate(state.plan.project.start_date));
+  }
   const origin = new Date(Math.min(...starts));
   const finish = new Date(Math.max(...phases.map((p) => parseDate(p.end_date))));
   const totalDays = Math.max(daysBetween(origin, finish), 1);
@@ -246,7 +274,7 @@ function renderPhases() {
     statusCell.appendChild(select);
     row.appendChild(statusCell);
 
-    row.appendChild(element("td", "muted", phase.end_date));
+    row.appendChild(element("td", "muted", phase.end_date || "unscheduled"));
 
     const rollup = phase.rollup;
     row.appendChild(element("td", "muted rollup",
@@ -422,11 +450,18 @@ function renderDependencies() {
 function renderPortfolio() {
   const chart = $("portfolio-chart");
   chart.innerHTML = "";
-  const { projects, phases } = state.portfolio;
+  const { projects, phases, unscheduled_count: unscheduled } = state.portfolio;
 
   if (phases.length === 0) {
-    chart.appendChild(element("p", "muted", "Nothing planned yet."));
+    chart.appendChild(element("p", "muted",
+      unscheduled
+        ? `Nothing is scheduled yet. ${unscheduled} phase(s) are estimated but undated.`
+        : "Nothing planned yet."));
     return;
+  }
+  if (unscheduled) {
+    chart.appendChild(element("p", "muted",
+      `${unscheduled} phase(s) not shown — no start date yet.`));
   }
 
   const origin = new Date(Math.min(...phases.map((p) => parseDate(p.start_date))));
@@ -525,9 +560,10 @@ function bindEvents() {
   $("new-project").onclick = async () => {
     const name = prompt("Project name?");
     if (!name) return;
+    // No start date on purpose: plan and estimate first, commit dates later.
     const project = await api("/api/projects", {
       method: "POST",
-      body: JSON.stringify({ name, start_date: todayISO() }),
+      body: JSON.stringify({ name, start_date: "" }),
     });
     state.currentProjectId = project.id;
     state.view = "project";
@@ -583,12 +619,30 @@ function bindEvents() {
       method: "POST",
       body: JSON.stringify({
         name,
-        start_date: $("new-phase-start").value || state.plan.project.start_date,
+        start_date: $("new-phase-start").value,
         duration_weeks: Number($("new-phase-weeks").value),
         effort_points: Number($("new-phase-points").value),
       }),
     });
     $("new-phase-name").value = "";
+    await loadPlan();
+  };
+
+  $("layout-phases").onclick = async () => {
+    if (!state.plan.project.start_date) {
+      alert("Set the project start date first, then lay out.");
+      return;
+    }
+    const pending = state.plan.phases.filter((phase) => !isScheduled(phase)).length;
+    if (pending === 0) {
+      alert("Every phase already has a start date.");
+      return;
+    }
+    if (!confirm(`Give ${pending} undated phase(s) dates, back to back from `
+      + `${state.plan.project.start_date}? Phases that already have dates keep them.`)) {
+      return;
+    }
+    await api(`/api/projects/${state.currentProjectId}/layout`, { method: "POST" });
     await loadPlan();
   };
 
@@ -639,5 +693,4 @@ function bindEvents() {
 }
 
 bindEvents();
-$("new-phase-start").value = todayISO();
 loadProjects();

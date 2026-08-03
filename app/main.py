@@ -15,9 +15,13 @@ from pydantic import BaseModel
 
 from app import db
 from app.validation import (
+    UNSCHEDULED,
+    as_optional_date,
     find_dependency_cycle,
+    is_scheduled,
     phase_end_date,
     rollup_deliverables,
+    sequential_layout,
     validate_plan,
 )
 
@@ -44,8 +48,9 @@ class SettingsIn(BaseModel):
 
 
 class ProjectIn(BaseModel):
+    # Empty means unscheduled: estimate first, commit dates once the shape settles.
     name: str
-    start_date: str
+    start_date: str = ""
     description: str = ""
     goal: str = ""
     velocity_override: int | None = None
@@ -61,7 +66,7 @@ class ProjectPatch(BaseModel):
 
 class PhaseIn(BaseModel):
     name: str
-    start_date: str
+    start_date: str = ""
     duration_weeks: float = 1
     effort_points: int = 0
     description: str = ""
@@ -102,8 +107,36 @@ class DependencyIn(BaseModel):
 
 
 def with_end_date(phase):
-    """Attach the derived end date the timeline needs. Never persisted."""
-    return {**phase, "end_date": phase_end_date(phase).isoformat()}
+    """Attach the derived end date the timeline needs. Never persisted.
+
+    Both dates come back as "" while the phase is unscheduled, which is what an
+    empty <input type="date"> produces and accepts.
+    """
+    end = phase_end_date(phase)
+    return {
+        **phase,
+        "start_date": phase.get("start_date") or UNSCHEDULED,
+        "end_date": end.isoformat() if end else UNSCHEDULED,
+        "scheduled": end is not None,
+    }
+
+
+def clean_date(value):
+    """Normalise a submitted date to an ISO string or the unscheduled marker.
+
+    Reads are lenient so one bad value cannot break a whole project view; writes
+    are strict here so bad values never get stored in the first place.
+    """
+    if value is None or str(value).strip() == "":
+        return UNSCHEDULED
+    parsed = as_optional_date(value)
+    if parsed is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"'{value}' is not a valid date. Use YYYY-MM-DD, or leave it "
+                   f"empty to keep the item unscheduled.",
+        )
+    return parsed.isoformat()
 
 
 def require_project(project_id):
@@ -145,7 +178,7 @@ def read_projects():
 def add_project(body: ProjectIn):
     return db.create_project(
         name=body.name,
-        start_date=body.start_date,
+        start_date=clean_date(body.start_date),
         description=body.description,
         goal=body.goal,
         velocity_override=body.velocity_override,
@@ -182,19 +215,50 @@ def read_project_plan(project_id: int):
 
 @app.get("/api/portfolio")
 def read_portfolio():
-    """Every project and phase on one timeline, for the cross-project Gantt."""
+    """Every scheduled phase on one timeline, for the cross-project Gantt.
+
+    Unscheduled phases are omitted: there is nowhere honest to draw them.
+    `unscheduled_count` lets the view say how much is still unplaced.
+    """
     projects = db.list_projects()
     phases = db.list_all_phases()
+    scheduled = [with_end_date(phase) for phase in phases if is_scheduled(phase)]
     return {
         "projects": projects,
-        "phases": [with_end_date(phase) for phase in phases],
+        "phases": scheduled,
+        "unscheduled_count": len(phases) - len(scheduled),
     }
+
+
+@app.post("/api/projects/{project_id}/layout")
+def layout_project(project_id: int):
+    """Place every unscheduled phase back to back from the project start date.
+
+    Explicitly user-triggered -- this is not auto-scheduling. Phases that already
+    have dates keep them and only push the cursor forward so nothing overlaps.
+    """
+    project = require_project(project_id)
+    if not is_scheduled(project):
+        raise HTTPException(
+            status_code=400,
+            detail="Set the project start date before laying out phases.",
+        )
+
+    phases = db.list_phases(project_id)
+    placements = sequential_layout(phases, project["start_date"])
+    for phase_id, start_date in placements.items():
+        db.update_phase(phase_id, {"start_date": start_date})
+
+    return {"placed": len(placements), "placements": placements}
 
 
 @app.put("/api/projects/{project_id}")
 def edit_project(project_id: int, body: ProjectPatch):
     require_project(project_id)
-    return db.update_project(project_id, body.model_dump(exclude_unset=True))
+    fields = body.model_dump(exclude_unset=True)
+    if "start_date" in fields:
+        fields["start_date"] = clean_date(fields["start_date"])
+    return db.update_project(project_id, fields)
 
 
 @app.delete("/api/projects/{project_id}", status_code=204)
@@ -212,7 +276,7 @@ def add_phase(project_id: int, body: PhaseIn):
     phase = db.create_phase(
         project_id=project_id,
         name=body.name,
-        start_date=body.start_date,
+        start_date=clean_date(body.start_date),
         duration_weeks=body.duration_weeks,
         effort_points=body.effort_points,
         description=body.description,
@@ -224,7 +288,10 @@ def add_phase(project_id: int, body: PhaseIn):
 @app.put("/api/phases/{phase_id}")
 def edit_phase(phase_id: int, body: PhasePatch):
     require_phase(phase_id)
-    return with_end_date(db.update_phase(phase_id, body.model_dump(exclude_unset=True)))
+    fields = body.model_dump(exclude_unset=True)
+    if "start_date" in fields:
+        fields["start_date"] = clean_date(fields["start_date"])
+    return with_end_date(db.update_phase(phase_id, fields))
 
 
 @app.delete("/api/phases/{phase_id}", status_code=204)
