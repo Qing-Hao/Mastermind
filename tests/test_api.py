@@ -132,8 +132,11 @@ def test_rejected_cycle_leaves_no_dependency_behind(client):
 
 def test_export_then_import_restores_the_identical_dataset(client):
     project = make_project(client)
+    client.put(f"/api/projects/{project['id']}", json={"goal": "Ship payments v1."})
     design = make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
     build = make_phase(client, project["id"], "Build", "2026-02-02", 6, 60)
+    client.post(f"/api/phases/{design['id']}/deliverables",
+                json={"name": "Wireframes", "duration_weeks": 2.0, "effort_points": 20})
     client.post("/api/dependencies", json={
         "predecessor_phase_id": design["id"], "successor_phase_id": build["id"],
     })
@@ -150,7 +153,9 @@ def test_export_then_import_restores_the_identical_dataset(client):
 
     assert reimported["projects"] == exported["projects"]
     assert reimported["phases"] == exported["phases"]
+    assert reimported["deliverables"] == exported["deliverables"]
     assert reimported["dependencies"] == exported["dependencies"]
+    assert reimported["projects"][0]["goal"] == "Ship payments v1."
 
 
 # --- settings ---------------------------------------------------------------
@@ -171,6 +176,116 @@ def test_widening_tolerance_silences_v1(client):
     make_phase(client, project["id"], "Build", "2026-01-05", 6, 55)
     client.put("/api/settings", json={"v1_tolerance_pct": 20})
     assert not any(w["rule"] == "V1" for w in plan_of(client, project["id"])["warnings"])
+
+
+# --- project goal -----------------------------------------------------------
+
+
+def test_project_goal_defaults_empty_and_persists(client):
+    project = make_project(client)
+    assert project["goal"] == ""
+    client.put(f"/api/projects/{project['id']}",
+               json={"goal": "Cut checkout abandonment to under 20%."})
+    assert plan_of(client, project["id"])["project"]["goal"] == (
+        "Cut checkout abandonment to under 20%."
+    )
+
+
+# --- deliverables and bottom-up rollup --------------------------------------
+
+
+def add_deliverable(client, phase_id, name, weeks, points):
+    response = client.post(
+        f"/api/phases/{phase_id}/deliverables",
+        json={"name": name, "duration_weeks": weeks, "effort_points": points},
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
+def test_rollup_is_returned_with_each_phase(client):
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Core", "2026-01-05", 5.5, 55)
+    add_deliverable(client, phase["id"], "Payment intent API", 2.0, 20)
+    add_deliverable(client, phase["id"], "Webhook receiver", 1.5, 15)
+    add_deliverable(client, phase["id"], "Refund flow", 2.0, 20)
+
+    returned = plan_of(client, project["id"])["phases"][0]
+    assert returned["rollup"] == {"duration_weeks": 5.5, "effort_points": 55, "count": 3}
+    assert len(returned["deliverables"]) == 3
+    assert not any(w["rule"] == "V5" for w in plan_of(client, project["id"])["warnings"])
+
+
+def test_v5_fires_when_deliverables_disagree_with_the_phase(client):
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Core", "2026-01-05", 6, 60)
+    add_deliverable(client, phase["id"], "Payment intent API", 3.0, 40)
+    add_deliverable(client, phase["id"], "Webhook receiver", 3.0, 30)
+
+    warnings = plan_of(client, project["id"])["warnings"]
+    v5 = [w for w in warnings if w["rule"] == "V5"]
+    assert len(v5) == 1
+    assert v5[0]["phase_id"] == phase["id"]
+    assert "70" in v5[0]["message"]
+
+
+def test_deliverables_never_overwrite_the_phase_estimate(client):
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Core", "2026-01-05", 6, 60)
+    add_deliverable(client, phase["id"], "Only one", 1.0, 5)
+
+    returned = plan_of(client, project["id"])["phases"][0]
+    assert returned["duration_weeks"] == 6
+    assert returned["effort_points"] == 60
+    assert returned["end_date"] == "2026-02-16"
+
+
+def test_phase_without_deliverables_has_null_rollup(client):
+    project = make_project(client)
+    make_phase(client, project["id"], "Core", "2026-01-05", 4, 40)
+    assert plan_of(client, project["id"])["phases"][0]["rollup"] is None
+
+
+def test_deliverable_can_be_edited_and_deleted(client):
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Core", "2026-01-05", 4, 40)
+    deliverable = add_deliverable(client, phase["id"], "Draft", 1.0, 10)
+
+    updated = client.put(f"/api/deliverables/{deliverable['id']}",
+                         json={"effort_points": 30}).json()
+    assert updated["effort_points"] == 30
+    assert updated["name"] == "Draft"
+
+    assert client.delete(f"/api/deliverables/{deliverable['id']}").status_code == 204
+    assert plan_of(client, project["id"])["phases"][0]["deliverables"] == []
+
+
+def test_deleting_a_phase_removes_its_deliverables(client):
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Core", "2026-01-05", 4, 40)
+    add_deliverable(client, phase["id"], "Draft", 1.0, 10)
+    client.delete(f"/api/phases/{phase['id']}")
+    assert client.get("/api/export").json()["deliverables"] == []
+
+
+# --- portfolio --------------------------------------------------------------
+
+
+def test_portfolio_returns_every_project_and_phase(client):
+    first = make_project(client, "Payments", "2026-01-05")
+    second = make_project(client, "Search", "2026-03-01")
+    make_phase(client, first["id"], "Design", "2026-01-05", 4, 40)
+    make_phase(client, second["id"], "Spike", "2026-03-01", 2, 20)
+
+    portfolio = client.get("/api/portfolio").json()
+    assert len(portfolio["projects"]) == 2
+    assert len(portfolio["phases"]) == 2
+    assert all("end_date" in phase for phase in portfolio["phases"])
+    assert {p["project_id"] for p in portfolio["phases"]} == {first["id"], second["id"]}
+
+
+def test_portfolio_is_empty_when_nothing_is_planned(client):
+    assert client.get("/api/portfolio").json() == {"projects": [], "phases": []}
 
 
 def test_deleting_a_project_removes_its_phases(client):

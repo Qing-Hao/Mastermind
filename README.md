@@ -48,7 +48,19 @@ a scheduling opinion, so the API rejects the edit with `409` and writes nothing.
 
 ## Estimation
 
-Duration (weeks) and effort (points) are entered independently. The tool
+Three numbers exist per phase and none of them derives the others:
+
+| Level | Entered where | Cross-check |
+|---|---|---|
+| Top-down duration (weeks) | Phase | V1, against points |
+| Top-down effort (points) | Phase | V1, against duration |
+| Bottom-up rollup | Sum of the phase's deliverables | V5, against both of the above |
+
+Deliverables inside a phase are treated as **sequential**, so their weeks sum.
+Parallel work belongs in separate phases. Deliverables are planning units only —
+no assignee, no status — and are what convert into tasks downstream.
+
+Top-down duration (weeks) and effort (points) are entered independently. The tool
 cross-checks them rather than deriving one from the other:
 
 ```
@@ -57,4 +69,14 @@ implied_weeks = (effort_points / velocity) * (sprint_length_days / 7)
 
 Velocity is the project's `velocity_override` if set, otherwise the global
 setting. V1 warns when entered duration and implied duration disagree by more
-than `v1_tolerance_pct` (default 5%).
+than `v1_tolerance_pct` (default 5%). V5 warns when the deliverable rollup
+disagrees with the phase's own numbers by more than `v5_tolerance_pct`.
+
+## Views
+
+**Project** — goal, phases, deliverables, dependencies, warnings, and a timeline
+for that one project.
+
+**Portfolio** — every project's phases on one shared time axis with a month
+ruler, one swimlane per project. Drag a bar sideways to move that phase; it snaps
+to whole days and moves nothing else.

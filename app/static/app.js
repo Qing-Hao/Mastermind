@@ -6,10 +6,13 @@ const PX_PER_DAY = 5;
 const MS_PER_DAY = 86400000;
 
 let state = {
+  view: "project",
   projects: [],
   currentProjectId: null,
   plan: null,
+  portfolio: null,
   settings: null,
+  expandedPhases: new Set(),
 };
 
 // --- api --------------------------------------------------------------------
@@ -33,11 +36,30 @@ async function api(path, options = {}) {
 
 const $ = (id) => document.getElementById(id);
 const parseDate = (iso) => new Date(`${iso}T00:00:00`);
-const toISO = (date) => date.toISOString().slice(0, 10);
 const daysBetween = (a, b) => Math.round((b - a) / MS_PER_DAY);
 
-function todayISO() {
-  return toISO(new Date());
+// Built from local parts on purpose: toISOString() would shift the date across
+// timezones and silently move phases by a day.
+function formatDate(date) {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function shiftDate(iso, days) {
+  const date = parseDate(iso);
+  date.setDate(date.getDate() + days);
+  return formatDate(date);
+}
+
+const todayISO = () => formatDate(new Date());
+const round2 = (value) => Math.round(value * 100) / 100;
+
+function element(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
 }
 
 // --- loading ----------------------------------------------------------------
@@ -47,14 +69,16 @@ async function loadProjects() {
   const select = $("project-select");
   select.innerHTML = "";
   for (const project of state.projects) {
-    const option = document.createElement("option");
+    const option = element("option", null, project.name);
     option.value = project.id;
-    option.textContent = project.name;
     select.appendChild(option);
   }
+
   if (state.projects.length === 0) {
     state.currentProjectId = null;
+    state.plan = null;
     $("workspace").hidden = true;
+    $("portfolio-view").hidden = true;
     $("empty-state").hidden = false;
     return;
   }
@@ -63,20 +87,37 @@ async function loadProjects() {
   }
   select.value = state.currentProjectId;
   $("empty-state").hidden = true;
-  $("workspace").hidden = false;
-  await loadPlan();
+  await refreshView();
+}
+
+async function refreshView() {
+  const isProject = state.view === "project";
+  $("workspace").hidden = !isProject || !state.currentProjectId;
+  $("portfolio-view").hidden = isProject;
+  $("tab-project").classList.toggle("active", isProject);
+  $("tab-portfolio").classList.toggle("active", !isProject);
+  if (isProject) {
+    await loadPlan();
+  } else {
+    await loadPortfolio();
+  }
 }
 
 async function loadPlan() {
   if (!state.currentProjectId) return;
   state.plan = await api(`/api/projects/${state.currentProjectId}`);
   state.settings = state.plan.settings;
-  renderAll();
+  renderProjectView();
 }
 
-// --- rendering --------------------------------------------------------------
+async function loadPortfolio() {
+  state.portfolio = await api("/api/portfolio");
+  renderPortfolio();
+}
 
-function renderAll() {
+// --- project view -----------------------------------------------------------
+
+function renderProjectView() {
   renderProjectFields();
   renderSettingsFields();
   renderWarnings();
@@ -87,6 +128,7 @@ function renderAll() {
 
 function renderProjectFields() {
   const project = state.plan.project;
+  $("project-goal").value = project.goal || "";
   $("project-name").value = project.name;
   $("project-start").value = project.start_date;
   $("project-velocity").value = project.velocity_override ?? "";
@@ -96,6 +138,7 @@ function renderSettingsFields() {
   $("setting-velocity").value = state.settings.default_velocity_points_per_sprint;
   $("setting-sprint-days").value = state.settings.sprint_length_days;
   $("setting-tolerance").value = state.settings.v1_tolerance_pct;
+  $("setting-rollup-tolerance").value = state.settings.v5_tolerance_pct;
 }
 
 function renderWarnings() {
@@ -104,16 +147,15 @@ function renderWarnings() {
   $("warning-count").textContent = warnings.length;
   $("warning-count").className = warnings.length ? "pill pill-warn" : "pill";
   list.innerHTML = "";
+
   if (warnings.length === 0) {
-    const item = document.createElement("li");
-    item.className = "ok";
-    item.textContent = "No problems detected.";
-    list.appendChild(item);
+    list.appendChild(element("li", "ok", "No problems detected."));
     return;
   }
   for (const warning of warnings) {
-    const item = document.createElement("li");
-    item.innerHTML = `<span class="rule">${warning.rule}</span> ${warning.message}`;
+    const item = element("li");
+    item.appendChild(element("span", "rule", warning.rule));
+    item.appendChild(document.createTextNode(` ${warning.message}`));
     list.appendChild(item);
   }
 }
@@ -132,33 +174,38 @@ function renderTimeline() {
   timeline.innerHTML = "";
   const phases = state.plan.phases;
   if (phases.length === 0) {
-    timeline.innerHTML = '<p class="muted">Add a phase to see the timeline.</p>';
+    timeline.appendChild(element("p", "muted", "Add a phase to see the timeline."));
     return;
   }
 
   const starts = phases.map((p) => parseDate(p.start_date));
   starts.push(parseDate(state.plan.project.start_date));
-  const ends = phases.map((p) => parseDate(p.end_date));
   const origin = new Date(Math.min(...starts));
-  const finish = new Date(Math.max(...ends));
+  const finish = new Date(Math.max(...phases.map((p) => parseDate(p.end_date))));
   const totalDays = Math.max(daysBetween(origin, finish), 1);
-
   timeline.style.width = `${totalDays * PX_PER_DAY + 200}px`;
 
   const warned = warnedPhaseIds();
   for (const phase of phases) {
-    const offset = daysBetween(origin, parseDate(phase.start_date));
-    const span = Math.max(daysBetween(parseDate(phase.start_date), parseDate(phase.end_date)), 1);
-    const bar = document.createElement("div");
-    bar.className = `bar status-${phase.status}${warned.has(phase.id) ? " bar-warn" : ""}`;
-    bar.style.marginLeft = `${offset * PX_PER_DAY}px`;
-    bar.style.width = `${span * PX_PER_DAY}px`;
-    bar.title = `${phase.name}: ${phase.start_date} to ${phase.end_date} `
-      + `(${phase.duration_weeks}w, ${phase.effort_points} pts)`;
-    bar.textContent = phase.name;
-    timeline.appendChild(bar);
+    timeline.appendChild(phaseBar(phase, origin, warned.has(phase.id)));
   }
 }
+
+function phaseBar(phase, origin, isWarned) {
+  const offset = daysBetween(origin, parseDate(phase.start_date));
+  const span = Math.max(
+    daysBetween(parseDate(phase.start_date), parseDate(phase.end_date)), 1
+  );
+  const bar = element("div", `bar status-${phase.status}${isWarned ? " bar-warn" : ""}`);
+  bar.style.marginLeft = `${offset * PX_PER_DAY}px`;
+  bar.style.width = `${span * PX_PER_DAY}px`;
+  bar.title = `${phase.name}: ${phase.start_date} to ${phase.end_date} `
+    + `(${phase.duration_weeks}w, ${phase.effort_points} pts)`;
+  bar.textContent = phase.name;
+  return bar;
+}
+
+// --- phases and deliverables ------------------------------------------------
 
 function renderPhases() {
   const body = $("phase-table").querySelector("tbody");
@@ -166,20 +213,32 @@ function renderPhases() {
   body.innerHTML = "";
 
   for (const phase of state.plan.phases) {
-    const row = document.createElement("tr");
-    if (warned.has(phase.id)) row.className = "row-warn";
+    const row = element("tr", warned.has(phase.id) ? "row-warn" : null);
+    const isOpen = state.expandedPhases.has(phase.id);
 
-    row.appendChild(fieldCell(phase, "name", "text"));
-    row.appendChild(fieldCell(phase, "start_date", "date"));
-    row.appendChild(fieldCell(phase, "duration_weeks", "number", { step: "0.5", min: "0.5" }));
-    row.appendChild(fieldCell(phase, "effort_points", "number", { step: "1", min: "0" }));
+    const toggleCell = element("td");
+    const toggle = element("button", "toggle", isOpen ? "▾" : "▸");
+    toggle.title = "Show deliverables";
+    toggle.onclick = () => {
+      if (isOpen) state.expandedPhases.delete(phase.id);
+      else state.expandedPhases.add(phase.id);
+      renderPhases();
+    };
+    toggleCell.appendChild(toggle);
+    row.appendChild(toggleCell);
 
-    const statusCell = document.createElement("td");
-    const select = document.createElement("select");
+    row.appendChild(fieldCell(phase, "name", "text", savePhase));
+    row.appendChild(fieldCell(phase, "start_date", "date", savePhase));
+    row.appendChild(fieldCell(phase, "duration_weeks", "number", savePhase,
+      { step: "0.5", min: "0" }));
+    row.appendChild(fieldCell(phase, "effort_points", "number", savePhase,
+      { step: "1", min: "0" }));
+
+    const statusCell = element("td");
+    const select = element("select");
     for (const status of ["planned", "in_progress", "done"]) {
-      const option = document.createElement("option");
+      const option = element("option", null, status);
       option.value = status;
-      option.textContent = status;
       select.appendChild(option);
     }
     select.value = phase.status;
@@ -187,35 +246,126 @@ function renderPhases() {
     statusCell.appendChild(select);
     row.appendChild(statusCell);
 
-    const endCell = document.createElement("td");
-    endCell.className = "muted";
-    endCell.textContent = phase.end_date;
-    row.appendChild(endCell);
+    row.appendChild(element("td", "muted", phase.end_date));
 
-    const actionCell = document.createElement("td");
-    const remove = document.createElement("button");
-    remove.textContent = "Delete";
+    const rollup = phase.rollup;
+    row.appendChild(element("td", "muted rollup",
+      rollup ? `${round2(rollup.duration_weeks)}w / ${rollup.effort_points}p` : "—"));
+
+    const actionCell = element("td");
+    const remove = element("button", null, "Delete");
     remove.onclick = async () => {
-      if (!confirm(`Delete phase "${phase.name}"?`)) return;
+      if (!confirm(`Delete phase "${phase.name}" and its deliverables?`)) return;
       await api(`/api/phases/${phase.id}`, { method: "DELETE" });
+      state.expandedPhases.delete(phase.id);
       await loadPlan();
     };
     actionCell.appendChild(remove);
     row.appendChild(actionCell);
 
     body.appendChild(row);
+    if (isOpen) body.appendChild(deliverableRow(phase));
   }
 }
 
-function fieldCell(phase, key, type, attributes = {}) {
-  const cell = document.createElement("td");
-  const input = document.createElement("input");
+function deliverableRow(phase) {
+  const row = element("tr", "deliverable-row");
+  const cell = element("td");
+  cell.colSpan = 9;
+
+  const table = element("table", "deliverables");
+  const head = element("tr");
+  for (const heading of ["Deliverable", "Weeks", "Points", ""]) {
+    head.appendChild(element("th", null, heading));
+  }
+  table.appendChild(head);
+
+  for (const deliverable of phase.deliverables) {
+    const line = element("tr");
+    line.appendChild(fieldCell(deliverable, "name", "text", saveDeliverable));
+    line.appendChild(fieldCell(deliverable, "duration_weeks", "number", saveDeliverable,
+      { step: "0.5", min: "0" }));
+    line.appendChild(fieldCell(deliverable, "effort_points", "number", saveDeliverable,
+      { step: "1", min: "0" }));
+
+    const actionCell = element("td");
+    const remove = element("button", null, "✕");
+    remove.title = "Delete deliverable";
+    remove.onclick = async () => {
+      await api(`/api/deliverables/${deliverable.id}`, { method: "DELETE" });
+      await loadPlan();
+    };
+    actionCell.appendChild(remove);
+    line.appendChild(actionCell);
+    table.appendChild(line);
+  }
+
+  if (phase.rollup) {
+    const totals = element("tr", "rollup-row");
+    totals.appendChild(element("td", null, `Rollup of ${phase.rollup.count}`));
+    totals.appendChild(element("td", null, `${round2(phase.rollup.duration_weeks)}w`));
+    totals.appendChild(element("td", null, `${phase.rollup.effort_points}p`));
+    totals.appendChild(element("td", null,
+      `vs ${phase.duration_weeks}w / ${phase.effort_points}p entered`));
+    table.appendChild(totals);
+  }
+
+  const adder = element("tr");
+  const nameCell = element("td");
+  const nameInput = element("input");
+  nameInput.placeholder = "New deliverable";
+  nameCell.appendChild(nameInput);
+
+  const weeksCell = element("td");
+  const weeksInput = element("input");
+  weeksInput.type = "number";
+  weeksInput.step = "0.5";
+  weeksInput.min = "0";
+  weeksInput.value = "1";
+  weeksCell.appendChild(weeksInput);
+
+  const pointsCell = element("td");
+  const pointsInput = element("input");
+  pointsInput.type = "number";
+  pointsInput.min = "0";
+  pointsInput.value = "10";
+  pointsCell.appendChild(pointsInput);
+
+  const buttonCell = element("td");
+  const add = element("button", null, "Add");
+  add.onclick = async () => {
+    const name = nameInput.value.trim();
+    if (!name) return;
+    await api(`/api/phases/${phase.id}/deliverables`, {
+      method: "POST",
+      body: JSON.stringify({
+        name,
+        duration_weeks: Number(weeksInput.value),
+        effort_points: Number(pointsInput.value),
+      }),
+    });
+    await loadPlan();
+  };
+  nameInput.onkeydown = (event) => { if (event.key === "Enter") add.click(); };
+  buttonCell.appendChild(add);
+
+  adder.append(nameCell, weeksCell, pointsCell, buttonCell);
+  table.appendChild(adder);
+
+  cell.appendChild(table);
+  row.appendChild(cell);
+  return row;
+}
+
+function fieldCell(record, key, type, save, attributes = {}) {
+  const cell = element("td");
+  const input = element("input");
   input.type = type;
-  input.value = phase[key];
+  input.value = record[key];
   Object.assign(input, attributes);
   input.onchange = () => {
     const value = type === "number" ? Number(input.value) : input.value;
-    savePhase(phase.id, { [key]: value });
+    save(record.id, { [key]: value });
   };
   cell.appendChild(input);
   return cell;
@@ -226,16 +376,26 @@ async function savePhase(phaseId, fields) {
   await loadPlan();
 }
 
+async function saveDeliverable(deliverableId, fields) {
+  await api(`/api/deliverables/${deliverableId}`, {
+    method: "PUT",
+    body: JSON.stringify(fields),
+  });
+  await loadPlan();
+}
+
 function renderDependencies() {
   const list = $("dependency-list");
   const nameOf = Object.fromEntries(state.plan.phases.map((p) => [p.id, p.name]));
   list.innerHTML = "";
 
+  if (state.plan.dependencies.length === 0) {
+    list.appendChild(element("li", "muted", "No dependencies."));
+  }
   for (const dep of state.plan.dependencies) {
-    const item = document.createElement("li");
-    item.textContent = `${nameOf[dep.predecessor_phase_id]} -> ${nameOf[dep.successor_phase_id]}`;
-    const remove = document.createElement("button");
-    remove.textContent = "Unlink";
+    const item = element("li", null,
+      `${nameOf[dep.predecessor_phase_id]} → ${nameOf[dep.successor_phase_id]}`);
+    const remove = element("button", null, "Unlink");
     remove.onclick = async () => {
       await api(`/api/dependencies/${dep.id}`, { method: "DELETE" });
       await loadPlan();
@@ -243,29 +403,122 @@ function renderDependencies() {
     item.appendChild(remove);
     list.appendChild(item);
   }
-  if (state.plan.dependencies.length === 0) {
-    list.innerHTML = '<li class="muted">No dependencies.</li>';
-  }
 
   for (const selectId of ["dep-predecessor", "dep-successor"]) {
     const select = $(selectId);
     const previous = select.value;
     select.innerHTML = "";
     for (const phase of state.plan.phases) {
-      const option = document.createElement("option");
+      const option = element("option", null, phase.name);
       option.value = phase.id;
-      option.textContent = phase.name;
       select.appendChild(option);
     }
     select.value = previous;
   }
 }
 
+// --- portfolio view ---------------------------------------------------------
+
+function renderPortfolio() {
+  const chart = $("portfolio-chart");
+  chart.innerHTML = "";
+  const { projects, phases } = state.portfolio;
+
+  if (phases.length === 0) {
+    chart.appendChild(element("p", "muted", "Nothing planned yet."));
+    return;
+  }
+
+  const origin = new Date(Math.min(...phases.map((p) => parseDate(p.start_date))));
+  const finish = new Date(Math.max(...phases.map((p) => parseDate(p.end_date))));
+  const totalDays = Math.max(daysBetween(origin, finish), 1);
+  chart.style.width = `${totalDays * PX_PER_DAY + 240}px`;
+
+  chart.appendChild(monthRuler(origin, totalDays));
+
+  for (const project of projects) {
+    const own = phases.filter((phase) => phase.project_id === project.id);
+    if (own.length === 0) continue;
+
+    const lane = element("div", "lane");
+    lane.appendChild(element("div", "lane-title", project.name));
+    for (const phase of own) {
+      const bar = phaseBar(phase, origin, false);
+      bar.classList.add("draggable");
+      bar.title += "  (drag to move)";
+      makeDraggable(bar, phase);
+      lane.appendChild(bar);
+    }
+    chart.appendChild(lane);
+  }
+}
+
+function monthRuler(origin, totalDays) {
+  const ruler = element("div", "ruler");
+  const cursor = new Date(origin.getFullYear(), origin.getMonth(), 1);
+  const end = new Date(origin.getTime() + totalDays * MS_PER_DAY);
+
+  while (cursor <= end) {
+    const next = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+    const visibleStart = cursor < origin ? origin : cursor;
+    const width = daysBetween(visibleStart, next) * PX_PER_DAY;
+    if (width > 0) {
+      const block = element("div", "month",
+        cursor.toLocaleString(undefined, { month: "short", year: "2-digit" }));
+      block.style.width = `${width}px`;
+      ruler.appendChild(block);
+    }
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  return ruler;
+}
+
+function makeDraggable(bar, phase) {
+  bar.onmousedown = (event) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const originalOffset = parseFloat(bar.style.marginLeft) || 0;
+    let dayDelta = 0;
+    bar.classList.add("dragging");
+
+    const onMove = (moveEvent) => {
+      dayDelta = Math.round((moveEvent.clientX - startX) / PX_PER_DAY);
+      bar.style.marginLeft = `${originalOffset + dayDelta * PX_PER_DAY}px`;
+    };
+
+    const onUp = async () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      bar.classList.remove("dragging");
+      if (dayDelta === 0) return;
+      // Only this phase moves. Dependents stay put and start warning instead.
+      await api(`/api/phases/${phase.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ start_date: shiftDate(phase.start_date, dayDelta) }),
+      });
+      await loadPortfolio();
+    };
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+}
+
 // --- events -----------------------------------------------------------------
 
 function bindEvents() {
+  $("tab-project").onclick = async () => {
+    state.view = "project";
+    await refreshView();
+  };
+  $("tab-portfolio").onclick = async () => {
+    state.view = "portfolio";
+    await refreshView();
+  };
+
   $("project-select").onchange = async (event) => {
     state.currentProjectId = Number(event.target.value);
+    state.expandedPhases.clear();
     await loadPlan();
   };
 
@@ -277,6 +530,7 @@ function bindEvents() {
       body: JSON.stringify({ name, start_date: todayISO() }),
     });
     state.currentProjectId = project.id;
+    state.view = "project";
     await loadProjects();
   };
 
@@ -294,15 +548,16 @@ function bindEvents() {
       method: "PUT",
       body: JSON.stringify({
         name: $("project-name").value,
+        goal: $("project-goal").value,
         start_date: $("project-start").value,
         velocity_override: velocity === "" ? null : Number(velocity),
       }),
     });
     await loadProjects();
   };
-  $("project-name").onchange = saveProject;
-  $("project-start").onchange = saveProject;
-  $("project-velocity").onchange = saveProject;
+  for (const id of ["project-name", "project-goal", "project-start", "project-velocity"]) {
+    $(id).onchange = saveProject;
+  }
 
   const saveSettings = async () => {
     await api("/api/settings", {
@@ -311,13 +566,15 @@ function bindEvents() {
         default_velocity_points_per_sprint: Number($("setting-velocity").value),
         sprint_length_days: Number($("setting-sprint-days").value),
         v1_tolerance_pct: Number($("setting-tolerance").value),
+        v5_tolerance_pct: Number($("setting-rollup-tolerance").value),
       }),
     });
     await loadPlan();
   };
-  $("setting-velocity").onchange = saveSettings;
-  $("setting-sprint-days").onchange = saveSettings;
-  $("setting-tolerance").onchange = saveSettings;
+  for (const id of ["setting-velocity", "setting-sprint-days",
+                    "setting-tolerance", "setting-rollup-tolerance"]) {
+    $(id).onchange = saveSettings;
+  }
 
   $("add-phase").onclick = async () => {
     const name = $("new-phase-name").value.trim();
@@ -360,7 +617,7 @@ function bindEvents() {
   $("export").onclick = async () => {
     const data = await api("/api/export");
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const link = document.createElement("a");
+    const link = element("a");
     link.href = URL.createObjectURL(blob);
     link.download = `roadmap-${todayISO()}.json`;
     link.click();
@@ -376,6 +633,7 @@ function bindEvents() {
     await api("/api/import", { method: "POST", body: JSON.stringify(payload) });
     event.target.value = "";
     state.currentProjectId = null;
+    state.expandedPhases.clear();
     await loadProjects();
   };
 }

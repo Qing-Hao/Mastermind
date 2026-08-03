@@ -7,10 +7,12 @@ from app.validation import (
     check_dependency_order,
     check_effort_duration_mismatch,
     check_phase_within_project,
+    check_rollup_mismatch,
     effective_velocity,
     find_dependency_cycle,
     implied_weeks,
     phase_end_date,
+    rollup_deliverables,
     validate_plan,
 )
 
@@ -164,6 +166,92 @@ def test_v4_silent_when_phase_starts_on_project_start():
     assert check_phase_within_project(make_phase(start="2026-01-05"), PROJECT) is None
 
 
+# --- V5: bottom-up rollup ---------------------------------------------------
+
+
+def make_deliverable(deliverable_id, name, weeks, points):
+    return {
+        "id": deliverable_id,
+        "phase_id": 1,
+        "name": name,
+        "duration_weeks": weeks,
+        "effort_points": points,
+        "sort_order": deliverable_id,
+    }
+
+
+def test_rollup_is_none_without_deliverables():
+    assert rollup_deliverables([]) is None
+
+
+def test_rollup_sums_sequential_deliverables():
+    """Deliverables inside a phase are sequential, so weeks add up."""
+    rollup = rollup_deliverables([
+        make_deliverable(1, "Payment intent API", 2.0, 20),
+        make_deliverable(2, "Webhook receiver", 1.5, 15),
+        make_deliverable(3, "Refund flow", 2.0, 20),
+    ])
+    assert rollup == {"duration_weeks": 5.5, "effort_points": 55, "count": 3}
+
+
+def test_v5_silent_when_rollup_matches_the_phase():
+    phase = make_phase(weeks=5.5, points=55)
+    deliverables = [
+        make_deliverable(1, "A", 2.0, 20),
+        make_deliverable(2, "B", 1.5, 15),
+        make_deliverable(3, "C", 2.0, 20),
+    ]
+    assert check_rollup_mismatch(phase, deliverables, DEFAULT_SETTINGS) is None
+
+
+def test_v5_fires_when_points_roll_up_higher():
+    phase = make_phase(weeks=6, points=55)
+    deliverables = [
+        make_deliverable(1, "A", 3.0, 40),
+        make_deliverable(2, "B", 3.0, 30),
+    ]
+    warning = check_rollup_mismatch(phase, deliverables, DEFAULT_SETTINGS)
+    assert warning is not None
+    assert warning.rule == "V5"
+    assert "points roll up to 70" in warning.message
+    assert "against 55 entered" in warning.message
+
+
+def test_v5_reports_duration_and_points_together():
+    phase = make_phase(weeks=6, points=55)
+    deliverables = [make_deliverable(1, "A", 2.0, 20)]
+    warning = check_rollup_mismatch(phase, deliverables, DEFAULT_SETTINGS)
+    assert warning is not None
+    assert "duration rolls up to 2 weeks" in warning.message
+    assert "points roll up to 20" in warning.message
+
+
+def test_v5_treats_any_rollup_against_a_zero_estimate_as_a_mismatch():
+    phase = make_phase(weeks=0, points=0)
+    deliverables = [make_deliverable(1, "A", 1.0, 10)]
+    assert check_rollup_mismatch(phase, deliverables, DEFAULT_SETTINGS) is not None
+
+
+def test_v5_is_silent_with_no_deliverables_at_all():
+    assert check_rollup_mismatch(make_phase(), [], DEFAULT_SETTINGS) is None
+
+
+def test_v5_respects_a_widened_tolerance():
+    phase = make_phase(weeks=6, points=60)
+    deliverables = [make_deliverable(1, "A", 5.5, 55)]
+    relaxed = {**DEFAULT_SETTINGS, "v5_tolerance_pct": 20.0}
+    assert check_rollup_mismatch(phase, deliverables, relaxed) is None
+
+
+def test_v5_never_alters_the_phase_estimate():
+    """The rollup is reported beside the phase, it does not overwrite it."""
+    phase = make_phase(weeks=6, points=55)
+    deliverables = [make_deliverable(1, "A", 2.0, 20)]
+    check_rollup_mismatch(phase, deliverables, DEFAULT_SETTINGS)
+    assert phase["duration_weeks"] == 6
+    assert phase["effort_points"] == 55
+
+
 # --- whole plan -------------------------------------------------------------
 
 
@@ -186,6 +274,13 @@ def test_validate_plan_is_clean_for_a_consistent_plan():
     ]
     deps = [{"predecessor_phase_id": 1, "successor_phase_id": 2}]
     assert validate_plan(PROJECT, phases, deps) == []
+
+
+def test_validate_plan_includes_v5_for_phases_with_deliverables():
+    phases = [make_phase(1, "Build", start="2026-01-05", weeks=6, points=60)]
+    grouped = {1: [make_deliverable(1, "A", 2.0, 20)]}
+    warnings = validate_plan(PROJECT, phases, [], None, grouped)
+    assert [w.rule for w in warnings] == ["V5"]
 
 
 def test_validate_plan_ignores_dependencies_pointing_at_missing_phases():

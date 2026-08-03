@@ -8,11 +8,12 @@ opinion, so callers are expected to reject the edit outright.
 
 Inputs are plain mappings so this module stays decoupled from storage:
 
-    settings:   default_velocity_points_per_sprint, sprint_length_days,
-                v1_tolerance_pct
-    project:    id, name, start_date, velocity_override
-    phase:      id, project_id, name, start_date, duration_weeks, effort_points
-    dependency: predecessor_phase_id, successor_phase_id
+    settings:    default_velocity_points_per_sprint, sprint_length_days,
+                 v1_tolerance_pct, v5_tolerance_pct
+    project:     id, name, goal, start_date, velocity_override
+    phase:       id, project_id, name, start_date, duration_weeks, effort_points
+    deliverable: id, phase_id, name, duration_weeks, effort_points, sort_order
+    dependency:  predecessor_phase_id, successor_phase_id
 
 Dates may be ``datetime.date`` objects or ISO-8601 strings; both are accepted.
 """
@@ -28,6 +29,9 @@ DEFAULT_SETTINGS = {
     # Percent of duration_weeks that effort may disagree by before V1 fires.
     # 5% makes the canonical 6w / 55pts @ velocity 20 case warn, as intended.
     "v1_tolerance_pct": 5.0,
+    # Percent the bottom-up deliverable rollup may disagree with the phase's
+    # top-down estimate before V5 fires.
+    "v5_tolerance_pct": 5.0,
 }
 
 
@@ -164,6 +168,67 @@ def find_dependency_cycle(dependencies):
     return None
 
 
+def rollup_deliverables(deliverables):
+    """Bottom-up totals for one phase, or None when there is nothing to roll up.
+
+    Deliverables inside a phase are treated as sequential, so durations sum.
+    Work that genuinely runs in parallel belongs in separate phases.
+    """
+    if not deliverables:
+        return None
+    return {
+        "duration_weeks": round(sum(float(d["duration_weeks"]) for d in deliverables), 4),
+        "effort_points": sum(int(d["effort_points"]) for d in deliverables),
+        "count": len(deliverables),
+    }
+
+
+def beyond_tolerance(entered, rolled_up, tolerance_fraction):
+    """A zero top-down estimate makes any non-zero rollup a mismatch."""
+    if entered <= 0:
+        return rolled_up > 0
+    return abs(entered - rolled_up) > entered * tolerance_fraction
+
+
+def check_rollup_mismatch(phase, deliverables, settings):
+    """V5: the bottom-up rollup disagrees with the phase's top-down estimate.
+
+    Neither number wins -- the phase keeps what was entered and the rollup is
+    reported alongside it, the same way V1 treats weeks against points.
+    """
+    rollup = rollup_deliverables(deliverables)
+    if not rollup:
+        return None
+
+    tolerance = float(settings["v5_tolerance_pct"]) / 100.0
+    entered_weeks = float(phase["duration_weeks"])
+    entered_points = float(phase["effort_points"])
+    problems = []
+
+    if beyond_tolerance(entered_weeks, rollup["duration_weeks"], tolerance):
+        problems.append(
+            f"duration rolls up to {rollup['duration_weeks']:g} weeks "
+            f"against {entered_weeks:g} entered"
+        )
+    if beyond_tolerance(entered_points, rollup["effort_points"], tolerance):
+        problems.append(
+            f"points roll up to {rollup['effort_points']:g} "
+            f"against {entered_points:g} entered"
+        )
+
+    if not problems:
+        return None
+
+    return PlanWarning(
+        rule="V5",
+        phase_id=phase["id"],
+        message=(
+            f"'{phase['name']}': {rollup['count']} deliverable(s) disagree with the "
+            f"phase estimate -- " + "; ".join(problems) + "."
+        ),
+    )
+
+
 def check_phase_within_project(phase, project):
     """V4: phase starts before the project it belongs to."""
     phase_start = as_date(phase["start_date"])
@@ -184,8 +249,8 @@ def check_phase_within_project(phase, project):
 # --- Whole-plan entry point -------------------------------------------------
 
 
-def validate_plan(project, phases, dependencies, settings=None):
-    """Run V1, V2 and V4 across a project and return every warning found.
+def validate_plan(project, phases, dependencies, settings=None, deliverables_by_phase=None):
+    """Run V1, V2, V4 and V5 across a project and return every warning found.
 
     V3 is deliberately excluded: a cycle blocks the edit that would create it,
     so it is checked by `find_dependency_cycle` at write time rather than being
@@ -193,6 +258,7 @@ def validate_plan(project, phases, dependencies, settings=None):
     """
     settings = {**DEFAULT_SETTINGS, **(settings or {})}
     velocity = effective_velocity(project, settings)
+    deliverables_by_phase = deliverables_by_phase or {}
     by_id = {phase["id"]: phase for phase in phases}
     warnings = []
 
@@ -204,6 +270,12 @@ def validate_plan(project, phases, dependencies, settings=None):
         outside = check_phase_within_project(phase, project)
         if outside:
             warnings.append(outside)
+
+        drift = check_rollup_mismatch(
+            phase, deliverables_by_phase.get(phase["id"], []), settings
+        )
+        if drift:
+            warnings.append(drift)
 
     for dep in dependencies:
         predecessor = by_id.get(dep["predecessor_phase_id"])

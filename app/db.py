@@ -16,13 +16,15 @@ CREATE TABLE IF NOT EXISTS settings (
     id                                INTEGER PRIMARY KEY CHECK (id = 1),
     default_velocity_points_per_sprint INTEGER NOT NULL DEFAULT 20,
     sprint_length_days                INTEGER NOT NULL DEFAULT 14,
-    v1_tolerance_pct                  REAL    NOT NULL DEFAULT 5.0
+    v1_tolerance_pct                  REAL    NOT NULL DEFAULT 5.0,
+    v5_tolerance_pct                  REAL    NOT NULL DEFAULT 5.0
 );
 
 CREATE TABLE IF NOT EXISTS project (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     name              TEXT NOT NULL,
     description       TEXT NOT NULL DEFAULT '',
+    goal              TEXT NOT NULL DEFAULT '',
     start_date        TEXT NOT NULL,
     velocity_override INTEGER,
     created_at        TEXT NOT NULL,
@@ -49,8 +51,28 @@ CREATE TABLE IF NOT EXISTS dependency (
     UNIQUE (predecessor_phase_id, successor_phase_id)
 );
 
+-- Deliverables are planning units, not tasks: no assignee, no status, no
+-- comments. They become tasks in a downstream system once the plan is agreed.
+CREATE TABLE IF NOT EXISTS deliverable (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    phase_id       INTEGER NOT NULL REFERENCES phase(id) ON DELETE CASCADE,
+    name           TEXT NOT NULL,
+    description    TEXT NOT NULL DEFAULT '',
+    duration_weeks REAL NOT NULL DEFAULT 0,
+    effort_points  INTEGER NOT NULL DEFAULT 0,
+    sort_order     INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE INDEX IF NOT EXISTS idx_phase_project ON phase(project_id);
+CREATE INDEX IF NOT EXISTS idx_deliverable_phase ON deliverable(phase_id);
 """
+
+# Columns added after the first release. SQLite has no "ADD COLUMN IF NOT
+# EXISTS", so `migrate` checks PRAGMA table_info before each ALTER.
+ADDED_COLUMNS = [
+    ("project", "goal", "TEXT NOT NULL DEFAULT ''"),
+    ("settings", "v5_tolerance_pct", "REAL NOT NULL DEFAULT 5.0"),
+]
 
 _db_path = DEFAULT_DB_PATH
 
@@ -75,6 +97,16 @@ def init_db():
     with connect() as connection:
         connection.executescript(SCHEMA)
         connection.execute("INSERT OR IGNORE INTO settings (id) VALUES (1)")
+        migrate(connection)
+
+
+def migrate(connection):
+    """Add columns introduced after the first release to an existing file."""
+    for table, column, definition in ADDED_COLUMNS:
+        existing = {row["name"] for row in
+                    connection.execute(f"PRAGMA table_info({table})").fetchall()}
+        if column not in existing:
+            connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def now_iso():
@@ -99,6 +131,7 @@ def update_settings(fields):
         "default_velocity_points_per_sprint",
         "sprint_length_days",
         "v1_tolerance_pct",
+        "v5_tolerance_pct",
     }
     updates = {key: value for key, value in fields.items() if key in allowed}
     if updates:
@@ -125,21 +158,21 @@ def get_project(project_id):
     return dict(row) if row else None
 
 
-def create_project(name, start_date, description="", velocity_override=None):
+def create_project(name, start_date, description="", goal="", velocity_override=None):
     timestamp = now_iso()
     with connect() as connection:
         cursor = connection.execute(
-            """INSERT INTO project (name, description, start_date, velocity_override,
-                                    created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (name, description, start_date, velocity_override, timestamp, timestamp),
+            """INSERT INTO project (name, description, goal, start_date,
+                                    velocity_override, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (name, description, goal, start_date, velocity_override, timestamp, timestamp),
         )
         project_id = cursor.lastrowid
     return get_project(project_id)
 
 
 def update_project(project_id, fields):
-    allowed = {"name", "description", "start_date", "velocity_override"}
+    allowed = {"name", "description", "goal", "start_date", "velocity_override"}
     updates = {key: value for key, value in fields.items() if key in allowed}
     if updates:
         updates["updated_at"] = now_iso()
@@ -212,6 +245,86 @@ def delete_phase(phase_id):
         connection.execute("DELETE FROM phase WHERE id = ?", (phase_id,))
 
 
+def list_all_phases():
+    """Every phase across every project, for the portfolio view."""
+    with connect() as connection:
+        rows = connection.execute(
+            "SELECT * FROM phase ORDER BY project_id, sort_order, start_date, id"
+        ).fetchall()
+    return rows_to_dicts(rows)
+
+
+# --- deliverables -----------------------------------------------------------
+
+
+def list_deliverables(phase_id):
+    with connect() as connection:
+        rows = connection.execute(
+            "SELECT * FROM deliverable WHERE phase_id = ? ORDER BY sort_order, id",
+            (phase_id,),
+        ).fetchall()
+    return rows_to_dicts(rows)
+
+
+def deliverables_by_phase(project_id):
+    """Every deliverable in a project, grouped by phase id."""
+    with connect() as connection:
+        rows = connection.execute(
+            """SELECT d.* FROM deliverable d
+               JOIN phase p ON p.id = d.phase_id
+               WHERE p.project_id = ?
+               ORDER BY d.sort_order, d.id""",
+            (project_id,),
+        ).fetchall()
+    grouped = {}
+    for row in rows_to_dicts(rows):
+        grouped.setdefault(row["phase_id"], []).append(row)
+    return grouped
+
+
+def get_deliverable(deliverable_id):
+    with connect() as connection:
+        row = connection.execute(
+            "SELECT * FROM deliverable WHERE id = ?", (deliverable_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def create_deliverable(phase_id, name, duration_weeks: float = 0, effort_points=0,
+                       description=""):
+    with connect() as connection:
+        next_order = connection.execute(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM deliverable WHERE phase_id = ?",
+            (phase_id,),
+        ).fetchone()[0]
+        cursor = connection.execute(
+            """INSERT INTO deliverable (phase_id, name, description, duration_weeks,
+                                        effort_points, sort_order)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (phase_id, name, description, duration_weeks, effort_points, next_order),
+        )
+        deliverable_id = cursor.lastrowid
+    return get_deliverable(deliverable_id)
+
+
+def update_deliverable(deliverable_id, fields):
+    allowed = {"name", "description", "duration_weeks", "effort_points", "sort_order"}
+    updates = {key: value for key, value in fields.items() if key in allowed}
+    if updates:
+        assignments = ", ".join(f"{key} = ?" for key in updates)
+        with connect() as connection:
+            connection.execute(
+                f"UPDATE deliverable SET {assignments} WHERE id = ?",
+                list(updates.values()) + [deliverable_id],
+            )
+    return get_deliverable(deliverable_id)
+
+
+def delete_deliverable(deliverable_id):
+    with connect() as connection:
+        connection.execute("DELETE FROM deliverable WHERE id = ?", (deliverable_id,))
+
+
 # --- dependencies -----------------------------------------------------------
 
 
@@ -262,13 +375,15 @@ def export_all():
     with connect() as connection:
         projects = rows_to_dicts(connection.execute("SELECT * FROM project").fetchall())
         phases = rows_to_dicts(connection.execute("SELECT * FROM phase").fetchall())
+        deliverables = rows_to_dicts(connection.execute("SELECT * FROM deliverable").fetchall())
         dependencies = rows_to_dicts(connection.execute("SELECT * FROM dependency").fetchall())
     return {
-        "version": 1,
+        "version": 2,
         "exported_at": now_iso(),
         "settings": get_settings(),
         "projects": projects,
         "phases": phases,
+        "deliverables": deliverables,
         "dependencies": dependencies,
     }
 
@@ -281,6 +396,7 @@ def import_all(payload):
     with connect() as connection:
         connection.execute("PRAGMA foreign_keys = OFF")
         connection.execute("DELETE FROM dependency")
+        connection.execute("DELETE FROM deliverable")
         connection.execute("DELETE FROM phase")
         connection.execute("DELETE FROM project")
 
@@ -288,22 +404,25 @@ def import_all(payload):
         if settings:
             connection.execute(
                 """UPDATE settings SET default_velocity_points_per_sprint = ?,
-                                       sprint_length_days = ?, v1_tolerance_pct = ?
+                                       sprint_length_days = ?, v1_tolerance_pct = ?,
+                                       v5_tolerance_pct = ?
                    WHERE id = 1""",
                 (
                     settings.get("default_velocity_points_per_sprint", 20),
                     settings.get("sprint_length_days", 14),
                     settings.get("v1_tolerance_pct", 5.0),
+                    settings.get("v5_tolerance_pct", 5.0),
                 ),
             )
 
         for project in payload.get("projects", []):
             connection.execute(
-                """INSERT INTO project (id, name, description, start_date,
+                """INSERT INTO project (id, name, description, goal, start_date,
                                         velocity_override, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     project["id"], project["name"], project.get("description", ""),
+                    project.get("goal", ""),
                     project["start_date"], project.get("velocity_override"),
                     project.get("created_at") or now_iso(),
                     project.get("updated_at") or now_iso(),
@@ -320,6 +439,20 @@ def import_all(payload):
                     phase.get("description", ""), phase["start_date"],
                     phase.get("duration_weeks", 1), phase.get("effort_points", 0),
                     phase.get("status", "planned"), phase.get("sort_order", 0),
+                ),
+            )
+
+        for deliverable in payload.get("deliverables", []):
+            connection.execute(
+                """INSERT INTO deliverable (id, phase_id, name, description,
+                                            duration_weeks, effort_points, sort_order)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    deliverable["id"], deliverable["phase_id"], deliverable["name"],
+                    deliverable.get("description", ""),
+                    deliverable.get("duration_weeks", 0),
+                    deliverable.get("effort_points", 0),
+                    deliverable.get("sort_order", 0),
                 ),
             )
 

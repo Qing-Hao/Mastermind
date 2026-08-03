@@ -14,7 +14,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app import db
-from app.validation import find_dependency_cycle, phase_end_date, validate_plan
+from app.validation import (
+    find_dependency_cycle,
+    phase_end_date,
+    rollup_deliverables,
+    validate_plan,
+)
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
@@ -35,12 +40,14 @@ class SettingsIn(BaseModel):
     default_velocity_points_per_sprint: int | None = None
     sprint_length_days: int | None = None
     v1_tolerance_pct: float | None = None
+    v5_tolerance_pct: float | None = None
 
 
 class ProjectIn(BaseModel):
     name: str
     start_date: str
     description: str = ""
+    goal: str = ""
     velocity_override: int | None = None
 
 
@@ -48,6 +55,7 @@ class ProjectPatch(BaseModel):
     name: str | None = None
     start_date: str | None = None
     description: str | None = None
+    goal: str | None = None
     velocity_override: int | None = None
 
 
@@ -67,6 +75,21 @@ class PhasePatch(BaseModel):
     effort_points: int | None = None
     description: str | None = None
     status: str | None = None
+    sort_order: int | None = None
+
+
+class DeliverableIn(BaseModel):
+    name: str
+    duration_weeks: float = 0
+    effort_points: int = 0
+    description: str = ""
+
+
+class DeliverablePatch(BaseModel):
+    name: str | None = None
+    duration_weeks: float | None = None
+    effort_points: int | None = None
+    description: str | None = None
     sort_order: int | None = None
 
 
@@ -124,24 +147,47 @@ def add_project(body: ProjectIn):
         name=body.name,
         start_date=body.start_date,
         description=body.description,
+        goal=body.goal,
         velocity_override=body.velocity_override,
     )
 
 
 @app.get("/api/projects/{project_id}")
 def read_project_plan(project_id: int):
-    """Project, phases with derived end dates, dependencies, and all warnings."""
+    """Project, phases with derived dates and rollups, dependencies, warnings."""
     project = require_project(project_id)
     phases = db.list_phases(project_id)
     dependencies = db.list_dependencies(project_id)
+    grouped = db.deliverables_by_phase(project_id)
     settings = db.get_settings()
-    warnings = validate_plan(project, phases, dependencies, settings)
+    warnings = validate_plan(project, phases, dependencies, settings, grouped)
+
+    enriched = []
+    for phase in phases:
+        deliverables = grouped.get(phase["id"], [])
+        enriched.append({
+            **with_end_date(phase),
+            "deliverables": deliverables,
+            "rollup": rollup_deliverables(deliverables),
+        })
+
     return {
         "project": project,
-        "phases": [with_end_date(phase) for phase in phases],
+        "phases": enriched,
         "dependencies": dependencies,
         "warnings": [warning.as_dict() for warning in warnings],
         "settings": settings,
+    }
+
+
+@app.get("/api/portfolio")
+def read_portfolio():
+    """Every project and phase on one timeline, for the cross-project Gantt."""
+    projects = db.list_projects()
+    phases = db.list_all_phases()
+    return {
+        "projects": projects,
+        "phases": [with_end_date(phase) for phase in phases],
     }
 
 
@@ -185,6 +231,46 @@ def edit_phase(phase_id: int, body: PhasePatch):
 def remove_phase(phase_id: int):
     require_phase(phase_id)
     db.delete_phase(phase_id)
+
+
+# --- deliverables -----------------------------------------------------------
+
+
+def require_deliverable(deliverable_id):
+    deliverable = db.get_deliverable(deliverable_id)
+    if not deliverable:
+        raise HTTPException(status_code=404, detail="Deliverable not found")
+    return deliverable
+
+
+@app.get("/api/phases/{phase_id}/deliverables")
+def read_deliverables(phase_id: int):
+    require_phase(phase_id)
+    return db.list_deliverables(phase_id)
+
+
+@app.post("/api/phases/{phase_id}/deliverables", status_code=201)
+def add_deliverable(phase_id: int, body: DeliverableIn):
+    require_phase(phase_id)
+    return db.create_deliverable(
+        phase_id=phase_id,
+        name=body.name,
+        duration_weeks=body.duration_weeks,
+        effort_points=body.effort_points,
+        description=body.description,
+    )
+
+
+@app.put("/api/deliverables/{deliverable_id}")
+def edit_deliverable(deliverable_id: int, body: DeliverablePatch):
+    require_deliverable(deliverable_id)
+    return db.update_deliverable(deliverable_id, body.model_dump(exclude_unset=True))
+
+
+@app.delete("/api/deliverables/{deliverable_id}", status_code=204)
+def remove_deliverable(deliverable_id: int):
+    require_deliverable(deliverable_id)
+    db.delete_deliverable(deliverable_id)
 
 
 # --- dependencies -----------------------------------------------------------
