@@ -138,15 +138,41 @@ tr.rollup-row td {
 #portfolio-scroll { overflow-x: auto; border: 1px solid #eee; padding: 10px; }
 #portfolio-chart { min-height: 40px; }
 
-.ruler { display: flex; margin-bottom: 8px; border-bottom: 1px solid #ddd; }
+/* --- week grid (both charts) --- */
+/* --week-px is set from PX_PER_WEEK in app.js; the fallback only matters if
+   the script has not run yet. */
+.ruler { margin-bottom: 6px; }
+.ruler-row { display: flex; }
+.ruler-months { border-bottom: 1px solid #eee; }
+.ruler-weeks { border-bottom: 1px solid #ddd; }
+
 .month {
   font-size: 11px;
-  color: #777;
-  border-left: 1px solid #e0e0e0;
+  font-weight: 600;
+  color: #555;
+  border-left: 1px solid #c8c8c8;
   padding-left: 4px;
   overflow: hidden;
   white-space: nowrap;
   flex: 0 0 auto;
+}
+.week {
+  flex: 0 0 var(--week-px, 42px);
+  width: var(--week-px, 42px);
+  font-size: 10px;
+  color: #999;
+  text-align: center;
+  border-left: 1px solid #ededed;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.month:first-child, .week:first-child { border-left-color: transparent; }
+
+/* One line per week column, so a bar's start and length are readable off the
+   grid instead of guessed. */
+.grid-body {
+  background-image: repeating-linear-gradient(
+    to right, #ededed 0 1px, transparent 1px var(--week-px, 42px));
 }
 
 .lane { padding: 6px 0; border-bottom: 1px solid #f0f0f0; }

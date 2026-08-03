@@ -2,7 +2,10 @@
 // camelCase here because that is the JS ecosystem standard; the Python side
 // uses snake_case. API payload keys stay snake_case end to end.
 
-const PX_PER_DAY = 5;
+// The week is the unit the eye reads, so the column width is the real constant
+// and the per-day figure is derived from it.
+const PX_PER_WEEK = 42;
+const PX_PER_DAY = PX_PER_WEEK / 7;
 const MS_PER_DAY = 86400000;
 
 let state = {
@@ -60,6 +63,71 @@ function element(tag, className, text) {
   if (className) node.className = className;
   if (text !== undefined) node.textContent = text;
   return node;
+}
+
+// --- week grid (shared by both charts) --------------------------------------
+
+// Charts are laid out in whole-week columns starting on a Monday so that bars,
+// gridlines and the ruler all break on the same edges.
+function weekStart(date) {
+  const monday = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+  return monday;
+}
+
+const addDays = (date, days) => {
+  const moved = new Date(date.getTime());
+  moved.setDate(moved.getDate() + days);
+  return moved;
+};
+
+// Sizes `chart`, gives it a ruler, and returns the grid origin plus the element
+// bars belong in. Bars must be positioned against the returned origin, which is
+// the Monday on or before `earliest` -- not `earliest` itself.
+function weekGrid(chart, earliest, latest, gutter) {
+  const origin = weekStart(earliest);
+  const weeks = Math.max(Math.ceil((daysBetween(origin, latest) + 1) / 7), 1);
+  chart.style.width = `${weeks * PX_PER_WEEK + gutter}px`;
+  chart.appendChild(weekRuler(origin, weeks));
+
+  const body = element("div", "grid-body");
+  body.style.width = `${weeks * PX_PER_WEEK}px`;
+  chart.appendChild(body);
+  return { origin, body };
+}
+
+function weekRuler(origin, weeks) {
+  const ruler = element("div", "ruler");
+  const monthRow = element("div", "ruler-row ruler-months");
+  const weekRow = element("div", "ruler-row ruler-weeks");
+
+  let block = null;
+  let blockKey = null;
+  let blockWeeks = 0;
+
+  for (let index = 0; index < weeks; index += 1) {
+    const monday = addDays(origin, index * 7);
+
+    // A week belongs to the month its Monday falls in, so month dividers always
+    // land on a column edge instead of cutting a week in half.
+    const key = `${monday.getFullYear()}-${monday.getMonth()}`;
+    if (key !== blockKey) {
+      blockKey = key;
+      blockWeeks = 0;
+      block = element("div", "month",
+        monday.toLocaleString(undefined, { month: "short", year: "2-digit" }));
+      monthRow.appendChild(block);
+    }
+    blockWeeks += 1;
+    block.style.width = `${blockWeeks * PX_PER_WEEK}px`;
+
+    const cell = element("div", "week", String(monday.getDate()));
+    cell.title = `Week of ${formatDate(monday)}`;
+    weekRow.appendChild(cell);
+  }
+
+  ruler.append(monthRow, weekRow);
+  return ruler;
 }
 
 // --- loading ----------------------------------------------------------------
@@ -195,6 +263,7 @@ function warnedPhaseIds() {
 function renderTimeline() {
   const timeline = $("timeline");
   timeline.innerHTML = "";
+  timeline.style.width = "";
   const phases = state.plan.phases.filter(isScheduled);
   if (phases.length === 0) {
     timeline.appendChild(element("p", "muted",
@@ -208,14 +277,13 @@ function renderTimeline() {
   if (state.plan.project.start_date) {
     starts.push(parseDate(state.plan.project.start_date));
   }
-  const origin = new Date(Math.min(...starts));
-  const finish = new Date(Math.max(...phases.map((p) => parseDate(p.end_date))));
-  const totalDays = Math.max(daysBetween(origin, finish), 1);
-  timeline.style.width = `${totalDays * PX_PER_DAY + 200}px`;
+  const earliest = new Date(Math.min(...starts));
+  const latest = new Date(Math.max(...phases.map((p) => parseDate(p.end_date))));
+  const { origin, body } = weekGrid(timeline, earliest, latest, 200);
 
   const warned = warnedPhaseIds();
   for (const phase of phases) {
-    timeline.appendChild(phaseBar(phase, origin, warned.has(phase.id)));
+    body.appendChild(phaseBar(phase, origin, warned.has(phase.id)));
   }
 }
 
@@ -450,6 +518,7 @@ function renderDependencies() {
 function renderPortfolio() {
   const chart = $("portfolio-chart");
   chart.innerHTML = "";
+  chart.style.width = "";
   const { projects, phases, unscheduled_count: unscheduled } = state.portfolio;
 
   if (phases.length === 0) {
@@ -464,12 +533,9 @@ function renderPortfolio() {
       `${unscheduled} phase(s) not shown — no start date yet.`));
   }
 
-  const origin = new Date(Math.min(...phases.map((p) => parseDate(p.start_date))));
-  const finish = new Date(Math.max(...phases.map((p) => parseDate(p.end_date))));
-  const totalDays = Math.max(daysBetween(origin, finish), 1);
-  chart.style.width = `${totalDays * PX_PER_DAY + 240}px`;
-
-  chart.appendChild(monthRuler(origin, totalDays));
+  const earliest = new Date(Math.min(...phases.map((p) => parseDate(p.start_date))));
+  const latest = new Date(Math.max(...phases.map((p) => parseDate(p.end_date))));
+  const { origin, body } = weekGrid(chart, earliest, latest, 240);
 
   for (const project of projects) {
     const own = phases.filter((phase) => phase.project_id === project.id);
@@ -480,51 +546,41 @@ function renderPortfolio() {
     for (const phase of own) {
       const bar = phaseBar(phase, origin, false);
       bar.classList.add("draggable");
-      bar.title += "  (drag to move)";
-      makeDraggable(bar, phase);
+      bar.title += "  (drag to move; hold Alt for day steps)";
+      makeDraggable(bar, phase, origin);
       lane.appendChild(bar);
     }
-    chart.appendChild(lane);
+    body.appendChild(lane);
   }
 }
 
-function monthRuler(origin, totalDays) {
-  const ruler = element("div", "ruler");
-  const cursor = new Date(origin.getFullYear(), origin.getMonth(), 1);
-  const end = new Date(origin.getTime() + totalDays * MS_PER_DAY);
-
-  while (cursor <= end) {
-    const next = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
-    const visibleStart = cursor < origin ? origin : cursor;
-    const width = daysBetween(visibleStart, next) * PX_PER_DAY;
-    if (width > 0) {
-      const block = element("div", "month",
-        cursor.toLocaleString(undefined, { month: "short", year: "2-digit" }));
-      block.style.width = `${width}px`;
-      ruler.appendChild(block);
-    }
-    cursor.setMonth(cursor.getMonth() + 1);
-  }
-  return ruler;
-}
-
-function makeDraggable(bar, phase) {
+function makeDraggable(bar, phase, origin) {
   bar.onmousedown = (event) => {
     event.preventDefault();
     const startX = event.clientX;
-    const originalOffset = parseFloat(bar.style.marginLeft) || 0;
+    const startOffset = daysBetween(origin, parseDate(phase.start_date));
+    const label = bar.textContent;
     let dayDelta = 0;
     bar.classList.add("dragging");
 
     const onMove = (moveEvent) => {
-      dayDelta = Math.round((moveEvent.clientX - startX) / PX_PER_DAY);
-      bar.style.marginLeft = `${originalOffset + dayDelta * PX_PER_DAY}px`;
+      const rawDelta = (moveEvent.clientX - startX) / PX_PER_DAY;
+      // Land on a column edge so the drop point is readable off the grid.
+      // Alt drops back to whole days for a phase that must start mid-week.
+      dayDelta = moveEvent.altKey
+        ? Math.round(rawDelta)
+        : Math.round((startOffset + rawDelta) / 7) * 7 - startOffset;
+      bar.style.marginLeft = `${(startOffset + dayDelta) * PX_PER_DAY}px`;
+      bar.textContent = dayDelta === 0
+        ? label
+        : `${label} → ${shiftDate(phase.start_date, dayDelta)}`;
     };
 
     const onUp = async () => {
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
       bar.classList.remove("dragging");
+      bar.textContent = label;
       if (dayDelta === 0) return;
       // Only this phase moves. Dependents stay put and start warning instead.
       await api(`/api/phases/${phase.id}`, {
@@ -691,6 +747,10 @@ function bindEvents() {
     await loadProjects();
   };
 }
+
+// Column width lives in JS; the stylesheet reads it so the gridlines and the
+// ruler cells can never drift apart from where the bars are drawn.
+document.documentElement.style.setProperty("--week-px", `${PX_PER_WEEK}px`);
 
 bindEvents();
 loadProjects();
