@@ -1224,8 +1224,17 @@ function makeDraggable(bar, phase, view) {
 const SVG_NS = "http://www.w3.org/2000/svg";
 // The rings are ellipses (see below), and the gap between two of them is at its
 // thinnest on the short vertical axis -- which is where the rings run out of
-// room for the labels between them. The height buys that gap back.
-const MAP_HEIGHT = 680;
+// room for the labels between them. The floor buys that gap back.
+//
+// The height is not fixed, because the width is not either: the map view is the
+// one part of the page that is not capped at 1100px, so on a wide monitor a
+// fixed height would stretch the rings flat and push every node out to the far
+// left and right. It grows just enough to hold the ellipse under
+// MAX_RING_ASPECT, then stops so the map still fits on a screen. At the width
+// the old 1100px cap allowed, the floor wins and nothing moves.
+const MIN_MAP_HEIGHT = 680;
+const MAX_MAP_HEIGHT = 860;
+const MAX_RING_ASPECT = 1.8;
 // Rings are ellipses, not circles: a page-wide canvas is far wider than it is
 // tall, and a circle sized to the height would leave the sides empty and crowd
 // everything into the middle.
@@ -1247,10 +1256,13 @@ const MAX_NODE_R = 38;
 // tightest one on the map: both rings carry a label and neither has a node big
 // enough to need the room elsewhere.
 const TRACK_RING = 0.36;
-// Not the midpoint of track and project: a subtrack with a single project sits
-// at that project's own angle, and a 38px node on the 0.74 ring reaches back
-// past 0.57 on the short vertical axis and swallows the label.
-const SUBTRACK_RING = 0.52;
+// Not the midpoint of track and project, and closer to its track than to the
+// ring outside it: a subtrack with a single project sits at that project's own
+// angle, and a 38px node on the 0.74 ring reaches a long way back towards it.
+// Labels no longer reach radially -- they run along the arc -- but a circle
+// still does, so the clearance is set by the node rather than by the text.
+// Sitting nearer the track also reads correctly: a subtrack belongs to one.
+const SUBTRACK_RING = 0.48;
 const PROJECT_RING = 0.74;
 const IDEA_RING = 1.0;
 const TRACK_DOT = 6;
@@ -1290,6 +1302,15 @@ function nodeRadius(points, largest) {
   if (!largest) return MIN_NODE_R;
   return MIN_NODE_R + (MAX_NODE_R - MIN_NODE_R)
     * Math.sqrt(Math.max(points, 0) / largest);
+}
+
+// How tall the canvas has to be for a ring of this width to stay under
+// MAX_RING_ASPECT. Inverts the `height / 2 - MAP_MARGIN_Y` that gives the
+// vertical radius, so the two stay in step.
+function mapHeight(ringX) {
+  const wanted = 2 * (ringX / MAX_RING_ASPECT + MAP_MARGIN_Y);
+  return Math.round(
+    Math.min(Math.max(wanted, MIN_MAP_HEIGHT), MAX_MAP_HEIGHT));
 }
 
 // Equal angles are not equal distances on an ellipse: a radian near 3 o'clock
@@ -1465,18 +1486,22 @@ function renderMap() {
   }
 
   const width = Math.max(canvas.clientWidth || 900, 480);
+  // Width first, then the height that keeps the ellipse in shape, then the
+  // vertical radius that falls out of it. Both radii are floored so a narrow
+  // container still leaves the rings clear of the hub rather than collapsing
+  // them onto it.
+  const ringX = Math.max(width / 2 - MAP_MARGIN_X, HUB_RADIUS + MAX_NODE_R);
+  const height = mapHeight(ringX);
   const cx = width / 2;
-  const cy = MAP_HEIGHT / 2;
-  // Floored so a narrow container still leaves the rings clear of the hub
-  // rather than collapsing them onto it.
+  const cy = height / 2;
   const rings = {
-    x: Math.max(width / 2 - MAP_MARGIN_X, HUB_RADIUS + MAX_NODE_R),
-    y: Math.max(MAP_HEIGHT / 2 - MAP_MARGIN_Y, HUB_RADIUS + MAX_NODE_R),
+    x: ringX,
+    y: Math.max(height / 2 - MAP_MARGIN_Y, HUB_RADIUS + MAX_NODE_R),
   };
 
   const svg = svgElement("svg", {
-    class: "map", width, height: MAP_HEIGHT,
-    viewBox: `0 0 ${width} ${MAP_HEIGHT}`,
+    class: "map", width, height,
+    viewBox: `0 0 ${width} ${height}`,
   });
   svg.appendChild(arrowDefs());
   const edges = svgElement("g", { class: "map-edges" });

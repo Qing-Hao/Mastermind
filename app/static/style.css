@@ -24,7 +24,19 @@ header {
 
 .spacer { flex: 1; }
 
-main { padding: 16px; max-width: 1100px; }
+/* The 1100px cap belongs to the views that read as documents -- forms, tables,
+   and a chart laid out in week columns, all of which get harder to read as the
+   line gets longer. The map is one picture of the whole department, so it takes
+   the window instead; its own cap is only there to stop the rings stretching
+   flat on an ultrawide, and it is paired with MAX_RING_ASPECT in app.js. */
+main { padding: 16px; }
+/* 1068, not 1100: the cap used to sit on `main`, so it included the 16px of
+   padding either side. Subtracting it keeps these three views the exact width
+   they have always been rather than quietly gaining 32px. */
+#empty-state, #workspace, #portfolio-view { max-width: 1068px; }
+#map-view { max-width: 1530px; }
+/* Prose does not want the extra width even where the map does. */
+#map-view .hint, #map-view .directions li { max-width: 900px; }
 
 section { margin-bottom: 28px; }
 

@@ -236,12 +236,21 @@ into one project link.
   140px) while the arc beside an inner-ring node is empty. The larger component
   of that direction picks the axis and its sign picks the side, giving
   `text-anchor` `start`/`end` on the flanks and `middle` at top and bottom.
-  Label geometry is the reason for three constants: `MAP_MARGIN_X` clears most
-  of a sideways label rather than half a centred one, `MAP_HEIGHT` buys back the
-  ring gap that is thinnest on the short vertical axis, and `TRACK_RING` sits at
-  0.36 to open the track→subtrack gap. Verified by collision sweep over the real
-  dataset at 900–1066px, the width `main`'s 1100px cap allows; below ~900px
-  twelve projects genuinely do not fit and labels touch again.
+  Label geometry is the reason for the constants: `MAP_MARGIN_X` clears most of
+  a sideways label rather than half a centred one, `MIN_MAP_HEIGHT` buys back
+  the ring gap that is thinnest on the short vertical axis, `TRACK_RING` sits at
+  0.36 to open the track→subtrack gap, and `SUBTRACK_RING` at 0.48 keeps the
+  subtrack clear of a 38px node on the ring outside it.
+  **The Map is the one view not capped at 1100px** — it is a single picture of
+  the whole department, so it takes the window up to 1530px while Project and
+  Portfolio keep the cap (the cap moved off `main` onto the views to allow it).
+  The height therefore follows the width: `mapHeight` grows the canvas just
+  enough to hold the rings under `MAX_RING_ASPECT` (1.8), clamped 680–860, so a
+  wide monitor does not stretch the ellipse flat and push every node out to the
+  far left and right. At the width the old cap allowed, the floor wins and
+  nothing moves. Verified by collision sweep over the real dataset: clean from
+  1000px to 1530px; below ~900px twelve projects genuinely do not fit and
+  labels touch again.
   Dependencies are **not drawn on every render** — a dozen projects on a radial
   layout becomes spaghetti. Instead `GET /api/graph` carries them and hovering
   (or keyboard-focusing) a project dims the map to that project and the ones it
