@@ -925,24 +925,21 @@ function renderPortfolio() {
   const chart = $("portfolio-chart");
   chart.innerHTML = "";
   chart.style.width = "";
-  const { projects, phases, unscheduled_count: unscheduled } = state.portfolio;
+  const { projects, phases, unscheduled } = state.portfolio;
 
   if (phases.length === 0) {
     chart.appendChild(element("p", "muted",
-      unscheduled
-        ? `Nothing is scheduled yet. ${unscheduled} phase(s) are estimated but undated.`
+      unscheduled.length
+        ? "Nothing is scheduled yet — drag a project from above onto a week."
         : "Nothing planned yet."));
-    return;
-  }
-  if (unscheduled) {
-    chart.appendChild(element("p", "muted",
-      `${unscheduled} phase(s) not shown — no start date yet.`));
   }
 
   const view = resolveWindow();
   const visible = phases.filter((phase) => inWindow(phase, view));
   offWindowNote(chart, phases.length - visible.length);
 
+  // Drawn even with nothing on it: the empty grid is the drop target for the
+  // tray, and a dataset where nothing is dated yet is exactly when you need it.
   const body = weekGrid(chart, view);
 
   for (const project of projects) {
@@ -960,6 +957,100 @@ function renderPortfolio() {
     }
     body.appendChild(lane);
   }
+
+  renderTray(body, view);
+}
+
+// Work that is estimated but undated, waiting to be dropped onto the grid. The
+// project view is where a plan is shaped -- weeks, points, phase order -- and
+// this is where that shape gets a date, without retyping any of it.
+function renderTray(body, view) {
+  const { unscheduled, unscheduled_count: pending } = state.portfolio;
+  const tray = $("portfolio-tray");
+  $("tray-section").hidden = unscheduled.length === 0;
+  $("tray-count").textContent = `${pending} phase(s)`;
+  tray.innerHTML = "";
+
+  for (const entry of unscheduled) {
+    const chip = element("div", "tray-chip");
+    chip.appendChild(element("span", "tray-name", entry.project_name));
+    chip.appendChild(element("span", "muted",
+      `${entry.phases.length} phase(s) · ${entry.total_weeks}w · ${entry.total_points} pts`));
+    // What the drop will and will not touch, spelled out before you commit to it.
+    if (entry.scheduled_count) {
+      chip.appendChild(element("span", "tray-note",
+        `${entry.scheduled_count} dated phase(s) stay put`));
+    }
+    if (entry.start_date) {
+      chip.appendChild(element("span", "tray-note",
+        `starts ${entry.start_date} — dropping moves it`));
+    }
+    chip.title = `${entry.project_name}\n`
+      + entry.phases.map((phase) =>
+        `  ${phase.name} — ${phase.duration_weeks}w, ${phase.effort_points} pts`).join("\n")
+      + "\n\nDrag onto a week to place. Hold Alt for single days.";
+    makeTrayDraggable(chip, entry, body, view);
+    tray.appendChild(chip);
+  }
+}
+
+// The portfolio-side twin of the project view's "Lay out" button: the drop
+// writes the project start date you let go on, then asks the server to stack
+// the undated phases from it. Still nothing automatic -- the date comes from
+// the gesture, and only the phases with no date of their own move.
+function makeTrayDraggable(chip, entry, body, view) {
+  chip.onmousedown = (event) => {
+    event.preventDefault();
+    // A ghost lane rather than a floating element: the bar lands on the same
+    // gridlines the real ones use, so the week you are about to pick is read
+    // off the ruler instead of guessed.
+    const lane = element("div", "lane lane-ghost");
+    lane.appendChild(element("div", "lane-title", entry.project_name));
+    const ghost = element("div", "bar tray-ghost");
+    lane.appendChild(ghost);
+    body.appendChild(lane);
+    chip.classList.add("dragging");
+
+    // Half a week minimum so a project of tiny phases is still grabbable.
+    const span = Math.max(entry.total_weeks * 7, 3.5);
+    let dropDay = null;
+
+    const onMove = (moveEvent) => {
+      const rect = body.getBoundingClientRect();
+      const raw = (moveEvent.clientX - rect.left) / view.pxPerDay;
+      // Whole weeks by default, matching how bars are dragged; Alt for a
+      // project that has to begin mid-week.
+      const snapped = moveEvent.altKey ? Math.round(raw) : Math.round(raw / 7) * 7;
+      dropDay = Math.min(Math.max(snapped, 0), view.totalDays - 1);
+      placeBar(ghost, dropDay, dropDay + span, view);
+      ghost.textContent = `${entry.project_name} → ${formatDate(addDays(view.origin, dropDay))}`;
+    };
+
+    const onUp = async () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      chip.classList.remove("dragging");
+      lane.remove();
+      // A click that never moved is not a placement -- a date this consequential
+      // should not come from a stray click on the list.
+      if (dropDay === null) return;
+
+      const startDate = formatDate(addDays(view.origin, dropDay));
+      try {
+        await api(`/api/projects/${entry.project_id}`, {
+          method: "PUT",
+          body: JSON.stringify({ start_date: startDate }),
+        });
+        await api(`/api/projects/${entry.project_id}/layout`, { method: "POST" });
+      } catch (failure) {
+        alert(`Could not place ${entry.project_name}: ${failure.message}`);
+      }
+      await loadPortfolio();
+    };
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
 }
 
 // Dependencies are drawn as a list rather than arrows between swimlanes: a link

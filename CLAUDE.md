@@ -14,7 +14,7 @@ migration framework, no auth.
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000   # http://127.0.0.1:8000
-.\.venv\Scripts\python.exe -m pytest -q                                   # 104 tests, ~2.1s
+.\.venv\Scripts\python.exe -m pytest -q                                   # 112 tests, ~2.1s
 ```
 
 Type checking is pyright, `basic` mode, config in `pyrightconfig.json`.
@@ -119,11 +119,15 @@ HTML `<input type="date">` untouched. Estimate first, commit dates later.
 - Writes are **strict** (`main.clean_date` → 422) so bad values never get stored.
 - V4 skips unscheduled records, and V2 skips a project with nothing scheduled on
   the side it needs (no start, or no phase end). V1 does not care about dates.
-- Portfolio omits unscheduled phases and reports `unscheduled_count`.
+- Portfolio keeps unscheduled phases off the chart, but returns them grouped by
+  project in `unscheduled` (plus the flat `unscheduled_count`) so the view can
+  stage them for placing.
 - The project timeline's **Weeks** mode draws undated phases as `W1, W2, …`, so
   a plan with no dates at all still has a readable shape to arrange.
 - `POST /api/projects/{id}/layout` places undated phases back to back from the
-  project start. **User-triggered only** — it is not auto-scheduling.
+  project start. **User-triggered only** — it is not auto-scheduling. The
+  portfolio tray is the same operation driven by a drag: the drop is what
+  supplies the start date, so no date is ever invented.
 
 ## API surface
 
@@ -142,6 +146,10 @@ carrying `predecessor_name` and `successor_name` so the view needs no second
 fetch. `GET /api/portfolio` carries the same list for the whole dataset plus
 every V2 warning, and `GET /api/graph` carries it too — for the map's hover
 highlight, not for a permanent edge.
+
+`GET /api/portfolio` also returns `unscheduled`: per project, the phases still
+waiting for a date, with `total_weeks`, `total_points` and `scheduled_count`.
+Built by `main.unplaced_work`; it is what the staging tray is drawn from.
 
 ## Schema changes and export versions
 
@@ -183,7 +191,18 @@ into one project link.
   project is scheduled; clicking either button pins it until you change project.
 - **Portfolio** — every scheduled phase of `active`/`done` projects on one axis,
   one swimlane per project. Drag a bar to move **only** that phase; snaps to a
-  week, `Alt` for single days. No resize. Below the chart, every cross-project
+  week, `Alt` for single days. No resize.
+  Above the chart, a **staging tray**: one chip per project that still has
+  undated phases. Drag a chip onto a week and the project is placed there —
+  `PUT` its `start_date`, then the existing layout endpoint stacks its undated
+  phases from it. Two existing calls, no new endpoint, and the same snapping as
+  a bar drag. Ideas never reach the tray (committing to a direction is a
+  project-view decision) and neither do projects with no phases, since the tray
+  places work. A half-placed project stays in the tray until every phase has a
+  date; its dated phases keep them and only push the placed run later.
+  The grid is drawn even when nothing is scheduled at all — it is the drop
+  target, and that is exactly the case where the tray matters most.
+  Below the chart, every cross-project
   link as a **list**, V2-marked where violated — not arrows between swimlanes,
   because a link can point at an idea, which has no bar to draw to.
 - **Map** — hand-rolled radial SVG, deterministic layout. Department hub → track

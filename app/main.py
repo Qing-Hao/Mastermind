@@ -202,6 +202,51 @@ def warnings_touching(project_id, cross_project):
             if project_id in (warning.project_id, warning.related_project_id)]
 
 
+def unplaced_work(projects, phases):
+    """Per project, the phases still waiting for a date -- the staging tray.
+
+    The portfolio chart can only draw dated work, so estimated-but-undated
+    phases used to be a count and nothing more. They travel in full here instead
+    so the view can offer them as something to place onto the grid.
+
+    Only projects that actually have undated phases appear: the tray is for
+    placing work, and a project with nothing in it has no work to place. Ideas
+    are already absent because `projects` is the schedulable set -- committing
+    to a direction is a decision for the project view, not a side effect of a
+    drag.
+    """
+    pending = {}
+    for phase in phases:
+        if not is_scheduled(phase):
+            pending.setdefault(phase["project_id"], []).append(phase)
+
+    tray = []
+    for project in projects:
+        waiting = pending.get(project["id"])
+        if not waiting:
+            continue
+        tray.append({
+            "project_id": project["id"],
+            "project_name": project["name"],
+            # The project's own date, which placing overwrites. A project can be
+            # half placed: dated phases keep their dates and push the rest later.
+            "start_date": project["start_date"],
+            "phases": [{
+                "id": phase["id"],
+                "name": phase["name"],
+                "duration_weeks": phase["duration_weeks"],
+                "effort_points": phase["effort_points"],
+                "status": phase["status"],
+            } for phase in waiting],
+            "total_weeks": sum(float(phase["duration_weeks"] or 0) for phase in waiting),
+            "total_points": sum(int(phase["effort_points"] or 0) for phase in waiting),
+            "scheduled_count": sum(
+                1 for phase in phases
+                if phase["project_id"] == project["id"] and is_scheduled(phase)),
+        })
+    return tray
+
+
 # --- settings ---------------------------------------------------------------
 
 
@@ -279,8 +324,10 @@ def read_project_plan(project_id: int):
 def read_portfolio():
     """Every scheduled phase on one timeline, for the cross-project Gantt.
 
-    Unscheduled phases are omitted: there is nowhere honest to draw them.
-    `unscheduled_count` lets the view say how much is still unplaced.
+    Unscheduled phases are omitted from `phases`: there is nowhere honest to
+    draw them on a calendar. They come back grouped by project in `unscheduled`,
+    which is what the view stages them from, with `unscheduled_count` still
+    giving the flat total.
 
     Future directions are omitted too -- an idea nobody has committed to does
     not belong on a delivery timeline. It shows on the map view instead.
@@ -297,6 +344,7 @@ def read_portfolio():
     return {
         "projects": projects,
         "phases": scheduled,
+        "unscheduled": unplaced_work(projects, phases),
         "unscheduled_count": len(phases) - len(scheduled),
         "dependencies": db.list_all_dependencies(with_names=True),
         "warnings": [warning.as_dict() for warning in portfolio_warnings()],

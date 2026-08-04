@@ -398,6 +398,75 @@ def test_portfolio_omits_unscheduled_phases_but_counts_them(client):
     assert portfolio["unscheduled_count"] == 1
 
 
+# --- the staging tray: undated work waiting to be placed ---------------------
+
+
+def test_portfolio_stages_undated_work_by_project(client):
+    """Estimated but undated phases come back grouped, ready to be placed."""
+    project = make_project(client, "Payments", start="")
+    make_phase(client, project["id"], "Design", "", 2, 20)
+    make_phase(client, project["id"], "Build", "", 4, 40)
+
+    tray = client.get("/api/portfolio").json()["unscheduled"]
+    assert len(tray) == 1
+    assert tray[0]["project_name"] == "Payments"
+    assert [phase["name"] for phase in tray[0]["phases"]] == ["Design", "Build"]
+    assert tray[0]["total_weeks"] == 6
+    assert tray[0]["total_points"] == 60
+    assert tray[0]["scheduled_count"] == 0
+
+
+def test_a_fully_dated_project_is_not_in_the_tray(client):
+    project = make_project(client, start="2026-09-07")
+    make_phase(client, project["id"], "Design", "2026-09-07", 2, 20)
+    assert client.get("/api/portfolio").json()["unscheduled"] == []
+
+
+def test_a_project_with_no_phases_is_not_in_the_tray(client):
+    """The tray places work; a project with none has nothing to place."""
+    make_project(client, start="")
+    assert client.get("/api/portfolio").json()["unscheduled"] == []
+
+
+def test_a_half_placed_project_stays_in_the_tray(client):
+    """Only the undated phases are offered, and the dated one is counted."""
+    project = make_project(client, start="2026-09-07")
+    make_phase(client, project["id"], "Design", "2026-09-07", 2, 20)
+    make_phase(client, project["id"], "Build", "", 4, 40)
+
+    tray = client.get("/api/portfolio").json()["unscheduled"]
+    assert [phase["name"] for phase in tray[0]["phases"]] == ["Build"]
+    assert tray[0]["total_weeks"] == 4
+    assert tray[0]["scheduled_count"] == 1
+    assert tray[0]["start_date"] == "2026-09-07"
+
+
+def test_an_idea_never_reaches_the_tray(client):
+    """Committing to a direction is a project-view decision, not a drag."""
+    idea = make_direction(client)
+    make_phase(client, idea["id"], "Sketch", "", 1, 10)
+    assert client.get("/api/portfolio").json()["unscheduled"] == []
+
+
+def test_placing_a_project_dates_it_and_lays_out_its_phases(client):
+    """What the tray drop does: set the start date, then lay out from it.
+
+    Two existing endpoints, no new one -- the drop is the gesture, the server
+    still only does what it was already asked to do explicitly.
+    """
+    project = make_project(client, "Payments", start="")
+    make_phase(client, project["id"], "Design", "", 2, 20)
+    make_phase(client, project["id"], "Build", "", 4, 40)
+
+    client.put(f"/api/projects/{project['id']}", json={"start_date": "2026-09-07"})
+    client.post(f"/api/projects/{project['id']}/layout")
+
+    portfolio = client.get("/api/portfolio").json()
+    assert portfolio["unscheduled"] == []
+    assert [(p["name"], p["start_date"]) for p in portfolio["phases"]] == [
+        ("Design", "2026-09-07"), ("Build", "2026-09-21")]
+
+
 # --- project goal -----------------------------------------------------------
 
 
@@ -533,7 +602,7 @@ def test_portfolio_returns_every_project_and_phase(client):
 
 def test_portfolio_is_empty_when_nothing_is_planned(client):
     assert client.get("/api/portfolio").json() == {
-        "projects": [], "phases": [], "unscheduled_count": 0,
+        "projects": [], "phases": [], "unscheduled": [], "unscheduled_count": 0,
         "dependencies": [], "warnings": [],
     }
 

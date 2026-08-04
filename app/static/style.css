@@ -242,6 +242,37 @@ table.deliverables tr.done input[type="text"] { color: #999; text-decoration: li
 .bar.draggable { cursor: grab; }
 .bar.dragging { cursor: grabbing; opacity: 0.75; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3); }
 
+/* --- portfolio staging tray --- */
+/* The same dashed language as the unscheduled list above: a dashed edge means
+   estimated but not yet committed to a date. */
+.tray { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.tray-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  border: 1px dashed #bbb;
+  border-radius: 3px;
+  background: #fcfcfc;
+  cursor: grab;
+  /* Without this a drag selects the label text instead of moving the chip. */
+  user-select: none;
+}
+.tray-chip:hover { border-color: #5c6bc0; background: #f5f6ff; }
+.tray-chip.dragging { cursor: grabbing; opacity: 0.5; }
+.tray-name { font-weight: 500; }
+.tray-note { font-size: 11px; color: #b26a00; }
+
+/* The bar that follows the cursor while a chip is being placed. Dashed and
+   pale: nothing is written until you let go, and it is a whole project's run
+   of phases rather than one real bar. */
+.lane-ghost { border-bottom: 0; }
+.bar.tray-ghost {
+  background: #e8eaf6;
+  border: 1px dashed #5c6bc0;
+  pointer-events: none;
+}
+
 /* --- map view --- */
 /* Positions are computed in app.js; everything here is colour and type only,
    so the layout stays in one place. */
