@@ -44,6 +44,13 @@ structure change before adding anything top-level.
 `velocity_override` (nullable), `stage` ∈ `idea|active|done`, `track` (free text),
 timestamps.
 
+`track` is one column and stays one column. The Map splits it on the **first
+slash** — `Source expansion / Metrics` — to draw a subtrack ring. That is a
+frontend convention (`splitTrack` in `app.js`), not schema: nothing validates it,
+a name with no slash is simply a track, and a name with nothing before the slash
+is treated as a plain track rather than half a hierarchy. Two levels is the
+ceiling; a third would want a real column or a track table.
+
 `phase` — `project_id`, name, description, `start_date`, `duration_weeks` (REAL),
 `effort_points` (INT), `status` ∈ `planned|in_progress|done`, `sort_order`.
 
@@ -179,8 +186,12 @@ into one project link.
   link as a **list**, V2-marked where violated — not arrows between swimlanes,
   because a link can point at an idea, which has no bar to draw to.
 - **Map** — hand-rolled radial SVG, deterministic layout. Department hub → track
-  ring → project ring, ideas outermost and dashed. Node radius `sqrt(points)`,
-  clamped 16–38px.
+  ring → subtrack ring → project ring, ideas outermost and dashed. Node radius
+  `sqrt(points)`, clamped 16–38px. A track's wedge is sized by how many projects
+  it holds; inside it every project gets one angular slot, unsubtracked ones
+  first, and each subtrack node sits at the middle of the contiguous run of slots
+  its projects occupy. Projects with no subtrack hang straight off the track,
+  exactly as before.
 
 Both charts share one week grid: Monday-based columns under a month/week ruler,
 window capped at 26 weeks, column width fitted to the container and clamped

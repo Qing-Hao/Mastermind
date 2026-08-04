@@ -50,8 +50,9 @@
             </select>
           </label>
           <label>Track
-            <input id="project-track" type="text" placeholder="e.g. Developer experience"
-              title="Free-text grouping, used to cluster the map view">
+            <input id="project-track" type="text"
+              placeholder="e.g. Source expansion / Metrics"
+              title="Free-text grouping, used to cluster the map view. A slash splits it into track and subtrack.">
           </label>
           <label>Velocity override
             <input id="project-velocity" type="number" min="1" placeholder="global">
@@ -192,9 +193,11 @@
         <h2>Team map</h2>
         <p class="hint">
           Your department at the centre, tracks around it, projects on the
-          outside. Circle size is total effort points; each label shows phases
-          done and what lands next. Dashed circles are future directions
-          &mdash; ideas nobody has committed to yet. Click a project to open it.
+          outside. Write a track as <code>Source expansion / Metrics</code> to
+          split it into a subtrack. Circle size is total effort points; each
+          label shows phases done and what lands next. Dashed circles are future
+          directions &mdash; ideas nobody has committed to yet. Click a project
+          to open it.
         </p>
         <div class="row">
           <label>Department
@@ -214,7 +217,8 @@
         <ul id="direction-list" class="directions"></ul>
         <div class="row">
           <input id="new-direction-name" type="text" placeholder="New future direction">
-          <input id="new-direction-track" type="text" placeholder="Track (optional)">
+          <input id="new-direction-track" type="text"
+            placeholder="Track / subtrack (optional)">
           <button id="add-direction">Capture idea</button>
         </div>
       </section>

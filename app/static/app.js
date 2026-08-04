@@ -1057,8 +1057,13 @@ const MAX_NODE_R = 38;
 // Ring positions as fractions of the usable radius. Ideas sit furthest out:
 // distance from the centre reads as distance from being committed to.
 const TRACK_RING = 0.40;
+const SUBTRACK_RING = 0.57;
 const PROJECT_RING = 0.74;
 const IDEA_RING = 1.0;
+// A track splits into a subtrack on the first slash: "Source expansion /
+// Metrics". Convention, not schema -- project.track stays one free-text column
+// and a name without a slash is simply a track with no subtracks under it.
+const SUBTRACK_SEPARATOR = "/";
 
 function svgElement(tag, attributes = {}, text) {
   const node = document.createElementNS(SVG_NS, tag);
@@ -1085,23 +1090,54 @@ function nodeRadius(points, largest) {
     * Math.sqrt(Math.max(points, 0) / largest);
 }
 
-// Tracks sorted by name, projects by id, so nothing reshuffles between renders.
-// Untracked projects come last and hang straight off the hub.
+// "Source expansion / Metrics" -> track "Source expansion", sub "Metrics".
+// Only the first slash splits, so a subtrack may contain one. A name with
+// nothing before the slash is not half a hierarchy -- it is just a track.
+function splitTrack(raw) {
+  const text = (raw || "").trim();
+  const cut = text.indexOf(SUBTRACK_SEPARATOR);
+  if (cut === -1) return { track: text, sub: "" };
+
+  const track = text.slice(0, cut).trim();
+  const sub = text.slice(cut + 1).trim();
+  return track ? { track, sub } : { track: sub, sub: "" };
+}
+
+// Tracks sorted by name, subtracks by name, projects by id, so nothing
+// reshuffles between renders. Untracked projects come last and hang straight
+// off the hub; within a track, projects with no subtrack come first and hang
+// straight off the track.
 function mapGroups(projects) {
   const byTrack = new Map();
   for (const project of projects) {
-    const key = (project.track || "").trim();
-    if (!byTrack.has(key)) byTrack.set(key, []);
-    byTrack.get(key).push(project);
+    const { track, sub } = splitTrack(project.track);
+    if (!byTrack.has(track)) byTrack.set(track, new Map());
+    const bySub = byTrack.get(track);
+    if (!bySub.has(sub)) bySub.set(sub, []);
+    bySub.get(sub).push(project);
   }
+
+  const build = (track) => {
+    const bySub = byTrack.get(track);
+    const direct = bySub.get("") || [];
+    const subs = [...bySub.keys()]
+      .filter((name) => name !== "")
+      .sort()
+      .map((name) => ({ name, projects: bySub.get(name) }));
+
+    for (const list of [direct, ...subs.map((sub) => sub.projects)]) {
+      list.sort((a, b) => a.id - b.id);
+    }
+    const total = subs.reduce((count, sub) => count + sub.projects.length,
+      direct.length);
+    return { track: track || null, direct, subs, total };
+  };
 
   const groups = [...byTrack.keys()]
     .filter((key) => key !== "")
     .sort()
-    .map((track) => ({ track, projects: byTrack.get(track) }));
-  if (byTrack.has("")) groups.push({ track: null, projects: byTrack.get("") });
-
-  for (const group of groups) group.projects.sort((a, b) => a.id - b.id);
+    .map(build);
+  if (byTrack.has("")) groups.push(build(""));
   return groups;
 }
 
@@ -1140,11 +1176,11 @@ function renderMap() {
   // A wedge per group, sized by how many projects it holds, so a busy track
   // gets the room it needs instead of every track getting an equal slice.
   const weight = groups.reduce(
-    (total, group) => total + Math.max(group.projects.length, 1), 0);
+    (total, group) => total + Math.max(group.total, 1), 0);
 
   let angle = -Math.PI / 2;  // start at 12 o'clock and go clockwise
   for (const group of groups) {
-    const span = (Math.max(group.projects.length, 1) / weight) * Math.PI * 2;
+    const span = (Math.max(group.total, 1) / weight) * Math.PI * 2;
 
     let anchor = { x: cx, y: cy };
     if (group.track) {
@@ -1155,17 +1191,42 @@ function renderMap() {
       nodes.appendChild(trackNode(group.track, anchor));
     }
 
-    const step = span / (group.projects.length + 1);
-    group.projects.forEach((project, index) => {
-      const isIdea = project.stage === "idea";
+    // Every project still gets one angular slot, subtracked ones after the
+    // loose ones. A subtrack owns a contiguous run of those slots, which is
+    // what lets its node sit at the middle of the slice its projects occupy.
+    const slots = [
+      ...group.direct.map((project) => ({ project, sub: null })),
+      ...group.subs.flatMap(
+        (sub) => sub.projects.map((project) => ({ project, sub }))),
+    ];
+    const step = span / (slots.length + 1);
+    const angleAt = (index) => angle + step * (index + 1);
+
+    const subAnchors = new Map();
+    for (const sub of group.subs) {
+      const owned = slots.reduce((found, slot, index) =>
+        (slot.sub === sub ? [...found, index] : found), []);
+      const middle = (angleAt(owned[0]) + angleAt(owned[owned.length - 1])) / 2;
+      const point = polar(cx, cy, rings, SUBTRACK_RING, middle);
+      subAnchors.set(sub, point);
+
+      edges.appendChild(svgElement("line", {
+        class: "map-edge", x1: anchor.x, y1: anchor.y, x2: point.x, y2: point.y,
+      }));
+      nodes.appendChild(subtrackNode(sub.name, point));
+    }
+
+    slots.forEach((slot, index) => {
+      const isIdea = slot.project.stage === "idea";
+      const from = slot.sub ? subAnchors.get(slot.sub) : anchor;
       const point = polar(cx, cy, rings, isIdea ? IDEA_RING : PROJECT_RING,
-        angle + step * (index + 1));
+        angleAt(index));
       edges.appendChild(svgElement("line", {
         class: `map-edge${isIdea ? " map-edge-idea" : ""}`,
-        x1: anchor.x, y1: anchor.y, x2: point.x, y2: point.y,
+        x1: from.x, y1: from.y, x2: point.x, y2: point.y,
       }));
-      nodes.appendChild(
-        projectNode(project, point, nodeRadius(project.effort_points, largest)));
+      nodes.appendChild(projectNode(slot.project, point,
+        nodeRadius(slot.project.effort_points, largest)));
     });
 
     angle += span;
@@ -1195,12 +1256,21 @@ function hubNode(name, cx, cy) {
   return group;
 }
 
-function trackNode(track, point) {
-  const group = svgElement("g", { class: "map-track" });
-  group.appendChild(svgElement("circle", { cx: point.x, cy: point.y, r: 6 }));
+const trackNode = (track, point) =>
+  groupNode("map-track", track, point, 6, 13, 22);
+
+const subtrackNode = (name, point) =>
+  groupNode("map-subtrack", name, point, 4, 10, 18);
+
+// Labels sit above their dot, i.e. towards the centre, so a subtrack's name
+// never lands on the project ring outside it.
+function groupNode(className, label, point, radius, labelGap, limit) {
+  const group = svgElement("g", { class: className });
+  group.appendChild(
+    svgElement("circle", { cx: point.x, cy: point.y, r: radius }));
   group.appendChild(svgElement("text", {
-    x: point.x, y: point.y - 13, "text-anchor": "middle",
-  }, truncate(track, 22)));
+    x: point.x, y: point.y - labelGap, "text-anchor": "middle",
+  }, truncate(label, limit)));
   return group;
 }
 
