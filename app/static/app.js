@@ -681,17 +681,22 @@ async function saveDeliverable(deliverableId, fields) {
   await loadPlan();
 }
 
+// Both directions are listed together: what this project waits on, and what
+// waits on it. The server sends every link the project is an end of, with the
+// other project's name already resolved.
 function renderDependencies() {
   const list = $("dependency-list");
-  const nameOf = Object.fromEntries(state.plan.phases.map((p) => [p.id, p.name]));
+  const current = state.currentProjectId;
   list.innerHTML = "";
 
   if (state.plan.dependencies.length === 0) {
     list.appendChild(element("li", "muted", "No dependencies."));
   }
   for (const dep of state.plan.dependencies) {
-    const item = element("li", null,
-      `${nameOf[dep.predecessor_phase_id]} → ${nameOf[dep.successor_phase_id]}`);
+    const waitsOnThis = dep.predecessor_project_id === current;
+    const item = element("li", null, waitsOnThis
+      ? `→ ${dep.successor_name} waits on this project`
+      : `← waits on ${dep.predecessor_name}`);
     const remove = element("button", null, "Unlink");
     remove.onclick = async () => {
       await api(`/api/dependencies/${dep.id}`, { method: "DELETE" });
@@ -701,23 +706,25 @@ function renderDependencies() {
     list.appendChild(item);
   }
 
-  for (const selectId of ["dep-predecessor", "dep-successor"]) {
-    const select = $(selectId);
-    const previous = select.value;
-    select.innerHTML = "";
-    for (const phase of state.plan.phases) {
-      const option = element("option", null, phase.name);
-      option.value = phase.id;
-      select.appendChild(option);
-    }
-    select.value = previous;
+  const select = $("dep-other");
+  const previous = select.value;
+  select.innerHTML = "";
+  // Every project but this one -- a project cannot depend on itself, and
+  // offering it would only earn a 409.
+  for (const project of state.projects.filter((p) => p.id !== current)) {
+    const option = element("option", null,
+      project.stage === "idea" ? `◌ ${project.name}` : project.name);
+    option.value = project.id;
+    select.appendChild(option);
   }
+  select.value = previous;
 }
 
 // --- portfolio view ---------------------------------------------------------
 
 function renderPortfolio() {
   renderWindowBar($("portfolio-window"));
+  renderPortfolioDependencies();
   const chart = $("portfolio-chart");
   chart.innerHTML = "";
   chart.style.width = "";
@@ -755,6 +762,39 @@ function renderPortfolio() {
       lane.appendChild(bar);
     }
     body.appendChild(lane);
+  }
+}
+
+// Dependencies are drawn as a list rather than arrows between swimlanes: a link
+// can point at an idea, which has no bar to draw an arrow to. Ordered as linked,
+// which is the order the server returns.
+function renderPortfolioDependencies() {
+  const list = $("portfolio-dep-list");
+  const { dependencies, warnings } = state.portfolio;
+  const count = $("portfolio-dep-count");
+  list.innerHTML = "";
+
+  const violated = new Map();
+  for (const warning of warnings) {
+    violated.set(`${warning.related_project_id}->${warning.project_id}`, warning);
+  }
+  count.textContent = dependencies.length;
+  count.className = violated.size ? "pill pill-warn" : "pill";
+
+  if (dependencies.length === 0) {
+    list.appendChild(element("li", "muted", "No dependencies between projects."));
+    return;
+  }
+  for (const dep of dependencies) {
+    const item = element("li", null,
+      `${dep.predecessor_name} → ${dep.successor_name}`);
+    const warning = violated.get(
+      `${dep.predecessor_project_id}->${dep.successor_project_id}`);
+    if (warning) {
+      item.appendChild(element("span", "rule", "V2"));
+      item.appendChild(element("span", "muted", warning.message));
+    }
+    list.appendChild(item);
   }
 }
 
@@ -1205,15 +1245,17 @@ function bindEvents() {
   $("add-dependency").onclick = async () => {
     const error = $("dep-error");
     error.hidden = true;
-    const predecessor = Number($("dep-predecessor").value);
-    const successor = Number($("dep-successor").value);
-    if (!predecessor || !successor) return;
+    const other = Number($("dep-other").value);
+    const current = state.currentProjectId;
+    if (!other || !current) return;
+    // "incoming" reads as: the other project must finish before this one starts.
+    const incoming = $("dep-direction").value === "incoming";
     try {
       await api("/api/dependencies", {
         method: "POST",
         body: JSON.stringify({
-          predecessor_phase_id: predecessor,
-          successor_phase_id: successor,
+          predecessor_project_id: incoming ? other : current,
+          successor_project_id: incoming ? current : other,
         }),
       });
       await loadPlan();

@@ -127,11 +127,18 @@
 
       <section>
         <h2>Dependencies</h2>
+        <p class="hint">
+          Links run project to project &mdash; which whole piece of work has to
+          land before another can start. Order inside a project is yours to
+          arrange; nothing checks it.
+        </p>
         <ul id="dependency-list" class="deps"></ul>
         <div class="row">
-          <select id="dep-predecessor"></select>
-          <span>must finish before</span>
-          <select id="dep-successor"></select>
+          <select id="dep-other"></select>
+          <select id="dep-direction">
+            <option value="incoming">must finish before this project</option>
+            <option value="outgoing">cannot start until this project finishes</option>
+          </select>
           <button id="add-dependency">Link</button>
         </div>
         <p id="dep-error" class="error" hidden></p>
@@ -147,13 +154,26 @@
           shows up to six months at a time &mdash; pick a length, or
           <em>Custom&hellip;</em> for your own range. Drag a bar sideways to
           move that phase; it snaps to a week column, hold <kbd>Alt</kbd> to
-          nudge it by single days. Nothing else reschedules itself &mdash;
-          dependents only start warning.
+          nudge it by single days. Nothing else reschedules itself &mdash; a
+          project waiting on this one only starts warning.
         </p>
         <div id="portfolio-window" class="window-bar"></div>
         <div id="portfolio-scroll">
           <div id="portfolio-chart"></div>
         </div>
+      </section>
+
+      <section>
+        <h2>
+          Cross-project dependencies
+          <span id="portfolio-dep-count" class="pill"></span>
+        </h2>
+        <p class="hint">
+          Finish to start, in the order they were linked. A link marked
+          <span class="rule">V2</span> is one where the later project already
+          begins before the earlier one finishes.
+        </p>
+        <ul id="portfolio-dep-list" class="deps"></ul>
       </section>
     </div>
 

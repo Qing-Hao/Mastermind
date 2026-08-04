@@ -52,11 +52,18 @@ CREATE TABLE IF NOT EXISTS phase (
     sort_order     INTEGER NOT NULL DEFAULT 0
 );
 
-CREATE TABLE IF NOT EXISTS dependency (
-    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
-    predecessor_phase_id INTEGER NOT NULL REFERENCES phase(id) ON DELETE CASCADE,
-    successor_phase_id   INTEGER NOT NULL REFERENCES phase(id) ON DELETE CASCADE,
-    UNIQUE (predecessor_phase_id, successor_phase_id)
+-- Dependencies link projects, not phases: the useful question across a roadmap
+-- is which piece of committed work has to land before another can start.
+-- Ordering inside a project stays the user's business -- phases have a sort
+-- order and dates, and no rule cross-checks them.
+--
+-- Replaces the old phase-level `dependency` table, which `migrate` translates
+-- and drops. Finish-to-start only: no lag, no lead.
+CREATE TABLE IF NOT EXISTS project_dependency (
+    id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+    predecessor_project_id INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+    successor_project_id   INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+    UNIQUE (predecessor_project_id, successor_project_id)
 );
 
 -- Deliverables are planning units, not tasks: no assignee, no comments, no
@@ -79,6 +86,19 @@ CREATE TABLE IF NOT EXISTS deliverable (
 
 CREATE INDEX IF NOT EXISTS idx_phase_project ON phase(project_id);
 CREATE INDEX IF NOT EXISTS idx_deliverable_phase ON deliverable(phase_id);
+"""
+
+# Phase-level dependency rows, translated up to the projects they belonged to.
+# Links that collapse onto one project are dropped -- they said "this phase
+# before that phase inside one project", which is no longer a thing the tool
+# records. Duplicates collapse via the UNIQUE constraint.
+TRANSLATE_DEPENDENCIES = """
+INSERT OR IGNORE INTO project_dependency (predecessor_project_id, successor_project_id)
+SELECT p.project_id, s.project_id
+  FROM dependency d
+  JOIN phase p ON p.id = d.predecessor_phase_id
+  JOIN phase s ON s.id = d.successor_phase_id
+ WHERE p.project_id <> s.project_id
 """
 
 # Columns added after the first release. SQLite has no "ADD COLUMN IF NOT
@@ -137,11 +157,20 @@ def columns_of(connection, table):
             connection.execute(f"PRAGMA table_info({table})").fetchall()}
 
 
+def table_exists(connection, table):
+    row = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)
+    ).fetchone()
+    return row is not None
+
+
 def migrate(connection):
     """Bring an existing file up to the current schema.
 
     Additions run before removals so a file that skipped several releases still
-    ends up in the same shape as one created from `SCHEMA` today.
+    ends up in the same shape as one created from `SCHEMA` today. The dependency
+    table is handled last, once `phase` is guaranteed to be current -- the
+    translation reads it.
     """
     for table, column, definition in ADDED_COLUMNS:
         if column not in columns_of(connection, table):
@@ -150,6 +179,23 @@ def migrate(connection):
     for table, column in DROPPED_COLUMNS:
         if column in columns_of(connection, table):
             connection.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
+
+    migrate_dependencies_to_projects(connection)
+
+
+def migrate_dependencies_to_projects(connection):
+    """Lift phase-level dependencies to the projects they linked, then drop them.
+
+    Irreversible: intra-project links are discarded outright, so back the file up
+    before upgrading. A pathological old file could translate into a cycle, which
+    nothing repairs -- V3 is a write-time rule. The next dependency the user adds
+    would then be rejected with a 409 naming that cycle, which is the prompt to
+    unlink it.
+    """
+    if not table_exists(connection, "dependency"):
+        return
+    connection.execute(TRANSLATE_DEPENDENCIES)
+    connection.execute("DROP TABLE dependency")
 
 
 def now_iso():
@@ -405,42 +451,60 @@ def delete_deliverable(deliverable_id):
 
 
 def list_dependencies(project_id):
-    """Dependencies where both ends belong to the given project."""
+    """Every dependency the project is an end of, in either direction.
+
+    The project view needs both: what has to land before this can start, and
+    what is waiting on it. Each row carries the *other* project's name so the
+    view can label the link without a second fetch.
+    """
     with connect() as connection:
         rows = connection.execute(
-            """SELECT d.* FROM dependency d
-               JOIN phase p ON p.id = d.predecessor_phase_id
-               JOIN phase s ON s.id = d.successor_phase_id
-               WHERE p.project_id = ? AND s.project_id = ?""",
+            """SELECT d.*, p.name AS predecessor_name, s.name AS successor_name
+                 FROM project_dependency d
+                 JOIN project p ON p.id = d.predecessor_project_id
+                 JOIN project s ON s.id = d.successor_project_id
+                WHERE d.predecessor_project_id = ? OR d.successor_project_id = ?
+                ORDER BY d.id""",
             (project_id, project_id),
         ).fetchall()
     return rows_to_dicts(rows)
 
 
-def list_all_dependencies():
+def list_all_dependencies(with_names=False):
+    """Every dependency in the dataset. Names are for display only."""
+    columns = (", p.name AS predecessor_name, s.name AS successor_name"
+               if with_names else "")
+    joins = ("""JOIN project p ON p.id = d.predecessor_project_id
+                JOIN project s ON s.id = d.successor_project_id"""
+             if with_names else "")
     with connect() as connection:
-        rows = connection.execute("SELECT * FROM dependency").fetchall()
+        rows = connection.execute(
+            f"SELECT d.*{columns} FROM project_dependency d {joins} ORDER BY d.id"
+        ).fetchall()
     return rows_to_dicts(rows)
 
 
-def create_dependency(predecessor_phase_id, successor_phase_id):
+def create_dependency(predecessor_project_id, successor_project_id):
     with connect() as connection:
         cursor = connection.execute(
-            """INSERT OR IGNORE INTO dependency (predecessor_phase_id, successor_phase_id)
+            """INSERT OR IGNORE INTO project_dependency
+                   (predecessor_project_id, successor_project_id)
                VALUES (?, ?)""",
-            (predecessor_phase_id, successor_phase_id),
+            (predecessor_project_id, successor_project_id),
         )
         dependency_id = cursor.lastrowid
     return {
         "id": dependency_id,
-        "predecessor_phase_id": predecessor_phase_id,
-        "successor_phase_id": successor_phase_id,
+        "predecessor_project_id": predecessor_project_id,
+        "successor_project_id": successor_project_id,
     }
 
 
 def delete_dependency(dependency_id):
     with connect() as connection:
-        connection.execute("DELETE FROM dependency WHERE id = ?", (dependency_id,))
+        connection.execute(
+            "DELETE FROM project_dependency WHERE id = ?", (dependency_id,)
+        )
 
 
 # --- export / import --------------------------------------------------------
@@ -452,14 +516,18 @@ def export_all():
         projects = rows_to_dicts(connection.execute("SELECT * FROM project").fetchall())
         phases = rows_to_dicts(connection.execute("SELECT * FROM phase").fetchall())
         deliverables = rows_to_dicts(connection.execute("SELECT * FROM deliverable").fetchall())
-        dependencies = rows_to_dicts(connection.execute("SELECT * FROM dependency").fetchall())
+        dependencies = rows_to_dicts(
+            connection.execute("SELECT * FROM project_dependency").fetchall()
+        )
     return {
         # 3 added project.stage/track and settings.department_name; 4 dropped
-        # the deliverable estimate and the V5 tolerance; 5 added deliverable.done.
-        # Reads stay tolerant of older files, so a version-2, -3 or -4 export
-        # still imports -- fields that no longer exist are ignored, and ones
-        # that did not exist yet fall back to their default.
-        "version": 5,
+        # the deliverable estimate and the V5 tolerance; 5 added deliverable.done;
+        # 6 moved dependencies from phases up to projects.
+        # Reads stay tolerant of older files, so a version-2 through -5 export
+        # still imports -- fields that no longer exist are ignored, ones that did
+        # not exist yet fall back to their default, and phase-level dependencies
+        # are translated on the way in.
+        "version": 6,
         "exported_at": now_iso(),
         "settings": get_settings(),
         "projects": projects,
@@ -469,14 +537,56 @@ def export_all():
     }
 
 
+def project_dependencies_from(payload):
+    """The payload's dependencies as project links, whatever version wrote it.
+
+    A version-6 file already stores project ids. Anything older stored phase
+    ids, so those are looked up through the payload's own phases and lifted to
+    the projects they belonged to -- same as `migrate_dependencies_to_projects`,
+    including dropping links that collapse onto a single project. Ids are not
+    preserved when translating: several phase links can fold into one project
+    link, so they are renumbered from scratch.
+    """
+    rows = payload.get("dependencies", [])
+    if any("predecessor_project_id" in row for row in rows):
+        return [
+            {
+                "id": row["id"],
+                "predecessor_project_id": row["predecessor_project_id"],
+                "successor_project_id": row["successor_project_id"],
+            }
+            for row in rows
+        ]
+
+    project_of = {phase["id"]: phase["project_id"]
+                  for phase in payload.get("phases", [])}
+    seen = []
+    for row in rows:
+        predecessor = project_of.get(row.get("predecessor_phase_id"))
+        successor = project_of.get(row.get("successor_phase_id"))
+        if predecessor is None or successor is None or predecessor == successor:
+            continue
+        pair = (predecessor, successor)
+        if pair not in seen:
+            seen.append(pair)
+
+    return [
+        {"id": index, "predecessor_project_id": predecessor,
+         "successor_project_id": successor}
+        for index, (predecessor, successor) in enumerate(seen, start=1)
+    ]
+
+
 def import_all(payload):
     """Replace the entire dataset with `payload`. Destructive by design.
 
-    Ids are preserved so dependency links survive the round trip.
+    Ids are preserved so dependency links survive the round trip -- except when
+    a pre-version-6 file has to have its phase links translated, which cannot
+    keep them.
     """
     with connect() as connection:
         connection.execute("PRAGMA foreign_keys = OFF")
-        connection.execute("DELETE FROM dependency")
+        connection.execute("DELETE FROM project_dependency")
         connection.execute("DELETE FROM deliverable")
         connection.execute("DELETE FROM phase")
         connection.execute("DELETE FROM project")
@@ -544,13 +654,14 @@ def import_all(payload):
                 ),
             )
 
-        for dependency in payload.get("dependencies", []):
+        for dependency in project_dependencies_from(payload):
             connection.execute(
-                """INSERT INTO dependency (id, predecessor_phase_id, successor_phase_id)
+                """INSERT OR IGNORE INTO project_dependency
+                       (id, predecessor_project_id, successor_project_id)
                    VALUES (?, ?, ?)""",
                 (
-                    dependency["id"], dependency["predecessor_phase_id"],
-                    dependency["successor_phase_id"],
+                    dependency["id"], dependency["predecessor_project_id"],
+                    dependency["successor_project_id"],
                 ),
             )
         connection.execute("PRAGMA foreign_keys = ON")

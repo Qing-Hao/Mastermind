@@ -10,6 +10,11 @@ V5 cross-checked a bottom-up deliverable rollup against the phase estimate. It
 is gone: a deliverable now only names something the phase produces, so there is
 nothing to roll up and the phase estimate stands alone.
 
+Dependencies link **projects**, not phases: the question this tool answers is
+which piece of committed work has to land before another can begin. Ordering
+inside a project is left to the user -- phases carry a sort order and dates, and
+no rule checks them against each other.
+
 Inputs are plain mappings so this module stays decoupled from storage:
 
     settings:    default_velocity_points_per_sprint, sprint_length_days,
@@ -17,7 +22,7 @@ Inputs are plain mappings so this module stays decoupled from storage:
     project:     id, name, goal, start_date, velocity_override
     phase:       id, project_id, name, start_date, duration_weeks, effort_points
     deliverable: id, phase_id, name, sort_order
-    dependency:  predecessor_phase_id, successor_phase_id
+    dependency:  predecessor_project_id, successor_project_id
 
 Dates may be ``datetime.date`` objects or ISO-8601 strings; both are accepted.
 
@@ -46,12 +51,19 @@ DEFAULT_SETTINGS = {
 
 @dataclass(frozen=True)
 class PlanWarning:
-    """A single detected problem. `rule` is one of V1, V2, V3, V4."""
+    """A single detected problem. `rule` is one of V1, V2, V3, V4.
+
+    A warning names whatever it is about: V1 and V4 point at a phase, V2 points
+    at the two projects either side of a dependency. Both pairs of fields are
+    always present in `as_dict` so the frontend can read one shape.
+    """
 
     rule: str
     message: str
     phase_id: int | None = None
     related_phase_id: int | None = None
+    project_id: int | None = None
+    related_project_id: int | None = None
 
     def as_dict(self):
         return {
@@ -59,6 +71,8 @@ class PlanWarning:
             "message": self.message,
             "phase_id": self.phase_id,
             "related_phase_id": self.related_phase_id,
+            "project_id": self.project_id,
+            "related_project_id": self.related_project_id,
         }
 
 
@@ -103,6 +117,34 @@ def phase_end_date(phase):
     if start is None:
         return None
     return start + timedelta(days=float(phase["duration_weeks"]) * DAYS_PER_WEEK)
+
+
+def project_span(project, phases):
+    """The earliest and latest dates a project touches, as a `(start, end)` pair.
+
+    Derived, never stored -- the same principle as `phase_end_date`. A project
+    has a start date of its own but no duration, so its end can only come from
+    the phases inside it.
+
+    The start is the earliest of the project's own date and its earliest
+    scheduled phase, because a phase may legitimately be dated before the
+    project start (V4 warns about that separately, and V2 should still see the
+    real beginning of the work). Either half is None when nothing is scheduled
+    yet, which makes the project invisible to V2 on that side.
+    """
+    boundaries = [as_optional_date(project.get("start_date"))]
+    ends = []
+
+    for phase in phases:
+        start = as_optional_date(phase.get("start_date"))
+        if start is None:
+            continue
+        boundaries.append(start)
+        ends.append(phase_end_date(phase))
+
+    starts = [value for value in boundaries if value is not None]
+    finals = [value for value in ends if value is not None]
+    return (min(starts) if starts else None, max(finals) if finals else None)
 
 
 def sequential_layout(phases, project_start):
@@ -177,14 +219,17 @@ def check_effort_duration_mismatch(phase, velocity, settings):
     )
 
 
-def check_dependency_order(predecessor, successor):
-    """V2: successor starts before its predecessor finishes.
+def check_project_dependency_order(predecessor, predecessor_phases,
+                                   successor, successor_phases):
+    """V2: a project begins before the project it depends on has finished.
 
-    Skipped while either end is unscheduled -- work with no date yet cannot be
-    in the wrong order.
+    Both ends are spans derived by `project_span`, so this compares the last day
+    of work in the predecessor against the first day of work in the successor.
+    Skipped while either side has nothing scheduled -- work with no date yet
+    cannot be in the wrong order.
     """
-    successor_start = as_optional_date(successor.get("start_date"))
-    predecessor_end = phase_end_date(predecessor)
+    successor_start, _ = project_span(successor, successor_phases)
+    _, predecessor_end = project_span(predecessor, predecessor_phases)
     if successor_start is None or predecessor_end is None:
         return None
     if successor_start >= predecessor_end:
@@ -192,8 +237,8 @@ def check_dependency_order(predecessor, successor):
 
     return PlanWarning(
         rule="V2",
-        phase_id=successor["id"],
-        related_phase_id=predecessor["id"],
+        project_id=successor["id"],
+        related_project_id=predecessor["id"],
         message=(
             f"'{successor['name']}' starts {successor_start.isoformat()}, before "
             f"'{predecessor['name']}' finishes {predecessor_end.isoformat()}."
@@ -202,15 +247,16 @@ def check_dependency_order(predecessor, successor):
 
 
 def find_dependency_cycle(dependencies):
-    """V3: return the phase ids forming a cycle, or None if acyclic.
+    """V3: return the project ids forming a cycle, or None if acyclic.
 
-    The returned path starts and ends on the same phase so it can be printed
-    directly, e.g. [3, 7, 9, 3].
+    The returned path starts and ends on the same project so it can be printed
+    directly, e.g. [3, 7, 9, 3]. A project depending on itself is a cycle of
+    length one and is caught here too.
     """
     adjacency = {}
     for dep in dependencies:
-        adjacency.setdefault(dep["predecessor_phase_id"], []).append(
-            dep["successor_phase_id"]
+        adjacency.setdefault(dep["predecessor_project_id"], []).append(
+            dep["successor_project_id"]
         )
 
     WHITE, GREY, BLACK = 0, 1, 2
@@ -306,16 +352,16 @@ def next_milestone(phases, today):
 # --- Whole-plan entry point -------------------------------------------------
 
 
-def validate_plan(project, phases, dependencies, settings=None):
-    """Run V1, V2 and V4 across a project and return every warning found.
+def validate_plan(project, phases, settings=None):
+    """Run V1 and V4 across a single project and return every warning found.
 
-    V3 is deliberately excluded: a cycle blocks the edit that would create it,
-    so it is checked by `find_dependency_cycle` at write time rather than being
-    reported as an ignorable warning here.
+    V2 is not here: it compares two projects, so it needs the whole portfolio
+    and lives in `validate_portfolio`. V3 is excluded too -- a cycle blocks the
+    edit that would create it, so it is checked by `find_dependency_cycle` at
+    write time rather than being reported as an ignorable warning.
     """
     settings = {**DEFAULT_SETTINGS, **(settings or {})}
     velocity = effective_velocity(project, settings)
-    by_id = {phase["id"]: phase for phase in phases}
     warnings = []
 
     for phase in phases:
@@ -327,12 +373,29 @@ def validate_plan(project, phases, dependencies, settings=None):
         if outside:
             warnings.append(outside)
 
+    return warnings
+
+
+def validate_portfolio(projects, phases_by_project, dependencies):
+    """Run V2 across every project dependency and return the warnings found.
+
+    `phases_by_project` maps a project id to its phases; a project with none is
+    allowed and simply has no derived end. Dependencies naming a project that no
+    longer exists are skipped rather than raising -- the same leniency reads
+    apply everywhere else.
+    """
+    by_id = {project["id"]: project for project in projects}
+    warnings = []
+
     for dep in dependencies:
-        predecessor = by_id.get(dep["predecessor_phase_id"])
-        successor = by_id.get(dep["successor_phase_id"])
+        predecessor = by_id.get(dep["predecessor_project_id"])
+        successor = by_id.get(dep["successor_project_id"])
         if not predecessor or not successor:
             continue
-        violation = check_dependency_order(predecessor, successor)
+        violation = check_project_dependency_order(
+            predecessor, phases_by_project.get(predecessor["id"], []),
+            successor, phases_by_project.get(successor["id"], []),
+        )
         if violation:
             warnings.append(violation)
 

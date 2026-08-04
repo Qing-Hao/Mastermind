@@ -37,6 +37,15 @@ def plan_of(client, project_id):
     return response.json()
 
 
+def link(client, predecessor, successor):
+    """Make `successor` depend on `predecessor`. Returns the raw response so
+    tests can assert on a rejection as well as a success."""
+    return client.post("/api/dependencies", json={
+        "predecessor_project_id": predecessor["id"],
+        "successor_project_id": successor["id"],
+    })
+
+
 # --- criterion 2: phases carry correct derived dates ------------------------
 
 
@@ -58,73 +67,133 @@ def test_v1_warning_reports_the_implied_duration(client):
     assert "5.5 weeks" in v1[0]["message"]
 
 
-# --- criterion 3: V2 surfaces on both phases --------------------------------
+# --- criterion 3: V2 surfaces on both projects ------------------------------
 
 
-def test_v2_warning_names_both_phases(client):
-    project = make_project(client)
-    design = make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
-    build = make_phase(client, project["id"], "Build", "2026-01-19", 4, 40)
-    response = client.post("/api/dependencies", json={
-        "predecessor_phase_id": design["id"], "successor_phase_id": build["id"],
-    })
-    assert response.status_code == 201
+def test_v2_warning_names_both_projects(client):
+    """Ledger begins 2026-01-19 but Payments does not finish until 2026-02-02."""
+    payments = make_project(client, "Payments", "2026-01-05")
+    ledger = make_project(client, "Ledger", "2026-01-19")
+    make_phase(client, payments["id"], "Design", "2026-01-05", 4, 40)
+    make_phase(client, ledger["id"], "Build", "2026-01-19", 4, 40)
+    assert link(client, payments, ledger).status_code == 201
 
-    warnings = plan_of(client, project["id"])["warnings"]
-    v2 = [w for w in warnings if w["rule"] == "V2"]
+    v2 = [w for w in plan_of(client, ledger["id"])["warnings"] if w["rule"] == "V2"]
     assert len(v2) == 1
-    assert v2[0]["phase_id"] == build["id"]
-    assert v2[0]["related_phase_id"] == design["id"]
+    assert v2[0]["project_id"] == ledger["id"]
+    assert v2[0]["related_project_id"] == payments["id"]
+    assert "Payments" in v2[0]["message"] and "Ledger" in v2[0]["message"]
 
 
-def test_moving_a_phase_never_reschedules_its_dependents(client):
+def test_v2_is_visible_from_the_predecessor_project_too(client):
+    """Both ends must see it -- the warning is about the link, not one project."""
+    payments = make_project(client, "Payments", "2026-01-05")
+    ledger = make_project(client, "Ledger", "2026-01-19")
+    make_phase(client, payments["id"], "Design", "2026-01-05", 4, 40)
+    make_phase(client, ledger["id"], "Build", "2026-01-19", 4, 40)
+    link(client, payments, ledger)
+
+    assert any(w["rule"] == "V2" for w in plan_of(client, payments["id"])["warnings"])
+
+
+def test_v2_also_surfaces_on_the_portfolio(client):
+    payments = make_project(client, "Payments", "2026-01-05")
+    ledger = make_project(client, "Ledger", "2026-01-19")
+    make_phase(client, payments["id"], "Design", "2026-01-05", 4, 40)
+    make_phase(client, ledger["id"], "Build", "2026-01-19", 4, 40)
+    link(client, payments, ledger)
+
+    portfolio = client.get("/api/portfolio").json()
+    assert [w["rule"] for w in portfolio["warnings"]] == ["V2"]
+    assert len(portfolio["dependencies"]) == 1
+    assert portfolio["dependencies"][0]["predecessor_name"] == "Payments"
+
+
+def test_extending_a_project_never_reschedules_its_dependents(client):
     """The timeline must never auto-move anything -- only warn."""
-    project = make_project(client)
-    design = make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
-    build = make_phase(client, project["id"], "Build", "2026-02-02", 4, 40)
-    client.post("/api/dependencies", json={
-        "predecessor_phase_id": design["id"], "successor_phase_id": build["id"],
-    })
+    payments = make_project(client, "Payments", "2026-01-05")
+    ledger = make_project(client, "Ledger", "2026-02-02")
+    design = make_phase(client, payments["id"], "Design", "2026-01-05", 4, 40)
+    build = make_phase(client, ledger["id"], "Build", "2026-02-02", 4, 40)
+    link(client, payments, ledger)
+    assert not any(w["rule"] == "V2" for w in plan_of(client, ledger["id"])["warnings"])
 
     client.put(f"/api/phases/{design['id']}", json={"duration_weeks": 12})
 
-    phases = {p["id"]: p for p in plan_of(client, project["id"])["phases"]}
+    phases = {p["id"]: p for p in plan_of(client, ledger["id"])["phases"]}
     assert phases[build["id"]]["start_date"] == "2026-02-02"
-    warnings = plan_of(client, project["id"])["warnings"]
-    assert any(w["rule"] == "V2" for w in warnings)
+    assert any(w["rule"] == "V2" for w in plan_of(client, ledger["id"])["warnings"])
+
+
+def test_phase_order_inside_a_project_is_never_validated(client):
+    """Deliberate: dependencies moved up to projects, so nothing checks phases
+    against each other any more."""
+    project = make_project(client)
+    make_phase(client, project["id"], "Design", "2026-02-02", 4, 40)
+    make_phase(client, project["id"], "Build", "2026-01-05", 4, 40)
+    assert not any(w["rule"] == "V2" for w in plan_of(client, project["id"])["warnings"])
 
 
 # --- criterion 4: cycles are blocked, not warned ----------------------------
 
 
 def test_dependency_cycle_is_rejected_with_a_readable_message(client):
-    project = make_project(client)
-    first = make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
-    second = make_phase(client, project["id"], "Build", "2026-02-02", 4, 40)
-    client.post("/api/dependencies", json={
-        "predecessor_phase_id": first["id"], "successor_phase_id": second["id"],
-    })
+    payments = make_project(client, "Payments", "2026-01-05")
+    ledger = make_project(client, "Ledger", "2026-02-02")
+    assert link(client, payments, ledger).status_code == 201
 
-    response = client.post("/api/dependencies", json={
-        "predecessor_phase_id": second["id"], "successor_phase_id": first["id"],
-    })
+    response = link(client, ledger, payments)
     assert response.status_code == 409
     detail = response.json()["detail"]
     assert "cycle" in detail.lower()
-    assert "Design" in detail and "Build" in detail
+    assert "Payments" in detail and "Ledger" in detail
 
 
 def test_rejected_cycle_leaves_no_dependency_behind(client):
+    payments = make_project(client, "Payments", "2026-01-05")
+    ledger = make_project(client, "Ledger", "2026-02-02")
+    link(client, payments, ledger)
+    link(client, ledger, payments)
+    assert len(plan_of(client, payments["id"])["dependencies"]) == 1
+
+
+def test_a_project_cannot_depend_on_itself(client):
     project = make_project(client)
-    first = make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
-    second = make_phase(client, project["id"], "Build", "2026-02-02", 4, 40)
-    client.post("/api/dependencies", json={
-        "predecessor_phase_id": first["id"], "successor_phase_id": second["id"],
+    response = link(client, project, project)
+    assert response.status_code == 409
+    assert "cycle" in response.json()["detail"].lower()
+
+
+def test_a_dependency_on_a_missing_project_is_a_404(client):
+    project = make_project(client)
+    response = client.post("/api/dependencies", json={
+        "predecessor_project_id": project["id"], "successor_project_id": 999,
     })
-    client.post("/api/dependencies", json={
-        "predecessor_phase_id": second["id"], "successor_phase_id": first["id"],
-    })
-    assert len(plan_of(client, project["id"])["dependencies"]) == 1
+    assert response.status_code == 404
+
+
+def test_both_directions_of_a_link_are_listed_on_a_project(client):
+    payments = make_project(client, "Payments", "2026-01-05")
+    ledger = make_project(client, "Ledger", "2026-02-02")
+    search = make_project(client, "Search", "2026-04-01")
+    link(client, payments, ledger)   # Ledger waits on Payments
+    link(client, ledger, search)     # Search waits on Ledger
+
+    dependencies = plan_of(client, ledger["id"])["dependencies"]
+    assert len(dependencies) == 2
+    incoming = [d for d in dependencies if d["successor_project_id"] == ledger["id"]]
+    outgoing = [d for d in dependencies if d["predecessor_project_id"] == ledger["id"]]
+    assert incoming[0]["predecessor_name"] == "Payments"
+    assert outgoing[0]["successor_name"] == "Search"
+
+
+def test_deleting_a_project_takes_its_dependencies_with_it(client):
+    payments = make_project(client, "Payments", "2026-01-05")
+    ledger = make_project(client, "Ledger", "2026-02-02")
+    link(client, payments, ledger)
+
+    client.delete(f"/api/projects/{payments['id']}")
+    assert plan_of(client, ledger["id"])["dependencies"] == []
 
 
 # --- criterion 7: export / wipe / import round trip -------------------------
@@ -134,15 +203,13 @@ def test_export_then_import_restores_the_identical_dataset(client):
     project = make_project(client)
     client.put(f"/api/projects/{project['id']}", json={"goal": "Ship payments v1."})
     design = make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
-    build = make_phase(client, project["id"], "Build", "2026-02-02", 6, 60)
+    make_phase(client, project["id"], "Build", "2026-02-02", 6, 60)
     wireframes = client.post(f"/api/phases/{design['id']}/deliverables",
                              json={"name": "Wireframes"}).json()
     client.put(f"/api/deliverables/{wireframes['id']}", json={"done": True})
     client.post(f"/api/phases/{design['id']}/deliverables", json={"name": "Prototype"})
-    client.post("/api/dependencies", json={
-        "predecessor_phase_id": design["id"], "successor_phase_id": build["id"],
-    })
-    make_project(client, "Search", "2026-03-01")
+    search = make_project(client, "Search", "2026-03-01")
+    link(client, project, search)
 
     exported = client.get("/api/export").json()
 
@@ -209,14 +276,15 @@ def test_estimate_rules_still_run_on_undated_phases(client):
 
 
 def test_date_rules_are_skipped_while_unscheduled(client):
-    project = make_project(client, start="2026-01-05")
-    design = make_phase(client, project["id"], "Design", "", 4, 40)
-    build = make_phase(client, project["id"], "Build", "", 4, 40)
-    client.post("/api/dependencies", json={
-        "predecessor_phase_id": design["id"], "successor_phase_id": build["id"],
-    })
-    rules = {w["rule"] for w in plan_of(client, project["id"])["warnings"]}
-    assert "V2" not in rules and "V4" not in rules
+    payments = make_project(client, "Payments", start="")
+    ledger = make_project(client, "Ledger", start="")
+    make_phase(client, payments["id"], "Design", "", 4, 40)
+    make_phase(client, ledger["id"], "Build", "", 4, 40)
+    link(client, payments, ledger)
+
+    for project in (payments, ledger):
+        rules = {w["rule"] for w in plan_of(client, project["id"])["warnings"]}
+        assert "V2" not in rules and "V4" not in rules
 
 
 def test_a_garbage_date_is_rejected_rather_than_stored(client):
@@ -415,6 +483,7 @@ def test_portfolio_returns_every_project_and_phase(client):
 def test_portfolio_is_empty_when_nothing_is_planned(client):
     assert client.get("/api/portfolio").json() == {
         "projects": [], "phases": [], "unscheduled_count": 0,
+        "dependencies": [], "warnings": [],
     }
 
 
@@ -526,7 +595,7 @@ def test_stage_track_and_department_survive_a_round_trip(client):
     make_direction(client, "Build caching", track="Developer experience")
 
     exported = client.get("/api/export").json()
-    assert exported["version"] == 5
+    assert exported["version"] == 6
 
     for existing in client.get("/api/projects").json():
         client.delete(f"/api/projects/{existing['id']}")
@@ -611,7 +680,128 @@ def test_a_version_4_export_imports_with_every_deliverable_ongoing(client):
     assert client.post("/api/import", json=legacy).status_code == 200
 
     exported = client.get("/api/export").json()
-    assert exported["version"] == 5
+    assert exported["version"] == 6
     # Even under a phase marked done -- the tick is the user's to set, and a
     # phase status is not evidence about any particular deliverable.
     assert exported["deliverables"][0]["done"] == 0
+
+
+def version_5_file(dependencies):
+    """A v5 export -- two projects, one phase each -- with phase-level links."""
+    def project(project_id, name, start):
+        return {"id": project_id, "name": name, "description": "", "goal": "",
+                "start_date": start, "velocity_override": None,
+                "stage": "active", "track": "",
+                "created_at": "2026-01-01T00:00:00+00:00",
+                "updated_at": "2026-01-01T00:00:00+00:00"}
+
+    def phase(phase_id, project_id, name, start):
+        return {"id": phase_id, "project_id": project_id, "name": name,
+                "description": "", "start_date": start, "duration_weeks": 4,
+                "effort_points": 40, "status": "planned", "sort_order": 0}
+
+    return {
+        "version": 5,
+        "settings": {"default_velocity_points_per_sprint": 20,
+                     "sprint_length_days": 14, "v1_tolerance_pct": 5.0,
+                     "department_name": "Platform"},
+        "projects": [project(1, "Payments", "2026-01-05"),
+                     project(2, "Ledger", "2026-03-02")],
+        "phases": [phase(1, 1, "Design", "2026-01-05"),
+                   phase(2, 1, "Build", "2026-02-02"),
+                   phase(3, 2, "Ledger core", "2026-03-02")],
+        "deliverables": [],
+        "dependencies": dependencies,
+    }
+
+
+def test_a_version_5_export_lifts_phase_dependencies_up_to_projects(client):
+    """Phase 2 (Payments) before phase 3 (Ledger) becomes Payments before Ledger."""
+    legacy = version_5_file([
+        {"id": 1, "predecessor_phase_id": 2, "successor_phase_id": 3},
+    ])
+    assert client.post("/api/import", json=legacy).status_code == 200
+
+    dependencies = client.get("/api/export").json()["dependencies"]
+    assert len(dependencies) == 1
+    assert dependencies[0]["predecessor_project_id"] == 1
+    assert dependencies[0]["successor_project_id"] == 2
+    assert "predecessor_phase_id" not in dependencies[0]
+
+
+def test_a_version_5_intra_project_dependency_is_discarded(client):
+    """Design before Build inside Payments is no longer something we record."""
+    legacy = version_5_file([
+        {"id": 1, "predecessor_phase_id": 1, "successor_phase_id": 2},
+    ])
+    assert client.post("/api/import", json=legacy).status_code == 200
+    assert client.get("/api/export").json()["dependencies"] == []
+
+
+def test_version_5_links_folding_onto_the_same_pair_collapse_to_one(client):
+    """Two phase links between the same two projects say one thing at this level."""
+    legacy = version_5_file([
+        {"id": 1, "predecessor_phase_id": 1, "successor_phase_id": 3},
+        {"id": 2, "predecessor_phase_id": 2, "successor_phase_id": 3},
+    ])
+    assert client.post("/api/import", json=legacy).status_code == 200
+    assert len(client.get("/api/export").json()["dependencies"]) == 1
+
+
+# --- migrating an existing file ---------------------------------------------
+
+
+def created(row):
+    """Narrow the `dict | None` the db create helpers return."""
+    assert row is not None
+    return row
+
+
+def test_migrate_lifts_an_old_phase_dependency_table_to_projects(tmp_path):
+    """The one-way upgrade of a real file: translate, then drop the old table."""
+    db.set_db_path(str(tmp_path / "old.db"))
+    try:
+        db.init_db()
+        with db.connect() as connection:
+            # Rebuild the pre-version-6 table and populate it directly.
+            connection.execute("""
+                CREATE TABLE dependency (
+                    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+                    predecessor_phase_id INTEGER NOT NULL,
+                    successor_phase_id   INTEGER NOT NULL,
+                    UNIQUE (predecessor_phase_id, successor_phase_id))""")
+        payments = created(db.create_project("Payments", "2026-01-05"))
+        ledger = created(db.create_project("Ledger", "2026-03-02"))
+        design = created(db.create_phase(payments["id"], "Design", "2026-01-05", 4, 40))
+        build = created(db.create_phase(payments["id"], "Build", "2026-02-02", 4, 40))
+        core = created(db.create_phase(ledger["id"], "Ledger core", "2026-03-02", 4, 40))
+
+        with db.connect() as connection:
+            connection.executemany(
+                "INSERT INTO dependency (predecessor_phase_id, successor_phase_id)"
+                " VALUES (?, ?)",
+                [(design["id"], build["id"]),   # inside Payments -- dropped
+                 (build["id"], core["id"])],    # Payments -> Ledger -- kept
+            )
+            db.migrate(connection)
+            assert not db.table_exists(connection, "dependency")
+
+        assert db.list_all_dependencies() == [
+            {"id": 1, "predecessor_project_id": payments["id"],
+             "successor_project_id": ledger["id"]},
+        ]
+    finally:
+        db.set_db_path(db.DEFAULT_DB_PATH)
+
+
+def test_migrate_is_a_no_op_once_the_old_table_is_gone(tmp_path):
+    db.set_db_path(str(tmp_path / "current.db"))
+    try:
+        db.init_db()
+        payments = created(db.create_project("Payments", "2026-01-05"))
+        ledger = created(db.create_project("Ledger", "2026-03-02"))
+        db.create_dependency(payments["id"], ledger["id"])
+        db.init_db()   # migrate runs again on every open
+        assert len(db.list_all_dependencies()) == 1
+    finally:
+        db.set_db_path(db.DEFAULT_DB_PATH)

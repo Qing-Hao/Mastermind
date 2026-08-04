@@ -14,7 +14,7 @@ migration framework, no auth.
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000   # http://127.0.0.1:8000
-.\.venv\Scripts\python.exe -m pytest -q                                   # 71 tests, ~1.5s
+.\.venv\Scripts\python.exe -m pytest -q                                   # 94 tests, ~1.8s
 ```
 
 Type checking is pyright, `basic` mode, config in `pyrightconfig.json`.
@@ -49,11 +49,15 @@ timestamps.
 
 `deliverable` — `phase_id`, name, description, `done` (0/1), `sort_order`.
 
-`dependency` — `predecessor_phase_id`, `successor_phase_id`. Finish-to-start only;
-no lag or lead.
+`project_dependency` — `predecessor_project_id`, `successor_project_id`.
+Finish-to-start only; no lag or lead. **Dependencies link projects, not phases.**
+Order inside a project is the user's to arrange and no rule checks it — the phase
+table has `sort_order` and dates, nothing more.
 
 **`end_date` is always derived** (`start_date + duration_weeks × 7`) and never
-stored — see `validation.phase_end_date` and `main.with_end_date`.
+stored — see `validation.phase_end_date` and `main.with_end_date`. A project has
+no end column either: `validation.project_span` derives the pair of dates a
+project occupies, its end being the latest phase end inside it.
 
 ## Rules that must not be broken
 
@@ -72,21 +76,31 @@ stored — see `validation.phase_end_date` and `main.with_end_date`.
    rollup had no input. `v5_tolerance_pct` went with it. `PROMPT.md` still carries
    the original V5 prose as the record of what was first asked; its **Amendments**
    section overrides the body text.
+6. **Dependencies are project-to-project, and phase order is unvalidated.** They
+   linked phases until export v6. Losing the intra-project check was accepted
+   deliberately, not overlooked: the requester wanted links between whole pieces
+   of work. Don't reintroduce phase links without asking.
 
 ## Validation rules
 
 | ID | Fires when | Behaviour |
 |---|---|---|
-| V1 | `abs(duration_weeks − implied_weeks) > v1_tolerance_pct%` of `duration_weeks`, where `implied_weeks = (effort_points / velocity) × (sprint_length_days / 7)` | Warn |
-| V2 | Successor's `start_date` < predecessor's derived `end_date` | Warn |
-| V3 | Dependency cycle | **Block, 409** |
-| V4 | Phase starts before its project's `start_date` | Warn |
+| ID | Scope | Fires when | Behaviour |
+|---|---|---|---|
+| V1 | phase | `abs(duration_weeks − implied_weeks) > v1_tolerance_pct%` of `duration_weeks`, where `implied_weeks = (effort_points / velocity) × (sprint_length_days / 7)` | Warn |
+| V2 | project pair | Successor project's span start < predecessor project's span end | Warn |
+| V3 | project pair | Dependency cycle | **Block, 409** |
+| V4 | phase | Phase starts before its project's `start_date` | Warn |
 
 Velocity = `project.velocity_override` or the global default. Tolerance defaults
 to **5%** deliberately: the canonical 6w / 55pts @ velocity 20 case is off by
 8.3%, so 20% would never fire.
 
-`validate_plan()` runs V1, V2, V4 — never V3, which is checked at write time.
+`validate_plan()` runs V1 and V4 on one project. **V2 lives in
+`validate_portfolio()`** — it compares two projects, so it needs every project,
+its phases and every dependency. V3 is in neither: it is checked at write time.
+`GET /api/projects/{id}` merges the V2 warnings naming that project into its own
+list, so both ends of a link see it.
 
 ## Unscheduled is a first-class state
 
@@ -96,7 +110,8 @@ HTML `<input type="date">` untouched. Estimate first, commit dates later.
 - Reads are **lenient** (`as_optional_date` swallows bad values) so one bad row
   cannot break a whole project view.
 - Writes are **strict** (`main.clean_date` → 422) so bad values never get stored.
-- V2 and V4 skip unscheduled records. V1 does not care about dates.
+- V4 skips unscheduled records, and V2 skips a project with nothing scheduled on
+  the side it needs (no start, or no phase end). V1 does not care about dates.
 - Portfolio omits unscheduled phases and reports `unscheduled_count`.
 - `POST /api/projects/{id}/layout` places undated phases back to back from the
   project start. **User-triggered only** — it is not auto-scheduling.
@@ -111,27 +126,44 @@ DELETE · `/api/projects/{id}/layout` POST · `/api/projects/{id}/phases` POST �
 `/api/export` GET · `/api/import` POST.
 
 `GET /api/projects/{id}` returns the whole plan in one payload: project, phases
-(with derived dates + deliverables), dependencies, warnings, settings.
+(with derived dates + deliverables), dependencies, warnings, settings. Its
+`dependencies` are every link the project sits at **either** end of, each
+carrying `predecessor_name` and `successor_name` so the view needs no second
+fetch. `GET /api/portfolio` carries the same list for the whole dataset plus
+every V2 warning.
 
 ## Schema changes and export versions
 
 No migration framework. `db.migrate()` runs on every `init_db()`:
 `ADDED_COLUMNS` first, then `DROPPED_COLUMNS`, each guarded by
-`PRAGMA table_info`. Additions before removals so a file that skipped releases
-converges on the same shape. Dropping needs SQLite ≥ 3.35.
+`PRAGMA table_info`, then `migrate_dependencies_to_projects()`. Additions before
+removals so a file that skipped releases converges on the same shape. Dropping
+needs SQLite ≥ 3.35.
 
-Export `version` is currently **5**. Bump it when the shape changes and keep
-imports tolerant of older files — v2/v3/v4 exports must still import, with absent
-fields falling back to defaults. `import_all` is destructive by design and
-preserves ids so dependency links survive the round trip.
+The dependency step is the one table-level migration: if the old phase-level
+`dependency` table is still there, its rows are lifted to the projects they
+linked, links that collapse onto one project are discarded, and the table is
+dropped. **Irreversible** — back the file up first.
+
+Export `version` is currently **6**. Bump it when the shape changes and keep
+imports tolerant of older files — v2–v5 exports must still import, with absent
+fields falling back to defaults and phase-level dependencies translated by
+`project_dependencies_from()`. `import_all` is destructive by design and
+preserves ids so links survive the round trip; a translated pre-v6 file is the
+one case where dependency ids are renumbered, since several phase links can fold
+into one project link.
 
 ## Views
 
 - **Project** — goal, fields, warnings, unscheduled list, timeline, phase table
-  with expandable deliverables (`3/5` tally on the phase row), dependencies.
+  with expandable deliverables (`3/5` tally on the phase row), dependencies. The
+  dependency panel lists both directions (`← waits on X`, `→ Y waits on this`)
+  and links by picking another project plus a direction.
 - **Portfolio** — every scheduled phase of `active`/`done` projects on one axis,
   one swimlane per project. Drag a bar to move **only** that phase; snaps to a
-  week, `Alt` for single days. No resize.
+  week, `Alt` for single days. No resize. Below the chart, every cross-project
+  link as a **list**, V2-marked where violated — not arrows between swimlanes,
+  because a link can point at an idea, which has no bar to draw to.
 - **Map** — hand-rolled radial SVG, deterministic layout. Department hub → track
   ring → project ring, ideas outermost and dashed. Node radius `sqrt(points)`,
   clamped 16–38px.

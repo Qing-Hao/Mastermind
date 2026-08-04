@@ -140,11 +140,29 @@ the text above, **the amendment wins** — the code follows the amendments.
    than an enum: the moment it grows intermediate states it has become the status
    field this section warned about. It is recorded and displayed only — it fires
    no validation rule, does not set `phase.status`, and never moves a date.
+3. **Dependencies link projects, not phases.** The requester does not want links
+   inside a project — the useful question across a roadmap is which whole piece of
+   work has to land before another can start. `predecessor_phase_id` /
+   `successor_phase_id` became `predecessor_project_id` /
+   `successor_project_id`, and the table is now `project_dependency`.
+
+   This **removes** the only check on phase order inside a project, and that was
+   accepted knowingly: phases keep `sort_order` and their dates, and nothing
+   cross-checks them. Requirement 4 and acceptance criteria 3 and 4 above are to
+   be read as being about projects.
+
+   **V2** now compares derived project spans: a project's start is the earliest of
+   its own `start_date` and its earliest scheduled phase, its end is the latest
+   phase end inside it. Neither is stored. **V3** is unchanged except that it
+   walks projects, which also makes a project depending on itself a cycle of
+   length one. Existing phase-level links are lifted to the projects they linked
+   when a pre-version-6 file is opened or imported; links that collapse onto a
+   single project are discarded.
 
 Deliverables inside a phase are treated as **sequential**, so durations sum. Work
 that genuinely runs in parallel belongs in separate phases.
 
-**Dependency**
+**Dependency** *(superseded by amendment 3 — projects, not phases)*
 - `id`
 - `predecessor_phase_id`, `successor_phase_id`
 - Finish-to-start only in v1. Do not model lag, lead, or other dependency types.

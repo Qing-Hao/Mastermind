@@ -46,6 +46,13 @@ state indefinitely.
 The one exception is a dependency **cycle**: that is malformed data rather than
 a scheduling opinion, so the API rejects the edit with `409` and writes nothing.
 
+Dependencies run **project to project** — which whole piece of work has to land
+before another can start. V2 warns when the later project already begins before
+the earlier one finishes, comparing derived spans: a project starts at the
+earliest of its own start date and its earliest scheduled phase, and ends at the
+latest phase end inside it. Ordering phases within a project is yours to arrange;
+nothing checks it.
+
 ## Estimation
 
 Two numbers exist per phase and neither derives the other:
@@ -78,9 +85,10 @@ than `v1_tolerance_pct` (default 5%).
 
 ## Views
 
-**Project** — goal, phases, deliverables, dependencies, warnings, and a timeline
-for that one project.
+**Project** — goal, phases, deliverables, warnings, a timeline for that one
+project, and the projects it waits on or is waited on by.
 
 **Portfolio** — every project's phases on one shared time axis with a month
 ruler, one swimlane per project. Drag a bar sideways to move that phase; it snaps
-to whole days and moves nothing else.
+to whole days and moves nothing else. Every cross-project link is listed below
+the chart, marked where V2 fires.

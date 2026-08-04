@@ -26,6 +26,7 @@ from app.validation import (
     project_progress,
     sequential_layout,
     validate_plan,
+    validate_portfolio,
 )
 
 # Projects that occupy real time. An idea has not been committed to, so it is
@@ -112,8 +113,9 @@ class DeliverablePatch(BaseModel):
 
 
 class DependencyIn(BaseModel):
-    predecessor_phase_id: int
-    successor_phase_id: int
+    # Project to project: which piece of work has to land before another starts.
+    predecessor_project_id: int
+    successor_project_id: int
 
 
 # --- helpers ----------------------------------------------------------------
@@ -181,6 +183,24 @@ def require_phase(phase_id):
     return phase
 
 
+def portfolio_warnings():
+    """Every V2 warning in the dataset.
+
+    V2 compares two projects, so it cannot be answered from one project's rows --
+    it always reads the whole set. Cheap enough at this scale to recompute per
+    request rather than cache.
+    """
+    return validate_portfolio(
+        db.list_projects(), db.phases_by_project(), db.list_all_dependencies()
+    )
+
+
+def warnings_touching(project_id, cross_project):
+    """The subset of `cross_project` warnings with this project at either end."""
+    return [warning for warning in cross_project
+            if project_id in (warning.project_id, warning.related_project_id)]
+
+
 # --- settings ---------------------------------------------------------------
 
 
@@ -217,13 +237,19 @@ def add_project(body: ProjectIn):
 
 @app.get("/api/projects/{project_id}")
 def read_project_plan(project_id: int):
-    """Project, phases with derived dates and deliverables, dependencies, warnings."""
+    """Project, phases with derived dates and deliverables, dependencies, warnings.
+
+    `dependencies` are the project-to-project links this project sits at either
+    end of, so the view can show both what blocks it and what it blocks. The
+    warning list merges its own V1/V4 findings with the V2 findings that name it.
+    """
     project = require_project(project_id)
     phases = db.list_phases(project_id)
     dependencies = db.list_dependencies(project_id)
     grouped = db.deliverables_by_phase(project_id)
     settings = db.get_settings()
-    warnings = validate_plan(project, phases, dependencies, settings)
+    warnings = validate_plan(project, phases, settings)
+    warnings += warnings_touching(project_id, portfolio_warnings())
 
     enriched = []
     for phase in phases:
@@ -250,6 +276,10 @@ def read_portfolio():
 
     Future directions are omitted too -- an idea nobody has committed to does
     not belong on a delivery timeline. It shows on the map view instead.
+
+    Dependencies and their V2 warnings come along in full, ideas included: a
+    project waiting on something uncommitted is worth seeing here even though the
+    idea itself has no bar to draw.
     """
     projects = db.list_projects(stages=SCHEDULABLE_STAGES)
     committed = {project["id"] for project in projects}
@@ -260,6 +290,8 @@ def read_portfolio():
         "projects": projects,
         "phases": scheduled,
         "unscheduled_count": len(phases) - len(scheduled),
+        "dependencies": db.list_all_dependencies(with_names=True),
+        "warnings": [warning.as_dict() for warning in portfolio_warnings()],
     }
 
 
@@ -412,27 +444,33 @@ def remove_deliverable(deliverable_id: int):
 
 @app.post("/api/dependencies", status_code=201)
 def add_dependency(body: DependencyIn):
-    """V3 is enforced here: a cycle is rejected rather than warned about."""
-    predecessor = require_phase(body.predecessor_phase_id)
-    successor = require_phase(body.successor_phase_id)
+    """Link two projects finish-to-start.
+
+    V3 is enforced here: a cycle is rejected rather than warned about. A project
+    depending on itself is a cycle of length one, so it is rejected by the same
+    check rather than needing its own guard.
+    """
+    require_project(body.predecessor_project_id)
+    require_project(body.successor_project_id)
 
     proposed = db.list_all_dependencies() + [
         {
-            "predecessor_phase_id": body.predecessor_phase_id,
-            "successor_phase_id": body.successor_phase_id,
+            "predecessor_project_id": body.predecessor_project_id,
+            "successor_project_id": body.successor_project_id,
         }
     ]
     cycle = find_dependency_cycle(proposed)
     if cycle:
-        names = {phase["id"]: phase["name"] for phase in
-                 db.list_phases(predecessor["project_id"]) + db.list_phases(successor["project_id"])}
-        readable = " -> ".join(names.get(phase_id, f"#{phase_id}") for phase_id in cycle)
+        names = {project["id"]: project["name"] for project in db.list_projects()}
+        readable = " -> ".join(names.get(project_id, f"#{project_id}")
+                               for project_id in cycle)
         raise HTTPException(
             status_code=409,
             detail=f"That dependency would create a cycle: {readable}",
         )
 
-    return db.create_dependency(body.predecessor_phase_id, body.successor_phase_id)
+    return db.create_dependency(body.predecessor_project_id,
+                                body.successor_project_id)
 
 
 @app.delete("/api/dependencies/{dependency_id}", status_code=204)
