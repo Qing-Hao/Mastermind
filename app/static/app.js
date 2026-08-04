@@ -1222,25 +1222,46 @@ function makeDraggable(bar, phase, view) {
 // land in the same places every time the page opens, so the shape of the team's
 // work is something you can learn to read rather than re-decipher.
 const SVG_NS = "http://www.w3.org/2000/svg";
-const MAP_HEIGHT = 620;
+// The rings are ellipses (see below), and the gap between two of them is at its
+// thinnest on the short vertical axis -- which is where the rings run out of
+// room for the labels between them. The height buys that gap back.
+const MAP_HEIGHT = 680;
 // Rings are ellipses, not circles: a page-wide canvas is far wider than it is
 // tall, and a circle sized to the height would leave the sides empty and crowd
-// everything into the middle. The margins differ for the same reason -- a label
-// spreads sideways, a node's label block hangs below it.
-const MAP_MARGIN_X = 130;
+// everything into the middle.
+// The margins differ because a label is far wider than it is tall, and on the
+// flanks -- the ends of the long axis -- it runs outwards rather than across.
+// The x margin has to clear most of a label rather than half of one: on the
+// flanks a label runs outwards from its node instead of straddling it. Sized
+// against a typical name rather than the widest possible one -- 20 characters
+// at 12px on a 38px node would want 186px, and buying that back off the rings
+// crowds every label on the map to keep one hypothetical one off the edge.
+const MAP_MARGIN_X = 170;
 const MAP_MARGIN_Y = 92;
 const HUB_RADIUS = 54;
 const MIN_NODE_R = 16;
 const MAX_NODE_R = 38;
 // Ring positions as fractions of the usable radius. Ideas sit furthest out:
 // distance from the centre reads as distance from being committed to.
-const TRACK_RING = 0.40;
+// Pulled in towards the hub to open up the track-to-subtrack gap, which is the
+// tightest one on the map: both rings carry a label and neither has a node big
+// enough to need the room elsewhere.
+const TRACK_RING = 0.36;
 // Not the midpoint of track and project: a subtrack with a single project sits
 // at that project's own angle, and a 38px node on the 0.74 ring reaches back
 // past 0.57 on the short vertical axis and swallows the label.
 const SUBTRACK_RING = 0.52;
 const PROJECT_RING = 0.74;
 const IDEA_RING = 1.0;
+const TRACK_DOT = 6;
+const SUBTRACK_DOT = 4;
+// Line height of a label block, and the clear space between a circle's rim and
+// the nearest edge of its label.
+const LABEL_LINE = 13;
+const LABEL_GAP = 8;
+// Which way a label leans off its node -- see labelPlace.
+const ALONG_RING = true;
+const ACROSS_RING = false;
 // A track splits into a subtrack on the first slash: "Source expansion /
 // Metrics". Convention, not schema -- project.track stays one free-text column
 // and a name without a slash is simply a track with no subtracks under it.
@@ -1269,6 +1290,115 @@ function nodeRadius(points, largest) {
   if (!largest) return MIN_NODE_R;
   return MIN_NODE_R + (MAX_NODE_R - MIN_NODE_R)
     * Math.sqrt(Math.max(points, 0) / largest);
+}
+
+// Equal angles are not equal distances on an ellipse: a radian near 3 o'clock
+// buys `rings.y` pixels of travel where one near 12 buys `rings.x`, so evenly
+// spaced angles bunch up the flanks -- exactly where a label needs the most
+// room. Slots are spaced along the ring's arc length instead. The curve is
+// sampled once per render and the mapping inverted by lookup; there is a closed
+// form, but it is an elliptic integral and this is a chart. The project ring is
+// the one measured, because it is the crowded one -- the inner rings only
+// follow the angles it hands out.
+function arcRuler(rings, fraction, samples = 720) {
+  const rx = rings.x * fraction;
+  const ry = rings.y * fraction;
+  const step = (Math.PI * 2) / samples;
+  const start = -Math.PI / 2;  // 12 o'clock, going clockwise
+  const at = (index) => ({
+    x: rx * Math.cos(start + index * step),
+    y: ry * Math.sin(start + index * step),
+  });
+
+  const lengths = [0];
+  let previous = at(0);
+  for (let index = 1; index <= samples; index += 1) {
+    const point = at(index);
+    lengths.push(lengths[index - 1]
+      + Math.hypot(point.x - previous.x, point.y - previous.y));
+    previous = point;
+  }
+
+  const total = lengths[samples];
+  return {
+    total,
+    // Distance travelled around the ring from 12 o'clock -> the angle you are
+    // standing at, straddling the two samples it falls between.
+    angleAt(distance) {
+      const along = ((distance % total) + total) % total;
+      let low = 0;
+      let high = samples;
+      while (high - low > 1) {
+        const mid = Math.floor((low + high) / 2);
+        if (lengths[mid] <= along) low = mid;
+        else high = mid;
+      }
+      const gap = lengths[high] - lengths[low] || 1;
+      return start + (low + (along - lengths[low]) / gap) * step;
+    },
+  };
+}
+
+// Which side of its circle a node's label hangs on. The text itself always
+// stays horizontal; only the side changes, and it is picked off the ellipse
+// rather than off the screen -- "below the circle" is only away from the hub on
+// the bottom half of the map, which is why hanging every label downwards put
+// half of them on the ring inside.
+//
+// A project leans ACROSS_RING, straight out, into the empty space past the
+// outermost ring. A track or subtrack leans ALONG_RING instead, following the
+// arc it sits on: the gap between two rings is 40-55px where a label is up to
+// 140px wide, so anything reaching outwards or inwards from an inner ring lands
+// on the ring behind it. Along the ring there is nothing but empty arc, because
+// an inner ring holds one node per group rather than one per project.
+//
+// Whichever way it leans, the bigger component of that direction picks the axis
+// and its sign picks the side, so a label never straddles the thing it is
+// trying to avoid.
+function labelPlace(point, rings, angle, clearance, along) {
+  const radial = {
+    x: rings.x * Math.cos(angle), y: rings.y * Math.sin(angle),
+  };
+  const tangent = {
+    x: -rings.x * Math.sin(angle), y: rings.y * Math.cos(angle),
+  };
+  const lean = along ? tangent : radial;
+
+  if (Math.abs(lean.x) >= Math.abs(lean.y)) {
+    const side = lean.x >= 0 ? 1 : -1;
+    return {
+      x: point.x + side * clearance, y: point.y,
+      anchor: side > 0 ? "start" : "end", stack: 0,
+    };
+  }
+
+  const side = lean.y >= 0 ? 1 : -1;
+  return {
+    x: point.x, y: point.y + side * clearance, anchor: "middle", stack: side,
+  };
+}
+
+// A block of horizontal lines placed clear of a node's circle. `stack` says
+// where the block sits relative to the attachment point: below it, above it, or
+// straddling it. A tspan's `dy` only ever stacks downwards, so a block that
+// hangs above its node has to start a whole block-height higher, and one
+// alongside half of that.
+function labelText(lines, place, className) {
+  const attributes = { x: place.x, y: place.y, "text-anchor": place.anchor };
+  if (className) attributes.class = className;
+  const text = svgElement("text", attributes);
+
+  const height = LABEL_LINE * (lines.length - 1);
+  let first = 4 - height / 2;
+  if (place.stack > 0) first = 9;
+  if (place.stack < 0) first = -height - 3;
+
+  lines.forEach((line, index) => {
+    const span = { x: place.x, dy: index === 0 ? first : LABEL_LINE };
+    if (line.className) span.class = line.className;
+    text.appendChild(svgElement("tspan", span, line.text));
+  });
+  return text;
 }
 
 // "Source expansion / Metrics" -> track "Source expansion", sub "Metrics".
@@ -1360,21 +1490,25 @@ function renderMap() {
   const largest = Math.max(...projects.map((project) => project.effort_points), 0);
   const groups = mapGroups(projects);
   // A wedge per group, sized by how many projects it holds, so a busy track
-  // gets the room it needs instead of every track getting an equal slice.
+  // gets the room it needs instead of every track getting an equal slice. The
+  // size is a length of ring rather than an angle -- see arcRuler.
   const weight = groups.reduce(
     (total, group) => total + Math.max(group.total, 1), 0);
+  const ruler = arcRuler(rings, PROJECT_RING);
 
-  let angle = -Math.PI / 2;  // start at 12 o'clock and go clockwise
+  let travelled = 0;  // start at 12 o'clock and go clockwise
   for (const group of groups) {
-    const span = (Math.max(group.total, 1) / weight) * Math.PI * 2;
+    const span = (Math.max(group.total, 1) / weight) * ruler.total;
 
     let anchor = { x: cx, y: cy };
     if (group.track) {
-      anchor = polar(cx, cy, rings, TRACK_RING, angle + span / 2);
+      const trackAngle = ruler.angleAt(travelled + span / 2);
+      anchor = polar(cx, cy, rings, TRACK_RING, trackAngle);
       edges.appendChild(svgElement("line", {
         class: "map-edge", x1: cx, y1: cy, x2: anchor.x, y2: anchor.y,
       }));
-      nodes.appendChild(trackNode(group.track, anchor));
+      nodes.appendChild(trackNode(group.track, anchor, labelPlace(
+        anchor, rings, trackAngle, TRACK_DOT + LABEL_GAP, ALONG_RING)));
     }
 
     // Every project still gets one angular slot, subtracked ones after the
@@ -1385,8 +1519,10 @@ function renderMap() {
       ...group.subs.flatMap(
         (sub) => sub.projects.map((project) => ({ project, sub }))),
     ];
+    // Every slot owns an equal length of the group's ring, so two neighbours
+    // are the same number of pixels apart wherever on the map they land.
     const step = span / (slots.length + 1);
-    const angleAt = (index) => angle + step * (index + 1);
+    const distanceAt = (index) => travelled + step * (index + 1);
 
     // Anchors and edges now, but the nodes themselves go on after the projects:
     // a subtrack sits close enough to the ring outside it that a large circle
@@ -1396,32 +1532,40 @@ function renderMap() {
     for (const sub of group.subs) {
       const owned = slots.reduce((found, slot, index) =>
         (slot.sub === sub ? [...found, index] : found), []);
-      const middle = (angleAt(owned[0]) + angleAt(owned[owned.length - 1])) / 2;
-      const point = polar(cx, cy, rings, SUBTRACK_RING, middle);
+      // The middle of the run measured in ring length, not in angle: the two
+      // stopped being the same thing once the steps became unequal. Distances
+      // also climb steadily where angles wrap, so there is no seam to handle.
+      const middle = (distanceAt(owned[0])
+        + distanceAt(owned[owned.length - 1])) / 2;
+      const subAngle = ruler.angleAt(middle);
+      const point = polar(cx, cy, rings, SUBTRACK_RING, subAngle);
       subAnchors.set(sub, point);
 
       edges.appendChild(svgElement("line", {
         class: "map-edge", x1: anchor.x, y1: anchor.y, x2: point.x, y2: point.y,
       }));
-      subNodes.push(subtrackNode(sub.name, point));
+      subNodes.push(subtrackNode(sub.name, point, labelPlace(
+        point, rings, subAngle, SUBTRACK_DOT + LABEL_GAP, ALONG_RING)));
     }
 
     slots.forEach((slot, index) => {
       const isIdea = slot.project.stage === "idea";
       const from = slot.sub ? subAnchors.get(slot.sub) : anchor;
+      const angle = ruler.angleAt(distanceAt(index));
       const point = polar(cx, cy, rings, isIdea ? IDEA_RING : PROJECT_RING,
-        angleAt(index));
+        angle);
       edges.appendChild(svgElement("line", {
         class: `map-edge${isIdea ? " map-edge-idea" : ""}`,
         x1: from.x, y1: from.y, x2: point.x, y2: point.y,
       }));
       const radius = nodeRadius(slot.project.effort_points, largest);
       centres.set(slot.project.id, { x: point.x, y: point.y, r: radius });
-      nodes.appendChild(projectNode(slot.project, point, radius));
+      nodes.appendChild(projectNode(slot.project, point, radius, labelPlace(
+        point, rings, angle, radius + LABEL_GAP, ACROSS_RING)));
     });
 
     for (const node of subNodes) nodes.appendChild(node);
-    angle += span;
+    travelled += span;
   }
 
   // Last, so the hub draws over any spoke that passes near the centre.
@@ -1534,25 +1678,23 @@ function hubNode(name, cx, cy) {
   return group;
 }
 
-const trackNode = (track, point) =>
-  groupNode("map-track", track, point, 6, 13, 22);
+const trackNode = (track, point, place) =>
+  groupNode("map-track", track, point, TRACK_DOT, place, 22);
 
-const subtrackNode = (name, point) =>
-  groupNode("map-subtrack", name, point, 4, 10, 18);
+const subtrackNode = (name, point, place) =>
+  groupNode("map-subtrack", name, point, SUBTRACK_DOT, place, 18);
 
-// Labels sit above their dot, i.e. towards the centre, so a subtrack's name
-// never lands on the project ring outside it.
-function groupNode(className, label, point, radius, labelGap, limit) {
+// Both are placed ALONG_RING by their caller, so a subtrack's name runs into
+// the empty arc beside it rather than onto the ring in front or behind.
+function groupNode(className, label, point, radius, place, limit) {
   const group = svgElement("g", { class: className });
   group.appendChild(
     svgElement("circle", { cx: point.x, cy: point.y, r: radius }));
-  group.appendChild(svgElement("text", {
-    x: point.x, y: point.y - labelGap, "text-anchor": "middle",
-  }, truncate(label, limit)));
+  group.appendChild(labelText([{ text: truncate(label, limit) }], place));
   return group;
 }
 
-function projectNode(project, point, radius) {
+function projectNode(project, point, radius, place) {
   const group = svgElement("g", {
     class: `map-node stage-${project.stage}`, tabindex: "0", role: "button",
     "data-project-id": project.id,
@@ -1569,17 +1711,10 @@ function projectNode(project, point, radius) {
   }
   if (project.next_date) meta.push(`next ${project.next_date}`);
 
-  const label = svgElement("text", {
-    class: "map-label", x: point.x, y: point.y + radius + 15,
-    "text-anchor": "middle",
-  });
-  label.appendChild(svgElement("tspan",
-    { x: point.x, class: "map-name" }, truncate(project.name, 20)));
-  for (const line of meta) {
-    label.appendChild(svgElement("tspan",
-      { x: point.x, dy: 13, class: "map-meta" }, line));
-  }
-  group.appendChild(label);
+  group.appendChild(labelText([
+    { text: truncate(project.name, 20), className: "map-name" },
+    ...meta.map((line) => ({ text: line, className: "map-meta" })),
+  ], place, "map-label"));
 
   // The full name and goal live in the tooltip, since the label is truncated.
   group.appendChild(svgElement("title", {}, [

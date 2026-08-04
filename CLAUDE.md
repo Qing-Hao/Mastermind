@@ -215,10 +215,33 @@ into one project link.
 - **Map** — hand-rolled radial SVG, deterministic layout. Department hub → track
   ring → subtrack ring → project ring, ideas outermost and dashed. Node radius
   `sqrt(points)`, clamped 16–38px. A track's wedge is sized by how many projects
-  it holds; inside it every project gets one angular slot, unsubtracked ones
-  first, and each subtrack node sits at the middle of the contiguous run of slots
-  its projects occupy. Projects with no subtrack hang straight off the track,
+  it holds; inside it every project gets one slot, unsubtracked ones first, and
+  each subtrack node sits at the middle of the contiguous run of slots its
+  projects occupy. Projects with no subtrack hang straight off the track,
   exactly as before.
+  Slots are spaced by **arc length, not angle** (`arcRuler`). The rings are
+  ellipses roughly 1.4:1, so an evenly-divided angle packs the left and right
+  flanks at half the spacing of 12 and 6 o'clock — and that is where labels are
+  widest relative to their gap. The ruler samples the project ring once per
+  render and inverts distance → angle by lookup; a wedge's share is therefore a
+  length of ring, and the inner rings only follow the angles it hands out. A
+  subtrack's midpoint is averaged in *distance* too, which also sidesteps the
+  wrap at 12 o'clock.
+  Labels are placed by `labelPlace` off the ellipse rather than the screen.
+  "Below the circle" is only away from the hub on the bottom half, so a fixed
+  screen direction put half of every ring's labels on the ring inside it. A
+  project leans **across** the ring, straight out past the outermost one; a
+  track or subtrack leans **along** it, following the arc, because the gap
+  between two rings (40–55px) is far narrower than a label is wide (up to
+  140px) while the arc beside an inner-ring node is empty. The larger component
+  of that direction picks the axis and its sign picks the side, giving
+  `text-anchor` `start`/`end` on the flanks and `middle` at top and bottom.
+  Label geometry is the reason for three constants: `MAP_MARGIN_X` clears most
+  of a sideways label rather than half a centred one, `MAP_HEIGHT` buys back the
+  ring gap that is thinnest on the short vertical axis, and `TRACK_RING` sits at
+  0.36 to open the track→subtrack gap. Verified by collision sweep over the real
+  dataset at 900–1066px, the width `main`'s 1100px cap allows; below ~900px
+  twelve projects genuinely do not fit and labels touch again.
   Dependencies are **not drawn on every render** — a dozen projects on a radial
   layout becomes spaghetti. Instead `GET /api/graph` carries them and hovering
   (or keyboard-focusing) a project dims the map to that project and the ones it
