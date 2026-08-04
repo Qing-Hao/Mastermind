@@ -178,10 +178,15 @@
             Projects you have estimated but not dated. Drag one onto the chart
             to start it that week &mdash; its undated phases are laid out back
             to back from there, in the order you arranged them. Phases that
-            already have dates keep them.
+            already have dates keep them. A drop can be undone until you reload
+            the page.
           </p>
           <div id="portfolio-tray" class="tray"></div>
         </div>
+
+        <!-- Outside the tray section on purpose: placing the last staged
+             project empties the tray, and the undo has to outlive it. -->
+        <div id="place-undo" class="undo-bar" hidden></div>
 
         <div id="portfolio-scroll">
           <div id="portfolio-chart"></div>

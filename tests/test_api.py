@@ -467,6 +467,45 @@ def test_placing_a_project_dates_it_and_lays_out_its_phases(client):
         ("Design", "2026-09-07"), ("Build", "2026-09-21")]
 
 
+def test_layout_reports_exactly_which_phases_it_dated(client):
+    """`placements` is what makes a placement reversible -- the client keeps it."""
+    project = make_project(client, start="2026-09-07")
+    already = make_phase(client, project["id"], "Design", "2026-09-07", 2, 20)
+    pending = make_phase(client, project["id"], "Build", "", 4, 40)
+
+    placed = client.post(f"/api/projects/{project['id']}/layout").json()
+    assert placed["placed"] == 1
+    assert placed["placements"] == {str(pending["id"]): "2026-09-21"}
+    assert str(already["id"]) not in placed["placements"]
+
+
+def test_undoing_a_placement_returns_the_project_to_the_tray(client):
+    """The reversal the tray's Undo runs: blank those phases, restore the date.
+
+    Only the phases the drop dated are cleared, so a half-placed project keeps
+    the dates it already had.
+    """
+    project = make_project(client, "Payments", start="")
+    kept = make_phase(client, project["id"], "Spike", "2026-08-10", 1, 10)
+    make_phase(client, project["id"], "Build", "", 4, 40)
+
+    client.put(f"/api/projects/{project['id']}", json={"start_date": "2026-09-07"})
+    placed = client.post(f"/api/projects/{project['id']}/layout").json()
+
+    for phase_id in placed["placements"]:
+        client.put(f"/api/phases/{phase_id}", json={"start_date": ""})
+    client.put(f"/api/projects/{project['id']}", json={"start_date": ""})
+
+    portfolio = client.get("/api/portfolio").json()
+    tray = portfolio["unscheduled"]
+    assert tray[0]["project_name"] == "Payments"
+    assert [phase["name"] for phase in tray[0]["phases"]] == ["Build"]
+    assert tray[0]["start_date"] == ""
+    # The phase that was already dated before the drop is untouched by the undo.
+    assert [(p["id"], p["start_date"]) for p in portfolio["phases"]] == [
+        (kept["id"], "2026-08-10")]
+
+
 # --- project goal -----------------------------------------------------------
 
 

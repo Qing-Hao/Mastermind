@@ -263,6 +263,21 @@ table.deliverables tr.done input[type="text"] { color: #999; text-decoration: li
 .tray-name { font-weight: 500; }
 .tray-note { font-size: 11px; color: #b26a00; }
 
+/* The offer to reverse the last placement. Sits between the tray and the
+   chart, where the drop just happened. */
+.undo-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 8px 0;
+  padding: 6px 10px;
+  border: 1px solid #ffe082;
+  border-radius: 3px;
+  background: #fffde7;
+  font-size: 13px;
+}
+
 /* The bar that follows the cursor while a chip is being placed. Dashed and
    pale: nothing is written until you let go, and it is a whole project's run
    of phases rather than one real bar. */

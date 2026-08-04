@@ -14,7 +14,7 @@ migration framework, no auth.
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000   # http://127.0.0.1:8000
-.\.venv\Scripts\python.exe -m pytest -q                                   # 112 tests, ~2.1s
+.\.venv\Scripts\python.exe -m pytest -q                                   # 114 tests, ~2.2s
 ```
 
 Type checking is pyright, `basic` mode, config in `pyrightconfig.json`.
@@ -202,6 +202,13 @@ into one project link.
   date; its dated phases keep them and only push the placed run later.
   The grid is drawn even when nothing is scheduled at all — it is the drop
   target, and that is exactly the case where the tray matters most.
+  A press only becomes a drag after 4px (`DRAG_ARM_PX`), so hand shake during a
+  click cannot file a project at the window origin. Bars need no such guard —
+  their snap is relative to where they already are, so a twitch is a zero-day
+  move. After a drop, an **Undo** bar offers the exact inverse: the layout call
+  reports which phases it dated, so undo blanks those and only those, then puts
+  the project's own start date back. It lives in `state.lastPlacement`, so it
+  survives re-renders and tab switches but not a page reload — the offer says so.
   Below the chart, every cross-project
   link as a **list**, V2-marked where violated — not arrows between swimlanes,
   because a link can point at an idea, which has no bar to draw to.

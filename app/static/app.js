@@ -44,6 +44,10 @@ let state = {
   // `start` is an ISO date, or null meaning "the week containing today".
   // `weeks` is null while a custom range is set, in which case `customEnd` holds it.
   window: { start: null, weeks: MAX_WINDOW_WEEKS, customEnd: null },
+  // The last tray placement, kept so it can be reversed exactly: the project's
+  // previous start date and the phases that drop dated. In memory only -- a
+  // reload loses it, and the offer says so rather than pretending otherwise.
+  lastPlacement: null,
 };
 
 // --- api --------------------------------------------------------------------
@@ -959,6 +963,7 @@ function renderPortfolio() {
   }
 
   renderTray(body, view);
+  renderPlacementUndo();
 }
 
 // Work that is estimated but undated, waiting to be dropped onto the grid. The
@@ -994,6 +999,14 @@ function renderTray(body, view) {
   }
 }
 
+// How far the pointer has to travel before a press on a chip counts as a drag.
+// A placement dates every undated phase in a project, so it has to come from a
+// deliberate gesture: without this, a few pixels of hand shake during a click
+// reads as a drag to the left edge and files the project at the start of the
+// window. Bars do not need it -- their snap is relative to where they already
+// are, so a twitch resolves to a zero-day move and writes nothing.
+const DRAG_ARM_PX = 4;
+
 // The portfolio-side twin of the project view's "Lay out" button: the drop
 // writes the project start date you let go on, then asks the server to stack
 // the undated phases from it. Still nothing automatic -- the date comes from
@@ -1001,21 +1014,32 @@ function renderTray(body, view) {
 function makeTrayDraggable(chip, entry, body, view) {
   chip.onmousedown = (event) => {
     event.preventDefault();
-    // A ghost lane rather than a floating element: the bar lands on the same
-    // gridlines the real ones use, so the week you are about to pick is read
-    // off the ruler instead of guessed.
-    const lane = element("div", "lane lane-ghost");
-    lane.appendChild(element("div", "lane-title", entry.project_name));
-    const ghost = element("div", "bar tray-ghost");
-    lane.appendChild(ghost);
-    body.appendChild(lane);
-    chip.classList.add("dragging");
-
+    const from = { x: event.clientX, y: event.clientY };
     // Half a week minimum so a project of tiny phases is still grabbable.
     const span = Math.max(entry.total_weeks * 7, 3.5);
+    let lane = null;
+    let ghost = null;
     let dropDay = null;
 
+    // A ghost lane rather than a floating element: the bar lands on the same
+    // gridlines the real ones use, so the week you are about to pick is read
+    // off the ruler instead of guessed. Built on arming, not on mousedown, so
+    // an unarmed press leaves the chart untouched.
+    const arm = () => {
+      lane = element("div", "lane lane-ghost");
+      lane.appendChild(element("div", "lane-title", entry.project_name));
+      ghost = element("div", "bar tray-ghost");
+      lane.appendChild(ghost);
+      body.appendChild(lane);
+      chip.classList.add("dragging");
+    };
+
     const onMove = (moveEvent) => {
+      if (!lane) {
+        const travelled = Math.hypot(moveEvent.clientX - from.x, moveEvent.clientY - from.y);
+        if (travelled < DRAG_ARM_PX) return;
+        arm();
+      }
       const rect = body.getBoundingClientRect();
       const raw = (moveEvent.clientX - rect.left) / view.pxPerDay;
       // Whole weeks by default, matching how bars are dragged; Alt for a
@@ -1030,9 +1054,9 @@ function makeTrayDraggable(chip, entry, body, view) {
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
       chip.classList.remove("dragging");
-      lane.remove();
-      // A click that never moved is not a placement -- a date this consequential
-      // should not come from a stray click on the list.
+      if (lane) lane.remove();
+      // A press that never armed is a click, and a click must not schedule
+      // anything -- a date this consequential only comes from a real drag.
       if (dropDay === null) return;
 
       const startDate = formatDate(addDays(view.origin, dropDay));
@@ -1041,7 +1065,18 @@ function makeTrayDraggable(chip, entry, body, view) {
           method: "PUT",
           body: JSON.stringify({ start_date: startDate }),
         });
-        await api(`/api/projects/${entry.project_id}/layout`, { method: "POST" });
+        // The layout call reports exactly which phases it dated, which together
+        // with the project's previous start is the whole of what this drop
+        // changed -- so the undo below is an exact inverse, not a guess.
+        const result = await api(`/api/projects/${entry.project_id}/layout`,
+          { method: "POST" });
+        state.lastPlacement = {
+          projectId: entry.project_id,
+          projectName: entry.project_name,
+          startDate,
+          previousStart: entry.start_date,
+          phaseIds: Object.keys(result.placements),
+        };
       } catch (failure) {
         alert(`Could not place ${entry.project_name}: ${failure.message}`);
       }
@@ -1051,6 +1086,58 @@ function makeTrayDraggable(chip, entry, body, view) {
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
   };
+}
+
+// One drop writes a date to a whole run of phases, so undoing it by hand means
+// clearing them one at a time in the project view. This offers the reversal
+// while the client still remembers what the drop did.
+function renderPlacementUndo() {
+  const bar = $("place-undo");
+  const last = state.lastPlacement;
+  bar.innerHTML = "";
+  bar.hidden = !last;
+  if (!last) return;
+
+  bar.appendChild(element("span", null,
+    `Placed ${last.projectName} at ${last.startDate} — `
+    + `${last.phaseIds.length} phase(s) dated.`));
+
+  const undo = element("button", null, "Undo");
+  undo.onclick = undoPlacement;
+  bar.appendChild(undo);
+
+  const dismiss = element("button", null, "Dismiss");
+  dismiss.onclick = () => {
+    state.lastPlacement = null;
+    renderPlacementUndo();
+  };
+  bar.appendChild(dismiss);
+
+  bar.appendChild(element("span", "muted", "Reloading the page loses this."));
+}
+
+// The exact inverse of the drop: blank the phases it dated -- and only those,
+// so a half-placed project keeps the dates it already had -- then put the
+// project's own start date back to whatever it was, empty included.
+async function undoPlacement() {
+  const last = state.lastPlacement;
+  if (!last) return;
+  try {
+    for (const phaseId of last.phaseIds) {
+      await api(`/api/phases/${phaseId}`, {
+        method: "PUT",
+        body: JSON.stringify({ start_date: "" }),
+      });
+    }
+    await api(`/api/projects/${last.projectId}`, {
+      method: "PUT",
+      body: JSON.stringify({ start_date: last.previousStart }),
+    });
+  } catch (failure) {
+    alert(`Could not undo: ${failure.message}`);
+  }
+  state.lastPlacement = null;
+  await loadPortfolio();
 }
 
 // Dependencies are drawn as a list rather than arrows between swimlanes: a link
