@@ -262,6 +262,21 @@ table.deliverables tr.done input[type="text"] { color: #999; text-decoration: li
 .map-subtrack circle { fill: #c4c4c4; }
 .map-subtrack text { fill: #808080; font-size: 10px; font-weight: 600; }
 
+/* Hover highlight. Tracks fade less than unrelated projects: losing the labels
+   entirely would leave the lit circles floating with no sense of where on the
+   map they sit. */
+.map-node, .map-track, .map-subtrack, .map-edge { transition: opacity .12s; }
+.map-focused .map-edge { opacity: .12; }
+.map-focused .map-track,
+.map-focused .map-subtrack { opacity: .35; }
+.map-focused .map-node { opacity: .12; }
+.map-focused .map-node.focus-self,
+.map-focused .map-node.focus-linked { opacity: 1; }
+.map-focused .map-node.focus-self circle { stroke-width: 3; }
+
+.map-focus-edge { stroke: #ef6c00; stroke-width: 2.5; }
+#map-arrow path { fill: #ef6c00; }
+
 .map-node { cursor: pointer; }
 .map-node circle { fill: #90caf9; stroke: #5c6bc0; stroke-width: 1.5; }
 .map-node.stage-done circle { fill: #cfd8dc; stroke: #90a4ae; }

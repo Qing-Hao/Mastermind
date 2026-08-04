@@ -1170,9 +1170,14 @@ function renderMap() {
     class: "map", width, height: MAP_HEIGHT,
     viewBox: `0 0 ${width} ${MAP_HEIGHT}`,
   });
+  svg.appendChild(arrowDefs());
   const edges = svgElement("g", { class: "map-edges" });
+  // Between the two: a focus line should pass under the circles it joins, not
+  // across their labels.
+  const focusEdges = svgElement("g", { class: "map-focus-edges" });
   const nodes = svgElement("g", { class: "map-nodes" });
-  svg.append(edges, nodes);
+  svg.append(edges, focusEdges, nodes);
+  const centres = new Map();
 
   const largest = Math.max(...projects.map((project) => project.effort_points), 0);
   const groups = mapGroups(projects);
@@ -1232,8 +1237,9 @@ function renderMap() {
         class: `map-edge${isIdea ? " map-edge-idea" : ""}`,
         x1: from.x, y1: from.y, x2: point.x, y2: point.y,
       }));
-      nodes.appendChild(projectNode(slot.project, point,
-        nodeRadius(slot.project.effort_points, largest)));
+      const radius = nodeRadius(slot.project.effort_points, largest);
+      centres.set(slot.project.id, { x: point.x, y: point.y, r: radius });
+      nodes.appendChild(projectNode(slot.project, point, radius));
     });
 
     for (const node of subNodes) nodes.appendChild(node);
@@ -1242,7 +1248,93 @@ function renderMap() {
 
   // Last, so the hub draws over any spoke that passes near the centre.
   nodes.appendChild(hubNode(state.graph.department_name, cx, cy));
+  wireMapFocus(svg, focusEdges, centres);
   canvas.appendChild(svg);
+}
+
+function arrowDefs() {
+  const defs = svgElement("defs");
+  const marker = svgElement("marker", {
+    id: "map-arrow", viewBox: "0 0 10 10", refX: 9, refY: 5,
+    markerWidth: 5, markerHeight: 5, orient: "auto-start-reverse",
+  });
+  marker.appendChild(svgElement("path", { d: "M 0 0 L 10 5 L 0 10 z" }));
+  defs.appendChild(marker);
+  return defs;
+}
+
+// Pull a line's end back to the rim of the circle it points at, so the
+// arrowhead lands where you can see it instead of under the node.
+function trimToRim(from, to, clearance) {
+  const length = Math.hypot(to.x - from.x, to.y - from.y) || 1;
+  return {
+    x: from.x + ((to.x - from.x) / length) * clearance,
+    y: from.y + ((to.y - from.y) / length) * clearance,
+  };
+}
+
+// Pointing at a project dims the rest of the map and draws the dependencies it
+// sits on. Drawing every link on every render was the alternative and it turns
+// a radial layout into spaghetti; this way a correlation that crosses tracks is
+// still one hover away. Hovering a project with no links does nothing -- there
+// is no reason to grey out the map to say "nothing here".
+function wireMapFocus(svg, focusEdges, centres) {
+  const links = state.graph.dependencies || [];
+  const neighbours = new Map();
+  for (const link of links) {
+    const ends = [link.predecessor_project_id, link.successor_project_id];
+    for (const [end, other] of [ends, [...ends].reverse()]) {
+      if (!neighbours.has(end)) neighbours.set(end, new Set());
+      neighbours.get(end).add(other);
+    }
+  }
+
+  const marked = () => svg.querySelectorAll(".focus-self, .focus-linked");
+  const clear = () => {
+    svg.classList.remove("map-focused");
+    while (focusEdges.firstChild) focusEdges.removeChild(focusEdges.firstChild);
+    for (const node of marked()) {
+      node.classList.remove("focus-self", "focus-linked");
+    }
+  };
+
+  const focus = (projectId) => {
+    const linked = neighbours.get(projectId);
+    if (!linked || linked.size === 0) return;
+
+    clear();
+    svg.classList.add("map-focused");
+    for (const node of svg.querySelectorAll("[data-project-id]")) {
+      const id = Number(node.dataset.projectId);
+      if (id === projectId) node.classList.add("focus-self");
+      else if (linked.has(id)) node.classList.add("focus-linked");
+    }
+
+    for (const link of links) {
+      const from = centres.get(link.predecessor_project_id);
+      const to = centres.get(link.successor_project_id);
+      if (!from || !to) continue;
+      if (link.predecessor_project_id !== projectId
+        && link.successor_project_id !== projectId) continue;
+
+      const start = trimToRim(from, to, from.r + 2);
+      const end = trimToRim(to, from, to.r + 3);
+      focusEdges.appendChild(svgElement("line", {
+        class: "map-focus-edge", "marker-end": "url(#map-arrow)",
+        x1: start.x, y1: start.y, x2: end.x, y2: end.y,
+      }));
+    }
+  };
+
+  for (const node of svg.querySelectorAll("[data-project-id]")) {
+    const id = Number(node.dataset.projectId);
+    node.addEventListener("mouseenter", () => focus(id));
+    node.addEventListener("mouseleave", clear);
+    // The nodes are already focusable for the click-to-open handler, so the
+    // keyboard gets the same highlight for free.
+    node.addEventListener("focus", () => focus(id));
+    node.addEventListener("blur", clear);
+  }
 }
 
 function hubNode(name, cx, cy) {
@@ -1285,6 +1377,7 @@ function groupNode(className, label, point, radius, labelGap, limit) {
 function projectNode(project, point, radius) {
   const group = svgElement("g", {
     class: `map-node stage-${project.stage}`, tabindex: "0", role: "button",
+    "data-project-id": project.id,
   });
   group.appendChild(svgElement("circle", { cx: point.x, cy: point.y, r: radius }));
 

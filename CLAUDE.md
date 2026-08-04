@@ -140,7 +140,8 @@ settings. Its
 `dependencies` are every link the project sits at **either** end of, each
 carrying `predecessor_name` and `successor_name` so the view needs no second
 fetch. `GET /api/portfolio` carries the same list for the whole dataset plus
-every V2 warning.
+every V2 warning, and `GET /api/graph` carries it too — for the map's hover
+highlight, not for a permanent edge.
 
 ## Schema changes and export versions
 
@@ -192,6 +193,12 @@ into one project link.
   first, and each subtrack node sits at the middle of the contiguous run of slots
   its projects occupy. Projects with no subtrack hang straight off the track,
   exactly as before.
+  Dependencies are **not drawn on every render** — a dozen projects on a radial
+  layout becomes spaghetti. Instead `GET /api/graph` carries them and hovering
+  (or keyboard-focusing) a project dims the map to that project and the ones it
+  links to, drawing arrows predecessor → successor. Hovering a project with no
+  links is a no-op. Tracks fade less than unrelated projects so the lit circles
+  keep their bearings.
 
 Both charts share one week grid: Monday-based columns under a month/week ruler,
 window capped at 26 weeks, column width fitted to the container and clamped

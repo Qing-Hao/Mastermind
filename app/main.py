@@ -310,6 +310,10 @@ def read_graph():
     One payload so the page renders from a single fetch. Numbers here answer
     "how is this going?" -- progress, size and what lands next -- rather than
     "is this wrong?", which is what the warning list is for.
+
+    Dependencies ride along for the hover highlight. They are not drawn on every
+    render -- a dozen projects on a radial layout turns into spaghetti -- so the
+    map holds them until you point at one end.
     """
     settings = db.get_settings()
     grouped = db.phases_by_project()
@@ -331,7 +335,11 @@ def read_graph():
             "next_date": next_milestone(phases, today),
         })
 
-    return {"department_name": settings["department_name"], "projects": nodes}
+    return {
+        "department_name": settings["department_name"],
+        "projects": nodes,
+        "dependencies": db.list_all_dependencies(with_names=True),
+    }
 
 
 @app.post("/api/projects/{project_id}/layout")

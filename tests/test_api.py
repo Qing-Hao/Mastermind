@@ -633,6 +633,28 @@ def test_graph_includes_directions_with_nothing_planned(client):
     assert node["next_date"] is None
 
 
+def test_graph_carries_dependencies_for_the_hover_highlight(client):
+    """The map draws links only on hover, so the payload has to hold them."""
+    payments = make_project(client, "Payments", "2026-01-05")
+    caching = make_project(client, "Caching", "2026-03-02")
+    link(client, payments, caching)
+
+    graph = client.get("/api/graph").json()
+    assert len(graph["dependencies"]) == 1
+
+    dependency = graph["dependencies"][0]
+    assert dependency["predecessor_project_id"] == payments["id"]
+    assert dependency["successor_project_id"] == caching["id"]
+    # Names ride along so the map never needs a second fetch to label a link.
+    assert dependency["predecessor_name"] == "Payments"
+    assert dependency["successor_name"] == "Caching"
+
+
+def test_graph_dependencies_are_empty_when_nothing_is_linked(client):
+    make_project(client, "Payments", "2026-01-05")
+    assert client.get("/api/graph").json()["dependencies"] == []
+
+
 def test_department_name_defaults_empty_and_persists(client):
     assert client.get("/api/graph").json()["department_name"] == ""
     client.put("/api/settings", json={"department_name": "Platform Engineering | Product"})
