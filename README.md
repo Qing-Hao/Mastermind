@@ -56,8 +56,14 @@ Two numbers exist per phase and neither derives the other:
 | Effort (points) | Phase | V1, against duration |
 
 The phase is the only thing that carries an estimate. A **deliverable** is just a
-named entry under a phase — no weeks, no points, no assignee, no status. It says
-what the phase produces, and is what converts into a task downstream.
+named entry under a phase — no weeks, no points, no assignee. It says what the
+phase produces, and is what converts into a task downstream.
+
+It does carry one tick: **done**, meaning finished rather than still ongoing.
+That is the whole of it — no owner, no dates, no history. The phase row shows the
+tally (`3/5`) so a collapsed phase still says how far along it is. The tick is
+display and record only: it never fires a warning, never sets `phase.status`, and
+never moves a date.
 
 Duration (weeks) and effort (points) are entered independently. The tool
 cross-checks them rather than deriving one from the other:

@@ -538,6 +538,15 @@ function renderPhases() {
       renderPhases();
     };
     toggleCell.appendChild(toggle);
+    // Ticked-off count, so a collapsed phase still says how far along it is.
+    // Display only: it never feeds a warning and never sets phase.status.
+    if (phase.deliverables.length > 0) {
+      const doneCount = phase.deliverables.filter((d) => d.done).length;
+      const tally = element("span", "done-count",
+        `${doneCount}/${phase.deliverables.length}`);
+      tally.title = `${doneCount} of ${phase.deliverables.length} deliverables done`;
+      toggleCell.appendChild(tally);
+    }
     row.appendChild(toggleCell);
 
     row.appendChild(fieldCell(phase, "name", "text", savePhase));
@@ -584,13 +593,23 @@ function deliverableRow(phase) {
 
   const table = element("table", "deliverables");
   const head = element("tr");
-  for (const heading of ["Deliverable", ""]) {
+  for (const heading of ["Done", "Deliverable", ""]) {
     head.appendChild(element("th", null, heading));
   }
   table.appendChild(head);
 
   for (const deliverable of phase.deliverables) {
-    const line = element("tr");
+    const line = element("tr", deliverable.done ? "done" : null);
+
+    const tickCell = element("td", "tick");
+    const tick = element("input");
+    tick.type = "checkbox";
+    tick.checked = Boolean(deliverable.done);
+    tick.title = deliverable.done ? "Done" : "Still ongoing";
+    tick.onchange = () => saveDeliverable(deliverable.id, { done: tick.checked });
+    tickCell.appendChild(tick);
+    line.appendChild(tickCell);
+
     line.appendChild(fieldCell(deliverable, "name", "text", saveDeliverable));
 
     const actionCell = element("td");
@@ -606,6 +625,8 @@ function deliverableRow(phase) {
   }
 
   const adder = element("tr");
+  // Nothing to tick yet -- a new deliverable always starts ongoing.
+  const spacerCell = element("td");
   const nameCell = element("td");
   const nameInput = element("input");
   nameInput.placeholder = "New deliverable";
@@ -625,7 +646,7 @@ function deliverableRow(phase) {
   nameInput.onkeydown = (event) => { if (event.key === "Enter") add.click(); };
   buttonCell.appendChild(add);
 
-  adder.append(nameCell, buttonCell);
+  adder.append(spacerCell, nameCell, buttonCell);
   table.appendChild(adder);
 
   cell.appendChild(table);

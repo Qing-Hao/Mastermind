@@ -135,7 +135,10 @@ def test_export_then_import_restores_the_identical_dataset(client):
     client.put(f"/api/projects/{project['id']}", json={"goal": "Ship payments v1."})
     design = make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
     build = make_phase(client, project["id"], "Build", "2026-02-02", 6, 60)
-    client.post(f"/api/phases/{design['id']}/deliverables", json={"name": "Wireframes"})
+    wireframes = client.post(f"/api/phases/{design['id']}/deliverables",
+                             json={"name": "Wireframes"}).json()
+    client.put(f"/api/deliverables/{wireframes['id']}", json={"done": True})
+    client.post(f"/api/phases/{design['id']}/deliverables", json={"name": "Prototype"})
     client.post("/api/dependencies", json={
         "predecessor_phase_id": design["id"], "successor_phase_id": build["id"],
     })
@@ -155,6 +158,7 @@ def test_export_then_import_restores_the_identical_dataset(client):
     assert reimported["deliverables"] == exported["deliverables"]
     assert reimported["dependencies"] == exported["dependencies"]
     assert reimported["projects"][0]["goal"] == "Ship payments v1."
+    assert [d["done"] for d in reimported["deliverables"]] == [1, 0]
 
 
 # --- settings ---------------------------------------------------------------
@@ -345,6 +349,53 @@ def test_deleting_a_phase_removes_its_deliverables(client):
     assert client.get("/api/export").json()["deliverables"] == []
 
 
+def test_a_new_deliverable_starts_ongoing(client):
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Core", "2026-01-05", 4, 40)
+    assert add_deliverable(client, phase["id"], "Draft")["done"] == 0
+
+
+def test_ticking_a_deliverable_persists(client):
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Core", "2026-01-05", 4, 40)
+    deliverable = add_deliverable(client, phase["id"], "Draft")
+
+    ticked = client.put(f"/api/deliverables/{deliverable['id']}",
+                        json={"done": True}).json()
+    assert ticked["done"] == 1
+    assert plan_of(client, project["id"])["phases"][0]["deliverables"][0]["done"] == 1
+
+    unticked = client.put(f"/api/deliverables/{deliverable['id']}",
+                          json={"done": False}).json()
+    assert unticked["done"] == 0
+
+
+def test_ticking_leaves_the_phase_estimate_and_status_alone(client):
+    """The tick records progress. It does not schedule, estimate, or roll up."""
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Core", "2026-01-05", 6, 60)
+    for name in ("First", "Second"):
+        deliverable = add_deliverable(client, phase["id"], name)
+        client.put(f"/api/deliverables/{deliverable['id']}", json={"done": True})
+
+    returned = plan_of(client, project["id"])["phases"][0]
+    assert returned["duration_weeks"] == 6
+    assert returned["effort_points"] == 60
+    assert returned["status"] == "planned"
+
+
+def test_renaming_a_deliverable_does_not_clear_its_tick(client):
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Core", "2026-01-05", 4, 40)
+    deliverable = add_deliverable(client, phase["id"], "Draft")
+    client.put(f"/api/deliverables/{deliverable['id']}", json={"done": True})
+
+    renamed = client.put(f"/api/deliverables/{deliverable['id']}",
+                         json={"name": "Final draft"}).json()
+    assert renamed["name"] == "Final draft"
+    assert renamed["done"] == 1
+
+
 # --- portfolio --------------------------------------------------------------
 
 
@@ -475,7 +526,7 @@ def test_stage_track_and_department_survive_a_round_trip(client):
     make_direction(client, "Build caching", track="Developer experience")
 
     exported = client.get("/api/export").json()
-    assert exported["version"] == 4
+    assert exported["version"] == 5
 
     for existing in client.get("/api/projects").json():
         client.delete(f"/api/projects/{existing['id']}")
@@ -536,3 +587,31 @@ def test_a_version_3_export_imports_without_its_deliverable_estimates(client):
     assert deliverable["name"] == "Wireframes"
     assert "duration_weeks" not in deliverable
     assert "effort_points" not in deliverable
+
+
+def test_a_version_4_export_imports_with_every_deliverable_ongoing(client):
+    """The tick did not exist yet, and nothing recorded these as finished."""
+    legacy = {
+        "version": 4,
+        "settings": {"default_velocity_points_per_sprint": 20,
+                     "sprint_length_days": 14, "v1_tolerance_pct": 5.0,
+                     "department_name": "Platform"},
+        "projects": [{"id": 1, "name": "Payments", "description": "",
+                      "goal": "", "start_date": "2026-01-05",
+                      "velocity_override": None, "stage": "active", "track": "",
+                      "created_at": "2026-01-01T00:00:00+00:00",
+                      "updated_at": "2026-01-01T00:00:00+00:00"}],
+        "phases": [{"id": 1, "project_id": 1, "name": "Design", "description": "",
+                    "start_date": "2026-01-05", "duration_weeks": 4,
+                    "effort_points": 40, "status": "done", "sort_order": 0}],
+        "deliverables": [{"id": 1, "phase_id": 1, "name": "Wireframes",
+                          "description": "", "sort_order": 0}],
+        "dependencies": [],
+    }
+    assert client.post("/api/import", json=legacy).status_code == 200
+
+    exported = client.get("/api/export").json()
+    assert exported["version"] == 5
+    # Even under a phase marked done -- the tick is the user's to set, and a
+    # phase status is not evidence about any particular deliverable.
+    assert exported["deliverables"][0]["done"] == 0

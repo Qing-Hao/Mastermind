@@ -125,6 +125,13 @@ table.deliverables th { font-size: 11px; }
 table.deliverables td, table.deliverables th { border-bottom: 1px solid #eee; }
 table.deliverables input { min-width: 240px; }
 
+/* The tick is the one narrow column: keep it off the name field. */
+table.deliverables td.tick { width: 1%; text-align: center; }
+table.deliverables td.tick input { min-width: 0; }
+table.deliverables tr.done input[type="text"] { color: #999; text-decoration: line-through; }
+
+.done-count { color: #888; font-size: 11px; margin-left: 2px; }
+
 /* --- portfolio gantt --- */
 #portfolio-scroll { overflow-x: auto; border: 1px solid #eee; padding: 10px; }
 #portfolio-chart { min-height: 40px; }

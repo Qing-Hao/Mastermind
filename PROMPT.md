@@ -115,14 +115,31 @@ Design to this shape. Names are indicative, not mandatory.
 **Deliverable**
 - `id`, `phase_id`
 - `name`, `description`
-- `duration_weeks` — decimal, user-entered
-- `effort_points` — integer, user-entered
+- ~~`duration_weeks`~~, ~~`effort_points`~~ — **removed, amendment 1** (see below)
+- `done` — boolean, default false — **added, amendment 2** (see below)
 - `sort_order`
 
-Deliverables are **planning units, not tasks**: no assignee, no status, no comments,
-no dates of their own. They are what gets converted into tasks in a downstream
-system once the plan is agreed. Adding a status field to this table turns the tool
-into the task tracker it is explicitly not.
+Deliverables are **planning units, not tasks**: no assignee, no comments, no dates
+of their own. They are what gets converted into tasks in a downstream system once
+the plan is agreed.
+
+### Amendments from the requester
+
+The rules below were changed after the brief was written. Where they conflict with
+the text above, **the amendment wins** — the code follows the amendments.
+
+1. **Deliverables carry no estimate.** `duration_weeks` and `effort_points` were
+   dropped from the table. Naming what a phase produces is the point; the phase
+   holds the weeks and the points. This also retires **V5** and its
+   `v5_tolerance_pct` setting: with no bottom-up numbers there is nothing to roll
+   up, so acceptance criterion 10 no longer applies.
+2. **Deliverables carry a `done` tick.** The original text said no status, on the
+   grounds that it turns the tool into a task tracker. The requester wants to
+   record finished vs. still ongoing, so the table gains one boolean and nothing
+   else — no owner, no timestamps, no workflow. It is deliberately a tick rather
+   than an enum: the moment it grows intermediate states it has become the status
+   field this section warned about. It is recorded and displayed only — it fires
+   no validation rule, does not set `phase.status`, and never moves a date.
 
 Deliverables inside a phase are treated as **sequential**, so durations sum. Work
 that genuinely runs in parallel belongs in separate phases.

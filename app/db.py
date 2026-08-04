@@ -59,15 +59,21 @@ CREATE TABLE IF NOT EXISTS dependency (
     UNIQUE (predecessor_phase_id, successor_phase_id)
 );
 
--- Deliverables are planning units, not tasks: no assignee, no status, no
--- comments. They become tasks in a downstream system once the plan is agreed.
+-- Deliverables are planning units, not tasks: no assignee, no comments, no
+-- dates. They become tasks in a downstream system once the plan is agreed.
 -- They carry no estimate either: naming what a phase produces is the point, and
 -- the phase itself holds the weeks and points.
+--
+-- `done` is the one exception to "not tasks", and it is deliberately a tick and
+-- not an enum: it records whether the thing is finished or still ongoing, which
+-- the planner needs to read a phase at a glance. Anything finer -- who has it,
+-- when it moved, what is blocking it -- belongs in the downstream tracker.
 CREATE TABLE IF NOT EXISTS deliverable (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     phase_id    INTEGER NOT NULL REFERENCES phase(id) ON DELETE CASCADE,
     name        TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
+    done        INTEGER NOT NULL DEFAULT 0,
     sort_order  INTEGER NOT NULL DEFAULT 0
 );
 
@@ -83,6 +89,9 @@ ADDED_COLUMNS = [
                          "CHECK (stage IN ('idea', 'active', 'done'))"),
     ("project", "track", "TEXT NOT NULL DEFAULT ''"),
     ("settings", "department_name", "TEXT NOT NULL DEFAULT ''"),
+    # Existing deliverables predate the tick, so they default to not done --
+    # the safe read, since nothing recorded that they were finished.
+    ("deliverable", "done", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 # Columns retired after the first release. Deliverables stopped carrying their
@@ -149,6 +158,16 @@ def now_iso():
 
 def rows_to_dicts(rows):
     return [dict(row) for row in rows]
+
+
+def as_flag(value):
+    """Normalise a tick to the 0/1 SQLite actually stores.
+
+    JSON gives us ``true``/``false``, an older export may give 0/1, and a hand-
+    edited file may give neither. All of them collapse to an integer here so the
+    column never holds a third thing.
+    """
+    return 1 if value else 0
 
 
 # --- settings ---------------------------------------------------------------
@@ -347,24 +366,26 @@ def get_deliverable(deliverable_id):
     return dict(row) if row else None
 
 
-def create_deliverable(phase_id, name, description=""):
+def create_deliverable(phase_id, name, description="", done=False):
     with connect() as connection:
         next_order = connection.execute(
             "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM deliverable WHERE phase_id = ?",
             (phase_id,),
         ).fetchone()[0]
         cursor = connection.execute(
-            """INSERT INTO deliverable (phase_id, name, description, sort_order)
-               VALUES (?, ?, ?, ?)""",
-            (phase_id, name, description, next_order),
+            """INSERT INTO deliverable (phase_id, name, description, done, sort_order)
+               VALUES (?, ?, ?, ?, ?)""",
+            (phase_id, name, description, as_flag(done), next_order),
         )
         deliverable_id = cursor.lastrowid
     return get_deliverable(deliverable_id)
 
 
 def update_deliverable(deliverable_id, fields):
-    allowed = {"name", "description", "sort_order"}
+    allowed = {"name", "description", "done", "sort_order"}
     updates = {key: value for key, value in fields.items() if key in allowed}
+    if "done" in updates:
+        updates["done"] = as_flag(updates["done"])
     if updates:
         assignments = ", ".join(f"{key} = ?" for key in updates)
         with connect() as connection:
@@ -434,10 +455,11 @@ def export_all():
         dependencies = rows_to_dicts(connection.execute("SELECT * FROM dependency").fetchall())
     return {
         # 3 added project.stage/track and settings.department_name; 4 dropped
-        # the deliverable estimate and the V5 tolerance. Reads stay tolerant of
-        # older files, so a version-2 or -3 export still imports -- the fields
-        # that no longer exist are simply ignored.
-        "version": 4,
+        # the deliverable estimate and the V5 tolerance; 5 added deliverable.done.
+        # Reads stay tolerant of older files, so a version-2, -3 or -4 export
+        # still imports -- fields that no longer exist are ignored, and ones
+        # that did not exist yet fall back to their default.
+        "version": 5,
         "exported_at": now_iso(),
         "settings": get_settings(),
         "projects": projects,
@@ -509,12 +531,15 @@ def import_all(payload):
         for deliverable in payload.get("deliverables", []):
             # A version-3 file still carries duration_weeks and effort_points.
             # Nothing reads them any more, so they are dropped on the way in.
+            # A file older than version 5 has no tick, which reads as not done.
             connection.execute(
-                """INSERT INTO deliverable (id, phase_id, name, description, sort_order)
-                   VALUES (?, ?, ?, ?, ?)""",
+                """INSERT INTO deliverable (id, phase_id, name, description,
+                                            done, sort_order)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
                 (
                     deliverable["id"], deliverable["phase_id"], deliverable["name"],
                     deliverable.get("description", ""),
+                    as_flag(deliverable.get("done", 0)),
                     deliverable.get("sort_order", 0),
                 ),
             )

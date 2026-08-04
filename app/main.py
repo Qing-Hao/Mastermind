@@ -97,14 +97,17 @@ class PhasePatch(BaseModel):
 
 class DeliverableIn(BaseModel):
     # No estimate: a deliverable names what a phase produces, and the phase
-    # holds the weeks and points for all of it.
+    # holds the weeks and points for all of it. `done` is a tick, not a status:
+    # finished, or still ongoing.
     name: str
     description: str = ""
+    done: bool = False
 
 
 class DeliverablePatch(BaseModel):
     name: str | None = None
     description: str | None = None
+    done: bool | None = None
     sort_order: int | None = None
 
 
@@ -388,6 +391,7 @@ def add_deliverable(phase_id: int, body: DeliverableIn):
         phase_id=phase_id,
         name=body.name,
         description=body.description,
+        done=body.done,
     )
 
 
