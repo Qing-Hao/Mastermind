@@ -302,6 +302,57 @@ def test_clearing_a_date_returns_a_phase_to_unscheduled(client):
     assert updated["end_date"] == ""
 
 
+# --- relative week offsets (the W1/W2 timeline) -----------------------------
+
+
+def test_plan_carries_week_offsets_for_undated_phases(client):
+    """A project nobody has dated still has a shape: W1 onwards, in order."""
+    project = make_project(client, start="")
+    make_phase(client, project["id"], "Dev", "", 1, 10)
+    make_phase(client, project["id"], "Validation", "", 2, 20)
+    make_phase(client, project["id"], "Rollout", "", 1, 10)
+
+    phases = plan_of(client, project["id"])["phases"]
+    assert [p["offset_weeks"] for p in phases] == [0, 1, 3]
+    assert [p["start_date"] for p in phases] == ["", "", ""]
+
+
+def test_week_offsets_follow_sort_order_not_dates(client):
+    project = make_project(client, start="2026-09-01")
+    make_phase(client, project["id"], "First", "2026-12-01", 2, 20)
+    make_phase(client, project["id"], "Second", "2026-09-01", 1, 10)
+
+    phases = plan_of(client, project["id"])["phases"]
+    assert [(p["name"], p["offset_weeks"]) for p in phases] == [
+        ("First", 0), ("Second", 2),
+    ]
+
+
+def test_reordering_a_phase_restacks_the_week_offsets(client):
+    """What a drag in the W-grid writes: sort_order only, no dates touched."""
+    project = make_project(client, start="")
+    dev = make_phase(client, project["id"], "Dev", "", 1, 10)
+    validation = make_phase(client, project["id"], "Validation", "", 2, 20)
+
+    client.put(f"/api/phases/{validation['id']}", json={"sort_order": 0})
+    client.put(f"/api/phases/{dev['id']}", json={"sort_order": 1})
+
+    phases = plan_of(client, project["id"])["phases"]
+    assert [(p["name"], p["offset_weeks"]) for p in phases] == [
+        ("Validation", 0), ("Dev", 2),
+    ]
+    assert all(p["start_date"] == "" for p in phases)
+
+
+def test_week_offsets_carry_half_weeks(client):
+    project = make_project(client, start="")
+    make_phase(client, project["id"], "Spike", "", 0.5, 5)
+    make_phase(client, project["id"], "Build", "", 1.5, 15)
+
+    phases = plan_of(client, project["id"])["phases"]
+    assert [p["offset_weeks"] for p in phases] == [0, 0.5]
+
+
 # --- sequential layout ------------------------------------------------------
 
 

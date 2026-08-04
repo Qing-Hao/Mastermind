@@ -94,7 +94,16 @@
       </section>
 
       <section>
-        <h2>Timeline</h2>
+        <h2>
+          Timeline
+          <span class="mode-switch">
+            <button id="mode-dates" class="mode"
+              title="Real dates on a calendar. Only phases with a start date appear.">Dates</button>
+            <button id="mode-weeks" class="mode"
+              title="Week 1 onwards, no calendar. Every phase appears, stacked in order.">Weeks</button>
+          </span>
+        </h2>
+        <p id="mode-hint" class="hint"></p>
         <div id="timeline-window" class="window-bar"></div>
         <div id="timeline-scroll">
           <div id="timeline"></div>

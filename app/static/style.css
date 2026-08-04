@@ -110,6 +110,20 @@ tr.row-warn td { background: #fff8e1; }
 .tab { border: 0; background: #fff; padding: 4px 12px; }
 .tab.active { background: #1a1a1a; color: #fff; }
 
+/* --- timeline mode switch --- */
+/* Same shape as the tabs, sized down: it picks which timeline the section
+   below is drawing, not which page you are on. */
+.mode-switch {
+  display: inline-flex;
+  margin-left: 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  overflow: hidden;
+  vertical-align: middle;
+}
+.mode { border: 0; background: #fff; padding: 2px 10px; font-size: 12px; }
+.mode.active { background: #1a1a1a; color: #fff; }
+
 /* --- goal --- */
 #project-goal { width: 100%; font: inherit; padding: 8px; }
 .hint { color: #888; font-size: 12px; margin: 4px 0 0; }

@@ -174,6 +174,29 @@ def sequential_layout(phases, project_start):
     return placements
 
 
+def relative_layout(phases):
+    """Week offsets for phases laid back to back from week zero, in order.
+
+    The calendar stripped out of `sequential_layout`: phases stack in the order
+    given, each starting where the last one ended, measured in weeks from the
+    beginning of the project rather than from a date. Dates on the phases are
+    ignored entirely -- this is the shape of the plan before anyone commits to
+    a calendar, which is exactly what makes it useful for arranging.
+
+    Returns {phase_id: offset_weeks} as floats, so half-week durations land
+    where they should. Feed the same phases in the same order to
+    `sequential_layout` with a project start and the two agree day for day.
+    """
+    cursor = 0.0
+    offsets = {}
+
+    for phase in phases:
+        offsets[phase["id"]] = cursor
+        cursor += float(phase["duration_weeks"])
+
+    return offsets
+
+
 def effective_velocity(project, settings):
     """A project's velocity override, falling back to the global default."""
     override = project.get("velocity_override")

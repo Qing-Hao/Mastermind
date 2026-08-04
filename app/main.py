@@ -24,6 +24,7 @@ from app.validation import (
     phase_end_date,
     project_effort_points,
     project_progress,
+    relative_layout,
     sequential_layout,
     validate_plan,
     validate_portfolio,
@@ -242,6 +243,11 @@ def read_project_plan(project_id: int):
     `dependencies` are the project-to-project links this project sits at either
     end of, so the view can show both what blocks it and what it blocks. The
     warning list merges its own V1/V4 findings with the V2 findings that name it.
+
+    Each phase also carries `offset_weeks`, its place in the plan measured in
+    weeks from the start rather than on a calendar. That is what lets the
+    timeline draw a project nobody has dated yet; it is derived here and never
+    stored, the same as `end_date`.
     """
     project = require_project(project_id)
     phases = db.list_phases(project_id)
@@ -250,11 +256,13 @@ def read_project_plan(project_id: int):
     settings = db.get_settings()
     warnings = validate_plan(project, phases, settings)
     warnings += warnings_touching(project_id, portfolio_warnings())
+    offsets = relative_layout(phases)
 
     enriched = []
     for phase in phases:
         enriched.append({
             **with_end_date(phase),
+            "offset_weeks": offsets[phase["id"]],
             "deliverables": grouped.get(phase["id"], []),
         })
 

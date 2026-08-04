@@ -36,6 +36,10 @@ let state = {
   graph: null,
   settings: null,
   expandedPhases: new Set(),
+  // Which timeline the project view draws. null means "decide from the data":
+  // a project with nothing scheduled opens on weeks, anything else on dates.
+  // Clicking the switch pins it until you change project.
+  timelineMode: null,
   // Both charts share one viewport, so switching tabs keeps your place.
   // `start` is an ISO date, or null meaning "the week containing today".
   // `weeks` is null while a custom range is set, in which case `customEnd` holds it.
@@ -127,7 +131,11 @@ function resolveWindow() {
 // that draws against the grid afterwards measures with the same figure. Bars
 // are positioned against the window origin, which is always the Monday on or
 // before the window start.
-function weekGrid(chart, view) {
+//
+// `ruler` is swappable because the relative timeline counts weeks from the
+// start of the project instead of naming dates; everything below the ruler --
+// the column width, the gridlines, the way a bar is placed -- is identical.
+function weekGrid(chart, view, ruler = weekRuler) {
   // Cleared before measuring: a width left over from the previous render would
   // otherwise be what we measured, and the chart would never resize back down.
   chart.style.width = "";
@@ -141,7 +149,7 @@ function weekGrid(chart, view) {
 
   const width = view.weeks * view.pxPerWeek;
   chart.style.width = `${width}px`;
-  chart.appendChild(weekRuler(view));
+  chart.appendChild(ruler(view));
 
   const body = element("div", "grid-body");
   body.style.width = `${width}px`;
@@ -452,7 +460,33 @@ function warnedPhaseIds() {
   return ids;
 }
 
+// The switch is pinned once you touch it; until then a project with no dates
+// anywhere opens on the week grid, because the calendar has nothing to show it.
+function timelineMode() {
+  if (state.timelineMode) return state.timelineMode;
+  return state.plan.phases.some(isScheduled) ? "dates" : "weeks";
+}
+
+function renderModeSwitch() {
+  const mode = timelineMode();
+  $("mode-dates").classList.toggle("active", mode === "dates");
+  $("mode-weeks").classList.toggle("active", mode === "weeks");
+  $("mode-hint").textContent = mode === "weeks"
+    ? "Weeks from the start of the project, whoever that start turns out to be. "
+      + "Every phase is here, stacked in order. Drag a bar to re-order them — "
+      + "that changes the order only, never a date. Set the project start and "
+      + "\"Lay out sequentially\" to turn this shape into real dates."
+    : "Real dates. Only phases with a start date appear.";
+}
+
 function renderTimeline() {
+  renderModeSwitch();
+  if (timelineMode() === "weeks") {
+    renderRelativeTimeline();
+    return;
+  }
+
+  $("timeline-window").hidden = false;
   renderWindowBar($("timeline-window"));
   const timeline = $("timeline");
   timeline.innerHTML = "";
@@ -462,7 +496,7 @@ function renderTimeline() {
     timeline.appendChild(element("p", "muted",
       state.plan.phases.length === 0
         ? "Add a phase to see the timeline."
-        : "No phase has a start date yet. Estimate first, then lay them out."));
+        : "No phase has a start date yet. Switch to Weeks to arrange them first."));
     return;
   }
 
@@ -516,6 +550,169 @@ function phaseBar(phase, view, isWarned) {
     + `(${phase.duration_weeks}w, ${phase.effort_points} pts)`;
   bar.textContent = phase.name;
   return bar;
+}
+
+// --- relative timeline (W1, W2, ...) ----------------------------------------
+
+// The same grid with the calendar taken out: column one is the first week of
+// the project, whenever that turns out to be. Phases stack back to back in
+// sort order and every one of them is drawn, dated or not -- this view is for
+// arranging the shape of the work before committing to when it happens, so a
+// date on a phase is simply not what it is measuring.
+
+const phaseWeeks = (phase) => Number(phase.duration_weeks) || 0;
+
+// The saved offsets arrive on each phase as `offset_weeks`; this is the same
+// arithmetic client-side, used only to preview an order mid-drag that has not
+// been saved yet. A dropped bar reloads and goes back to the server's numbers.
+function stackOffsets(phases) {
+  const offsets = [];
+  let cursor = 0;
+  for (const phase of phases) {
+    offsets.push(cursor);
+    cursor += phaseWeeks(phase);
+  }
+  return offsets;
+}
+
+function renderRelativeTimeline() {
+  // Nothing to page through without dates, so the window controls go away.
+  $("timeline-window").hidden = true;
+  const timeline = $("timeline");
+  timeline.innerHTML = "";
+  timeline.style.width = "";
+
+  const phases = state.plan.phases;
+  if (phases.length === 0) {
+    timeline.appendChild(element("p", "muted", "Add a phase to see the timeline."));
+    return;
+  }
+
+  // Sized to the whole plan rather than a six-month window: there is no date to
+  // scroll to, so a plan longer than the page just scrolls sideways.
+  const total = phases.reduce((sum, phase) => sum + phaseWeeks(phase), 0);
+  const view = { weeks: Math.max(Math.ceil(total), 1) };
+  view.totalDays = view.weeks * 7;
+
+  const body = weekGrid(timeline, view, relativeRuler);
+  const warned = warnedPhaseIds();
+
+  phases.forEach((phase, index) => {
+    body.appendChild(relativeBar(phase, index, phase.offset_weeks, view, warned));
+  });
+}
+
+function relativeRuler({ weeks }) {
+  const ruler = element("div", "ruler");
+  const weekRow = element("div", "ruler-row ruler-weeks");
+  for (let index = 0; index < weeks; index += 1) {
+    const cell = element("div", "week", `W${index + 1}`);
+    cell.title = `Week ${index + 1} of the project`;
+    weekRow.appendChild(cell);
+  }
+  ruler.appendChild(weekRow);
+  return ruler;
+}
+
+function relativeBar(phase, index, offset, view, warned) {
+  const isWarned = warned.has(phase.id);
+  const bar = element("div",
+    `bar status-${phase.status}${isWarned ? " bar-warn" : ""} draggable`);
+  placeRelativeBar(bar, offset, phaseWeeks(phase), view);
+  const span = `W${Math.floor(offset) + 1}–W${Math.ceil(offset + phaseWeeks(phase))}`;
+  bar.title = `${phase.name}: ${span} (${phase.duration_weeks}w, `
+    + `${phase.effort_points} pts)  (drag to re-order)`;
+  bar.textContent = phase.name;
+  makeResequenceable(bar, phase, index, offset, view);
+  return bar;
+}
+
+// A zero-week phase would otherwise be an invisible bar with nothing to grab,
+// so it gets a sliver. Nothing here can fall outside the grid, since the grid
+// is sized to the stack -- no clipping to do.
+function placeRelativeBar(bar, offset, weeks, view) {
+  bar.style.marginLeft = `${offset * view.pxPerWeek}px`;
+  bar.style.width = `${Math.max(weeks, 0.25) * view.pxPerWeek}px`;
+}
+
+// Dragging re-sequences: it writes `sort_order` and nothing else. No date is
+// created and none is moved, so the rule that the timeline never reschedules
+// itself is untouched -- this is the ordering the layout button will later
+// turn into dates, not a schedule.
+function makeResequenceable(bar, phase, index, offset, view) {
+  bar.onmousedown = (event) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const body = bar.parentElement;
+    const phases = state.plan.phases;
+    const others = phases.filter((other) => other.id !== phase.id);
+    const bars = new Map(phases.map((item, position) =>
+      [item.id, body.children[position]]));
+    let targetIndex = index;
+    bar.classList.add("dragging");
+
+    const onMove = (moveEvent) => {
+      const held = offset + (moveEvent.clientX - startX) / view.pxPerWeek;
+      targetIndex = insertionIndex(others, held + phaseWeeks(phase) / 2);
+
+      // Reflow the rest around the gap this phase would leave, so the drop
+      // point is read off the stack itself rather than guessed.
+      const preview = others.slice();
+      preview.splice(targetIndex, 0, phase);
+      const offsets = stackOffsets(preview);
+      preview.forEach((item, position) => {
+        const node = bars.get(item.id);
+        body.appendChild(node);
+        if (item.id === phase.id) return;
+        placeRelativeBar(node, offsets[position], phaseWeeks(item), view);
+      });
+      // The held bar follows the cursor instead of snapping, so it reads as
+      // picked up; the drop lands it wherever the others have made room.
+      bar.style.marginLeft = `${Math.max(held, 0) * view.pxPerWeek}px`;
+    };
+
+    const onUp = async () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      bar.classList.remove("dragging");
+      if (targetIndex === index) {
+        renderTimeline();  // put the previewed stack back where it was
+        return;
+      }
+      const reordered = others.slice();
+      reordered.splice(targetIndex, 0, phase);
+      await saveOrder(reordered);
+    };
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+}
+
+// Where the held phase lands among the others: past the midpoint of a bar means
+// past that bar, which is what makes a short drag feel like it took effect.
+function insertionIndex(others, heldCentre) {
+  let cursor = 0;
+  let index = 0;
+  for (const other of others) {
+    if (heldCentre < cursor + phaseWeeks(other) / 2) break;
+    cursor += phaseWeeks(other);
+    index += 1;
+  }
+  return index;
+}
+
+// Renumbered from zero so the stored order matches what is on screen. Only the
+// rows that actually moved are written.
+async function saveOrder(phases) {
+  for (let index = 0; index < phases.length; index += 1) {
+    if (phases[index].sort_order === index) continue;
+    await api(`/api/phases/${phases[index].id}`, {
+      method: "PUT",
+      body: JSON.stringify({ sort_order: index }),
+    });
+  }
+  await loadPlan();
 }
 
 // --- phases and deliverables ------------------------------------------------
@@ -1048,6 +1245,7 @@ function projectNode(project, point, radius) {
     state.currentProjectId = project.id;
     state.view = "project";
     state.expandedPhases.clear();
+    state.timelineMode = null;
     $("project-select").value = project.id;
     await refreshView();
   };
@@ -1119,7 +1317,19 @@ function bindEvents() {
   $("project-select").onchange = async (event) => {
     state.currentProjectId = Number(event.target.value);
     state.expandedPhases.clear();
+    // Unpinned, so the next project decides its own default rather than
+    // inheriting a switch that was flipped for a different plan.
+    state.timelineMode = null;
     await loadPlan();
+  };
+
+  $("mode-dates").onclick = () => {
+    state.timelineMode = "dates";
+    renderTimeline();
+  };
+  $("mode-weeks").onclick = () => {
+    state.timelineMode = "weeks";
+    renderTimeline();
   };
 
   $("new-project").onclick = async () => {
@@ -1132,6 +1342,7 @@ function bindEvents() {
     });
     state.currentProjectId = project.id;
     state.view = "project";
+    state.timelineMode = null;
     await loadProjects();
   };
 

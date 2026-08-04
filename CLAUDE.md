@@ -14,7 +14,7 @@ migration framework, no auth.
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000   # http://127.0.0.1:8000
-.\.venv\Scripts\python.exe -m pytest -q                                   # 94 tests, ~1.8s
+.\.venv\Scripts\python.exe -m pytest -q                                   # 104 tests, ~2.1s
 ```
 
 Type checking is pyright, `basic` mode, config in `pyrightconfig.json`.
@@ -113,6 +113,8 @@ HTML `<input type="date">` untouched. Estimate first, commit dates later.
 - V4 skips unscheduled records, and V2 skips a project with nothing scheduled on
   the side it needs (no start, or no phase end). V1 does not care about dates.
 - Portfolio omits unscheduled phases and reports `unscheduled_count`.
+- The project timeline's **Weeks** mode draws undated phases as `W1, W2, …`, so
+  a plan with no dates at all still has a readable shape to arrange.
 - `POST /api/projects/{id}/layout` places undated phases back to back from the
   project start. **User-triggered only** — it is not auto-scheduling.
 
@@ -126,7 +128,8 @@ DELETE · `/api/projects/{id}/layout` POST · `/api/projects/{id}/phases` POST �
 `/api/export` GET · `/api/import` POST.
 
 `GET /api/projects/{id}` returns the whole plan in one payload: project, phases
-(with derived dates + deliverables), dependencies, warnings, settings. Its
+(with derived dates, `offset_weeks` + deliverables), dependencies, warnings,
+settings. Its
 `dependencies` are every link the project sits at **either** end of, each
 carrying `predecessor_name` and `successor_name` so the view needs no second
 fetch. `GET /api/portfolio` carries the same list for the whole dataset plus
@@ -159,6 +162,17 @@ into one project link.
   with expandable deliverables (`3/5` tally on the phase row), dependencies. The
   dependency panel lists both directions (`← waits on X`, `→ Y waits on this`)
   and links by picking another project plus a direction.
+  The timeline has two modes, switched by `Dates | Weeks`:
+  - **Dates** — the calendar grid. Only phases with a start date appear.
+  - **Weeks** — `W1, W2, …` counted from the start of the project, no calendar.
+    Every phase appears, stacked back to back in `sort_order`; dates on phases
+    are ignored, so this view and the calendar can legitimately disagree.
+    Offsets come from `validation.relative_layout` as `phase.offset_weeks` on
+    the plan payload — derived, never stored, and the pre-image of
+    `sequential_layout`: arrange here, then set the project start and lay out.
+    Dragging a bar re-sequences phases (writes `sort_order` only, never a date).
+  The switch is unpinned per project and defaults to Weeks when nothing in the
+  project is scheduled; clicking either button pins it until you change project.
 - **Portfolio** — every scheduled phase of `active`/`done` projects on one axis,
   one swimlane per project. Drag a bar to move **only** that phase; snaps to a
   week, `Alt` for single days. No resize. Below the chart, every cross-project

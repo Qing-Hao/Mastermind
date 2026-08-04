@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -15,6 +15,8 @@ from app.validation import (
     project_effort_points,
     project_progress,
     project_span,
+    relative_layout,
+    sequential_layout,
     validate_plan,
     validate_portfolio,
 )
@@ -138,6 +140,61 @@ def test_span_ignores_unscheduled_phases_among_dated_ones():
         make_phase(2, "Build", start=""),
     ]
     assert project_span(PROJECT, phases) == (date(2026, 1, 5), date(2026, 2, 2))
+
+
+# --- relative layout (the W1/W2 timeline) -----------------------------------
+
+
+def test_relative_layout_stacks_phases_back_to_back_from_week_zero():
+    phases = [
+        make_phase(1, "Design", start="", weeks=2),
+        make_phase(2, "Build", start="", weeks=4),
+        make_phase(3, "QA", start="", weeks=1),
+    ]
+    assert relative_layout(phases) == {1: 0.0, 2: 2.0, 3: 6.0}
+
+
+def test_relative_layout_of_no_phases_is_empty():
+    assert relative_layout([]) == {}
+
+
+def test_relative_layout_starts_a_single_phase_at_week_zero():
+    assert relative_layout([make_phase(1, "Design", start="", weeks=3)]) == {1: 0.0}
+
+
+def test_relative_layout_carries_half_weeks():
+    phases = [
+        make_phase(1, "Spike", start="", weeks=0.5),
+        make_phase(2, "Build", start="", weeks=1.5),
+        make_phase(3, "QA", start="", weeks=0.5),
+    ]
+    assert relative_layout(phases) == {1: 0.0, 2: 0.5, 3: 2.0}
+
+
+def test_relative_layout_ignores_dates_already_on_the_phases():
+    """Arranging is not scheduling: a dated phase stacks like any other, which
+    is why the W-grid and the calendar can legitimately disagree."""
+    phases = [
+        make_phase(1, "Design", start="2026-06-01", weeks=2),
+        make_phase(2, "Build", start="", weeks=4),
+    ]
+    assert relative_layout(phases) == {1: 0.0, 2: 2.0}
+
+
+def test_relative_layout_agrees_with_sequential_layout():
+    """The W-grid is the pre-image of 'Lay out sequentially': same order, same
+    widths, so laying out later produces exactly the shape that was arranged."""
+    phases = [
+        make_phase(1, "Design", start="", weeks=2),
+        make_phase(2, "Build", start="", weeks=4),
+        make_phase(3, "QA", start="", weeks=1),
+    ]
+    project_start = date(2026, 1, 5)
+    placements = sequential_layout(phases, project_start.isoformat())
+
+    for phase_id, offset in relative_layout(phases).items():
+        expected = project_start + timedelta(days=offset * 7)
+        assert placements[phase_id] == expected.isoformat()
 
 
 # --- V2 ---------------------------------------------------------------------
