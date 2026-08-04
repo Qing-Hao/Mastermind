@@ -1057,7 +1057,10 @@ const MAX_NODE_R = 38;
 // Ring positions as fractions of the usable radius. Ideas sit furthest out:
 // distance from the centre reads as distance from being committed to.
 const TRACK_RING = 0.40;
-const SUBTRACK_RING = 0.57;
+// Not the midpoint of track and project: a subtrack with a single project sits
+// at that project's own angle, and a 38px node on the 0.74 ring reaches back
+// past 0.57 on the short vertical axis and swallows the label.
+const SUBTRACK_RING = 0.52;
 const PROJECT_RING = 0.74;
 const IDEA_RING = 1.0;
 // A track splits into a subtrack on the first slash: "Source expansion /
@@ -1202,7 +1205,11 @@ function renderMap() {
     const step = span / (slots.length + 1);
     const angleAt = (index) => angle + step * (index + 1);
 
+    // Anchors and edges now, but the nodes themselves go on after the projects:
+    // a subtrack sits close enough to the ring outside it that a large circle
+    // would otherwise paint over its label.
     const subAnchors = new Map();
+    const subNodes = [];
     for (const sub of group.subs) {
       const owned = slots.reduce((found, slot, index) =>
         (slot.sub === sub ? [...found, index] : found), []);
@@ -1213,7 +1220,7 @@ function renderMap() {
       edges.appendChild(svgElement("line", {
         class: "map-edge", x1: anchor.x, y1: anchor.y, x2: point.x, y2: point.y,
       }));
-      nodes.appendChild(subtrackNode(sub.name, point));
+      subNodes.push(subtrackNode(sub.name, point));
     }
 
     slots.forEach((slot, index) => {
@@ -1229,6 +1236,7 @@ function renderMap() {
         nodeRadius(slot.project.effort_points, largest)));
     });
 
+    for (const node of subNodes) nodes.appendChild(node);
     angle += span;
   }
 
