@@ -49,6 +49,34 @@ h2 {
   padding-bottom: 4px;
 }
 
+/* A heading with a control on its right. The h2 keeps the underline for the
+   whole width, so the control has to sit inside the same box rather than
+   beside it -- hence the wrapper and the negative pull, not a flex h2. */
+.section-head { position: relative; }
+.section-head .draft-toggle {
+  position: absolute;
+  right: 0;
+  top: -2px;
+}
+
+/* Load-bearing, for the same reason as `.track-crumb[hidden]` and
+   `.direction-link-form[hidden]`: a class setting `display` outranks the UA
+   sheet's `[hidden] { display: none }`, so without this the switch would still
+   show on a project where it decides nothing. */
+.draft-toggle[hidden] { display: none; }
+.draft-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #666;
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.draft-toggle input { cursor: pointer; }
+.draft-toggle:hover { color: #1a1a1a; }
+
 .row {
   display: flex;
   gap: 12px;
@@ -349,11 +377,29 @@ table.deliverables tr.done input[type="text"] { color: #999; text-decoration: li
 }
 /* Solid outline, still hollow: a planned project is shaped and committed to,
    but nothing is slotted. Reads between the dashed idea and the filled active
-   node, which is exactly where the stage sits. */
+   node, which is exactly where the stage sits.
+   `planning` is the same shape one step back -- committed, but the plan is
+   still being written, so the outline is the lighter of the two. Hollow says
+   "no dates" in both cases, which is the thing the map is showing. */
+.map-node.stage-planning circle:not(.map-pip),
 .map-node.stage-planned circle:not(.map-pip) {
   fill: #fff;
   stroke: #5c6bc0;
   stroke-width: 2;
+}
+.map-node.stage-planning circle:not(.map-pip) { stroke: #9fa8da; }
+
+/* Filled, because it is on the calendar -- but paler than active, which is
+   running now. The fill is what carries "dated"; the two differ by weight. */
+.map-node.stage-dated circle:not(.map-pip) { fill: #d5e6f7; stroke: #5c6bc0; }
+
+/* The one alarm on the map. Overdue keeps the filled body of a live project --
+   it is live work -- and takes a heavy warning outline rather than a different
+   fill, so it reads as "this one, now" without inventing a fifth body colour. */
+.map-node.stage-overdue circle:not(.map-pip) {
+  fill: #ffccbc;
+  stroke: #d84315;
+  stroke-width: 2.5;
 }
 .map-node:hover circle:not(.map-pip),
 .map-node:focus circle:not(.map-pip) { stroke: #1a1a1a; stroke-width: 2.5; }

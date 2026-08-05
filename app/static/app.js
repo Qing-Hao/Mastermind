@@ -27,29 +27,33 @@ const WINDOW_PRESETS = [
   { label: "6 months", weeks: MAX_WINDOW_WEEKS },
 ];
 
-// How much of a project's plan exists, derived server-side by
-// `validation.project_readiness`. A coloured glyph rather than a CSS badge: an
-// <option> holds no markup and cannot be styled portably, so a character in the
-// label is the only badge a native <select> can carry. These four are emoji so
-// they render in colour from the system font instead of the text colour.
+// Where a project stands, derived server-side by `validation.project_stage`.
+// One mark per row, so the badges form a single column you scan.
 //
-// Done gets a tick rather than a fourth colour -- it is not another point on
-// the planning -> ready -> planned run, it is work that has left it.
-// An unknown value falls through to no badge at all.
-const READINESS_BADGE = {
-  planning: "⚪",   // grey: the plan is still being written
-  ready: "🟠",     // orange: planned, waiting for a date
-  scheduled: "🟢", // green: dated, nothing missing
-  done: "✅",
+// A coloured glyph rather than a CSS badge: an <option> holds no markup and
+// cannot be styled portably, so a character in the label is the only badge a
+// native <select> can carry. These are emoji so they render in colour from the
+// system font instead of the text colour.
+//
+// The ramp is not decoration. The cool marks are plan-building, where nothing is
+// real yet; colour warms only once the calendar takes over. Red appears exactly
+// once in the whole vocabulary and only ever means the dates have passed you by,
+// which is what keeps it worth noticing. An unknown value falls through to no
+// badge at all.
+const STAGE_BADGE = {
+  idea: "💡",     // nobody has committed to it
+  planning: "⚪",  // no phases, nothing named, or still being drafted
+  planned: "🟡",  // written and drafted, waiting only for dates
+  dated: "🔵",    // on the calendar, not started
+  active: "🟢",   // today falls inside the span
+  overdue: "🔴",  // the last phase end has passed, phases still open
+  done: "✅",     // every phase done, or closed by hand
 };
 
-// An idea gets its own glyph and shows no readiness at all. It used to wear the
-// badge plus a ◌ ring, which stacked two marks saying the same thing: an idea is
-// almost always `planning`, so the pair was one column of noise where one mark
-// would do. Commitment wins the slot on ideas because that is the whole question
-// about one -- how far its plan is written only starts mattering once somebody
-// has decided to do it.
-const IDEA_BADGE = "💡";
+// Still used on its own by the dependency and Future directions pickers, which
+// list projects rather than states: there the only distinction worth drawing is
+// committed work against a direction nobody has taken up yet.
+const IDEA_BADGE = STAGE_BADGE.idea;
 
 // Priority, 1 highest. 0 is untiered -- not a fourth tier but the absence of a
 // decision, which is why it sorts last and is named rather than numbered
@@ -366,13 +370,11 @@ async function loadProjectList() {
   const selected = select.value;
   select.innerHTML = "";
   for (const project of state.projects) {
-    // One mark per row: 💡 while it is only an idea, otherwise how far the plan
-    // is written. Ideas stay selectable so you can open one and write its goal,
-    // but cannot be mistaken for real work. An unknown readiness -- and only
-    // that -- falls through to no badge at all.
-    const badge = project.stage === "idea"
-      ? IDEA_BADGE
-      : READINESS_BADGE[project.readiness];
+    // One mark per row, straight off the derived ladder -- 💡 for an idea is
+    // simply its first rung, not a separate rule any more. Ideas stay selectable
+    // so you can open one and write its goal, but cannot be mistaken for real
+    // work. An unknown stage -- and only that -- falls through to no badge.
+    const badge = STAGE_BADGE[project.derived_stage];
     const label = `${badge ? `${badge} ` : ""}${project.name}`;
     const option = element("option", null, label);
     option.value = project.id;
@@ -430,10 +432,10 @@ async function loadPlan() {
   state.plan = await api(`/api/projects/${state.currentProjectId}`);
   state.settings = state.plan.settings;
   renderProjectView();
-  // Naming the last deliverable or setting a date changes the readiness tag on
-  // the project you are looking at, and every edit lands here. Re-reading the
-  // list is one localhost query, and it keeps the rule in `project_readiness`
-  // instead of growing a second copy of it in JS.
+  // Naming a deliverable, setting a date or flipping the drafting switch all
+  // change the badge on the project you are looking at, and every edit lands
+  // here. Re-reading the list is one localhost query, and it keeps the ladder
+  // in `project_stage` instead of growing a second copy of it in JS.
   await loadProjectList();
 }
 
@@ -487,10 +489,41 @@ function renderProjectFields() {
   $("project-goal").value = project.goal || "";
   $("project-name").value = project.name;
   $("project-start").value = project.start_date;
-  $("project-stage").value = project.stage;
+  // 'active' is a legacy spelling of committed and no longer has an option of
+  // its own, so it reads back as 'planned' -- the same thing to the ladder.
+  $("project-stage").value = project.stage === "active" ? "planned" : project.stage;
   $("project-tier").value = String(project.tier ?? 0);
   $("project-track").value = project.track || "";
   $("project-velocity").value = project.velocity_override ?? "";
+  renderDraftToggle();
+}
+
+// The drafting switch, beside the heading it describes. It is the one thing
+// about a plan's shape that cannot be derived: only the user knows whether a
+// phase with nothing under it is an omission or a deliberately thin one.
+//
+// Hidden wherever it would decide nothing -- on an idea, on a closed project,
+// and once the work is dated, because from there the calendar speaks for the
+// project and the flag is ignored. A switch that visibly does nothing is worse
+// than no switch, and this is where its own effect is legible.
+function renderDraftToggle() {
+  const project = state.plan.project;
+  const derived = project.derived_stage;
+  const decides = derived === "planning" || derived === "planned";
+  const drafted = Boolean(project.draft_complete);
+
+  // Set before the early return, not after: `saveProject` reads this checkbox
+  // on every project edit, so leaving it holding the last project's value would
+  // quietly write that value onto this one the next time any field changed.
+  $("project-draft-complete").checked = drafted;
+  $("draft-toggle").hidden = !decides;
+  if (!decides) return;
+
+  $("draft-toggle-text").textContent = drafted ? "Drafted" : "Still drafting";
+  $("draft-toggle").title = drafted
+    ? "This plan is written. It is waiting on dates, not on you."
+    : "Marks the plan written, so it reads as planned rather than planning. "
+      + "Nothing else changes — no date is set and no rule fires.";
 }
 
 function renderSettingsFields() {
@@ -1838,8 +1871,11 @@ function groupNode(className, label, point, radius, place, limit) {
 
 function projectNode(project, point, radius, place) {
   const tier = project.tier ?? 0;
+  // Styled off the derived stage, not the stored one. The map used to show a
+  // project as committed-not-started until somebody remembered to change the
+  // field by hand; now the picture ages by itself as dates pass.
   const group = svgElement("g", {
-    class: `map-node stage-${project.stage} tier-${tier}`, tabindex: "0",
+    class: `map-node stage-${project.derived_stage} tier-${tier}`, tabindex: "0",
     role: "button", "data-project-id": project.id,
   });
   group.appendChild(svgElement("circle", { cx: point.x, cy: point.y, r: radius }));
@@ -1885,7 +1921,7 @@ function projectNode(project, point, radius, place) {
 
   // The full name and goal live in the tooltip, since the label is truncated.
   group.appendChild(svgElement("title", {}, [
-    `${project.name} — ${project.stage}`,
+    `${project.name} — ${project.derived_stage}`,
     tier === 0 ? "untiered" : `tier ${tier}`,
     `${project.effort_points} pts`,
     project.phases_total ? `${project.phases_done}/${project.phases_total} phases done` : null,
@@ -2064,11 +2100,14 @@ function renderDirections() {
     link.onclick = () => { form.hidden = !form.hidden; };
 
     const promote = element("button", null, "Promote to project");
-    promote.title = "Make this active, keeping everything already written against it";
+    promote.title = "Commit to this, keeping everything already written against it";
     promote.onclick = async () => {
+      // 'planned' is what committing writes now. Where it lands on the ladder
+      // is worked out from the plan -- an idea with no phases becomes
+      // `planning`, one already dated becomes `dated` or `active`.
       await api(`/api/projects/${idea.id}`, {
         method: "PUT",
-        body: JSON.stringify({ stage: "active" }),
+        body: JSON.stringify({ stage: "planned" }),
       });
       await loadProjects();
     };
@@ -2488,6 +2527,7 @@ function bindEvents() {
         stage: $("project-stage").value,
         tier: Number($("project-tier").value),
         track: $("project-track").value,
+        draft_complete: $("project-draft-complete").checked ? 1 : 0,
         velocity_override: velocity === "" ? null : Number(velocity),
       }),
     });
@@ -2495,7 +2535,7 @@ function bindEvents() {
   };
   for (const id of ["project-name", "project-goal", "project-start",
                     "project-stage", "project-tier", "project-track",
-                    "project-velocity"]) {
+                    "project-draft-complete", "project-velocity"]) {
     $(id).onchange = saveProject;
   }
 

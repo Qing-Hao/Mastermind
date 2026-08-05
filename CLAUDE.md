@@ -14,7 +14,7 @@ migration framework, no auth.
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000   # http://127.0.0.1:8000
-.\.venv\Scripts\python.exe -m pytest -q                                   # 144 tests, ~3s
+.\.venv\Scripts\python.exe -m pytest -q                                   # 157 tests, ~3s
 ```
 
 > **`--reload` runs `init_db()` — and therefore `db.migrate()` — against
@@ -49,15 +49,34 @@ structure change before adding anything top-level.
 `sprint_length_days` (14), `v1_tolerance_pct` (5.0), `department_name`.
 
 `project` — name, description, `goal` (free text, never parsed), `start_date`,
-`velocity_override` (nullable), `stage` ∈ `idea|planned|active|done`, `track`
-(free text), `tier` ∈ `0|1|2|3`, timestamps.
+`velocity_override` (nullable), `stage` ∈ `idea|planned|active|done`,
+`draft_complete` (0/1), `track` (free text), `tier` ∈ `0|1|2|3`, timestamps.
 
-`stage` is **commitment**, and `planned` is the step between an idea and live
-work: the plan is written, nothing is slotted. It reaches the portfolio staging
-tray — that is the whole point of it — but earns a swimlane only once its phases
-have dates, exactly like an undated `active` project. Do not confuse it with
-readiness `scheduled`, which is derived and means the opposite (fully dated);
-the readiness value was renamed off `planned` precisely so the two cannot be.
+`stage` still holds four values but now carries only **three meanings**, because
+`validation.project_stage` derives the rest from the plan and the clock:
+
+- `idea` — nobody has committed. Keeps the project off the portfolio.
+- `planned` / `active` — **the same thing: committed.** They are no longer
+  distinguished anywhere. `planned` is what the UI writes; `active` is what older
+  rows carry and reads identically. The ladder works out whether committed work
+  is drafted, dated, running or late.
+- `done` — the **manual close**, and it beats the ladder outright. Not
+  "delivered" but *closed without finishing*: cancelled or descoped work never
+  reaches every-phase-done, and without this hatch it would sit `overdue`
+  forever until the colour stopped meaning anything.
+
+The CHECK deliberately keeps all four values. Narrowing it would mean rebuilding
+the `project` table through `migrate_stage_check`, which has cost a real dataset
+once, to buy nothing a reader of this section does not already know.
+
+`draft_complete` is **"I am done drafting this plan"** — the one thing about a
+plan's shape that cannot be derived, because only the user knows whether a phase
+with nothing under it is an omission or a deliberately thin one. It decides
+`planning` vs `planned` and nothing else; once the work is dated the ladder
+ignores it entirely. It can go stale, and that was accepted: latching it shut on
+structural change would be the tool silently undoing something you set, and
+deriving it outright would take away the judgement call it exists for. It sits
+beside the phase list it describes, so the evidence is on screen with the flag.
 
 `tier` is priority, 1 highest, and **0 is untiered — the absence of a decision,
 not a fourth tier**. It sorts last everywhere, is spelt out rather than numbered
@@ -106,10 +125,15 @@ project occupies, its end being the latest phase end inside it.
    tick. No estimate, no assignee, no dates, no history. The tick fires no rule,
    never sets `phase.status`, never moves a date. If asked for an intermediate
    state, push back — an enum is where this becomes the tracker the brief forbids.
+   V7 and the ladder read deliverable **presence**, which is a planning fact;
+   neither reads the tick. Deriving project `done` from ticks was asked for and
+   declined: 0-of-0 phases make "all delivered" vacuously true, and a field
+   designed to be casual stops being casual the moment state depends on it.
 5. **V5 is deleted, not dormant.** Deliverables lost their estimates, so the
    rollup had no input. `v5_tolerance_pct` went with it. `PROMPT.md` still carries
    the original V5 prose as the record of what was first asked; its **Amendments**
-   section overrides the body text.
+   section overrides the body text. **The numbering skips it** — the rules added
+   after are V6 and V7, so nothing ever reuses V5.
 6. **Dependencies are project-to-project, and phase order is unvalidated.** They
    linked phases until export v6. Losing the intra-project check was accepted
    deliberately, not overlooked: the requester wanted links between whole pieces
@@ -125,16 +149,32 @@ project occupies, its end being the latest phase end inside it.
 | V2 | project pair | Successor project's span start < predecessor project's span end | Warn |
 | V3 | project pair | Dependency cycle | **Block, 409** |
 | V4 | phase | Phase starts before its project's `start_date` | Warn |
+| V6 | phase | Derived phase end has passed and `status != done` | Warn |
+| V7 | phase | `status == done` but the phase names no deliverables | Warn |
 
 Velocity = `project.velocity_override` or the global default. Tolerance defaults
 to **5%** deliberately: the canonical 6w / 55pts @ velocity 20 case is off by
 8.3%, so 20% would never fire.
 
-`validate_plan()` runs V1 and V4 on one project. **V2 lives in
+**V6 is the rule that actually finds late work.** The `overdue` rung only fires
+once a project's *last* phase end has passed, which found nothing on the real
+dataset; V6 found a discussion phase a month past its end inside a project with
+weeks still to run. **V7** is the counterweight to deriving `done` from phase
+status: closing a phase is what completes a project, so a phase closed with
+nothing named under it records no outcome at all. It reads presence, never the
+tick — see rule 4.
+
+`validate_plan()` runs V1, V4, V6 and V7 on one project. **V2 lives in
 `validate_portfolio()`** — it compares two projects, so it needs every project,
 its phases and every dependency. V3 is in neither: it is checked at write time.
 `GET /api/projects/{id}` merges the V2 warnings naming that project into its own
 list, so both ends of a link see it.
+
+`validate_plan`'s `today` and `deliverables_by_phase` arguments both default to
+`None`, which **skips** V6 and V7 rather than inventing the input. The module is
+pure: reading the clock inside it would make every test of it depend on the day
+it runs, so the caller passes the date — the same contract `next_milestone` has
+always had.
 
 ## Unscheduled is a first-class state
 
@@ -156,30 +196,48 @@ HTML `<input type="date">` untouched. Estimate first, commit dates later.
   portfolio tray is the same operation driven by a drag: the drop is what
   supplies the start date, so no date is ever invented.
 
-## Readiness is derived, and is not `stage`
+## The stage ladder is derived
 
-`validation.project_readiness` returns one of `planning | ready | scheduled |
-done`. Two axes, deliberately: **`stage` is commitment** (has anyone decided to
-do this), **readiness is how much of the plan exists**. The project picker shows
-one of the two per project: 💡 while it is an idea, the readiness once it is not.
+`validation.project_stage` returns one rung of
+`idea | planning | planned | dated | active | overdue | done`, first match wins.
+It **replaced `project_readiness`**, which was a second axis running alongside
+`stage`: two values that disagreed about the same project turned out to be one
+question asked badly. On the real dataset the old one answered `planning` for
+six of the seven projects it rendered on — including all three that were
+actually running, because one phase with nothing named under it outranked every
+date on the plan — while its single `ready` was the only project with no dates
+at all.
 
-- `planning` — no phases, or a phase with no deliverables under it.
-- `ready` — every phase names its deliverables, but the work is not fully dated.
-  Same population as the staging tray: a half-placed project stays here.
-- `scheduled` — project start date set and no phase missing one. Called
-  `scheduled` and not `planned` because `stage` owns that word, where it means
-  a plan with no dates — the exact opposite of this value.
-- `done` — **taken from `stage`, never inferred**, and it wins over everything
-  else. Every phase finished is not the same as the user calling it done.
+Only three inputs are yours: `stage='idea'`, `stage='done'` (the manual close),
+and `draft_complete`. Everything else is worked out.
 
-A deliverable's `done` tick is **not** read here. Presence is a planning fact;
-ticking is progress, and reading the tick would make this the tracker rule 4
-forbids. Nothing is stored and nothing is repaired — it is a summary like
-`project_progress`, not a rule.
+- `idea` — stored. Beats every rung below, so an idea that somehow acquired
+  dates still reads as an idea; the portfolio filters on the stored value and
+  the two must never disagree.
+- `done` — stored close, **or** every phase at `status='done'`. Deriving it is
+  what puts the weight on closing phases: finishing a project means finishing
+  the work inside it, not ticking one box at the top.
+- `overdue` — fully dated, last phase end passed, phases still open.
+- `active` — fully dated, today inside the span.
+- `dated` — fully dated, not started.
+- `planning` — no phases, nothing named under any of them, or still drafting.
+- `planned` — named and drafted, waiting only for dates.
+
+**Dates outrank `draft_complete`, and the order is load-bearing.** Checking the
+flag first reads a project that is dated and running as `planning` merely
+because nobody flipped a switch — the exact inversion this replaced. Once work
+is on the calendar the calendar speaks for it; the flag only ever decides
+between `planning` and `planned`.
+
+A deliverable's `done` tick is **not** read here, only its presence — see rule 4.
+Nothing is stored and nothing is repaired.
 
 `db.list_projects` sorts done last and ideas just above, so the middle of the
 list is work in flight. That ordering is shared, so the portfolio swimlanes and
-the map's slot order follow it too.
+the map's slot order follow it too. **`GET /api/projects` re-sorts on top of it**,
+because `db` can only see the stored stage, which now says `done` for a manual
+close alone: a project finished by its phases would otherwise sit in the middle
+of the picker among work in flight.
 
 ## API surface
 
@@ -190,11 +248,17 @@ DELETE · `/api/projects/{id}/layout` POST · `/api/projects/{id}/phases` POST �
 `/api/dependencies/{id}` DELETE · `/api/portfolio` GET · `/api/graph` GET ·
 `/api/export` GET · `/api/import` POST.
 
-`GET /api/projects` returns each project with a derived **`readiness`** (see
-below). Not stored, and not on the single-project payload — the point of it is
-comparing projects before opening one.
+`GET /api/projects` returns each project with a derived **`derived_stage`** (see
+above), alongside the stored `stage` and never overwriting it — the stored value
+is what the portfolio filters on and what a form round trip echoes back, so
+collapsing the two would let a derived value be written into the column.
+`main.with_derived_stage` tags a list; `/api/projects` and `/api/graph` both use
+it.
 
-`GET /api/projects/{id}` returns the whole plan in one payload: project, phases
+`GET /api/projects/{id}` returns the whole plan in one payload: project (also
+carrying `derived_stage`, unlike the readiness it replaced — the drafting toggle
+lives in this view and a switch whose effect you cannot see is a switch you have
+to guess at), phases
 (with derived dates, `offset_weeks` + deliverables), dependencies, warnings,
 settings. Its
 `dependencies` are every link the project sits at **either** end of, each
@@ -246,10 +310,13 @@ The dependency step is the one table-level migration: if the old phase-level
 linked, links that collapse onto one project are discarded, and the table is
 dropped. **Irreversible** — back the file up first.
 
-Export `version` is currently **8**. Bump it when the shape changes and keep
-imports tolerant of older files — v2–v7 exports must still import, with absent
+Export `version` is currently **9**. Bump it when the shape changes and keep
+imports tolerant of older files — v2–v8 exports must still import, with absent
 fields falling back to defaults and phase-level dependencies translated by
-`project_dependencies_from()`. `import_all` is destructive by design and
+`project_dependencies_from()`. Nothing in a pre-v9 file is drafted, which reads
+as still-drafting: the quieter default of the two, since it understates a
+finished plan rather than declaring every half-written one done.
+`import_all` is destructive by design and
 preserves ids so links survive the round trip; a translated pre-v6 file is the
 one case where dependency ids are renumbered, since several phase links can fold
 into one project link.
@@ -258,19 +325,23 @@ into one project link.
 
 - **Picker** — the project `<select>` above the tabs. Each option is
   `badge Name` — **one mark per row**, so the badges form a single column you
-  scan. An idea wears `IDEA_BADGE` (💡) and no readiness at all; everything else
-  wears `READINESS_BADGE` (⚪ planning, 🟠 ready, 🟢 scheduled, ✅ done).
-  Commitment wins the slot on ideas because that is the whole question about an
-  idea, and because an idea is almost always `planning` — the old `badge ◌ Name`
-  pairing stacked two marks saying the same thing. The dependency picker marks
-  ideas with the same 💡, so the glyph means one thing tool-wide. They are
+  scan. The mark comes straight off `derived_stage` via `STAGE_BADGE`
+  (💡 idea, ⚪ planning, 🟡 planned, 🔵 dated, 🟢 active, 🔴 overdue, ✅ done),
+  so 💡 is simply the ladder's first rung rather than a separate rule — the old
+  `IDEA_BADGE`/`READINESS_BADGE` split is gone. The ramp is not decoration: the
+  cool marks are plan-building, colour warms once the calendar takes over, and
+  **red appears exactly once in the vocabulary**, which is what keeps it worth
+  noticing. The dependency and Future-directions pickers still mark ideas with
+  the same 💡 (`IDEA_BADGE`, now an alias) — they list projects rather than
+  states, so committed-versus-idea is the only distinction worth drawing there.
+  They are
   **emoji, not CSS** — an `<option>` holds no markup
   and cannot be styled portably, so a coloured glyph is the only badge a native
   `<select>` can carry; a real pill would mean hand-rolling a dropdown. The
   legend lives in the select's `title`. `loadPlan` re-reads `/api/projects`
-  after every edit so naming the last deliverable retags the option
-  immediately; that costs one localhost query and keeps the rule out of the
-  frontend.
+  after every edit so naming a deliverable or flipping the drafting switch
+  retags the option immediately; that costs one localhost query and keeps the
+  ladder out of the frontend.
 - **Track picker** — the Track field on Project, and the one on the Map's
   Future directions row, share `trackPicker` in `app.js`. It is the **one
   hand-rolled control in the codebase**, and the exception is deliberate: a
@@ -302,6 +373,18 @@ into one project link.
   with expandable deliverables (`3/5` tally on the phase row), dependencies. The
   dependency panel lists both directions (`← waits on X`, `→ Y waits on this`)
   and links by picking another project plus a direction.
+  The **Stage** field offers three choices — `idea | committed | closed` —
+  because those are the only three the ladder does not derive. "Committed"
+  writes `planned`; a legacy `active` row reads back as committed, since they
+  are the same thing.
+  The **drafting switch** sits beside the *Phases & deliverables* heading, on
+  the section it describes. It is `hidden` wherever it decides nothing — on an
+  idea, on a closed project, and once the work is dated — which needs
+  `.draft-toggle[hidden]` in the CSS, the same trap `.track-crumb[hidden]` and
+  `.direction-link-form[hidden]` document. `renderDraftToggle` sets the
+  checkbox **before** its early return: `saveProject` reads that checkbox on
+  every project edit, so leaving it holding the previous project's value would
+  quietly write that value onto this one.
   The timeline has two modes, switched by `Dates | Weeks`:
   - **Dates** — the calendar grid. Only phases with a start date appear.
   - **Weeks** — `W1, W2, …` counted from the start of the project, no calendar.
@@ -313,8 +396,10 @@ into one project link.
     Dragging a bar re-sequences phases (writes `sort_order` only, never a date).
   The switch is unpinned per project and defaults to Weeks when nothing in the
   project is scheduled; clicking either button pins it until you change project.
-- **Portfolio** — every scheduled phase of `active`/`done` projects on one axis,
-  one swimlane per project. Drag a bar to move **only** that phase; snaps to a
+- **Portfolio** — every scheduled phase of every **non-idea** project on one
+  axis, one swimlane per project (`SCHEDULABLE_STAGES`, which is every stored
+  stage but `idea`; committed is committed, whatever rung the ladder then puts
+  it on). Drag a bar to move **only** that phase; snaps to a
   week, `Alt` for single days. No resize.
   Above the chart, a **staging tray**: one chip per project that still has
   undated phases. Drag a chip onto a week and the project is placed there —
@@ -337,10 +422,16 @@ into one project link.
   link as a **list**, V2-marked where violated — not arrows between swimlanes,
   because a link can point at an idea, which has no bar to draw to.
 - **Map** — hand-rolled radial SVG, deterministic layout. Department hub → track
-  ring → subtrack ring → project ring, ideas outermost and dashed. Stage reads
-  as one vocabulary in three steps on the node itself: an **idea** is hollow and
-  dashed, **planned** is hollow with a solid outline (shaped and committed to,
-  nothing slotted), **active** is filled. Done is filled grey. A fourth ring for
+  ring → subtrack ring → project ring, ideas outermost and dashed. Nodes are
+  styled off **`derived_stage`**, so the picture ages by itself: a project that
+  starts next week stops looking un-started on the day it starts, with nobody
+  editing a field. Stage reads as one vocabulary on the node — **idea** hollow
+  and dashed, **planning** hollow with a light outline, **planned** hollow with
+  a solid one (shaped and committed to, nothing slotted), **dated** pale-filled
+  (on the calendar, not begun), **active** filled, **overdue** filled with a
+  heavy warning outline, **done** filled grey. Overdue keeps a live project's
+  filled body and spends its difference on the stroke, rather than inventing a
+  fifth fill. A fourth ring for
   `planned` was the alternative and was rejected on cost — ring gaps are the
   tightest budget on the map and `MAX_RING_ASPECT` would have needed re-fitting. Node radius
   `sqrt(points)`, clamped 16–38px. A track's wedge is sized by how many projects

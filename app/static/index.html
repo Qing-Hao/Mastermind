@@ -15,7 +15,7 @@
       <button id="tab-map" class="tab">Map</button>
     </span>
     <select id="project-select"
-            title="💡 idea · ⚪ still planning · 🟠 planned, needs dates · 🟢 dated · ✅ done"></select>
+            title="💡 idea · ⚪ still planning · 🟡 planned, needs dates · 🔵 dated, not started · 🟢 active · 🔴 overdue · ✅ done"></select>
     <button id="new-project">New project</button>
     <button id="delete-project">Delete</button>
     <span class="spacer"></span>
@@ -44,11 +44,10 @@
           <label>Name <input id="project-name" type="text"></label>
           <label>Start date <input id="project-start" type="date"></label>
           <label>Stage
-            <select id="project-stage" title="An idea is a future direction nobody has committed to yet. Planned means the plan is written but nothing is slotted into the calendar.">
+            <select id="project-stage" title="The three things only you can say. Everything between them — drafted, dated, running, late — is worked out from the plan and today's date. Closed means finished with, whether or not the work was completed.">
               <option value="idea">idea</option>
-              <option value="planned">planned</option>
-              <option value="active">active</option>
-              <option value="done">done</option>
+              <option value="planned">committed</option>
+              <option value="done">closed</option>
             </select>
           </label>
           <label>Tier
@@ -127,7 +126,13 @@
       </section>
 
       <section>
-        <h2>Phases &amp; deliverables</h2>
+        <div class="section-head">
+          <h2>Phases &amp; deliverables</h2>
+          <label id="draft-toggle" class="draft-toggle" hidden>
+            <input id="project-draft-complete" type="checkbox">
+            <span id="draft-toggle-text">Still drafting</span>
+          </label>
+        </div>
         <p class="hint">
           Expand a phase to list what it produces. Deliverables are named, not
           estimated &mdash; the weeks and points stay on the phase.
