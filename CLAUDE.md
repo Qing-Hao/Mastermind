@@ -161,7 +161,7 @@ HTML `<input type="date">` untouched. Estimate first, commit dates later.
 `validation.project_readiness` returns one of `planning | ready | scheduled |
 done`. Two axes, deliberately: **`stage` is commitment** (has anyone decided to
 do this), **readiness is how much of the plan exists**. The project picker shows
-both — `◌` for an idea, the readiness as a word.
+one of the two per project: 💡 while it is an idea, the readiness once it is not.
 
 - `planning` — no phases, or a phase with no deliverables under it.
 - `ready` — every phase names its deliverables, but the work is not fully dated.
@@ -257,9 +257,14 @@ into one project link.
 ## Views
 
 - **Picker** — the project `<select>` above the tabs. Each option is
-  `badge ◌ Name`: `READINESS_BADGE` first (⚪ planning, 🟠 ready, 🟢 scheduled,
-  ✅ done), then the ring on ideas only. The badge leads because it is the
-  column you scan. They are **emoji, not CSS** — an `<option>` holds no markup
+  `badge Name` — **one mark per row**, so the badges form a single column you
+  scan. An idea wears `IDEA_BADGE` (💡) and no readiness at all; everything else
+  wears `READINESS_BADGE` (⚪ planning, 🟠 ready, 🟢 scheduled, ✅ done).
+  Commitment wins the slot on ideas because that is the whole question about an
+  idea, and because an idea is almost always `planning` — the old `badge ◌ Name`
+  pairing stacked two marks saying the same thing. The dependency picker marks
+  ideas with the same 💡, so the glyph means one thing tool-wide. They are
+  **emoji, not CSS** — an `<option>` holds no markup
   and cannot be styled portably, so a coloured glyph is the only badge a native
   `<select>` can carry; a real pill would mean hand-rolling a dropdown. The
   legend lives in the select's `title`. `loadPlan` re-reads `/api/projects`

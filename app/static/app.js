@@ -43,6 +43,14 @@ const READINESS_BADGE = {
   done: "✅",
 };
 
+// An idea gets its own glyph and shows no readiness at all. It used to wear the
+// badge plus a ◌ ring, which stacked two marks saying the same thing: an idea is
+// almost always `planning`, so the pair was one column of noise where one mark
+// would do. Commitment wins the slot on ideas because that is the whole question
+// about one -- how far its plan is written only starts mattering once somebody
+// has decided to do it.
+const IDEA_BADGE = "💡";
+
 // Priority, 1 highest. 0 is untiered -- not a fourth tier but the absence of a
 // decision, which is why it sorts last and is named rather than numbered
 // everywhere it shows. Ranking is what lets the map be thinned down to the work
@@ -358,13 +366,14 @@ async function loadProjectList() {
   const selected = select.value;
   select.innerHTML = "";
   for (const project of state.projects) {
-    // Two marks answering two questions. The badge leads because it is what you
-    // scan -- one column of colour down the list. The ring is commitment: ideas
-    // stay selectable so you can open one and write its goal, but cannot be
-    // mistaken for real work.
-    const badge = READINESS_BADGE[project.readiness];
-    const ring = project.stage === "idea" ? "◌ " : "";
-    const label = `${badge ? `${badge} ` : ""}${ring}${project.name}`;
+    // One mark per row: 💡 while it is only an idea, otherwise how far the plan
+    // is written. Ideas stay selectable so you can open one and write its goal,
+    // but cannot be mistaken for real work. An unknown readiness -- and only
+    // that -- falls through to no badge at all.
+    const badge = project.stage === "idea"
+      ? IDEA_BADGE
+      : READINESS_BADGE[project.readiness];
+    const label = `${badge ? `${badge} ` : ""}${project.name}`;
     const option = element("option", null, label);
     option.value = project.id;
     select.appendChild(option);
@@ -968,7 +977,7 @@ function renderDependencies() {
   // offering it would only earn a 409.
   for (const project of state.projects.filter((p) => p.id !== current)) {
     const option = element("option", null,
-      project.stage === "idea" ? `◌ ${project.name}` : project.name);
+      project.stage === "idea" ? `${IDEA_BADGE} ${project.name}` : project.name);
     option.value = project.id;
     select.appendChild(option);
   }
