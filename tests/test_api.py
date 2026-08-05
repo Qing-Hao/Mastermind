@@ -654,6 +654,65 @@ def test_deleting_a_project_removes_its_phases(client):
     assert client.get("/api/export").json()["phases"] == []
 
 
+# --- readiness on the project list ------------------------------------------
+
+
+def readiness_of(client):
+    """The project list as {name: readiness}, plus the order it came back in."""
+    projects = client.get("/api/projects").json()
+    return ({project["name"]: project["readiness"] for project in projects},
+            [project["name"] for project in projects])
+
+
+def test_the_project_list_carries_readiness_through_the_whole_lifecycle(client):
+    project = make_project(client, start="")
+    assert readiness_of(client)[0] == {"Payments": "planning"}
+
+    phase = make_phase(client, project["id"], "Design", "", 4, 40)
+    assert readiness_of(client)[0] == {"Payments": "planning"}
+
+    client.post(f"/api/phases/{phase['id']}/deliverables", json={"name": "Wireframes"})
+    assert readiness_of(client)[0] == {"Payments": "ready"}
+
+    client.put(f"/api/projects/{project['id']}", json={"start_date": "2026-01-05"})
+    client.post(f"/api/projects/{project['id']}/layout")
+    assert readiness_of(client)[0] == {"Payments": "planned"}
+
+    client.put(f"/api/projects/{project['id']}", json={"stage": "done"})
+    assert readiness_of(client)[0] == {"Payments": "done"}
+
+
+def test_a_second_phase_with_nothing_named_under_it_reopens_planning(client):
+    project = make_project(client)
+    first = make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+    client.post(f"/api/phases/{first['id']}/deliverables", json={"name": "Wireframes"})
+    assert readiness_of(client)[0] == {"Payments": "planned"}
+
+    make_phase(client, project["id"], "Build", "2026-02-02", 4, 40)
+    assert readiness_of(client)[0] == {"Payments": "planning"}
+
+
+def test_readiness_is_counted_per_project(client):
+    empty = make_project(client, "Ledger")
+    planned = make_project(client, "Payments")
+    phase = make_phase(client, planned["id"], "Design", "2026-01-05", 4, 40)
+    client.post(f"/api/phases/{phase['id']}/deliverables", json={"name": "Wireframes"})
+
+    assert readiness_of(client)[0] == {"Ledger": "planning", "Payments": "planned"}
+    assert empty["id"] != planned["id"]
+
+
+def test_finished_work_sorts_below_ideas_and_ideas_below_live_work(client):
+    make_project(client, "Payments", start="2026-01-05")
+    finished = make_project(client, "Ledger", start="2026-01-05")
+    client.post("/api/projects", json={
+        "name": "Caching", "start_date": "", "stage": "idea",
+    })
+    client.put(f"/api/projects/{finished['id']}", json={"stage": "done"})
+
+    assert readiness_of(client)[1] == ["Payments", "Caching", "Ledger"]
+
+
 # --- future directions ------------------------------------------------------
 
 

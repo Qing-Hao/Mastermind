@@ -24,6 +24,7 @@ from app.validation import (
     phase_end_date,
     project_effort_points,
     project_progress,
+    project_readiness,
     relative_layout,
     sequential_layout,
     validate_plan,
@@ -265,7 +266,21 @@ def write_settings(body: SettingsIn):
 
 @app.get("/api/projects")
 def read_projects():
-    return db.list_projects()
+    """Every project, each carrying a derived `readiness`.
+
+    It rides on the list rather than the single-project payload because the
+    point of it is comparing projects before opening one.
+    """
+    phases = db.phases_by_project()
+    deliverables = db.deliverables_by_project()
+    projects = db.list_projects()
+    for project in projects:
+        project["readiness"] = project_readiness(
+            project,
+            phases.get(project["id"], []),
+            deliverables.get(project["id"], []),
+        )
+    return projects
 
 
 @app.post("/api/projects", status_code=201)

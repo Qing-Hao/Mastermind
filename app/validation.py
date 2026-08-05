@@ -351,6 +351,50 @@ def project_effort_points(phases):
     return sum(int(phase.get("effort_points") or 0) for phase in phases)
 
 
+READINESS_PLANNING = "planning"
+READINESS_READY = "ready"
+READINESS_PLANNED = "planned"
+READINESS_DONE = "done"
+
+
+def project_readiness(project, phases, deliverables):
+    """How much of the plan exists yet: planning -> ready -> planned, or done.
+
+    A second axis to `stage`, not a replacement for it. `stage` records whether
+    anyone has committed to the work; this records how far the plan has been
+    written, which is what answers "which project needs me next" from the
+    picker without opening each one.
+
+    - `done` is never inferred -- it is `stage`, set by hand, and it wins over
+      everything else, because a finished project's readiness is not a question
+      anyone is asking.
+    - `planning`: no phases yet, or a phase with nothing named under it. A
+      deliverable's `done` tick is deliberately ignored here. Its presence is a
+      planning fact; ticking it is progress, and reading the tick would quietly
+      make this the tracker the brief forbids.
+    - `ready`: every phase names its deliverables, but the work is not fully on
+      the calendar. This is the staging tray's population -- a half-placed
+      project (project dated, some phases still undated) stays here exactly as
+      it stays in the tray.
+    - `planned`: the project has a start date and no phase is missing one.
+
+    `deliverables` is a flat list of the project's own deliverables; only their
+    `phase_id` is read. Nothing here is stored and nothing is repaired.
+    """
+    if project.get("stage") == "done":
+        return READINESS_DONE
+    if not phases:
+        return READINESS_PLANNING
+
+    covered = {deliverable["phase_id"] for deliverable in deliverables}
+    if any(phase["id"] not in covered for phase in phases):
+        return READINESS_PLANNING
+
+    if not is_scheduled(project) or any(not is_scheduled(phase) for phase in phases):
+        return READINESS_READY
+    return READINESS_PLANNED
+
+
 def next_milestone(phases, today):
     """The next phase boundary falling on or after `today`, or None.
 

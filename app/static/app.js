@@ -27,6 +27,17 @@ const WINDOW_PRESETS = [
   { label: "6 months", weeks: MAX_WINDOW_WEEKS },
 ];
 
+// How much of a project's plan exists, derived server-side by
+// `validation.project_readiness`. Spelt out here so the picker reads as words
+// rather than glyphs -- it is the one place you compare projects you have not
+// opened. An unknown value falls through to no suffix at all.
+const READINESS_LABEL = {
+  planning: "planning",
+  ready: "ready",
+  planned: "planned",
+  done: "done",
+};
+
 let state = {
   view: "project",
   projects: [],
@@ -318,18 +329,29 @@ function renderWindowBar(container) {
 
 // --- loading ----------------------------------------------------------------
 
-async function loadProjects() {
+async function loadProjectList() {
   state.projects = await api("/api/projects");
   const select = $("project-select");
+  const selected = select.value;
   select.innerHTML = "";
   for (const project of state.projects) {
-    // Ideas stay selectable so you can open one and write its goal; the ring
-    // marks them as uncommitted so they cannot be mistaken for real work.
-    const label = project.stage === "idea" ? `◌ ${project.name}` : project.name;
+    // Two marks answering two questions. The ring is commitment: ideas stay
+    // selectable so you can open one and write its goal, but cannot be mistaken
+    // for real work. The suffix is how much of the plan exists. An <option>
+    // holds no markup and cannot be styled portably, so both are plain text.
+    const ring = project.stage === "idea" ? "◌ " : "";
+    const readiness = READINESS_LABEL[project.readiness];
+    const label = `${ring}${project.name}${readiness ? ` — ${readiness}` : ""}`;
     const option = element("option", null, label);
     option.value = project.id;
     select.appendChild(option);
   }
+  select.value = selected;
+}
+
+async function loadProjects() {
+  await loadProjectList();
+  const select = $("project-select");
 
   if (state.projects.length === 0) {
     state.currentProjectId = null;
@@ -373,6 +395,11 @@ async function loadPlan() {
   state.plan = await api(`/api/projects/${state.currentProjectId}`);
   state.settings = state.plan.settings;
   renderProjectView();
+  // Naming the last deliverable or setting a date changes the readiness tag on
+  // the project you are looking at, and every edit lands here. Re-reading the
+  // list is one localhost query, and it keeps the rule in `project_readiness`
+  // instead of growing a second copy of it in JS.
+  await loadProjectList();
 }
 
 async function loadPortfolio() {

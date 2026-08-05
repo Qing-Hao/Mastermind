@@ -248,11 +248,14 @@ def update_settings(fields):
 def list_projects(stages=None):
     """Every project, or only those in `stages`.
 
-    Ideas sort last: they have no start date, so ordering by date alone would
-    scatter them through the committed work.
+    Finished work sorts to the very bottom and ideas just above it, so the
+    middle of the list is the work actually in flight. Both have to be pushed
+    explicitly: a done project keeps its dates and would otherwise sort by
+    them, and an idea has none at all, so date order alone would scatter the
+    two through the live projects from opposite ends.
     """
-    query = ("SELECT * FROM project ORDER BY stage = 'idea', start_date = '', "
-             "start_date, id")
+    query = ("SELECT * FROM project ORDER BY stage = 'done', stage = 'idea', "
+             "start_date = '', start_date, id")
     with connect() as connection:
         rows = connection.execute(query).fetchall()
     projects = rows_to_dicts(rows)
@@ -401,6 +404,24 @@ def deliverables_by_phase(project_id):
     grouped = {}
     for row in rows_to_dicts(rows):
         grouped.setdefault(row["phase_id"], []).append(row)
+    return grouped
+
+
+def deliverables_by_project():
+    """Every deliverable grouped by the project it belongs to.
+
+    The project list needs deliverable coverage for all projects at once, and
+    `deliverables_by_phase` would be one query each.
+    """
+    with connect() as connection:
+        rows = connection.execute(
+            """SELECT d.*, p.project_id FROM deliverable d
+               JOIN phase p ON p.id = d.phase_id
+               ORDER BY d.sort_order, d.id"""
+        ).fetchall()
+    grouped = {}
+    for row in rows_to_dicts(rows):
+        grouped.setdefault(row["project_id"], []).append(row)
     return grouped
 
 

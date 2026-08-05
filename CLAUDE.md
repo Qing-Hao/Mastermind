@@ -14,7 +14,7 @@ migration framework, no auth.
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000   # http://127.0.0.1:8000
-.\.venv\Scripts\python.exe -m pytest -q                                   # 114 tests, ~2.2s
+.\.venv\Scripts\python.exe -m pytest -q                                   # 128 tests, ~2.5s
 ```
 
 Type checking is pyright, `basic` mode, config in `pyrightconfig.json`.
@@ -129,6 +129,29 @@ HTML `<input type="date">` untouched. Estimate first, commit dates later.
   portfolio tray is the same operation driven by a drag: the drop is what
   supplies the start date, so no date is ever invented.
 
+## Readiness is derived, and is not `stage`
+
+`validation.project_readiness` returns one of `planning | ready | planned |
+done`. Two axes, deliberately: **`stage` is commitment** (has anyone decided to
+do this), **readiness is how much of the plan exists**. The project picker shows
+both — `◌` for an idea, the readiness as a word.
+
+- `planning` — no phases, or a phase with no deliverables under it.
+- `ready` — every phase names its deliverables, but the work is not fully dated.
+  Same population as the staging tray: a half-placed project stays here.
+- `planned` — project start date set and no phase missing one.
+- `done` — **taken from `stage`, never inferred**, and it wins over everything
+  else. Every phase finished is not the same as the user calling it done.
+
+A deliverable's `done` tick is **not** read here. Presence is a planning fact;
+ticking is progress, and reading the tick would make this the tracker rule 4
+forbids. Nothing is stored and nothing is repaired — it is a summary like
+`project_progress`, not a rule.
+
+`db.list_projects` sorts done last and ideas just above, so the middle of the
+list is work in flight. That ordering is shared, so the portfolio swimlanes and
+the map's slot order follow it too.
+
 ## API surface
 
 `/api/settings` GET PUT · `/api/projects` GET POST · `/api/projects/{id}` GET PUT
@@ -137,6 +160,10 @@ DELETE · `/api/projects/{id}/layout` POST · `/api/projects/{id}/phases` POST �
 `/api/deliverables/{id}` PUT DELETE · `/api/dependencies` POST ·
 `/api/dependencies/{id}` DELETE · `/api/portfolio` GET · `/api/graph` GET ·
 `/api/export` GET · `/api/import` POST.
+
+`GET /api/projects` returns each project with a derived **`readiness`** (see
+below). Not stored, and not on the single-project payload — the point of it is
+comparing projects before opening one.
 
 `GET /api/projects/{id}` returns the whole plan in one payload: project, phases
 (with derived dates, `offset_weeks` + deliverables), dependencies, warnings,
@@ -174,6 +201,13 @@ into one project link.
 
 ## Views
 
+- **Picker** — the project `<select>` above the tabs. Each option is
+  `◌ Name — readiness`: the ring only on ideas, the readiness word from
+  `READINESS_LABEL`. Plain text on purpose — an `<option>` holds no markup and
+  cannot be styled portably, and a coloured pill would mean hand-rolling a
+  dropdown. `loadPlan` re-reads `/api/projects` after every edit so naming the
+  last deliverable retags the option immediately; that costs one localhost query
+  and keeps the rule out of the frontend.
 - **Project** — goal, fields, warnings, unscheduled list, timeline, phase table
   with expandable deliverables (`3/5` tally on the phase row), dependencies. The
   dependency panel lists both directions (`← waits on X`, `→ Y waits on this`)

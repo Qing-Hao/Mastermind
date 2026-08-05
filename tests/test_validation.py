@@ -14,6 +14,7 @@ from app.validation import (
     phase_end_date,
     project_effort_points,
     project_progress,
+    project_readiness,
     project_span,
     relative_layout,
     sequential_layout,
@@ -409,3 +410,76 @@ def test_next_milestone_counts_a_boundary_falling_today():
 def test_next_milestone_is_none_while_everything_is_unscheduled():
     phases = [make_phase(1, "Design", start=""), make_phase(2, "Build", start="")]
     assert next_milestone(phases, date(2026, 1, 5)) is None
+
+
+# --- readiness --------------------------------------------------------------
+
+
+def deliverable(deliverable_id, phase_id, name="Wireframes"):
+    return {"id": deliverable_id, "phase_id": phase_id, "name": name, "sort_order": 0}
+
+
+ACTIVE = {**PROJECT, "stage": "active"}
+UNDATED = {**PROJECT, "start_date": "", "stage": "active"}
+
+
+def test_readiness_of_a_project_with_no_phases_is_planning():
+    assert project_readiness(ACTIVE, [], []) == "planning"
+
+
+def test_readiness_is_planning_while_any_phase_names_nothing():
+    phases = [make_phase(1, "Design"), make_phase(2, "Build")]
+    assert project_readiness(ACTIVE, phases, [deliverable(1, 1)]) == "planning"
+
+
+def test_readiness_is_ready_once_every_phase_has_a_deliverable_but_no_dates():
+    phases = [make_phase(1, "Design", start=""), make_phase(2, "Build", start="")]
+    deliverables = [deliverable(1, 1), deliverable(2, 2)]
+    assert project_readiness(UNDATED, phases, deliverables) == "ready"
+
+
+def test_readiness_is_planned_once_the_project_and_every_phase_are_dated():
+    phases = [make_phase(1, "Design"), make_phase(2, "Build")]
+    deliverables = [deliverable(1, 1), deliverable(2, 2)]
+    assert project_readiness(ACTIVE, phases, deliverables) == "planned"
+
+
+def test_a_half_placed_project_is_still_ready():
+    """It is still in the staging tray, so it still reads as work to place."""
+    phases = [make_phase(1, "Design"), make_phase(2, "Build", start="")]
+    deliverables = [deliverable(1, 1), deliverable(2, 2)]
+    assert project_readiness(ACTIVE, phases, deliverables) == "ready"
+
+
+def test_dated_phases_under_an_undated_project_are_not_planned_yet():
+    phases = [make_phase(1, "Design"), make_phase(2, "Build")]
+    deliverables = [deliverable(1, 1), deliverable(2, 2)]
+    assert project_readiness(UNDATED, phases, deliverables) == "ready"
+
+
+def test_readiness_ignores_whether_a_deliverable_is_ticked():
+    """Naming the work is planning; ticking it is progress, which is not this."""
+    phases = [make_phase(1, "Design")]
+    ticked = [{**deliverable(1, 1), "done": 1}]
+    unticked = [{**deliverable(1, 1), "done": 0}]
+    assert project_readiness(ACTIVE, phases, ticked) == "planned"
+    assert project_readiness(ACTIVE, phases, unticked) == "planned"
+
+
+def test_done_is_taken_from_the_stage_and_never_inferred():
+    """Every phase finished is not the same as the user calling the project done."""
+    phases = [{**make_phase(1), "status": "done"}]
+    assert project_readiness(ACTIVE, phases, [deliverable(1, 1)]) == "planned"
+
+
+def test_a_project_marked_done_reads_done_however_thin_its_plan_is():
+    done = {**PROJECT, "stage": "done"}
+    assert project_readiness(done, [], []) == "done"
+
+
+def test_an_idea_is_judged_on_its_plan_like_anything_else():
+    """The stage says nobody has committed; readiness says how much is written."""
+    idea = {**PROJECT, "start_date": "", "stage": "idea"}
+    assert project_readiness(idea, [], []) == "planning"
+    phases = [make_phase(1, "Design", start="")]
+    assert project_readiness(idea, phases, [deliverable(1, 1)]) == "ready"
