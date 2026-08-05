@@ -676,7 +676,7 @@ def test_the_project_list_carries_readiness_through_the_whole_lifecycle(client):
 
     client.put(f"/api/projects/{project['id']}", json={"start_date": "2026-01-05"})
     client.post(f"/api/projects/{project['id']}/layout")
-    assert readiness_of(client)[0] == {"Payments": "planned"}
+    assert readiness_of(client)[0] == {"Payments": "scheduled"}
 
     client.put(f"/api/projects/{project['id']}", json={"stage": "done"})
     assert readiness_of(client)[0] == {"Payments": "done"}
@@ -686,7 +686,7 @@ def test_a_second_phase_with_nothing_named_under_it_reopens_planning(client):
     project = make_project(client)
     first = make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
     client.post(f"/api/phases/{first['id']}/deliverables", json={"name": "Wireframes"})
-    assert readiness_of(client)[0] == {"Payments": "planned"}
+    assert readiness_of(client)[0] == {"Payments": "scheduled"}
 
     make_phase(client, project["id"], "Build", "2026-02-02", 4, 40)
     assert readiness_of(client)[0] == {"Payments": "planning"}
@@ -694,12 +694,12 @@ def test_a_second_phase_with_nothing_named_under_it_reopens_planning(client):
 
 def test_readiness_is_counted_per_project(client):
     empty = make_project(client, "Ledger")
-    planned = make_project(client, "Payments")
-    phase = make_phase(client, planned["id"], "Design", "2026-01-05", 4, 40)
+    scheduled = make_project(client, "Payments")
+    phase = make_phase(client, scheduled["id"], "Design", "2026-01-05", 4, 40)
     client.post(f"/api/phases/{phase['id']}/deliverables", json={"name": "Wireframes"})
 
-    assert readiness_of(client)[0] == {"Ledger": "planning", "Payments": "planned"}
-    assert empty["id"] != planned["id"]
+    assert readiness_of(client)[0] == {"Ledger": "planning", "Payments": "scheduled"}
+    assert empty["id"] != scheduled["id"]
 
 
 def test_finished_work_sorts_below_ideas_and_ideas_below_live_work(client):
@@ -840,6 +840,96 @@ def test_tier_survives_a_round_trip(client):
         == {"Payments": 1, "Caching": 3}
 
 
+# --- the planned stage ------------------------------------------------------
+
+
+def make_planned(client, name="Payments"):
+    response = client.post("/api/projects", json={
+        "name": name, "start_date": "", "stage": "planned",
+    })
+    assert response.status_code == 201
+    return response.json()
+
+
+def test_planned_is_stored_and_round_trips(client):
+    """The stage the schema rebuild exists for."""
+    project = make_planned(client)
+    assert project["stage"] == "planned"
+    assert client.get(f"/api/projects/{project['id']}").json()["project"]["stage"] \
+        == "planned"
+
+    exported = client.get("/api/export").json()
+    for existing in client.get("/api/projects").json():
+        client.delete(f"/api/projects/{existing['id']}")
+    assert client.post("/api/import", json=exported).status_code == 200
+    assert client.get("/api/projects").json()[0]["stage"] == "planned"
+
+
+def test_a_planned_project_reaches_the_staging_tray(client):
+    """The point of the stage: committed work with nothing slotted yet."""
+    project = make_planned(client)
+    make_phase(client, project["id"], "Design", "", 2, 20)
+    make_phase(client, project["id"], "Build", "", 4, 40)
+
+    portfolio = client.get("/api/portfolio").json()
+    tray = portfolio["unscheduled"]
+    assert [entry["project_name"] for entry in tray] == ["Payments"]
+    assert tray[0]["total_weeks"] == 6
+    # No bars until something is dated -- a swimlane is drawn from phases.
+    assert portfolio["phases"] == []
+
+
+def test_a_planned_project_draws_bars_once_its_phases_are_dated(client):
+    project = make_planned(client)
+    make_phase(client, project["id"], "Design", "2026-09-07", 2, 20)
+
+    portfolio = client.get("/api/portfolio").json()
+    assert [phase["name"] for phase in portfolio["phases"]] == ["Design"]
+    assert portfolio["unscheduled"] == []
+
+
+def test_an_idea_still_stays_off_the_portfolio_entirely(client):
+    """Widening SCHEDULABLE_STAGES must not have let ideas in with it."""
+    idea = make_direction(client)
+    make_phase(client, idea["id"], "Sketch", "2026-09-07", 1, 10)
+
+    portfolio = client.get("/api/portfolio").json()
+    assert portfolio["phases"] == []
+    assert portfolio["unscheduled"] == []
+    assert [project["name"] for project in portfolio["projects"]] == []
+
+
+def test_planned_sorts_between_live_work_and_ideas(client):
+    make_project(client, "Payments", start="2026-01-05")
+    make_planned(client, "Caching")
+    client.post("/api/projects", json={
+        "name": "Telemetry", "start_date": "", "stage": "idea",
+    })
+    finished = make_project(client, "Ledger", start="2026-01-05")
+    client.put(f"/api/projects/{finished['id']}", json={"stage": "done"})
+
+    assert [project["name"] for project in client.get("/api/projects").json()] \
+        == ["Payments", "Caching", "Telemetry", "Ledger"]
+
+
+def test_readiness_is_a_separate_axis_from_the_planned_stage(client):
+    """stage='planned' says committed; readiness says how much is written."""
+    project = make_planned(client)
+    phase = make_phase(client, project["id"], "Design", "", 2, 20)
+    client.post(f"/api/phases/{phase['id']}/deliverables", json={"name": "Wireframes"})
+
+    listed = client.get("/api/projects").json()[0]
+    assert listed["stage"] == "planned"
+    # Named and estimated but undated -- which is 'ready', not 'scheduled'.
+    assert listed["readiness"] == "ready"
+
+
+def test_an_unknown_stage_is_still_rejected(client):
+    response = client.post("/api/projects", json={"name": "Odd", "stage": "queued"})
+    assert response.status_code == 422
+    assert "queued" in response.json()["detail"]
+
+
 def test_promoting_a_direction_keeps_its_id_and_everything_written_on_it(client):
     idea = make_direction(client, "Build caching", track="Developer experience")
     client.put(f"/api/projects/{idea['id']}", json={"goal": "Cut CI to 5 minutes."})
@@ -933,7 +1023,7 @@ def test_stage_track_and_department_survive_a_round_trip(client):
     make_direction(client, "Build caching", track="Developer experience")
 
     exported = client.get("/api/export").json()
-    assert exported["version"] == 7
+    assert exported["version"] == 8
 
     for existing in client.get("/api/projects").json():
         client.delete(f"/api/projects/{existing['id']}")
@@ -1018,7 +1108,7 @@ def test_a_version_4_export_imports_with_every_deliverable_ongoing(client):
     assert client.post("/api/import", json=legacy).status_code == 200
 
     exported = client.get("/api/export").json()
-    assert exported["version"] == 7
+    assert exported["version"] == 8
     # Even under a phase marked done -- the tick is the user's to set, and a
     # phase status is not evidence about any particular deliverable.
     assert exported["deliverables"][0]["done"] == 0
@@ -1128,6 +1218,103 @@ def test_migrate_lifts_an_old_phase_dependency_table_to_projects(tmp_path):
             {"id": 1, "predecessor_project_id": payments["id"],
              "successor_project_id": ledger["id"]},
         ]
+    finally:
+        db.set_db_path(db.DEFAULT_DB_PATH)
+
+
+def pre_planned_file(path):
+    """A file whose project table still carries the old three-value CHECK.
+
+    Built the way a real one was: create the modern schema, then swap the
+    project table for the pre-'planned' definition, carrying the rows over.
+    """
+    db.set_db_path(str(path))
+    db.init_db()
+    payments = created(db.create_project("Payments", "2026-01-05", stage="active"))
+    design = created(db.create_phase(payments["id"], "Design", "2026-01-05", 4, 40))
+    db.create_deliverable(design["id"], "Wireframes")
+
+    with db.connect() as connection:
+        connection.commit()
+        connection.execute("PRAGMA foreign_keys = OFF")
+        connection.execute("""
+            CREATE TABLE project_old (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                name              TEXT NOT NULL,
+                description       TEXT NOT NULL DEFAULT '',
+                goal              TEXT NOT NULL DEFAULT '',
+                start_date        TEXT NOT NULL,
+                velocity_override INTEGER,
+                stage             TEXT NOT NULL DEFAULT 'active'
+                                  CHECK (stage IN ('idea', 'active', 'done')),
+                track             TEXT NOT NULL DEFAULT '',
+                tier              INTEGER NOT NULL DEFAULT 0
+                                  CHECK (tier IN (0, 1, 2, 3)),
+                created_at        TEXT NOT NULL,
+                updated_at        TEXT NOT NULL)""")
+        columns = ", ".join(db.PROJECT_COLUMNS)
+        connection.execute(
+            f"INSERT INTO project_old ({columns}) SELECT {columns} FROM project")
+        connection.execute("DROP TABLE project")
+        connection.execute("ALTER TABLE project_old RENAME TO project")
+        connection.commit()
+    return payments, design
+
+
+def test_migrate_widens_the_stage_check_without_losing_anything(tmp_path):
+    """The rebuild that 'planned' needs, on a file that predates it.
+
+    The dangerous part is the drop: phase.project_id is ON DELETE CASCADE, so
+    dropping the old project table with foreign keys enabled would take every
+    phase and deliverable with it.
+    """
+    try:
+        payments, design = pre_planned_file(tmp_path / "old.db")
+
+        with db.connect() as connection:
+            with pytest.raises(Exception):
+                connection.execute(
+                    "UPDATE project SET stage = 'planned' WHERE id = ?",
+                    (payments["id"],))
+
+        db.init_db()   # migrate runs on every open
+
+        updated = created(db.update_project(payments["id"], {"stage": "planned"}))
+        assert updated["stage"] == "planned"
+        # Nothing cascaded away.
+        assert [phase["name"] for phase in db.list_phases(payments["id"])] == ["Design"]
+        assert [d["name"] for d in db.list_deliverables(design["id"])] == ["Wireframes"]
+        assert created(db.get_project(payments["id"]))["name"] == "Payments"
+    finally:
+        db.set_db_path(db.DEFAULT_DB_PATH)
+
+
+def test_the_stage_rebuild_keeps_the_foreign_keys_pointing_at_project(tmp_path):
+    """Renaming the old table out of the way would have repointed them."""
+    try:
+        pre_planned_file(tmp_path / "old.db")
+        db.init_db()
+
+        with db.connect() as connection:
+            phase_sql = connection.execute(
+                "SELECT sql FROM sqlite_master WHERE name = 'phase'").fetchone()[0]
+            assert "REFERENCES project(id)" in phase_sql
+            assert "project_rebuilt" not in phase_sql
+            assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+    finally:
+        db.set_db_path(db.DEFAULT_DB_PATH)
+
+
+def test_the_stage_rebuild_runs_once_and_then_leaves_the_file_alone(tmp_path):
+    try:
+        payments, _ = pre_planned_file(tmp_path / "old.db")
+        db.init_db()
+        db.update_project(payments["id"], {"stage": "planned"})
+
+        db.init_db()   # a second open must not rebuild or reset anything
+        assert created(db.get_project(payments["id"]))["stage"] == "planned"
+        with db.connect() as connection:
+            assert not db.table_exists(connection, "project_rebuilt")
     finally:
         db.set_db_path(db.DEFAULT_DB_PATH)
 

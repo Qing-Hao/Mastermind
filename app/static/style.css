@@ -330,34 +330,55 @@ table.deliverables tr.done input[type="text"] { color: #999; text-decoration: li
 .map-focused .map-node { opacity: .12; }
 .map-focused .map-node.focus-self,
 .map-focused .map-node.focus-linked { opacity: 1; }
-.map-focused .map-node.focus-self circle { stroke-width: 3; }
+.map-focused .map-node.focus-self circle:not(.map-pip) { stroke-width: 3; }
 
 .map-focus-edge { stroke: #ef6c00; stroke-width: 2.5; }
 #map-arrow path { fill: #ef6c00; }
 
+/* Every rule below excludes .map-pip: the pip is a mark sitting on the node,
+   not the node itself, and it has to look identical whatever the stage does to
+   the circle underneath it. */
 .map-node { cursor: pointer; }
-.map-node circle { fill: #90caf9; stroke: #5c6bc0; stroke-width: 1.5; }
-.map-node.stage-done circle { fill: #cfd8dc; stroke: #90a4ae; }
+.map-node circle:not(.map-pip) { fill: #90caf9; stroke: #5c6bc0; stroke-width: 1.5; }
+.map-node.stage-done circle:not(.map-pip) { fill: #cfd8dc; stroke: #90a4ae; }
 /* Dashed and hollow: an idea is a shape, not yet a commitment. */
-.map-node.stage-idea circle {
+.map-node.stage-idea circle:not(.map-pip) {
   fill: #fff;
   stroke: #bbb;
   stroke-dasharray: 5 4;
 }
-.map-node:hover circle, .map-node:focus circle { stroke: #1a1a1a; stroke-width: 2.5; }
+/* Solid outline, still hollow: a planned project is shaped and committed to,
+   but nothing is slotted. Reads between the dashed idea and the filled active
+   node, which is exactly where the stage sits. */
+.map-node.stage-planned circle:not(.map-pip) {
+  fill: #fff;
+  stroke: #5c6bc0;
+  stroke-width: 2;
+}
+.map-node:hover circle:not(.map-pip),
+.map-node:focus circle:not(.map-pip) { stroke: #1a1a1a; stroke-width: 2.5; }
 .map-node:focus { outline: none; }
 
 /* --- tier ---------------------------------------------------------------
-   Priority reads as visual weight: tier 1 gains a ring, tier 3 recedes, tier 2
-   is the plain node. Untiered is plain too and is called out in the label
-   instead -- "never ranked" is not a shade of a rank. */
-.map-node .map-halo { fill: none; stroke-width: 1.5; opacity: .5; }
-.map-node.tier-3 circle { fill-opacity: .5; stroke-opacity: .4; }
+   Priority reads as visual weight: tier 1 gains a numbered pip, tier 3
+   recedes, tier 2 is the plain node. Untiered is plain too and is marked in
+   the label instead -- "never ranked" is not a shade of a rank.
+   The pip keeps its own fill and stroke so the node's stage colours never
+   reach it: a tier-1 idea and a tier-1 active project carry the same mark. */
+.map-node .map-pip { fill: #3949ab; stroke: #fff; stroke-width: 1.5; }
+.map-node .map-pip-text {
+  fill: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  pointer-events: none;
+}
+.map-node.tier-3 circle:not(.map-pip) { fill-opacity: .5; stroke-opacity: .4; }
 .map-node.tier-3 .map-name { fill: #666; }
 .map-node.tier-3 .map-meta { fill: #aaa; }
 /* Pointing at a faded node brings it fully back -- the fade is a resting
    state, not a permanent handicap. */
-.map-node.tier-3:hover circle, .map-node.tier-3:focus circle {
+.map-node.tier-3:hover circle:not(.map-pip),
+.map-node.tier-3:focus circle:not(.map-pip) {
   fill-opacity: 1;
   stroke-opacity: 1;
 }

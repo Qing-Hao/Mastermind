@@ -438,10 +438,10 @@ def test_readiness_is_ready_once_every_phase_has_a_deliverable_but_no_dates():
     assert project_readiness(UNDATED, phases, deliverables) == "ready"
 
 
-def test_readiness_is_planned_once_the_project_and_every_phase_are_dated():
+def test_readiness_is_scheduled_once_the_project_and_every_phase_are_dated():
     phases = [make_phase(1, "Design"), make_phase(2, "Build")]
     deliverables = [deliverable(1, 1), deliverable(2, 2)]
-    assert project_readiness(ACTIVE, phases, deliverables) == "planned"
+    assert project_readiness(ACTIVE, phases, deliverables) == "scheduled"
 
 
 def test_a_half_placed_project_is_still_ready():
@@ -451,7 +451,7 @@ def test_a_half_placed_project_is_still_ready():
     assert project_readiness(ACTIVE, phases, deliverables) == "ready"
 
 
-def test_dated_phases_under_an_undated_project_are_not_planned_yet():
+def test_dated_phases_under_an_undated_project_are_not_scheduled_yet():
     phases = [make_phase(1, "Design"), make_phase(2, "Build")]
     deliverables = [deliverable(1, 1), deliverable(2, 2)]
     assert project_readiness(UNDATED, phases, deliverables) == "ready"
@@ -462,14 +462,14 @@ def test_readiness_ignores_whether_a_deliverable_is_ticked():
     phases = [make_phase(1, "Design")]
     ticked = [{**deliverable(1, 1), "done": 1}]
     unticked = [{**deliverable(1, 1), "done": 0}]
-    assert project_readiness(ACTIVE, phases, ticked) == "planned"
-    assert project_readiness(ACTIVE, phases, unticked) == "planned"
+    assert project_readiness(ACTIVE, phases, ticked) == "scheduled"
+    assert project_readiness(ACTIVE, phases, unticked) == "scheduled"
 
 
 def test_done_is_taken_from_the_stage_and_never_inferred():
     """Every phase finished is not the same as the user calling the project done."""
     phases = [{**make_phase(1), "status": "done"}]
-    assert project_readiness(ACTIVE, phases, [deliverable(1, 1)]) == "planned"
+    assert project_readiness(ACTIVE, phases, [deliverable(1, 1)]) == "scheduled"
 
 
 def test_a_project_marked_done_reads_done_however_thin_its_plan_is():

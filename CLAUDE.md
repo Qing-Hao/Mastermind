@@ -41,8 +41,15 @@ structure change before adding anything top-level.
 `sprint_length_days` (14), `v1_tolerance_pct` (5.0), `department_name`.
 
 `project` — name, description, `goal` (free text, never parsed), `start_date`,
-`velocity_override` (nullable), `stage` ∈ `idea|active|done`, `track` (free text),
-`tier` ∈ `0|1|2|3`, timestamps.
+`velocity_override` (nullable), `stage` ∈ `idea|planned|active|done`, `track`
+(free text), `tier` ∈ `0|1|2|3`, timestamps.
+
+`stage` is **commitment**, and `planned` is the step between an idea and live
+work: the plan is written, nothing is slotted. It reaches the portfolio staging
+tray — that is the whole point of it — but earns a swimlane only once its phases
+have dates, exactly like an undated `active` project. Do not confuse it with
+readiness `scheduled`, which is derived and means the opposite (fully dated);
+the readiness value was renamed off `planned` precisely so the two cannot be.
 
 `tier` is priority, 1 highest, and **0 is untiered — the absence of a decision,
 not a fourth tier**. It sorts last everywhere, is spelt out rather than numbered
@@ -143,7 +150,7 @@ HTML `<input type="date">` untouched. Estimate first, commit dates later.
 
 ## Readiness is derived, and is not `stage`
 
-`validation.project_readiness` returns one of `planning | ready | planned |
+`validation.project_readiness` returns one of `planning | ready | scheduled |
 done`. Two axes, deliberately: **`stage` is commitment** (has anyone decided to
 do this), **readiness is how much of the plan exists**. The project picker shows
 both — `◌` for an idea, the readiness as a word.
@@ -151,7 +158,9 @@ both — `◌` for an idea, the readiness as a word.
 - `planning` — no phases, or a phase with no deliverables under it.
 - `ready` — every phase names its deliverables, but the work is not fully dated.
   Same population as the staging tray: a half-placed project stays here.
-- `planned` — project start date set and no phase missing one.
+- `scheduled` — project start date set and no phase missing one. Called
+  `scheduled` and not `planned` because `stage` owns that word, where it means
+  a plan with no dates — the exact opposite of this value.
 - `done` — **taken from `stage`, never inferred**, and it wins over everything
   else. Every phase finished is not the same as the user calling it done.
 
@@ -193,18 +202,44 @@ Built by `main.unplaced_work`; it is what the staging tray is drawn from.
 ## Schema changes and export versions
 
 No migration framework. `db.migrate()` runs on every `init_db()`:
-`ADDED_COLUMNS` first, then `DROPPED_COLUMNS`, each guarded by
-`PRAGMA table_info`, then `migrate_dependencies_to_projects()`. Additions before
-removals so a file that skipped releases converges on the same shape. Dropping
-needs SQLite ≥ 3.35.
+`migrate_stage_check()` first, then `ADDED_COLUMNS`, then `DROPPED_COLUMNS`,
+each guarded by `PRAGMA table_info`, then `migrate_dependencies_to_projects()`.
+Additions before removals so a file that skipped releases converges on the same
+shape. Dropping needs SQLite ≥ 3.35.
+
+The `project` table is assembled from `PROJECT_TABLE`, parameterised by name,
+because `migrate_stage_check` has to build an identical table under a temporary
+one. `SCHEMA` is `SETTINGS_TABLE + PROJECT_TABLE + REST_OF_SCHEMA` — one
+definition, no drift.
+
+**`migrate_stage_check` is the dangerous one, and it cost a real dataset once.**
+SQLite cannot alter a CHECK in place, so accepting `planned` meant rebuilding
+`project`. Two things about it are load-bearing:
+
+- **It creates the replacement alongside and renames it in last** — create
+  `project_rebuilt`, copy, drop `project`, rename. The obvious order, renaming
+  the old table out of the way first, **silently rewrites every `REFERENCES`
+  clause pointing at `project` to name the renamed table**, with or without
+  foreign keys on. That leaves `phase` pointing at a table the migration then
+  drops.
+- **Foreign keys must be OFF**, and `PRAGMA foreign_keys` is *silently ignored
+  inside a transaction* — which `init_db` always has open. So it commits first,
+  sets the pragma, then **reads it back and raises if it did not take**. With
+  keys on, `DROP TABLE` runs an implicit DELETE and `phase.project_id` is
+  `ON DELETE CASCADE`: the drop takes every phase and deliverable in the file.
+  That is exactly what happened while this was being written, against a live
+  `--reload` server that picked up a half-finished edit.
+
+Never edit a destructive migration with `uvicorn --reload` pointed at
+`data/roadmap.db`. Stop the server, or work against a copy.
 
 The dependency step is the one table-level migration: if the old phase-level
 `dependency` table is still there, its rows are lifted to the projects they
 linked, links that collapse onto one project are discarded, and the table is
 dropped. **Irreversible** — back the file up first.
 
-Export `version` is currently **7**. Bump it when the shape changes and keep
-imports tolerant of older files — v2–v6 exports must still import, with absent
+Export `version` is currently **8**. Bump it when the shape changes and keep
+imports tolerant of older files — v2–v7 exports must still import, with absent
 fields falling back to defaults and phase-level dependencies translated by
 `project_dependencies_from()`. `import_all` is destructive by design and
 preserves ids so links survive the round trip; a translated pre-v6 file is the
@@ -214,7 +249,7 @@ into one project link.
 ## Views
 
 - **Picker** — the project `<select>` above the tabs. Each option is
-  `badge ◌ Name`: `READINESS_BADGE` first (⚪ planning, 🟠 ready, 🟢 planned,
+  `badge ◌ Name`: `READINESS_BADGE` first (⚪ planning, 🟠 ready, 🟢 scheduled,
   ✅ done), then the ring on ideas only. The badge leads because it is the
   column you scan. They are **emoji, not CSS** — an `<option>` holds no markup
   and cannot be styled portably, so a coloured glyph is the only badge a native
@@ -289,7 +324,12 @@ into one project link.
   link as a **list**, V2-marked where violated — not arrows between swimlanes,
   because a link can point at an idea, which has no bar to draw to.
 - **Map** — hand-rolled radial SVG, deterministic layout. Department hub → track
-  ring → subtrack ring → project ring, ideas outermost and dashed. Node radius
+  ring → subtrack ring → project ring, ideas outermost and dashed. Stage reads
+  as one vocabulary in three steps on the node itself: an **idea** is hollow and
+  dashed, **planned** is hollow with a solid outline (shaped and committed to,
+  nothing slotted), **active** is filled. Done is filled grey. A fourth ring for
+  `planned` was the alternative and was rejected on cost — ring gaps are the
+  tightest budget on the map and `MAX_RING_ASPECT` would have needed re-fitting. Node radius
   `sqrt(points)`, clamped 16–38px. A track's wedge is sized by how many projects
   it holds; inside it every project gets one slot, unsubtracked ones first, and
   each subtrack node sits at the middle of the contiguous run of slots its
@@ -338,11 +378,21 @@ into one project link.
   reload, like `timelineMode`, because it is a way of looking rather than a
   setting. A dependency pointing at a filtered-out project simply is not drawn —
   `wireMapFocus` already skipped links whose ends it has no centre for.
-  On the node itself, tier is **visual weight**: tier 1 gains a halo ring, tier
-  3 fades (returning to full strength on hover, so the fade is a resting state
-  and not a handicap), tier 2 is the plain node. A halo rather than a heavier
-  stroke because hover and focus already own stroke width — a top-tier project
-  would otherwise look permanently hovered. Within a wedge, projects sort by
+  On the node itself, tier is **visual weight**: tier 1 wears a numbered pip on
+  its upper-right shoulder, tier 3 fades (returning to full strength on hover,
+  so the fade is a resting state and not a handicap), tier 2 is the plain node.
+  A halo ring was the first attempt and **failed at the bottom of the radius
+  clamp** — at 16px the gap between node and ring is narrower than the stroke,
+  so the two merge, and on a dashed idea it just doubled the dashes. The pip is
+  a fixed `TIER_PIP_R` whatever the node does, which is the point: a mark that
+  scales with the node fails wherever the node is smallest. It is pinned to a
+  fixed angle rather than dodging the label, because a mark that moves stops
+  being scannable, and it is drawn at `0.707r` so it never reaches past the
+  label gap — verified clean against every label from 1200px up; at 1000px it
+  touches one, which is already below the width where labels collide anyway.
+  Every `.map-node circle` rule carries `:not(.map-pip)`, so the stage colours
+  never reach the pip and a tier-1 idea wears the same mark as a tier-1 active
+  project. Within a wedge, projects sort by
   tier then id, applied **inside `group.direct` and inside each subtrack's
   list** rather than across the wedge: a subtrack owns a contiguous run of slots
   and sits at the middle of it, so sorting across would interleave subtracks and

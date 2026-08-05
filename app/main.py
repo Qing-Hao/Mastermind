@@ -33,7 +33,11 @@ from app.validation import (
 
 # Projects that occupy real time. An idea has not been committed to, so it is
 # kept off the portfolio timeline.
-SCHEDULABLE_STAGES = ("active", "done")
+#
+# 'planned' is here because it is committed work that has not been slotted yet,
+# which is exactly what the staging tray is for. It earns a swimlane only once
+# its phases have dates, the same as an undated active project.
+SCHEDULABLE_STAGES = ("planned", "active", "done")
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 

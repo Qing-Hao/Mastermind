@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 DEFAULT_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "roadmap.db")
 
-SCHEMA = """
+SETTINGS_TABLE = """
 CREATE TABLE IF NOT EXISTS settings (
     id                                INTEGER PRIMARY KEY CHECK (id = 1),
     default_velocity_points_per_sprint INTEGER NOT NULL DEFAULT 20,
@@ -20,8 +20,13 @@ CREATE TABLE IF NOT EXISTS settings (
     -- The hub of the map view. Free text: whatever the team is called.
     department_name                   TEXT    NOT NULL DEFAULT ''
 );
+"""
 
-CREATE TABLE IF NOT EXISTS project (
+# Kept apart from the rest of the schema, and parameterised by name, because
+# `migrate_stage_check` has to build an identical table under a temporary name.
+# Two spellings of this table would drift the moment one of them was edited.
+PROJECT_TABLE = """
+CREATE TABLE IF NOT EXISTS {name} (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     name              TEXT NOT NULL,
     description       TEXT NOT NULL DEFAULT '',
@@ -31,8 +36,13 @@ CREATE TABLE IF NOT EXISTS project (
     -- 'idea' is a future direction: something worth doing that nobody has
     -- committed to yet. It is a project row so promoting it keeps the id and
     -- anything already written against it -- no copy, nothing lost.
+    --
+    -- 'planned' sits between the two: the plan is written and nothing is
+    -- slotted. It is a commitment level, not a measure of how complete the plan
+    -- is -- that is `validation.project_readiness`, which is derived and says
+    -- 'scheduled' for the state this one is deliberately not.
     stage             TEXT NOT NULL DEFAULT 'active'
-                      CHECK (stage IN ('idea', 'active', 'done')),
+                      CHECK (stage IN ('idea', 'planned', 'active', 'done')),
     -- Free-text grouping for the map view, e.g. 'Developer experience'.
     track             TEXT NOT NULL DEFAULT '',
     -- Priority, 1 highest. 0 is untiered and is a state of its own, not a
@@ -44,7 +54,9 @@ CREATE TABLE IF NOT EXISTS project (
     created_at        TEXT NOT NULL,
     updated_at        TEXT NOT NULL
 );
+"""
 
+REST_OF_SCHEMA = """
 CREATE TABLE IF NOT EXISTS phase (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id     INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
@@ -94,6 +106,18 @@ CREATE INDEX IF NOT EXISTS idx_phase_project ON phase(project_id);
 CREATE INDEX IF NOT EXISTS idx_deliverable_phase ON deliverable(phase_id);
 """
 
+# What `init_db` runs. Assembled rather than written out so the project table
+# has exactly one definition -- see PROJECT_TABLE.
+SCHEMA = SETTINGS_TABLE + PROJECT_TABLE.format(name="project") + REST_OF_SCHEMA
+
+# The columns the current project table has. Used by the stage rebuild to copy
+# across only what both the old file and this build know about, so a column
+# retired in some earlier release is left behind rather than failing the copy.
+PROJECT_COLUMNS = (
+    "id", "name", "description", "goal", "start_date", "velocity_override",
+    "stage", "track", "tier", "created_at", "updated_at",
+)
+
 # Phase-level dependency rows, translated up to the projects they belonged to.
 # Links that collapse onto one project are dropped -- they said "this phase
 # before that phase inside one project", which is no longer a thing the tool
@@ -112,7 +136,7 @@ SELECT p.project_id, s.project_id
 ADDED_COLUMNS = [
     ("project", "goal", "TEXT NOT NULL DEFAULT ''"),
     ("project", "stage", "TEXT NOT NULL DEFAULT 'active' "
-                         "CHECK (stage IN ('idea', 'active', 'done'))"),
+                         "CHECK (stage IN ('idea', 'planned', 'active', 'done'))"),
     ("project", "track", "TEXT NOT NULL DEFAULT ''"),
     # Existing projects arrive untiered rather than at some middle tier:
     # inventing a rank for work nobody ranked would be a scheduling opinion.
@@ -133,7 +157,7 @@ DROPPED_COLUMNS = [
     ("settings", "v5_tolerance_pct"),
 ]
 
-STAGES = ("idea", "active", "done")
+STAGES = ("idea", "planned", "active", "done")
 # 0 is "untiered", not a fourth tier -- see the column comment.
 TIERS = (0, 1, 2, 3)
 
@@ -182,7 +206,12 @@ def migrate(connection):
     ends up in the same shape as one created from `SCHEMA` today. The dependency
     table is handled last, once `phase` is guaranteed to be current -- the
     translation reads it.
+
+    The stage rebuild runs before both: it replaces the whole `project` table,
+    so anything that ALTERs it has to see the new one.
     """
+    migrate_stage_check(connection)
+
     for table, column, definition in ADDED_COLUMNS:
         if column not in columns_of(connection, table):
             connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
@@ -192,6 +221,65 @@ def migrate(connection):
             connection.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
 
     migrate_dependencies_to_projects(connection)
+
+
+def migrate_stage_check(connection):
+    """Widen the `stage` CHECK so it accepts 'planned'.
+
+    SQLite cannot alter a CHECK in place, and the old constraint was baked into
+    the column by the ALTER that first added `stage`, so the only way through is
+    to rebuild the table: create, copy, drop, rename. Irreversible -- back the
+    file up first.
+
+    The constraint is kept rather than dropped in favour of `main.clean_stage`,
+    because `import_all` writes stage straight in without passing the API
+    boundary. The CHECK is the only thing guarding that path.
+
+    Detected by reading the stored SQL rather than by a version number, since
+    there is no migration table: a file whose project table already names
+    'planned' is current, and one with no project table at all is brand new and
+    was just built from SCHEMA.
+    """
+    row = connection.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'project'"
+    ).fetchone()
+    if row is None or "'planned'" in row[0]:
+        return
+
+    # Only the columns this build knows about survive; a column retired in some
+    # earlier release is left behind rather than failing the copy.
+    kept = [column for column in columns_of(connection, "project")
+            if column in PROJECT_COLUMNS]
+    names = ", ".join(kept)
+
+    # Foreign keys MUST be off for this. With them on, DROP TABLE runs an
+    # implicit DELETE, and phase.project_id is ON DELETE CASCADE -- dropping the
+    # old table would take every phase and deliverable in the file with it.
+    # PRAGMA foreign_keys is silently ignored inside a transaction, and `migrate`
+    # is called from `init_db` with one already open, so commit first and then
+    # check the pragma actually took rather than trusting it.
+    connection.commit()
+    connection.execute("PRAGMA foreign_keys = OFF")
+    if connection.execute("PRAGMA foreign_keys").fetchone()[0]:
+        raise RuntimeError(
+            "Refusing to rebuild the project table with foreign keys enabled: "
+            "the drop would cascade into phase and deliverable.")
+
+    # SQLite's own recommended order: build the replacement alongside, copy,
+    # drop, then rename into place. The obvious alternative -- renaming the old
+    # table out of the way first -- silently rewrites every REFERENCES clause
+    # pointing at `project` to point at the renamed table, with or without
+    # foreign keys enabled, which would leave phase and project_dependency
+    # referring to a table this function then drops.
+    try:
+        connection.execute(PROJECT_TABLE.format(name="project_rebuilt"))
+        connection.execute(
+            f"INSERT INTO project_rebuilt ({names}) SELECT {names} FROM project")
+        connection.execute("DROP TABLE project")
+        connection.execute("ALTER TABLE project_rebuilt RENAME TO project")
+        connection.commit()
+    finally:
+        connection.execute("PRAGMA foreign_keys = ON")
 
 
 def migrate_dependencies_to_projects(connection):
@@ -266,7 +354,7 @@ def list_projects(stages=None):
     two through the live projects from opposite ends.
     """
     query = ("SELECT * FROM project ORDER BY stage = 'done', stage = 'idea', "
-             "start_date = '', start_date, id")
+             "stage = 'planned', start_date = '', start_date, id")
     with connect() as connection:
         rows = connection.execute(query).fetchall()
     projects = rows_to_dicts(rows)
@@ -554,12 +642,14 @@ def export_all():
     return {
         # 3 added project.stage/track and settings.department_name; 4 dropped
         # the deliverable estimate and the V5 tolerance; 5 added deliverable.done;
-        # 6 moved dependencies from phases up to projects; 7 added project.tier.
-        # Reads stay tolerant of older files, so a version-2 through -6 export
+        # 6 moved dependencies from phases up to projects; 7 added project.tier;
+        # 8 added the 'planned' stage.
+        # Reads stay tolerant of older files, so a version-2 through -7 export
         # still imports -- fields that no longer exist are ignored, ones that did
         # not exist yet fall back to their default, and phase-level dependencies
-        # are translated on the way in.
-        "version": 7,
+        # are translated on the way in. Nothing in an older file is ever
+        # 'planned', so no translation is needed for version 8.
+        "version": 8,
         "exported_at": now_iso(),
         "settings": get_settings(),
         "projects": projects,

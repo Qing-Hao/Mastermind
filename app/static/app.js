@@ -37,9 +37,9 @@ const WINDOW_PRESETS = [
 // the planning -> ready -> planned run, it is work that has left it.
 // An unknown value falls through to no badge at all.
 const READINESS_BADGE = {
-  planning: "⚪",  // grey: the plan is still being written
-  ready: "🟠",    // orange: planned, waiting for a date
-  planned: "🟢",  // green: dated, nothing missing
+  planning: "⚪",   // grey: the plan is still being written
+  ready: "🟠",     // orange: planned, waiting for a date
+  scheduled: "🟢", // green: dated, nothing missing
   done: "✅",
 };
 
@@ -1321,6 +1321,10 @@ const PROJECT_RING = 0.74;
 const IDEA_RING = 1.0;
 const TRACK_DOT = 6;
 const SUBTRACK_DOT = 4;
+// The tier-1 pip. Deliberately not derived from the node radius -- see
+// projectNode. Big enough to hold a 10px numeral, small enough not to read as
+// a second node.
+const TIER_PIP_R = 8;
 // Line height of a label block, and the clear space between a circle's rim and
 // the nearest edge of its label.
 const LABEL_LINE = 13;
@@ -1830,13 +1834,24 @@ function projectNode(project, point, radius, place) {
     role: "button", "data-project-id": project.id,
   });
   group.appendChild(svgElement("circle", { cx: point.x, cy: point.y, r: radius }));
-  // Tier 1 wears a second ring rather than a heavier stroke: hover and focus
-  // already thicken the stroke, and a top-tier project would otherwise look
-  // permanently hovered. Tier 3 fades instead, and tier 2 is the plain node.
+  // Tier 1 wears a numbered pip on its shoulder. A ring around the node was the
+  // first attempt and failed at the bottom of the radius clamp -- at 16px the
+  // gap between node and ring is narrower than the stroke, so the two merge.
+  // The pip is a fixed 8px whatever the node does, which is the whole point;
+  // a mark that scales with the node fails wherever the node is smallest.
+  //
+  // Fixed to the upper-right rather than placed away from the label: a mark
+  // that moves stops being scannable, which is the only job it has. It sits at
+  // 0.707r diagonally, so it never reaches past the label gap.
   if (tier === 1) {
+    const px = point.x + radius * 0.707;
+    const py = point.y - radius * 0.707;
     group.appendChild(svgElement("circle", {
-      class: "map-halo", cx: point.x, cy: point.y, r: radius + 4,
+      class: "map-pip", cx: px, cy: py, r: TIER_PIP_R,
     }));
+    group.appendChild(svgElement("text", {
+      class: "map-pip-text", x: px, y: py + 3.4, "text-anchor": "middle",
+    }, "1"));
   }
 
   const meta = [];

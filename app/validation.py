@@ -353,12 +353,14 @@ def project_effort_points(phases):
 
 READINESS_PLANNING = "planning"
 READINESS_READY = "ready"
-READINESS_PLANNED = "planned"
+# "scheduled", not "planned": `stage` owns the word planned, where it means a
+# plan exists and nothing is slotted -- the opposite of what this value means.
+READINESS_SCHEDULED = "scheduled"
 READINESS_DONE = "done"
 
 
 def project_readiness(project, phases, deliverables):
-    """How much of the plan exists yet: planning -> ready -> planned, or done.
+    """How much of the plan exists yet: planning -> ready -> scheduled, or done.
 
     A second axis to `stage`, not a replacement for it. `stage` records whether
     anyone has committed to the work; this records how far the plan has been
@@ -376,7 +378,10 @@ def project_readiness(project, phases, deliverables):
       the calendar. This is the staging tray's population -- a half-placed
       project (project dated, some phases still undated) stays here exactly as
       it stays in the tray.
-    - `planned`: the project has a start date and no phase is missing one.
+    - `scheduled`: the project has a start date and no phase is missing one.
+      This is the only readiness value that says anything about dates, which is
+      why it is not called planned -- `stage='planned'` is a project whose plan
+      is written and whose dates are not.
 
     `deliverables` is a flat list of the project's own deliverables; only their
     `phase_id` is read. Nothing here is stored and nothing is repaired.
@@ -392,7 +397,7 @@ def project_readiness(project, phases, deliverables):
 
     if not is_scheduled(project) or any(not is_scheduled(phase) for phase in phases):
         return READINESS_READY
-    return READINESS_PLANNED
+    return READINESS_SCHEDULED
 
 
 def next_milestone(phases, today):
