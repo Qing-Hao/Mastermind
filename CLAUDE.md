@@ -202,12 +202,15 @@ into one project link.
 ## Views
 
 - **Picker** — the project `<select>` above the tabs. Each option is
-  `◌ Name — readiness`: the ring only on ideas, the readiness word from
-  `READINESS_LABEL`. Plain text on purpose — an `<option>` holds no markup and
-  cannot be styled portably, and a coloured pill would mean hand-rolling a
-  dropdown. `loadPlan` re-reads `/api/projects` after every edit so naming the
-  last deliverable retags the option immediately; that costs one localhost query
-  and keeps the rule out of the frontend.
+  `badge ◌ Name`: `READINESS_BADGE` first (⚪ planning, 🟠 ready, 🟢 planned,
+  ✅ done), then the ring on ideas only. The badge leads because it is the
+  column you scan. They are **emoji, not CSS** — an `<option>` holds no markup
+  and cannot be styled portably, so a coloured glyph is the only badge a native
+  `<select>` can carry; a real pill would mean hand-rolling a dropdown. The
+  legend lives in the select's `title`. `loadPlan` re-reads `/api/projects`
+  after every edit so naming the last deliverable retags the option
+  immediately; that costs one localhost query and keeps the rule out of the
+  frontend.
 - **Project** — goal, fields, warnings, unscheduled list, timeline, phase table
   with expandable deliverables (`3/5` tally on the phase row), dependencies. The
   dependency panel lists both directions (`← waits on X`, `→ Y waits on this`)

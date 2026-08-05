@@ -28,14 +28,19 @@ const WINDOW_PRESETS = [
 ];
 
 // How much of a project's plan exists, derived server-side by
-// `validation.project_readiness`. Spelt out here so the picker reads as words
-// rather than glyphs -- it is the one place you compare projects you have not
-// opened. An unknown value falls through to no suffix at all.
-const READINESS_LABEL = {
-  planning: "planning",
-  ready: "ready",
-  planned: "planned",
-  done: "done",
+// `validation.project_readiness`. A coloured glyph rather than a CSS badge: an
+// <option> holds no markup and cannot be styled portably, so a character in the
+// label is the only badge a native <select> can carry. These four are emoji so
+// they render in colour from the system font instead of the text colour.
+//
+// Done gets a tick rather than a fourth colour -- it is not another point on
+// the planning -> ready -> planned run, it is work that has left it.
+// An unknown value falls through to no badge at all.
+const READINESS_BADGE = {
+  planning: "⚪",  // grey: the plan is still being written
+  ready: "🟠",    // orange: planned, waiting for a date
+  planned: "🟢",  // green: dated, nothing missing
+  done: "✅",
 };
 
 let state = {
@@ -335,13 +340,13 @@ async function loadProjectList() {
   const selected = select.value;
   select.innerHTML = "";
   for (const project of state.projects) {
-    // Two marks answering two questions. The ring is commitment: ideas stay
-    // selectable so you can open one and write its goal, but cannot be mistaken
-    // for real work. The suffix is how much of the plan exists. An <option>
-    // holds no markup and cannot be styled portably, so both are plain text.
+    // Two marks answering two questions. The badge leads because it is what you
+    // scan -- one column of colour down the list. The ring is commitment: ideas
+    // stay selectable so you can open one and write its goal, but cannot be
+    // mistaken for real work.
+    const badge = READINESS_BADGE[project.readiness];
     const ring = project.stage === "idea" ? "◌ " : "";
-    const readiness = READINESS_LABEL[project.readiness];
-    const label = `${ring}${project.name}${readiness ? ` — ${readiness}` : ""}`;
+    const label = `${badge ? `${badge} ` : ""}${ring}${project.name}`;
     const option = element("option", null, label);
     option.value = project.id;
     select.appendChild(option);
