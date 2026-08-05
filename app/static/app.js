@@ -352,6 +352,9 @@ async function loadProjectList() {
     select.appendChild(option);
   }
   select.value = selected;
+  // The track suggestions come off the same read, so naming a new track is
+  // enough to make it offerable everywhere -- nothing stores the list.
+  refreshTrackPickers();
 }
 
 async function loadProjects() {
@@ -1839,6 +1842,332 @@ function renderDirections() {
   }
 }
 
+// --- track picker -----------------------------------------------------------
+
+// The Track field is the only door into the taxonomy the map draws, and the
+// grouping key is the raw string: "Source expansion" and "Source Expansion" are
+// two rings, not one. So the field offers back what has already been typed,
+// nested the way `splitTrack` reads it, and normalises spacing on the way in.
+// It stays a text input -- a track nobody has used yet needs no ceremony, it is
+// simply typed, and it starts existing when the project is saved.
+//
+// Hand-rolled because a <datalist> cannot nest, count or offer a create row:
+// the browser draws that popup and exposes none of it. The one custom control
+// in this codebase, and it is here to stop bad data rather than to look nicer.
+const trackPickers = [];
+
+// Two levels, because that is what `splitTrack` reads and what the map draws.
+// Counts are projects sitting on that exact value, so a track's own count and
+// its subtracks' counts are separate numbers that sum to its weight.
+function trackTree(projects) {
+  const tracks = new Map();
+  for (const project of projects) {
+    const { track, sub } = splitTrack(project.track);
+    if (!track) continue;
+    if (!tracks.has(track)) tracks.set(track, { name: track, count: 0, subs: new Map() });
+    const node = tracks.get(track);
+    if (sub) node.subs.set(sub, (node.subs.get(sub) || 0) + 1);
+    else node.count += 1;
+  }
+  const byName = (a, b) => a.name.localeCompare(b.name);
+  return [...tracks.values()]
+    .map((node) => ({
+      name: node.name,
+      count: node.count,
+      subs: [...node.subs.entries()]
+        .map(([name, count]) => ({ name, count }))
+        .sort(byName),
+    }))
+    .sort(byName);
+}
+
+// "Mobile /Offline" and "Mobile/ Offline" are one track. Everything the picker
+// commits goes through here, for the same reason the tree is built through
+// `splitTrack`: one spelling per ring.
+function canonicalTrack(raw) {
+  const { track, sub } = splitTrack(raw);
+  return sub ? `${track} ${SUBTRACK_SEPARATOR} ${sub}` : track;
+}
+
+function trackPicker(input) {
+  const root = input.parentElement;
+  const panel = element("div", "track-panel");
+  const crumb = element("div", "track-crumb");
+  const rowsBox = element("div", "track-rows");
+  const foot = element("div", "track-foot");
+  rowsBox.setAttribute("role", "listbox");
+  rowsBox.setAttribute("aria-label", "Tracks");
+  panel.append(crumb, rowsBox, foot);
+  root.appendChild(panel);
+  root.dataset.open = "false";
+  input.setAttribute("role", "combobox");
+  input.setAttribute("aria-expanded", "false");
+  input.setAttribute("aria-autocomplete", "list");
+  input.autocomplete = "off";
+  input.spellcheck = false;
+
+  let tree = [];
+  let rows = [];
+  let active = 0;
+  // Opening a field that already holds a track shows the whole tree with that
+  // track highlighted, rather than filtering the list down to the one value
+  // already in the box -- otherwise you could never browse from a project that
+  // has a track, which is most of them. Typing anything turns it back into a
+  // filter.
+  let browsing = false;
+
+  const matches = (text, term) =>
+    !term || text.toLowerCase().includes(term.toLowerCase());
+
+  const everyValue = () => tree.flatMap((track) =>
+    [track.name, ...track.subs.map((sub) => `${track.name} ${SUBTRACK_SEPARATOR} ${sub.name}`)]);
+
+  const findTrack = (name) =>
+    tree.find((track) => track.name.toLowerCase() === name.toLowerCase());
+
+  // What the field is asking for right now: a track, or a subtrack inside one.
+  // The split is the same first-slash rule as everywhere else, so a field
+  // holding a slash is already "inside" that track.
+  function parseQuery(value) {
+    const cut = value.indexOf(SUBTRACK_SEPARATOR);
+    if (cut === -1) return { scope: null, term: value.trim() };
+    return { scope: value.slice(0, cut).trim(), term: value.slice(cut + 1).trim() };
+  }
+
+  function buildRows() {
+    const raw = browsing ? "" : input.value;
+    const { scope, term } = parseQuery(raw);
+    const out = [];
+
+    if (scope === null) {
+      crumb.hidden = true;
+      // A track stays visible when only its subtracks match, so the parent you
+      // are aiming at never disappears from under the thing you typed.
+      for (const track of tree) {
+        const trackHit = matches(track.name, term);
+        const subHits = track.subs.filter((sub) => matches(sub.name, term));
+        if (!trackHit && subHits.length === 0) continue;
+        out.push({
+          kind: "track", label: track.name, match: term,
+          value: track.name, count: track.count,
+        });
+        for (const sub of trackHit ? track.subs : subHits) {
+          out.push({
+            kind: "sub", label: sub.name, match: trackHit ? "" : term,
+            value: `${track.name} ${SUBTRACK_SEPARATOR} ${sub.name}`, count: sub.count,
+          });
+        }
+      }
+    } else {
+      const track = findTrack(scope);
+      crumb.hidden = false;
+      crumb.textContent = "";
+      crumb.append(element("span", null, "inside"),
+        element("em", null, track ? track.name : scope || "…"));
+      for (const sub of track ? track.subs : []) {
+        if (!matches(sub.name, term)) continue;
+        out.push({
+          kind: "sub", label: sub.name, match: term,
+          value: `${track.name} ${SUBTRACK_SEPARATOR} ${sub.name}`, count: sub.count,
+        });
+      }
+    }
+
+    // A create row only when the text is genuinely new. Text that matches an
+    // existing value in a different case offers the existing spelling instead:
+    // two spellings of one track would draw two rings.
+    const typed = canonicalTrack(raw);
+    if (typed) {
+      const existing = everyValue()
+        .find((value) => value.toLowerCase() === typed.toLowerCase());
+      if (!existing) {
+        out.push({
+          kind: "create", label: typed, value: typed,
+          tag: splitTrack(typed).sub ? "new subtrack" : "new track",
+        });
+      } else if (existing !== typed) {
+        const row = out.find((candidate) => candidate.value === existing);
+        if (row) row.tag = "same, different case";
+      }
+    }
+    return out;
+  }
+
+  // The matched run is emboldened the way a browser does it, so you can see
+  // which part of a name your typing caught.
+  function labelFor(row) {
+    const label = element("span", "track-label");
+    if (row.kind === "create") {
+      label.append(document.createTextNode("Use "),
+        element("b", null, row.label));
+      return label;
+    }
+    const at = row.match ? row.label.toLowerCase().indexOf(row.match.toLowerCase()) : -1;
+    if (at === -1) {
+      label.textContent = row.label;
+      return label;
+    }
+    label.append(
+      document.createTextNode(row.label.slice(0, at)),
+      element("b", null, row.label.slice(at, at + row.match.length)),
+      document.createTextNode(row.label.slice(at + row.match.length)));
+    return label;
+  }
+
+  function paint() {
+    rows = buildRows();
+    active = Math.min(Math.max(active, 0), Math.max(rows.length - 1, 0));
+    rowsBox.textContent = "";
+
+    if (rows.length === 0) {
+      rowsBox.appendChild(element("div", "track-empty", "nothing yet — keep typing"));
+    }
+    rows.forEach((row, index) => {
+      const option = element("div", `track-opt track-${row.kind}`);
+      option.id = `${input.id}-opt-${index}`;
+      option.setAttribute("role", "option");
+      option.setAttribute("aria-selected", String(index === active));
+      option.dataset.active = String(index === active);
+      option.appendChild(labelFor(row));
+      if (row.tag) option.appendChild(element("span", "track-tag", row.tag));
+      if (row.count !== undefined) {
+        option.appendChild(element("span", "track-count", row.count));
+      }
+      // mousedown, not click: the default would blur the input first and close
+      // the panel out from under the pointer.
+      option.onmousedown = (event) => {
+        event.preventDefault();
+        commit(row.value);
+      };
+      option.onmouseenter = () => {
+        active = index;
+        for (const other of rowsBox.children) other.dataset.active = "false";
+        option.dataset.active = "true";
+        input.setAttribute("aria-activedescendant", option.id);
+      };
+      rowsBox.appendChild(option);
+    });
+
+    const current = rows[active];
+    if (current) {
+      input.setAttribute("aria-activedescendant", `${input.id}-opt-${active}`);
+      $(`${input.id}-opt-${active}`).scrollIntoView({ block: "nearest" });
+    } else {
+      input.removeAttribute("aria-activedescendant");
+    }
+
+    foot.textContent = "";
+    const openable = current && current.kind === "track"
+      && findTrack(current.value).subs.length > 0;
+    foot.append(
+      element("b", null, openable ? "/" : "Enter"),
+      element("span", null, openable ? " opens this track · " : " commits · "),
+      element("span", null, openable ? "Enter takes it as-is" : "anything you type is allowed"));
+  }
+
+  const committed = () => {
+    const typed = canonicalTrack(input.value);
+    return typed && everyValue().some((value) => value.toLowerCase() === typed.toLowerCase())
+      ? typed : "";
+  };
+
+  function show(browse) {
+    browsing = browse;
+    root.dataset.open = "true";
+    input.setAttribute("aria-expanded", "true");
+    if (browsing) {
+      // Built early only to point `active` at the row the field already holds.
+      rows = buildRows();
+      const at = rows.findIndex((row) =>
+        row.value.toLowerCase() === input.value.trim().toLowerCase());
+      active = at === -1 ? 0 : at;
+    }
+    paint();
+  }
+
+  // Clicking or arrowing in browses; typing filters.
+  const open = () => show(Boolean(committed()));
+
+  function close() {
+    root.dataset.open = "false";
+    input.setAttribute("aria-expanded", "false");
+    input.removeAttribute("aria-activedescendant");
+  }
+
+  // Committing fires `change` itself rather than waiting for blur: the field's
+  // existing onchange is what saves the project, and picking a row would
+  // otherwise appear to do nothing until you clicked elsewhere.
+  function commit(value) {
+    input.value = canonicalTrack(value);
+    close();
+    input.dispatchEvent(new Event("change"));
+  }
+
+  // A slash on a highlighted track means "go inside it", the way a path field
+  // completes a directory. Anywhere else a slash is just a slash.
+  function drillInto(row) {
+    if (!row || row.kind !== "track") return false;
+    input.value = `${row.value} ${SUBTRACK_SEPARATOR} `;
+    active = 0;
+    show(false);
+    return true;
+  }
+
+  input.onclick = open;
+  input.oninput = () => {
+    active = 0;
+    show(false);
+  };
+  input.onblur = close;
+
+  input.onkeydown = (event) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (root.dataset.open !== "true") return open();
+      if (rows.length === 0) return;
+      active = (active + (event.key === "ArrowDown" ? 1 : rows.length - 1)) % rows.length;
+      paint();
+      return;
+    }
+    if (event.key === "Enter" && root.dataset.open === "true") {
+      event.preventDefault();
+      commit(rows[active] ? rows[active].value : input.value);
+      return;
+    }
+    if (event.key === SUBTRACK_SEPARATOR && input.value.indexOf(SUBTRACK_SEPARATOR) === -1) {
+      if (root.dataset.open === "true" && drillInto(rows[active])) event.preventDefault();
+      return;
+    }
+    // One key to undo a wrong turn: backspacing off a trailing slash pops back
+    // out to the top level rather than nibbling the track's last letter.
+    if (event.key === "Backspace" && /\s*\/\s*$/.test(input.value)) {
+      event.preventDefault();
+      input.value = splitTrack(input.value).track;
+      active = 0;
+      open();
+      return;
+    }
+    if (event.key === "Escape" && root.dataset.open === "true") {
+      event.preventDefault();
+      close();
+    }
+  };
+
+  // Dragging the panel's scrollbar would otherwise blur the input and close it.
+  panel.onmousedown = (event) => event.preventDefault();
+
+  return {
+    refresh(projects) {
+      tree = trackTree(projects);
+      if (root.dataset.open === "true") paint();
+    },
+  };
+}
+
+function refreshTrackPickers() {
+  for (const picker of trackPickers) picker.refresh(state.projects);
+}
+
 // --- events -----------------------------------------------------------------
 
 function bindEvents() {
@@ -1914,6 +2243,11 @@ function bindEvents() {
                     "project-stage", "project-track", "project-velocity"]) {
     $(id).onchange = saveProject;
   }
+
+  // Built once and refilled by `refreshTrackPickers` whenever the project list
+  // is re-read, so a track invented in one field shows up in the other.
+  trackPickers.push(trackPicker($("project-track")),
+    trackPicker($("new-direction-track")));
 
   $("department-name").onchange = async () => {
     await api("/api/settings", {

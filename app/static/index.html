@@ -51,9 +51,14 @@
             </select>
           </label>
           <label>Track
-            <input id="project-track" type="text"
-              placeholder="e.g. Source expansion / Metrics"
-              title="Free-text grouping, used to cluster the map view. A slash splits it into track and subtrack.">
+            <!-- The panel inside is built by `trackPicker`; this wrapper is only
+                 what positions it. Still a text input: type a track nobody has
+                 used yet and it exists the moment you save. -->
+            <span class="track-picker">
+              <input id="project-track" type="text"
+                placeholder="e.g. Source Expansion / MCP"
+                title="Free-text grouping, used to cluster the map view. A slash splits it into track and subtrack.">
+            </span>
           </label>
           <label>Velocity override
             <input id="project-velocity" type="number" min="1" placeholder="global">
@@ -239,8 +244,10 @@
         <ul id="direction-list" class="directions"></ul>
         <div class="row">
           <input id="new-direction-name" type="text" placeholder="New future direction">
-          <input id="new-direction-track" type="text"
-            placeholder="Track / subtrack (optional)">
+          <span class="track-picker">
+            <input id="new-direction-track" type="text"
+              placeholder="Track / subtrack (optional)">
+          </span>
           <button id="add-direction">Capture idea</button>
         </div>
       </section>

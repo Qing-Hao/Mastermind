@@ -51,6 +51,11 @@ a name with no slash is simply a track, and a name with nothing before the slash
 is treated as a plain track rather than half a hierarchy. Two levels is the
 ceiling; a third would want a real column or a track table.
 
+Because the grouping key is the **raw string**, `Source expansion` and
+`Source Expansion` are two rings. Nothing normalises stored values — the Track
+field is where drift is headed off instead, by offering what has already been
+typed and canonicalising the spacing around the slash on the way in.
+
 `phase` — `project_id`, name, description, `start_date`, `duration_weeks` (REAL),
 `effort_points` (INT), `status` ∈ `planned|in_progress|done`, `sort_order`.
 
@@ -211,6 +216,32 @@ into one project link.
   after every edit so naming the last deliverable retags the option
   immediately; that costs one localhost query and keeps the rule out of the
   frontend.
+- **Track picker** — the Track field on Project, and the one on the Map's
+  Future directions row, share `trackPicker` in `app.js`. It is the **one
+  hand-rolled control in the codebase**, and the exception is deliberate: a
+  `<datalist>` cannot nest, count or offer a create row, and the nesting is the
+  point, since the map draws the same two levels. Built from `state.projects`
+  and refilled by `refreshTrackPickers` inside `loadProjectList`, so a track
+  invented in one field is offerable in the other — nothing is stored, and the
+  list is exactly the tracks in use.
+  - Tracks as parents, subtracks indented under them, counts being projects on
+    that **exact** value. Typing filters both levels, and a track stays visible
+    when only its subtracks match.
+  - `/` on a highlighted track drills into it and the panel shows that track's
+    subtracks; `Backspace` off a trailing slash pops back out. Anywhere else a
+    slash is just a slash, and inside a track a further one is part of the
+    subtrack's name — the picker will not imply a third level `splitTrack`
+    cannot read.
+  - Opening a field that already holds a track browses the **whole** tree with
+    that row highlighted rather than filtering to the one value already in the
+    box. Typing turns it back into a filter.
+  - **It still writes nothing.** The create row fills the field; the track
+    starts existing when the project is saved and stops when the last project
+    leaves it. Text matching an existing value in a different case offers the
+    existing spelling instead of a create row, which is the whole point of the
+    control. Renaming a track is still per-project by hand.
+  - Committing dispatches `change` itself rather than waiting for blur, because
+    the field's existing `onchange` is what saves the project.
 - **Project** — goal, fields, warnings, unscheduled list, timeline, phase table
   with expandable deliverables (`3/5` tally on the phase row), dependencies. The
   dependency panel lists both directions (`← waits on X`, `→ Y waits on this`)
