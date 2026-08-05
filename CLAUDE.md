@@ -429,6 +429,22 @@ into one project link.
   links to, drawing arrows predecessor → successor. Hovering a project with no
   links is a no-op. Tracks fade less than unrelated projects so the lit circles
   keep their bearings.
+- **Future directions** — the idea list under the map, and the second place
+  dependencies can be written. Capturing takes name, track and an **optional**
+  link (`No link` by default, direction disabled until a project is picked), so
+  an idea can be born linked; each row then shows the links it already has as
+  chips (`← waits on X`, `→ Y waits on this`) with an ✕, and a `Link…` button
+  folding out the same project + direction pair. Both directions are offered,
+  the Project tab's wording and orientation exactly — the Map holds no opinion
+  the panel doesn't, and what it writes is the ordinary project-to-project
+  dependency, not a second kind of link. **No new endpoint**: the chips are read
+  off the `dependencies` already on `GET /api/graph` for the hover highlight,
+  and writes are the existing `POST`/`DELETE /api/dependencies`. Capture is two
+  calls, so it reports a link that failed after the idea was already created.
+  The form is `hidden` until asked for, which needs
+  `.direction-link-form[hidden]` in the CSS — a class setting `display`
+  outranks the UA sheet's `[hidden]`, the same trap `.track-crumb[hidden]`
+  documents.
 
 Both charts share one week grid: Monday-based columns under a month/week ruler,
 window capped at 26 weeks, column width fitted to the container and clamped

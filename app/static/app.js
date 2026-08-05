@@ -1911,11 +1911,141 @@ function projectNode(project, point, radius, place) {
   return group;
 }
 
+// --- future directions ------------------------------------------------------
+
+// The Project tab spells these two out in its HTML; the map builds a pair per
+// idea row, so they live here instead. Same order and same sentence, with
+// "idea" for "project" only because every row on this list is one -- the link
+// written is the ordinary project-to-project dependency, not a second kind.
+const LINK_DIRECTIONS = [
+  ["incoming", "must finish before this idea"],
+  ["outgoing", "cannot start until this idea finishes"],
+];
+
+// Options for the far end of a link. `exclude` drops the idea itself -- a
+// project cannot depend on itself, and offering it would only earn a 409.
+// `blank` is the "no link" row the capture field needs and a row's form does
+// not: capturing an idea is complete without a link, pressing Link is not.
+function fillLinkOptions(select, exclude, blank) {
+  const previous = select.value;
+  select.innerHTML = "";
+  if (blank) {
+    const none = element("option", null, blank);
+    none.value = "";
+    select.appendChild(none);
+  }
+  for (const project of state.graph.projects.filter((p) => p.id !== exclude)) {
+    const option = element("option", null,
+      project.stage === "idea" ? `${IDEA_BADGE} ${project.name}` : project.name);
+    option.value = project.id;
+    select.appendChild(option);
+  }
+  select.value = previous;
+  // The project that was selected may have just been deleted or promoted, and a
+  // select holding a value none of its options carries renders blank.
+  if (select.selectedIndex < 0) select.selectedIndex = 0;
+}
+
+function directionSelect() {
+  const select = element("select");
+  for (const [value, label] of LINK_DIRECTIONS) {
+    const option = element("option", null, label);
+    option.value = value;
+    select.appendChild(option);
+  }
+  return select;
+}
+
+// One link, oriented the way the Project tab orients it: "incoming" reads as
+// the other project must finish before this one starts.
+function linkProjects(subjectId, otherId, direction) {
+  const incoming = direction === "incoming";
+  return api("/api/dependencies", {
+    method: "POST",
+    body: JSON.stringify({
+      predecessor_project_id: incoming ? otherId : subjectId,
+      successor_project_id: incoming ? subjectId : otherId,
+    }),
+  });
+}
+
+// Both ends in the project view's vocabulary -- "← waits on X", "→ Y waits on
+// this". Read straight off the graph payload, which already carries every link
+// with its names resolved for the hover highlight, so the column costs no fetch.
+function linkChips(idea, links) {
+  const box = element("span", "direction-links");
+  for (const dep of links) {
+    const outgoing = dep.predecessor_project_id === idea.id;
+    const incoming = dep.successor_project_id === idea.id;
+    if (!outgoing && !incoming) continue;
+
+    const chip = element("span", "link-chip",
+      outgoing ? `→ ${dep.successor_name}` : `← ${dep.predecessor_name}`);
+    chip.title = outgoing
+      ? `${dep.successor_name} waits on this idea`
+      : `This idea waits on ${dep.predecessor_name}`;
+
+    const unlink = element("button", "link-unlink", "✕");
+    unlink.title = "Remove this link";
+    unlink.onclick = async () => {
+      await api(`/api/dependencies/${dep.id}`, { method: "DELETE" });
+      await loadGraph();
+    };
+    chip.appendChild(unlink);
+    box.appendChild(chip);
+  }
+  return box;
+}
+
+// Hidden until asked for: ten ideas each showing a pair of selects would bury
+// the list they hang off. Every write re-renders the list, so the form folds
+// itself away again once the link lands.
+function linkForm(idea) {
+  const form = element("div", "direction-link-form");
+  form.hidden = true;
+
+  const other = element("select");
+  fillLinkOptions(other, idea.id, null);
+  if (other.options.length === 0) {
+    form.appendChild(element("p", "muted", "Nothing else to link to yet."));
+    return form;
+  }
+
+  const direction = directionSelect();
+  const error = element("p", "error");
+  error.hidden = true;
+
+  const submit = element("button", null, "Link");
+  submit.onclick = async () => {
+    error.hidden = true;
+    const otherId = Number(other.value);
+    if (!otherId) return;
+    try {
+      await linkProjects(idea.id, otherId, direction.value);
+      await loadGraph();
+    } catch (failure) {
+      // V3 rejections land here: the edit is refused, nothing was written.
+      error.textContent = failure.message;
+      error.hidden = false;
+    }
+  };
+
+  form.append(other, direction, submit, error);
+  return form;
+}
+
 function renderDirections() {
   const list = $("direction-list");
   const ideas = state.graph.projects.filter((project) => project.stage === "idea");
+  const links = state.graph.dependencies || [];
   $("direction-count").textContent = ideas.length;
   list.innerHTML = "";
+  // Refilled whether or not an idea exists yet: the first one captured can be
+  // linked to real work on the way in.
+  fillLinkOptions($("new-direction-dep"), null, "No link");
+  // A refill can drop the project that was picked -- setting a select's value in
+  // script fires no `change`, so the direction is re-synced by hand.
+  $("new-direction-direction").disabled = !$("new-direction-dep").value;
 
   if (ideas.length === 0) {
     list.appendChild(element("li", "muted", "No future directions captured yet."));
@@ -1926,6 +2056,12 @@ function renderDirections() {
     const item = element("li");
     item.appendChild(element("span", "direction-name", idea.name));
     if (idea.track) item.appendChild(element("span", "muted", idea.track));
+    item.appendChild(linkChips(idea, links));
+
+    const form = linkForm(idea);
+    const link = element("button", null, "Link…");
+    link.title = "Tie this idea to another project without opening it";
+    link.onclick = () => { form.hidden = !form.hidden; };
 
     const promote = element("button", null, "Promote to project");
     promote.title = "Make this active, keeping everything already written against it";
@@ -1945,7 +2081,7 @@ function renderDirections() {
       await loadProjects();
     };
 
-    item.append(promote, remove);
+    item.append(link, promote, remove, form);
     list.appendChild(item);
   }
 }
@@ -2376,12 +2512,20 @@ function bindEvents() {
     await loadGraph();
   };
 
+  // The direction only means something once there is something to point at.
+  $("new-direction-dep").onchange = (event) => {
+    $("new-direction-direction").disabled = !event.target.value;
+  };
+
   $("add-direction").onclick = async () => {
     const name = $("new-direction-name").value.trim();
     if (!name) return;
+    const error = $("direction-error");
+    error.hidden = true;
+    const other = Number($("new-direction-dep").value);
     // No start date and no phases: a direction is a note to yourself until the
     // day it gets promoted.
-    await api("/api/projects", {
+    const idea = await api("/api/projects", {
       method: "POST",
       body: JSON.stringify({
         name,
@@ -2390,8 +2534,23 @@ function bindEvents() {
         track: $("new-direction-track").value.trim(),
       }),
     });
+
+    if (other) {
+      try {
+        await linkProjects(idea.id, other, $("new-direction-direction").value);
+      } catch (failure) {
+        // Two calls, so half of this can fail. A brand new project has no other
+        // links and so cannot make a cycle, but say what actually happened
+        // rather than letting the idea appear as though nothing went wrong.
+        error.textContent = `Captured "${name}", but the link failed: ${failure.message}`;
+        error.hidden = false;
+      }
+    }
+
     $("new-direction-name").value = "";
     $("new-direction-track").value = "";
+    $("new-direction-dep").value = "";
+    $("new-direction-direction").disabled = true;
     await loadProjects();
   };
   $("new-direction-name").onkeydown = (event) => {

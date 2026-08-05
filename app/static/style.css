@@ -406,6 +406,9 @@ table.deliverables tr.done input[type="text"] { color: #999; text-decoration: li
 .directions li {
   display: flex;
   align-items: center;
+  /* Wraps so the link form can take a line of its own: two selects and a button
+     on the same line would push the name and its buttons off the end. */
+  flex-wrap: wrap;
   gap: 10px;
   max-width: 620px;
   padding: 5px 8px;
@@ -415,6 +418,47 @@ table.deliverables tr.done input[type="text"] { color: #999; text-decoration: li
   background: #fcfcfc;
 }
 .direction-name { font-weight: 500; flex: 1; }
+
+/* An idea with no links still renders the box; without this it would sit in the
+   row as a zero-width flex item and spend a 10px gap saying nothing. */
+.direction-links:empty { display: none; }
+.direction-links { display: flex; flex-wrap: wrap; gap: 4px; }
+.link-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 4px 1px 8px;
+  border-radius: 10px;
+  background: #f0f0f0;
+  color: #555;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.link-unlink {
+  border: none;
+  background: none;
+  padding: 0 2px;
+  color: #999;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+.link-unlink:hover { color: #c62828; }
+
+/* Load-bearing, for the same reason as `.track-crumb[hidden]` below: a class
+   setting `display` outranks the UA sheet's `[hidden] { display: none }`, so
+   without this the form would never fold away again. */
+.direction-link-form[hidden] { display: none; }
+.direction-link-form {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed #eee;
+}
+.direction-link-form .error, .direction-link-form .muted { flex-basis: 100%; margin: 0; }
 
 /* --- track picker --- */
 /* The one hand-rolled control here, so it carries the only component styling in
