@@ -347,12 +347,19 @@ into one project link.
   list** rather than across the wedge: a subtrack owns a contiguous run of slots
   and sits at the middle of it, so sorting across would interleave subtracks and
   leave their nodes pointing at nothing.
-  Untiered is called out in **words on the label's first meta line**
-  (`untiered · no phases yet`, `T1 · 3/5 phases`) rather than given a shade of
-  its own — "never ranked" is not a rank, and the circle cannot carry the
-  difference. It rides on the existing first meta line instead of a new line
-  because the map's label clearances are sized against the height of the label
-  block, which a fourth line would change.
+  Tier is also **marked on the label's first meta line** (`T1 · 3/5 phases`,
+  `T? · no phases yet`) rather than given a shade of its own, because tier 2 and
+  untiered are both the plain node and the circle cannot carry the difference.
+  It rides on the existing meta line instead of a new one: the map's label
+  clearances are sized against the height of the label block, which a fourth
+  line would change.
+  Untiered is `T?` on the node but **the word "untiered" everywhere it has
+  room** — the filter chip and the tooltip — and those are what make `T?` read
+  as "no tier yet". Two markers deliberately (`TIER_LABEL` and `TIER_MARK`):
+  spelt out on the node it is the longest marker on the map, it lands on every
+  node at once before anything is ranked, and it measured one more overlapping
+  label pair than the map already had. See STATUS.md item 47 — the map is not
+  collision-clean at this dataset size regardless, and tier did not cause that.
   Dependencies are **not drawn on every render** — a dozen projects on a radial
   layout becomes spaghetti. Instead `GET /api/graph` carries them and hovering
   (or keyboard-focusing) a project dims the map to that project and the ones it

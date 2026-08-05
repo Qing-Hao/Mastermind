@@ -49,6 +49,13 @@ const READINESS_BADGE = {
 // that matters; nothing else in the tool reads it.
 const TIER_ORDER = [1, 2, 3, 0];
 const TIER_LABEL = { 1: "T1", 2: "T2", 3: "T3", 0: "untiered" };
+// What a node's label carries. Same as TIER_LABEL except for untiered, which is
+// abbreviated: spelt out it is the longest marker on the map and it lands on
+// every node at once before anything has been ranked, which measured one more
+// overlapping label pair than the map already had. The word survives where
+// there is room for it -- the filter chip and the tooltip -- and those are what
+// make "T?" read as "no tier yet" rather than as a fourth tier.
+const TIER_MARK = { ...TIER_LABEL, 0: "T?" };
 
 let state = {
   view: "project",
@@ -1841,11 +1848,11 @@ function projectNode(project, point, radius, place) {
     meta.push("no phases yet");
   }
   if (project.next_date) meta.push(`next ${project.next_date}`);
-  // Named on the first meta line rather than a line of its own: an extra line
+  // Marked on the first meta line rather than a line of its own: an extra line
   // would grow every label block by one, and the map's label clearances are
-  // sized against the block. This way untiered is spelt out -- the circle alone
-  // cannot separate "ranked middling" from "never ranked".
-  meta[0] = `${TIER_LABEL[tier]} · ${meta[0]}`;
+  // sized against the block. Marked at all because the circle cannot separate a
+  // middling rank from no rank -- tier 2 and untiered are both the plain node.
+  meta[0] = `${TIER_MARK[tier]} · ${meta[0]}`;
 
   group.appendChild(labelText([
     { text: truncate(project.name, 20), className: "map-name" },
