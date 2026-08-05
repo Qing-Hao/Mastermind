@@ -331,6 +331,60 @@ def check_phase_within_project(phase, project):
     )
 
 
+def check_phase_overdue(phase, today):
+    """V6: the phase's derived end has passed and it is not done.
+
+    The counterpart to the derived `overdue` stage, one level down. A project
+    only reads overdue once its *last* phase end has passed, which is too coarse
+    to find anything early: a phase can sit a month past its end inside a project
+    that still has months to run. This is the rule that actually finds it.
+
+    Reports and repairs nothing, like every rule here -- a date that has slipped
+    is the user's to move. Skipped while the phase is unscheduled, and skipped
+    once it is done, because a phase that finished late is not a problem to fix.
+    """
+    if phase.get("status") == "done":
+        return None
+    end = phase_end_date(phase)
+    if end is None or end >= as_date(today):
+        return None
+
+    return PlanWarning(
+        rule="V6",
+        phase_id=phase["id"],
+        message=(
+            f"'{phase['name']}' ended {end.isoformat()} but is still "
+            f"'{phase.get('status')}'."
+        ),
+    )
+
+
+def check_phase_done_without_deliverables(phase, deliverables):
+    """V7: the phase is done but never named what it delivered.
+
+    Closing a phase is what completes a project now that `done` is derived, so
+    this is the nudge that keeps the plan worth reading: a phase closed with
+    nothing under it records no outcome at all.
+
+    It reads deliverable **presence** and deliberately not the `done` tick.
+    Presence is a planning fact -- the same fact `project_stage` reads -- while
+    the tick is progress, and rule 4 keeps the tick from firing any rule. A
+    phase closed with everything under it still unticked is fine here.
+    """
+    if phase.get("status") != "done":
+        return None
+    if deliverables:
+        return None
+
+    return PlanWarning(
+        rule="V7",
+        phase_id=phase["id"],
+        message=(
+            f"'{phase['name']}' is marked done but names no deliverables."
+        ),
+    )
+
+
 # --- Project-level summaries ------------------------------------------------
 
 # These answer "how is this going?" rather than "is this wrong?", so they are
@@ -351,53 +405,96 @@ def project_effort_points(phases):
     return sum(int(phase.get("effort_points") or 0) for phase in phases)
 
 
-READINESS_PLANNING = "planning"
-READINESS_READY = "ready"
-# "scheduled", not "planned": `stage` owns the word planned, where it means a
-# plan exists and nothing is slotted -- the opposite of what this value means.
-READINESS_SCHEDULED = "scheduled"
-READINESS_DONE = "done"
+STAGE_IDEA = "idea"
+STAGE_PLANNING = "planning"
+STAGE_PLANNED = "planned"
+STAGE_DATED = "dated"
+STAGE_ACTIVE = "active"
+STAGE_OVERDUE = "overdue"
+STAGE_DONE = "done"
+
+# The order the ladder climbs, for anything that wants to sort or compare.
+STAGE_LADDER = (
+    STAGE_IDEA, STAGE_PLANNING, STAGE_PLANNED, STAGE_DATED,
+    STAGE_ACTIVE, STAGE_OVERDUE, STAGE_DONE,
+)
 
 
-def project_readiness(project, phases, deliverables):
-    """How much of the plan exists yet: planning -> ready -> scheduled, or done.
+def project_stage(project, phases, deliverables, today):
+    """Where a project stands, derived from its own plan and the calendar.
 
-    A second axis to `stage`, not a replacement for it. `stage` records whether
-    anyone has committed to the work; this records how far the plan has been
-    written, which is what answers "which project needs me next" from the
-    picker without opening each one.
+    This replaced `project_readiness` and the four-step ladder behind it. That
+    one measured plan completeness in absolute terms and, on a real dataset,
+    answered `planning` for six of the seven projects it rendered on -- including
+    every project that was actually running, because one phase with nothing named
+    under it outranked every date on the plan. Two axes that disagreed about the
+    same project turned out to be one axis asked badly.
 
-    - `done` is never inferred -- it is `stage`, set by hand, and it wins over
-      everything else, because a finished project's readiness is not a question
-      anyone is asking.
-    - `planning`: no phases yet, or a phase with nothing named under it. A
-      deliverable's `done` tick is deliberately ignored here. Its presence is a
-      planning fact; ticking it is progress, and reading the tick would quietly
-      make this the tracker the brief forbids.
-    - `ready`: every phase names its deliverables, but the work is not fully on
-      the calendar. This is the staging tray's population -- a half-placed
-      project (project dated, some phases still undated) stays here exactly as
-      it stays in the tray.
-    - `scheduled`: the project has a start date and no phase is missing one.
-      This is the only readiness value that says anything about dates, which is
-      why it is not called planned -- `stage='planned'` is a project whose plan
-      is written and whose dates are not.
+    What the stored `project['stage']` column still decides, and all it decides:
 
-    `deliverables` is a flat list of the project's own deliverables; only their
-    `phase_id` is read. Nothing here is stored and nothing is repaired.
+    - `idea`   -- nobody has committed. Beats everything below it, so an idea
+                  that somehow acquired dates still reads as an idea; the
+                  portfolio filters on the stored value and the two must agree.
+    - `done`   -- the manual close, and it wins outright. Not "delivered" but
+                  "closed without finishing": work that is cancelled or descoped
+                  never reaches every-phase-done, and without this hatch it would
+                  sit overdue forever until the colour stopped meaning anything.
+
+    Everything else is derived here, first match wins:
+
+    - `done`     -- every phase is `status='done'`. This is the honest route, and
+                    the reason phases carry the burden: closing a project means
+                    closing the work inside it, not ticking one box at the top.
+    - `overdue`  -- fully dated, the last phase end has passed, phases still
+                    open. The one alarm in the vocabulary. `check_phase_overdue`
+                    finds the same problem a level down and much earlier.
+    - `active`   -- fully dated and today falls inside the span.
+    - `dated`    -- fully dated, not started yet.
+    - `planning` -- no phases, nothing named under any of them, or the plan is
+                    still being drafted (`draft_complete` unset).
+    - `planned`  -- named and drafted, waiting only for dates.
+
+    **Dates outrank the drafting flag deliberately.** Checking `draft_complete`
+    first reads a project that is dated and running as `planning` merely because
+    nobody flipped a switch, which is the exact inversion this replaced. Once
+    work is on the calendar the calendar speaks for it; the flag only ever
+    decides between `planning` and `planned`, where the distinction is the whole
+    question.
+
+    A deliverable's `done` tick is not read here, only its presence -- see rule 4
+    and `check_phase_done_without_deliverables`. `deliverables` is a flat list of
+    the project's own; only `phase_id` is used. Nothing is stored, nothing is
+    repaired.
     """
-    if project.get("stage") == "done":
-        return READINESS_DONE
+    stored = project.get("stage")
+    if stored == "done":
+        return STAGE_DONE
+    if stored == "idea":
+        return STAGE_IDEA
+
+    if phases and all(phase.get("status") == "done" for phase in phases):
+        return STAGE_DONE
+
+    if phases and is_scheduled(project) and all(is_scheduled(p) for p in phases):
+        start, end = project_span(project, phases)
+        if start is not None and end is not None:
+            today = as_date(today)
+            if end < today:
+                return STAGE_OVERDUE
+            if start <= today:
+                return STAGE_ACTIVE
+            return STAGE_DATED
+
     if not phases:
-        return READINESS_PLANNING
+        return STAGE_PLANNING
 
     covered = {deliverable["phase_id"] for deliverable in deliverables}
-    if any(phase["id"] not in covered for phase in phases):
-        return READINESS_PLANNING
+    if not any(phase["id"] in covered for phase in phases):
+        return STAGE_PLANNING
 
-    if not is_scheduled(project) or any(not is_scheduled(phase) for phase in phases):
-        return READINESS_READY
-    return READINESS_SCHEDULED
+    if not project.get("draft_complete"):
+        return STAGE_PLANNING
+    return STAGE_PLANNED
 
 
 def next_milestone(phases, today):
@@ -424,13 +521,20 @@ def next_milestone(phases, today):
 # --- Whole-plan entry point -------------------------------------------------
 
 
-def validate_plan(project, phases, settings=None):
-    """Run V1 and V4 across a single project and return every warning found.
+def validate_plan(project, phases, settings=None, deliverables_by_phase=None,
+                  today=None):
+    """Run V1, V4, V6 and V7 across one project and return every warning found.
 
     V2 is not here: it compares two projects, so it needs the whole portfolio
     and lives in `validate_portfolio`. V3 is excluded too -- a cycle blocks the
     edit that would create it, so it is checked by `find_dependency_cycle` at
     write time rather than being reported as an ignorable warning.
+
+    `today` and `deliverables_by_phase` are the inputs the two newer rules need,
+    and both default to None, which **skips that rule** rather than inventing the
+    input. This module stays pure: reading the clock here would make every test
+    of it depend on the day it runs, so the caller supplies the date the same way
+    `next_milestone` has always required it.
     """
     settings = {**DEFAULT_SETTINGS, **(settings or {})}
     velocity = effective_velocity(project, settings)
@@ -444,6 +548,18 @@ def validate_plan(project, phases, settings=None):
         outside = check_phase_within_project(phase, project)
         if outside:
             warnings.append(outside)
+
+        if today is not None:
+            late = check_phase_overdue(phase, today)
+            if late:
+                warnings.append(late)
+
+        if deliverables_by_phase is not None:
+            empty = check_phase_done_without_deliverables(
+                phase, deliverables_by_phase.get(phase["id"], [])
+            )
+            if empty:
+                warnings.append(empty)
 
     return warnings
 

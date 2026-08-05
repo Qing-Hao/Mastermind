@@ -12,10 +12,12 @@ from app.validation import (
     implied_weeks,
     next_milestone,
     phase_end_date,
+    check_phase_done_without_deliverables,
+    check_phase_overdue,
     project_effort_points,
     project_progress,
-    project_readiness,
     project_span,
+    project_stage,
     relative_layout,
     sequential_layout,
     validate_plan,
@@ -412,74 +414,164 @@ def test_next_milestone_is_none_while_everything_is_unscheduled():
     assert next_milestone(phases, date(2026, 1, 5)) is None
 
 
-# --- readiness --------------------------------------------------------------
+# --- the derived stage ladder -----------------------------------------------
 
 
 def deliverable(deliverable_id, phase_id, name="Wireframes"):
     return {"id": deliverable_id, "phase_id": phase_id, "name": name, "sort_order": 0}
 
 
-ACTIVE = {**PROJECT, "stage": "active"}
-UNDATED = {**PROJECT, "start_date": "", "stage": "active"}
+# Committed work. 'planned' and 'active' are the same thing to the ladder, so
+# these two fixtures differ only in their dates.
+COMMITTED = {**PROJECT, "stage": "planned"}
+UNDATED = {**PROJECT, "start_date": "", "stage": "planned"}
+DRAFTED = {**UNDATED, "draft_complete": 1}
+
+# The fixture phase runs 2026-01-05 for six weeks, so it ends 2026-02-16.
+DURING = date(2026, 1, 20)
+BEFORE = date(2025, 12, 1)
+AFTER = date(2026, 6, 1)
 
 
-def test_readiness_of_a_project_with_no_phases_is_planning():
-    assert project_readiness(ACTIVE, [], []) == "planning"
+def test_a_project_with_no_phases_is_planning():
+    assert project_stage(COMMITTED, [], [], DURING) == "planning"
 
 
-def test_readiness_is_planning_while_any_phase_names_nothing():
-    phases = [make_phase(1, "Design"), make_phase(2, "Build")]
-    assert project_readiness(ACTIVE, phases, [deliverable(1, 1)]) == "planning"
-
-
-def test_readiness_is_ready_once_every_phase_has_a_deliverable_but_no_dates():
+def test_a_project_whose_phases_name_nothing_is_planning():
     phases = [make_phase(1, "Design", start=""), make_phase(2, "Build", start="")]
-    deliverables = [deliverable(1, 1), deliverable(2, 2)]
-    assert project_readiness(UNDATED, phases, deliverables) == "ready"
+    assert project_stage(UNDATED, phases, [], DURING) == "planning"
 
 
-def test_readiness_is_scheduled_once_the_project_and_every_phase_are_dated():
+def test_one_named_phase_is_enough_to_leave_planning():
+    """Coverage is not all-or-nothing any more: the old rule read `planning`
+    for six of seven real projects because one thin phase outranked everything."""
+    phases = [make_phase(1, "Design", start=""), make_phase(2, "Build", start="")]
+    drafted = {**DRAFTED}
+    assert project_stage(drafted, phases, [deliverable(1, 1)], DURING) == "planned"
+
+
+def test_a_drafted_plan_with_no_dates_is_planned():
+    phases = [make_phase(1, "Design", start="")]
+    assert project_stage(DRAFTED, phases, [deliverable(1, 1)], DURING) == "planned"
+
+
+def test_the_same_plan_still_drafting_is_planning():
+    phases = [make_phase(1, "Design", start="")]
+    assert project_stage(UNDATED, phases, [deliverable(1, 1)], DURING) == "planning"
+
+
+def test_a_fully_dated_project_reads_from_the_calendar():
+    phases = [make_phase(1, "Design")]
+    deliverables = [deliverable(1, 1)]
+    assert project_stage(COMMITTED, phases, deliverables, BEFORE) == "dated"
+    assert project_stage(COMMITTED, phases, deliverables, DURING) == "active"
+    assert project_stage(COMMITTED, phases, deliverables, AFTER) == "overdue"
+
+
+def test_dates_outrank_the_drafting_flag():
+    """The inversion this ladder replaced: a project that is dated and running
+    must never read `planning` merely because nobody flipped a switch."""
     phases = [make_phase(1, "Design"), make_phase(2, "Build")]
-    deliverables = [deliverable(1, 1), deliverable(2, 2)]
-    assert project_readiness(ACTIVE, phases, deliverables) == "scheduled"
+    running = {**COMMITTED, "draft_complete": 0}
+    assert project_stage(running, phases, [deliverable(1, 1)], DURING) == "active"
 
 
-def test_a_half_placed_project_is_still_ready():
-    """It is still in the staging tray, so it still reads as work to place."""
+def test_a_half_placed_project_is_not_on_the_calendar_yet():
+    """One undated phase means the span is incomplete, so it stays in the tray."""
     phases = [make_phase(1, "Design"), make_phase(2, "Build", start="")]
     deliverables = [deliverable(1, 1), deliverable(2, 2)]
-    assert project_readiness(ACTIVE, phases, deliverables) == "ready"
+    assert project_stage(DRAFTED, phases, deliverables, DURING) == "planned"
 
 
 def test_dated_phases_under_an_undated_project_are_not_scheduled_yet():
     phases = [make_phase(1, "Design"), make_phase(2, "Build")]
     deliverables = [deliverable(1, 1), deliverable(2, 2)]
-    assert project_readiness(UNDATED, phases, deliverables) == "ready"
+    assert project_stage(DRAFTED, phases, deliverables, DURING) == "planned"
 
 
-def test_readiness_ignores_whether_a_deliverable_is_ticked():
+def test_the_ladder_ignores_whether_a_deliverable_is_ticked():
     """Naming the work is planning; ticking it is progress, which is not this."""
     phases = [make_phase(1, "Design")]
     ticked = [{**deliverable(1, 1), "done": 1}]
     unticked = [{**deliverable(1, 1), "done": 0}]
-    assert project_readiness(ACTIVE, phases, ticked) == "scheduled"
-    assert project_readiness(ACTIVE, phases, unticked) == "scheduled"
+    assert project_stage(COMMITTED, phases, ticked, DURING) == "active"
+    assert project_stage(COMMITTED, phases, unticked, DURING) == "active"
 
 
-def test_done_is_taken_from_the_stage_and_never_inferred():
-    """Every phase finished is not the same as the user calling the project done."""
-    phases = [{**make_phase(1), "status": "done"}]
-    assert project_readiness(ACTIVE, phases, [deliverable(1, 1)]) == "scheduled"
+def test_done_is_derived_once_every_phase_is_done():
+    """Closing a project means closing the work inside it."""
+    phases = [{**make_phase(1), "status": "done"},
+              {**make_phase(2), "status": "done"}]
+    assert project_stage(COMMITTED, phases, [deliverable(1, 1)], AFTER) == "done"
 
 
-def test_a_project_marked_done_reads_done_however_thin_its_plan_is():
-    done = {**PROJECT, "stage": "done"}
-    assert project_readiness(done, [], []) == "done"
+def test_one_open_phase_keeps_a_project_off_done():
+    phases = [{**make_phase(1), "status": "done"},
+              {**make_phase(2), "status": "planned"}]
+    assert project_stage(COMMITTED, phases, [deliverable(1, 1)], AFTER) == "overdue"
 
 
-def test_an_idea_is_judged_on_its_plan_like_anything_else():
-    """The stage says nobody has committed; readiness says how much is written."""
-    idea = {**PROJECT, "start_date": "", "stage": "idea"}
-    assert project_readiness(idea, [], []) == "planning"
-    phases = [make_phase(1, "Design", start="")]
-    assert project_readiness(idea, phases, [deliverable(1, 1)]) == "ready"
+def test_the_manual_close_beats_the_ladder():
+    """Cancelled work never reaches every-phase-done and must not nag forever."""
+    closed = {**PROJECT, "stage": "done"}
+    phases = [{**make_phase(1), "status": "planned"}]
+    assert project_stage(closed, phases, [], AFTER) == "done"
+
+
+def test_an_idea_stays_an_idea_whatever_its_plan_says():
+    """The portfolio filters on the stored stage, so the two must not disagree."""
+    idea = {**PROJECT, "stage": "idea"}
+    assert project_stage(idea, [], [], DURING) == "idea"
+    phases = [make_phase(1, "Design")]
+    assert project_stage(idea, phases, [deliverable(1, 1)], DURING) == "idea"
+
+
+# --- V6 / V7 ----------------------------------------------------------------
+
+
+def test_v6_fires_once_a_phase_end_has_passed():
+    phase = make_phase(1, "Design")          # ends 2026-02-16
+    warning = check_phase_overdue({**phase, "status": "planned"}, AFTER)
+    assert warning is not None
+    assert warning.rule == "V6"
+    assert warning.phase_id == 1
+    assert "2026-02-16" in warning.message
+
+
+def test_v6_is_quiet_before_the_end_and_once_the_phase_is_done():
+    phase = {**make_phase(1, "Design"), "status": "planned"}
+    assert check_phase_overdue(phase, DURING) is None
+    assert check_phase_overdue({**phase, "status": "done"}, AFTER) is None
+
+
+def test_v6_skips_an_unscheduled_phase():
+    phase = {**make_phase(1, "Design", start=""), "status": "planned"}
+    assert check_phase_overdue(phase, AFTER) is None
+
+
+def test_v7_fires_when_a_done_phase_names_nothing():
+    phase = {**make_phase(1, "Design"), "status": "done"}
+    warning = check_phase_done_without_deliverables(phase, [])
+    assert warning is not None
+    assert warning.rule == "V7"
+    assert warning.phase_id == 1
+
+
+def test_v7_reads_presence_and_never_the_tick():
+    """Rule 4: the tick fires no rule. An unticked deliverable still counts."""
+    phase = {**make_phase(1, "Design"), "status": "done"}
+    unticked = [{**deliverable(1, 1), "done": 0}]
+    assert check_phase_done_without_deliverables(phase, unticked) is None
+
+
+def test_v7_is_quiet_while_the_phase_is_open():
+    phase = {**make_phase(1, "Design"), "status": "planned"}
+    assert check_phase_done_without_deliverables(phase, []) is None
+
+
+def test_validate_plan_skips_the_newer_rules_without_their_inputs():
+    """Both default to None, which skips rather than inventing a clock."""
+    phases = [{**make_phase(1, "Design"), "status": "done"}]
+    assert [w.rule for w in validate_plan(PROJECT, phases)] == []
+    with_both = validate_plan(PROJECT, phases, None, {}, AFTER)
+    assert [w.rule for w in with_both] == ["V7"]

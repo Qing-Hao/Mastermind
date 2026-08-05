@@ -16,6 +16,8 @@ from pydantic import BaseModel
 
 from app import db
 from app.validation import (
+    STAGE_DONE,
+    STAGE_IDEA,
     UNSCHEDULED,
     as_optional_date,
     find_dependency_cycle,
@@ -24,7 +26,7 @@ from app.validation import (
     phase_end_date,
     project_effort_points,
     project_progress,
-    project_readiness,
+    project_stage,
     relative_layout,
     sequential_layout,
     validate_plan,
@@ -34,9 +36,10 @@ from app.validation import (
 # Projects that occupy real time. An idea has not been committed to, so it is
 # kept off the portfolio timeline.
 #
-# 'planned' is here because it is committed work that has not been slotted yet,
-# which is exactly what the staging tray is for. It earns a swimlane only once
-# its phases have dates, the same as an undated active project.
+# This is every **stored** stage except 'idea', which is the point: committed is
+# committed, whether the ladder then derives it as planned, dated, active,
+# overdue or done. Work with no dates draws no bar and reaches the staging tray
+# instead; work with dates draws one. Neither needs a stage of its own here.
 SCHEDULABLE_STAGES = ("planned", "active", "done")
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
@@ -73,6 +76,8 @@ class ProjectIn(BaseModel):
     track: str = ""
     # 0 is untiered: a new project is unranked until someone ranks it.
     tier: int = 0
+    # A new plan is being drafted by definition -- nobody has written it yet.
+    draft_complete: int = 0
 
 
 class ProjectPatch(BaseModel):
@@ -84,6 +89,7 @@ class ProjectPatch(BaseModel):
     stage: str | None = None
     track: str | None = None
     tier: int | None = None
+    draft_complete: int | None = None
 
 
 class PhaseIn(BaseModel):
@@ -286,22 +292,46 @@ def write_settings(body: SettingsIn):
 # --- projects ---------------------------------------------------------------
 
 
-@app.get("/api/projects")
-def read_projects():
-    """Every project, each carrying a derived `readiness`.
+def with_derived_stage(projects, phases, deliverables, today):
+    """Tag each project with `derived_stage`, leaving the stored one alone.
 
-    It rides on the list rather than the single-project payload because the
-    point of it is comparing projects before opening one.
+    Both travel: `stage` stays the commitment the user recorded, which is what
+    the portfolio filters on and what any write echoes back, while
+    `derived_stage` is where the project actually stands. Overwriting `stage`
+    here would have been tidier and quietly wrong -- a round trip through the
+    project form would then write a derived value back into the column.
     """
-    phases = db.phases_by_project()
-    deliverables = db.deliverables_by_project()
-    projects = db.list_projects()
     for project in projects:
-        project["readiness"] = project_readiness(
+        project["derived_stage"] = project_stage(
             project,
             phases.get(project["id"], []),
             deliverables.get(project["id"], []),
+            today,
         )
+    return projects
+
+
+@app.get("/api/projects")
+def read_projects():
+    """Every project, each carrying its `derived_stage`.
+
+    It rides on the list rather than the single-project payload because the
+    point of it is comparing projects before opening one.
+
+    Finished work is re-sorted to the bottom here rather than in `db`, because
+    only the ladder knows a project is finished: `db.list_projects` can sort on
+    the stored stage, which now says 'done' only for a manual close. A project
+    whose every phase is done is done too, and it should not sit in the middle
+    of the picker among work in flight.
+    """
+    phases = db.phases_by_project()
+    deliverables = db.deliverables_by_project()
+    today = date.today()
+    projects = with_derived_stage(
+        db.list_projects(), phases, deliverables, today)
+    # Stable, so the db ordering survives inside each of the three groups.
+    rank = {STAGE_DONE: 2, STAGE_IDEA: 1}
+    projects.sort(key=lambda project: rank.get(project["derived_stage"], 0))
     return projects
 
 
@@ -316,6 +346,7 @@ def add_project(body: ProjectIn):
         stage=clean_stage(body.stage),
         track=body.track,
         tier=clean_tier(body.tier),
+        draft_complete=1 if body.draft_complete else 0,
     )
 
 
@@ -337,9 +368,18 @@ def read_project_plan(project_id: int):
     dependencies = db.list_dependencies(project_id)
     grouped = db.deliverables_by_phase(project_id)
     settings = db.get_settings()
-    warnings = validate_plan(project, phases, settings)
+    today = date.today()
+    warnings = validate_plan(project, phases, settings, grouped, today)
     warnings += warnings_touching(project_id, portfolio_warnings())
     offsets = relative_layout(phases)
+    # The ladder does ride on this payload, unlike the readiness it replaced:
+    # the drafting toggle lives in this view, and a switch you cannot see the
+    # effect of is a switch you have to guess at.
+    project["derived_stage"] = project_stage(
+        project, phases,
+        [item for items in grouped.values() for item in items],
+        today,
+    )
 
     enriched = []
     for phase in phases:
@@ -403,16 +443,22 @@ def read_graph():
     """
     settings = db.get_settings()
     grouped = db.phases_by_project()
+    deliverables = db.deliverables_by_project()
     today = date.today()
 
     nodes = []
-    for project in db.list_projects():
+    for project in with_derived_stage(
+            db.list_projects(), grouped, deliverables, today):
         phases = grouped.get(project["id"], [])
         progress = project_progress(phases)
         nodes.append({
             "id": project["id"],
             "name": project["name"],
             "stage": project["stage"],
+            # What the node is actually drawn from. The map used to style off
+            # the stored stage, which meant a project looked committed-not-
+            # started until someone remembered to change it by hand.
+            "derived_stage": project["derived_stage"],
             "track": project["track"],
             # The map filters and ranks on this; 0 means untiered.
             "tier": project["tier"],
@@ -458,12 +504,14 @@ def edit_project(project_id: int, body: ProjectPatch):
     fields = body.model_dump(exclude_unset=True)
     if "start_date" in fields:
         fields["start_date"] = clean_date(fields["start_date"])
-    # Promoting a future direction is this same edit with stage='active': the
+    # Promoting a future direction is this same edit with stage='planned': the
     # row keeps its id, goal and anything else already written against it.
     if "stage" in fields:
         fields["stage"] = clean_stage(fields["stage"])
     if "tier" in fields:
         fields["tier"] = clean_tier(fields["tier"])
+    if "draft_complete" in fields:
+        fields["draft_complete"] = 1 if fields["draft_complete"] else 0
     return db.update_project(project_id, fields)
 
 

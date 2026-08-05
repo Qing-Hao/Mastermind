@@ -33,16 +33,32 @@ CREATE TABLE IF NOT EXISTS {name} (
     goal              TEXT NOT NULL DEFAULT '',
     start_date        TEXT NOT NULL,
     velocity_override INTEGER,
-    -- 'idea' is a future direction: something worth doing that nobody has
-    -- committed to yet. It is a project row so promoting it keeps the id and
-    -- anything already written against it -- no copy, nothing lost.
+    -- Only three of these four values still decide anything, because
+    -- `validation.project_stage` derives the rest from the plan and the clock:
     --
-    -- 'planned' sits between the two: the plan is written and nothing is
-    -- slotted. It is a commitment level, not a measure of how complete the plan
-    -- is -- that is `validation.project_readiness`, which is derived and says
-    -- 'scheduled' for the state this one is deliberately not.
+    --   'idea'             nobody has committed. Keeps work off the portfolio.
+    --   'planned'/'active' both mean simply "committed" and are not
+    --                      distinguished any more -- the ladder works out
+    --                      whether committed work is drafted, dated, running or
+    --                      late. 'planned' is what the UI writes; 'active' is
+    --                      what older rows carry and reads identically.
+    --   'done'             the manual close, and it beats the ladder outright.
+    --                      Not "delivered" but "closed without finishing":
+    --                      cancelled work never reaches every-phase-done and
+    --                      would otherwise sit overdue forever.
+    --
+    -- The CHECK keeps all four: narrowing it would mean rebuilding this table
+    -- (see `migrate_stage_check`), which has cost a real dataset once, to buy
+    -- nothing a reader of this comment does not already know.
     stage             TEXT NOT NULL DEFAULT 'active'
                       CHECK (stage IN ('idea', 'planned', 'active', 'done')),
+    -- "I am done drafting this plan" -- the one thing about a plan's shape that
+    -- cannot be derived, because only the user knows whether a phase with
+    -- nothing under it is an omission or a deliberately thin one. It decides
+    -- `planning` vs `planned` and nothing else; once the work has dates the
+    -- ladder ignores it entirely.
+    draft_complete    INTEGER NOT NULL DEFAULT 0
+                      CHECK (draft_complete IN (0, 1)),
     -- Free-text grouping for the map view, e.g. 'Developer experience'.
     track             TEXT NOT NULL DEFAULT '',
     -- Priority, 1 highest. 0 is untiered and is a state of its own, not a
@@ -115,7 +131,7 @@ SCHEMA = SETTINGS_TABLE + PROJECT_TABLE.format(name="project") + REST_OF_SCHEMA
 # retired in some earlier release is left behind rather than failing the copy.
 PROJECT_COLUMNS = (
     "id", "name", "description", "goal", "start_date", "velocity_override",
-    "stage", "track", "tier", "created_at", "updated_at",
+    "stage", "track", "tier", "draft_complete", "created_at", "updated_at",
 )
 
 # Phase-level dependency rows, translated up to the projects they belonged to.
@@ -145,6 +161,13 @@ ADDED_COLUMNS = [
     # Existing deliverables predate the tick, so they default to not done --
     # the safe read, since nothing recorded that they were finished.
     ("deliverable", "done", "INTEGER NOT NULL DEFAULT 0"),
+    # Existing projects arrive still-drafting rather than drafted. It is the
+    # quieter default of the two: it reads `planning`, which understates a plan
+    # that is in fact finished, where the opposite would call every half-written
+    # plan in the file done. Undoing it is one click per project, and only for
+    # projects that have no dates -- once work is dated the flag is ignored.
+    ("project", "draft_complete", "INTEGER NOT NULL DEFAULT 0 "
+                                  "CHECK (draft_complete IN (0, 1))"),
 ]
 
 # Columns retired after the first release. Deliverables stopped carrying their
@@ -371,16 +394,16 @@ def get_project(project_id):
 
 
 def create_project(name, start_date, description="", goal="", velocity_override=None,
-                   stage="active", track="", tier=0):
+                   stage="active", track="", tier=0, draft_complete=0):
     timestamp = now_iso()
     with connect() as connection:
         cursor = connection.execute(
             """INSERT INTO project (name, description, goal, start_date,
                                     velocity_override, stage, track, tier,
-                                    created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                    draft_complete, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (name, description, goal, start_date, velocity_override, stage, track,
-             tier, timestamp, timestamp),
+             tier, draft_complete, timestamp, timestamp),
         )
         project_id = cursor.lastrowid
     return get_project(project_id)
@@ -388,7 +411,7 @@ def create_project(name, start_date, description="", goal="", velocity_override=
 
 def update_project(project_id, fields):
     allowed = {"name", "description", "goal", "start_date", "velocity_override",
-               "stage", "track", "tier"}
+               "stage", "track", "tier", "draft_complete"}
     updates = {key: value for key, value in fields.items() if key in allowed}
     if updates:
         updates["updated_at"] = now_iso()
@@ -643,13 +666,14 @@ def export_all():
         # 3 added project.stage/track and settings.department_name; 4 dropped
         # the deliverable estimate and the V5 tolerance; 5 added deliverable.done;
         # 6 moved dependencies from phases up to projects; 7 added project.tier;
-        # 8 added the 'planned' stage.
-        # Reads stay tolerant of older files, so a version-2 through -7 export
+        # 8 added the 'planned' stage; 9 added project.draft_complete.
+        # Reads stay tolerant of older files, so a version-2 through -8 export
         # still imports -- fields that no longer exist are ignored, ones that did
         # not exist yet fall back to their default, and phase-level dependencies
         # are translated on the way in. Nothing in an older file is ever
-        # 'planned', so no translation is needed for version 8.
-        "version": 8,
+        # 'planned', so no translation is needed for version 8, and nothing in
+        # one is drafted, which reads as still-drafting for version 9.
+        "version": 9,
         "exported_at": now_iso(),
         "settings": get_settings(),
         "projects": projects,
@@ -732,8 +756,8 @@ def import_all(payload):
             connection.execute(
                 """INSERT INTO project (id, name, description, goal, start_date,
                                         velocity_override, stage, track, tier,
-                                        created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                        draft_complete, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     project["id"], project["name"], project.get("description", ""),
                     project.get("goal", ""),
@@ -745,6 +769,10 @@ def import_all(payload):
                     # Anything before 7 predates tiers: untiered is the honest
                     # read, since nothing in the file ranked it.
                     project.get("tier") or 0,
+                    # Anything before 9 predates the drafting flag. Still-drafting
+                    # is the quieter read: it understates a finished plan rather
+                    # than declaring every half-written one done.
+                    1 if project.get("draft_complete") else 0,
                     project.get("created_at") or now_iso(),
                     project.get("updated_at") or now_iso(),
                 ),

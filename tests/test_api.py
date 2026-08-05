@@ -654,63 +654,95 @@ def test_deleting_a_project_removes_its_phases(client):
     assert client.get("/api/export").json()["phases"] == []
 
 
-# --- readiness on the project list ------------------------------------------
+# --- the derived stage on the project list ----------------------------------
+#
+# The ladder reads the clock, so these follow the convention the graph tests
+# already use: 2026-01-05 is unambiguously behind us and 2099 unambiguously
+# ahead, which keeps every expectation below deterministic.
 
 
-def readiness_of(client):
-    """The project list as {name: readiness}, plus the order it came back in."""
+def stages_of(client):
+    """The list as {name: derived_stage}, plus the order it came back in."""
     projects = client.get("/api/projects").json()
-    return ({project["name"]: project["readiness"] for project in projects},
+    return ({project["name"]: project["derived_stage"] for project in projects},
             [project["name"] for project in projects])
 
 
-def test_the_project_list_carries_readiness_through_the_whole_lifecycle(client):
+def test_the_project_list_carries_the_ladder_through_the_whole_lifecycle(client):
     project = make_project(client, start="")
-    assert readiness_of(client)[0] == {"Payments": "planning"}
+    assert stages_of(client)[0] == {"Payments": "planning"}
 
     phase = make_phase(client, project["id"], "Design", "", 4, 40)
-    assert readiness_of(client)[0] == {"Payments": "planning"}
+    assert stages_of(client)[0] == {"Payments": "planning"}
 
     client.post(f"/api/phases/{phase['id']}/deliverables", json={"name": "Wireframes"})
-    assert readiness_of(client)[0] == {"Payments": "ready"}
+    # Named, but a plan is being drafted until the user says otherwise.
+    assert stages_of(client)[0] == {"Payments": "planning"}
 
-    client.put(f"/api/projects/{project['id']}", json={"start_date": "2026-01-05"})
+    client.put(f"/api/projects/{project['id']}", json={"draft_complete": 1})
+    assert stages_of(client)[0] == {"Payments": "planned"}
+
+    client.put(f"/api/projects/{project['id']}", json={"start_date": "2099-01-05"})
     client.post(f"/api/projects/{project['id']}/layout")
-    assert readiness_of(client)[0] == {"Payments": "scheduled"}
+    assert stages_of(client)[0] == {"Payments": "dated"}
 
     client.put(f"/api/projects/{project['id']}", json={"stage": "done"})
-    assert readiness_of(client)[0] == {"Payments": "done"}
+    assert stages_of(client)[0] == {"Payments": "done"}
 
 
-def test_a_second_phase_with_nothing_named_under_it_reopens_planning(client):
-    project = make_project(client)
-    first = make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+def test_a_dated_project_reads_active_or_overdue_from_the_calendar(client):
+    project = make_project(client, start="2026-01-05")
+    make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+    assert stages_of(client)[0] == {"Payments": "overdue"}
+
+    client.put(f"/api/projects/{project['id']}", json={"stage": "done"})
+    assert stages_of(client)[0] == {"Payments": "done"}
+
+
+def test_a_thin_phase_no_longer_drags_the_whole_project_backwards(client):
+    """The rule this replaced read `planning` for six of seven real projects,
+    because one phase with nothing under it outranked every date on the plan."""
+    project = make_project(client, start="2099-01-05")
+    first = make_phase(client, project["id"], "Design", "2099-01-05", 4, 40)
     client.post(f"/api/phases/{first['id']}/deliverables", json={"name": "Wireframes"})
-    assert readiness_of(client)[0] == {"Payments": "scheduled"}
+    assert stages_of(client)[0] == {"Payments": "dated"}
 
-    make_phase(client, project["id"], "Build", "2026-02-02", 4, 40)
-    assert readiness_of(client)[0] == {"Payments": "planning"}
+    make_phase(client, project["id"], "Build", "2099-02-02", 4, 40)
+    assert stages_of(client)[0] == {"Payments": "dated"}
 
 
-def test_readiness_is_counted_per_project(client):
+def test_the_ladder_is_computed_per_project(client):
     empty = make_project(client, "Ledger")
-    scheduled = make_project(client, "Payments")
-    phase = make_phase(client, scheduled["id"], "Design", "2026-01-05", 4, 40)
+    dated = make_project(client, "Payments", start="2099-01-05")
+    phase = make_phase(client, dated["id"], "Design", "2099-01-05", 4, 40)
     client.post(f"/api/phases/{phase['id']}/deliverables", json={"name": "Wireframes"})
 
-    assert readiness_of(client)[0] == {"Ledger": "planning", "Payments": "scheduled"}
-    assert empty["id"] != scheduled["id"]
+    assert stages_of(client)[0] == {"Ledger": "planning", "Payments": "dated"}
+    assert empty["id"] != dated["id"]
 
 
 def test_finished_work_sorts_below_ideas_and_ideas_below_live_work(client):
-    make_project(client, "Payments", start="2026-01-05")
+    make_project(client, "Payments", start="2099-01-05")
     finished = make_project(client, "Ledger", start="2026-01-05")
     client.post("/api/projects", json={
         "name": "Caching", "start_date": "", "stage": "idea",
     })
     client.put(f"/api/projects/{finished['id']}", json={"stage": "done"})
 
-    assert readiness_of(client)[1] == ["Payments", "Caching", "Ledger"]
+    assert stages_of(client)[1] == ["Payments", "Caching", "Ledger"]
+
+
+def test_a_project_finished_by_its_phases_sorts_last_too(client):
+    """`db.list_projects` can only sort on the stored stage, which now says done
+    for a manual close alone. The list re-sorts on the ladder for this reason."""
+    make_project(client, "Payments", start="2099-01-05")
+    finished = make_project(client, "Ledger", start="2026-01-05")
+    phase = make_phase(client, finished["id"], "Design", "2026-01-05", 4, 40)
+    client.put(f"/api/phases/{phase['id']}", json={"status": "done"})
+
+    listed, order = stages_of(client)
+    assert listed["Ledger"] == "done"
+    assert order == ["Payments", "Ledger"]
 
 
 # --- future directions ------------------------------------------------------
@@ -790,7 +822,7 @@ def test_tier_changes_nothing_a_rule_reads(client):
     }).json()
     make_phase(client, project["id"], "Design", "2026-01-05", 6, 55)
     before = client.get(f"/api/projects/{project['id']}").json()
-    readiness_before = client.get("/api/projects").json()[0]["readiness"]
+    stage_before = client.get("/api/projects").json()[0]["derived_stage"]
 
     client.put(f"/api/projects/{project['id']}", json={"tier": 3})
     after = client.get(f"/api/projects/{project['id']}").json()
@@ -798,7 +830,7 @@ def test_tier_changes_nothing_a_rule_reads(client):
     assert after["warnings"] == before["warnings"]
     assert [phase["start_date"] for phase in after["phases"]] \
         == [phase["start_date"] for phase in before["phases"]]
-    assert client.get("/api/projects").json()[0]["readiness"] == readiness_before
+    assert client.get("/api/projects").json()[0]["derived_stage"] == stage_before
 
 
 def test_a_pre_tier_export_imports_as_untiered(client):
@@ -912,16 +944,24 @@ def test_planned_sorts_between_live_work_and_ideas(client):
         == ["Payments", "Caching", "Telemetry", "Ledger"]
 
 
-def test_readiness_is_a_separate_axis_from_the_planned_stage(client):
-    """stage='planned' says committed; readiness says how much is written."""
+def test_the_stored_stage_and_the_derived_one_both_travel(client):
+    """The stored column keeps recording commitment, because the portfolio
+    filters on it and a write echoes it back. The ladder rides alongside."""
     project = make_planned(client)
     phase = make_phase(client, project["id"], "Design", "", 2, 20)
     client.post(f"/api/phases/{phase['id']}/deliverables", json={"name": "Wireframes"})
+    client.put(f"/api/projects/{project['id']}", json={"draft_complete": 1})
 
     listed = client.get("/api/projects").json()[0]
     assert listed["stage"] == "planned"
-    # Named and estimated but undated -- which is 'ready', not 'scheduled'.
-    assert listed["readiness"] == "ready"
+    assert listed["derived_stage"] == "planned"
+
+    # 'active' is the same commitment as 'planned' as far as the ladder cares:
+    # both mean committed, and the dates decide the rest.
+    client.put(f"/api/projects/{project['id']}", json={"stage": "active"})
+    listed = client.get("/api/projects").json()[0]
+    assert listed["stage"] == "active"
+    assert listed["derived_stage"] == "planned"
 
 
 def test_an_unknown_stage_is_still_rejected(client):
@@ -1023,7 +1063,7 @@ def test_stage_track_and_department_survive_a_round_trip(client):
     make_direction(client, "Build caching", track="Developer experience")
 
     exported = client.get("/api/export").json()
-    assert exported["version"] == 8
+    assert exported["version"] == 9
 
     for existing in client.get("/api/projects").json():
         client.delete(f"/api/projects/{existing['id']}")
@@ -1108,10 +1148,12 @@ def test_a_version_4_export_imports_with_every_deliverable_ongoing(client):
     assert client.post("/api/import", json=legacy).status_code == 200
 
     exported = client.get("/api/export").json()
-    assert exported["version"] == 8
+    assert exported["version"] == 9
     # Even under a phase marked done -- the tick is the user's to set, and a
     # phase status is not evidence about any particular deliverable.
     assert exported["deliverables"][0]["done"] == 0
+    # A version-4 file predates the drafting flag, which reads as still drafting.
+    assert exported["projects"][0]["draft_complete"] == 0
 
 
 def version_5_file(dependencies):
@@ -1252,7 +1294,12 @@ def pre_planned_file(path):
                                   CHECK (tier IN (0, 1, 2, 3)),
                 created_at        TEXT NOT NULL,
                 updated_at        TEXT NOT NULL)""")
-        columns = ", ".join(db.PROJECT_COLUMNS)
+        # A file this old predates every column added since, not just the wider
+        # CHECK -- so copy the intersection rather than PROJECT_COLUMNS, which
+        # is the current shape and grows.
+        current = db.columns_of(connection, "project")
+        columns = ", ".join(column for column in db.columns_of(connection, "project_old")
+                            if column in current)
         connection.execute(
             f"INSERT INTO project_old ({columns}) SELECT {columns} FROM project")
         connection.execute("DROP TABLE project")
