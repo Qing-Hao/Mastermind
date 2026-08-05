@@ -2056,13 +2056,22 @@ function trackPicker(input) {
       input.removeAttribute("aria-activedescendant");
     }
 
+    // The hint offers the key the highlighted row can actually use: a track
+    // with subtracks can be opened, anything else can only be taken.
     foot.textContent = "";
     const openable = current && current.kind === "track"
       && findTrack(current.value).subs.length > 0;
-    foot.append(
-      element("b", null, openable ? "/" : "Enter"),
-      element("span", null, openable ? " opens this track · " : " commits · "),
-      element("span", null, openable ? "Enter takes it as-is" : "anything you type is allowed"));
+    if (openable) {
+      foot.append(
+        element("b", null, "/"), element("span", null, "opens this track"),
+        element("span", null, "·"),
+        element("b", null, "Enter"), element("span", null, "takes it as-is"));
+    } else {
+      foot.append(
+        element("b", null, "Enter"), element("span", null, "commits"),
+        element("span", null, "·"),
+        element("span", null, "anything you type is allowed"));
+    }
   }
 
   const committed = () => {

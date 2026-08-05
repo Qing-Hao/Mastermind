@@ -1,4 +1,4 @@
-/* Deliberately minimal. Layout and legibility only -- visual design comes
+﻿/* Deliberately minimal. Layout and legibility only -- visual design comes
    after the tool proves useful. */
 
 * { box-sizing: border-box; }
@@ -370,88 +370,212 @@ table.deliverables tr.done input[type="text"] { color: #999; text-decoration: li
 /* The one hand-rolled control here, so it carries the only component styling in
    this file. A <datalist> would need none of this, but it cannot nest, count or
    offer a create row -- and the nesting is the point, since the map draws the
-   same two levels. */
-.track-picker { position: relative; display: inline-block; }
+   same two levels.
+
+   Which means the affordance is on us too: a bare text box gives no sign that
+   pressing Down opens anything, so the caret, the open state and the panel's
+   elevation are what say "dropdown" before you touch it. */
+
+.track-picker {
+  position: relative;
+  display: inline-block;
+  width: 232px;   /* wide enough for the longest track name plus its count */
+  vertical-align: top;
+}
+
+/* Full width of the wrapper, with room kept clear for the caret. */
+.track-picker input {
+  width: 100%;
+  padding-right: 24px;
+  border: 1px solid #999;
+  border-radius: 3px;
+  background: #fff;
+}
+.track-picker input:hover { border-color: #6d6d6d; }
+.track-picker input:focus {
+  outline: none;
+  border-color: #5c6bc0;
+  box-shadow: 0 0 0 2px rgba(92, 107, 192, .18);
+}
+
+/* The caret sits on the wrapper: an <input> takes no pseudo-elements. It never
+   eats a click -- the whole field opens the panel anyway. */
+.track-picker::after {
+  content: "";
+  position: absolute;
+  top: 12px;
+  right: 9px;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid #777;
+  border-bottom: 1.5px solid #777;
+  transform: translateY(-2px) rotate(45deg);
+  transform-origin: center;
+  transition: transform .12s ease, border-color .12s ease;
+  pointer-events: none;
+}
+.track-picker[data-open="true"]::after {
+  border-color: #3949ab;
+  transform: translateY(1px) rotate(-135deg);
+}
+
 .track-picker[data-open="false"] .track-panel { display: none; }
 
 .track-panel {
   position: absolute;
   z-index: 20;
-  top: calc(100% + 3px);
+  top: calc(100% + 4px);
   left: 0;
-  min-width: 260px;
+  width: max(100%, 288px);
+  max-width: 380px;
   background: #fff;
-  border: 1px solid #bbb;
-  border-radius: 4px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, .16);
+  border: 1px solid #c9c9c9;
+  border-radius: 6px;
+  /* Two shadows: a tight one to seat the edge, a soft one to lift the panel off
+     the form behind it. Without the lift it reads as part of the page. */
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .08), 0 8px 24px rgba(0, 0, 0, .16);
+  overflow: hidden;
 }
 
-/* Where you are, when a slash has taken you inside a track. */
+/* Where you are, when a slash has taken you inside a track. Sticky, so a long
+   subtrack list never leaves you wondering which track you are inside.
+   The [hidden] rule is load-bearing: a class that sets `display` outranks the
+   UA sheet's `[hidden] { display: none }`, so without it the crumb would stay
+   on screen naming a track you had already backed out of. */
+.track-crumb[hidden] { display: none; }
 .track-crumb {
+  position: sticky;
+  top: 0;
   display: flex;
   align-items: baseline;
-  gap: 6px;
-  padding: 4px 9px;
-  border-bottom: 1px solid #eee;
-  background: #f7f7f7;
-  font-size: 11px;
+  gap: 7px;
+  padding: 6px 10px;
+  border-bottom: 1px solid #ededed;
+  background: #f5f6f8;
+  font-size: 10.5px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #777;
+  letter-spacing: 0.07em;
+  color: #8a8a8a;
 }
 .track-crumb em {
   font-style: normal;
   text-transform: none;
   letter-spacing: 0;
   font-size: 13px;
+  font-weight: 600;
   color: #1a1a1a;
 }
 
-.track-rows { max-height: 240px; overflow-y: auto; padding: 3px 0; }
+.track-rows { max-height: 252px; overflow-y: auto; padding: 4px 0; }
+.track-rows::-webkit-scrollbar { width: 9px; }
+.track-rows::-webkit-scrollbar-thumb {
+  background: #d5d5d5;
+  border: 2px solid #fff;
+  border-radius: 5px;
+}
+.track-rows::-webkit-scrollbar-thumb:hover { background: #bdbdbd; }
 
 .track-opt {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  padding: 3px 9px;
+  /* The 3px is the stripe's gutter, painted by the active row's border-left so
+     the text never shifts when the highlight moves. */
+  padding: 5px 10px 5px 7px;
+  border-left: 3px solid transparent;
   font-size: 13px;
+  line-height: 1.45;
   cursor: pointer;
 }
-.track-opt[data-active="true"] { background: #e8eef7; }
+.track-opt[data-active="true"] {
+  background: #eef1fa;
+  border-left-color: #5c6bc0;
+}
 .track-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.track-count { font-size: 11px; color: #999; }
+/* The run your typing caught. */
+.track-label b { font-weight: 700; color: #000; }
 
-/* Indented and drawn off its parent, the same hierarchy the map reads from
-   weight. */
-.track-sub { padding-left: 20px; color: #444; }
-.track-sub .track-label::before { content: "└ "; color: #ccc; }
+/* Counts line up in their own column, so the eye can compare weights down the
+   list rather than reading each row. */
+.track-count {
+  flex: none;
+  min-width: 18px;
+  text-align: right;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: #a0a0a0;
+}
+
+/* A track is heavier than its subtracks, the same way the map reads hierarchy
+   from weight rather than from a legend. */
+.track-track .track-label { font-weight: 600; }
+.track-sub { padding-left: 25px; color: #4a4a4a; }
+.track-sub .track-label::before { content: "└ "; color: #cfcfcf; font-weight: 400; }
 
 /* Nothing is created by picking this -- it fills the field, and the track
-   starts existing when the project is saved. */
+   starts existing when the project is saved. Set apart from the real rows for
+   exactly that reason. */
 .track-create {
-  border-top: 1px solid #eee;
-  margin-top: 3px;
-  padding-top: 5px;
+  border-top: 1px solid #ededed;
+  margin-top: 4px;
+  padding-top: 7px;
+  padding-bottom: 7px;
   color: #00695c;
 }
+/* Nothing above it to be set apart from, when what you typed matches nothing. */
+.track-create:first-child { border-top: 0; margin-top: 0; }
+.track-create .track-label::before { content: "+ "; color: #4db6ac; font-weight: 700; }
+.track-create[data-active="true"] { background: #e4f2f0; border-left-color: #00897b; }
 
 .track-tag {
-  font-size: 10px;
+  flex: none;
+  font-size: 9.5px;
+  font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #7a4e06;
+  color: #8a5a00;
   background: #fdf0d5;
-  border-radius: 2px;
-  padding: 2px 4px;
+  border: 1px solid #f2ddb0;
+  border-radius: 9px;
+  padding: 1px 6px;
 }
-.track-create .track-tag { color: #00695c; background: #e0f2f1; }
+.track-create .track-tag {
+  color: #00695c;
+  background: #e0f2f1;
+  border-color: #b2dfdb;
+}
 
-.track-empty { padding: 8px 9px; font-size: 13px; color: #999; font-style: italic; }
+.track-empty {
+  padding: 10px;
+  font-size: 13px;
+  color: #9e9e9e;
+  font-style: italic;
+}
 
 .track-foot {
-  border-top: 1px solid #eee;
-  padding: 4px 9px;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 5px;
+  border-top: 1px solid #ededed;
+  padding: 5px 10px;
   background: #fafafa;
   font-size: 11px;
-  color: #888;
+  color: #8a8a8a;
+}
+/* The key being offered, drawn as a key. */
+.track-foot b {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #555;
+  background: #fff;
+  border: 1px solid #d5d5d5;
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .track-picker::after { transition: none; }
 }
