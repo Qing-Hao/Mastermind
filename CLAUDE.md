@@ -14,8 +14,16 @@ migration framework, no auth.
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000   # http://127.0.0.1:8000
-.\.venv\Scripts\python.exe -m pytest -q                                   # 128 tests, ~2.5s
+.\.venv\Scripts\python.exe -m pytest -q                                   # 144 tests, ~3s
 ```
+
+> **`--reload` runs `init_db()` — and therefore `db.migrate()` — against
+> `data/roadmap.db` every time a source file is saved.** A half-finished edit is
+> executed the moment it hits disk; it does not need to be run deliberately, or
+> even to be finished. Before touching anything under "Schema changes" below:
+> stop the server, or point it at a copy. This has already cost the real dataset
+> once — 24 phases and 33 deliverables, recovered from a backup. See STATUS.md
+> item 50.
 
 Type checking is pyright, `basic` mode, config in `pyrightconfig.json`.
 `conftest.py` exists only to put the repo root on `sys.path`.
@@ -439,6 +447,14 @@ mobile layouts.
   one.
 - Python is `snake_case`; the JS follows JS convention (camelCase).
 - Answer questions before changing code — ask for confirmation before editing.
+- **Verify a destructive operation before it reaches the disk, not after.** The
+  dev server watches these files, so saving is running. Prove out anything that
+  drops, renames or rebuilds a table in a scratch database first — an in-memory
+  SQLite script is thirty seconds — then write it. Being right two minutes late
+  is indistinguishable from being wrong.
+- **Back the data file up before schema work**, under a name that does not
+  overwrite an existing backup. `data/roadmap.db.bak` is an old one and is not
+  a scratch slot.
 - Surface architecture tradeoffs as 2–4 named options with one-line pro/con, then
   a recommendation.
 - Commit locally as work lands. **Never push or open a PR without approval.**
