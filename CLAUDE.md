@@ -42,7 +42,14 @@ structure change before adding anything top-level.
 
 `project` — name, description, `goal` (free text, never parsed), `start_date`,
 `velocity_override` (nullable), `stage` ∈ `idea|active|done`, `track` (free text),
-timestamps.
+`tier` ∈ `0|1|2|3`, timestamps.
+
+`tier` is priority, 1 highest, and **0 is untiered — the absence of a decision,
+not a fourth tier**. It sorts last everywhere, is spelt out rather than numbered
+in the UI, and existing rows migrate to it rather than to a middle tier: ranking
+work nobody ranked would be the tool having an opinion. Nothing derives from
+tier and no rule reads it. It exists so the Map can be thinned to what matters —
+that is its whole job, and the reason it is a small integer and not a table.
 
 `track` is one column and stays one column. The Map splits it on the **first
 slash** — `Source expansion / Metrics` — to draw a subtrack ring. That is a
@@ -196,8 +203,8 @@ The dependency step is the one table-level migration: if the old phase-level
 linked, links that collapse onto one project are discarded, and the table is
 dropped. **Irreversible** — back the file up first.
 
-Export `version` is currently **6**. Bump it when the shape changes and keep
-imports tolerant of older files — v2–v5 exports must still import, with absent
+Export `version` is currently **7**. Bump it when the shape changes and keep
+imports tolerant of older files — v2–v6 exports must still import, with absent
 fields falling back to defaults and phase-level dependencies translated by
 `project_dependencies_from()`. `import_all` is destructive by design and
 preserves ids so links survive the round trip; a translated pre-v6 file is the
@@ -242,7 +249,8 @@ into one project link.
     control. Renaming a track is still per-project by hand.
   - Committing dispatches `change` itself rather than waiting for blur, because
     the field's existing `onchange` is what saves the project.
-- **Project** — goal, fields, warnings, unscheduled list, timeline, phase table
+- **Project** — goal, fields (including **Tier**, the only place it is set),
+  warnings, unscheduled list, timeline, phase table
   with expandable deliverables (`3/5` tally on the phase row), dependencies. The
   dependency panel lists both directions (`← waits on X`, `→ Y waits on this`)
   and links by picking another project plus a direction.
@@ -319,6 +327,32 @@ into one project link.
   nothing moves. Verified by collision sweep over the real dataset: clean from
   1000px to 1530px; below ~900px twelve projects genuinely do not fit and
   labels touch again.
+  **Tier is the crowd control.** Above the canvas, one toggle per tier —
+  `T1 T2 T3 untiered`, counted off the whole dataset so a chip still says what
+  is behind it while it is off, and all on by default because a filter that
+  hides work by default loses it. Filtering happens **before `mapGroups`**, so a
+  wedge is sized by what is actually drawn and a track with nothing left in it
+  leaves the map entirely — hiding the noise is what widens the room around
+  what remains. Turning every tier off is allowed and says so on the canvas.
+  Lives in `state.mapTiers`: it survives re-renders and tab switches but not a
+  reload, like `timelineMode`, because it is a way of looking rather than a
+  setting. A dependency pointing at a filtered-out project simply is not drawn —
+  `wireMapFocus` already skipped links whose ends it has no centre for.
+  On the node itself, tier is **visual weight**: tier 1 gains a halo ring, tier
+  3 fades (returning to full strength on hover, so the fade is a resting state
+  and not a handicap), tier 2 is the plain node. A halo rather than a heavier
+  stroke because hover and focus already own stroke width — a top-tier project
+  would otherwise look permanently hovered. Within a wedge, projects sort by
+  tier then id, applied **inside `group.direct` and inside each subtrack's
+  list** rather than across the wedge: a subtrack owns a contiguous run of slots
+  and sits at the middle of it, so sorting across would interleave subtracks and
+  leave their nodes pointing at nothing.
+  Untiered is called out in **words on the label's first meta line**
+  (`untiered · no phases yet`, `T1 · 3/5 phases`) rather than given a shade of
+  its own — "never ranked" is not a rank, and the circle cannot carry the
+  difference. It rides on the existing first meta line instead of a new line
+  because the map's label clearances are sized against the height of the label
+  block, which a fourth line would change.
   Dependencies are **not drawn on every render** — a dozen projects on a radial
   layout becomes spaghetti. Instead `GET /api/graph` carries them and hovering
   (or keyboard-focusing) a project dims the map to that project and the ones it

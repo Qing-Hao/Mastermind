@@ -347,6 +347,35 @@ table.deliverables tr.done input[type="text"] { color: #999; text-decoration: li
 .map-node:hover circle, .map-node:focus circle { stroke: #1a1a1a; stroke-width: 2.5; }
 .map-node:focus { outline: none; }
 
+/* --- tier ---------------------------------------------------------------
+   Priority reads as visual weight: tier 1 gains a ring, tier 3 recedes, tier 2
+   is the plain node. Untiered is plain too and is called out in the label
+   instead -- "never ranked" is not a shade of a rank. */
+.map-node .map-halo { fill: none; stroke-width: 1.5; opacity: .5; }
+.map-node.tier-3 circle { fill-opacity: .5; stroke-opacity: .4; }
+.map-node.tier-3 .map-name { fill: #666; }
+.map-node.tier-3 .map-meta { fill: #aaa; }
+/* Pointing at a faded node brings it fully back -- the fade is a resting
+   state, not a permanent handicap. */
+.map-node.tier-3:hover circle, .map-node.tier-3:focus circle {
+  fill-opacity: 1;
+  stroke-opacity: 1;
+}
+
+.tier-filter { display: flex; gap: 4px; align-items: center; }
+.tier-chip {
+  padding: 3px 8px;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  background: #fafafa;
+  color: #999;
+  font-size: 12px;
+}
+.tier-chip.on { border-color: #5c6bc0; background: #eef0ff; color: #333; }
+/* Tier 1's chip carries the same ring the node does. */
+.tier-chip.tier-1.on { box-shadow: 0 0 0 2px #eef0ff, 0 0 0 3px #c5cae9; }
+.tier-chip.tier-0 { font-style: italic; }
+
 .map-label { pointer-events: none; }
 .map-name { fill: #1a1a1a; font-size: 12px; font-weight: 600; }
 .map-meta { fill: #888; font-size: 10px; }

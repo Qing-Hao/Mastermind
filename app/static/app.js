@@ -43,6 +43,13 @@ const READINESS_BADGE = {
   done: "✅",
 };
 
+// Priority, 1 highest. 0 is untiered -- not a fourth tier but the absence of a
+// decision, which is why it sorts last and is named rather than numbered
+// everywhere it shows. Ranking is what lets the map be thinned down to the work
+// that matters; nothing else in the tool reads it.
+const TIER_ORDER = [1, 2, 3, 0];
+const TIER_LABEL = { 1: "T1", 2: "T2", 3: "T3", 0: "untiered" };
+
 let state = {
   view: "project",
   projects: [],
@@ -64,6 +71,10 @@ let state = {
   // previous start date and the phases that drop dated. In memory only -- a
   // reload loses it, and the offer says so rather than pretending otherwise.
   lastPlacement: null,
+  // Which tiers the map draws. Everything to start with -- a filter that hides
+  // work by default would lose it. Survives re-renders and tab switches but not
+  // a reload, same as the timeline mode: it is a way of looking, not a setting.
+  mapTiers: new Set(TIER_ORDER),
 };
 
 // --- api --------------------------------------------------------------------
@@ -461,6 +472,7 @@ function renderProjectFields() {
   $("project-name").value = project.name;
   $("project-start").value = project.start_date;
   $("project-stage").value = project.stage;
+  $("project-tier").value = String(project.tier ?? 0);
   $("project-track").value = project.track || "";
   $("project-velocity").value = project.velocity_override ?? "";
 }
@@ -1470,10 +1482,21 @@ function splitTrack(raw) {
   return track ? { track, sub } : { track: sub, sub: "" };
 }
 
-// Tracks sorted by name, subtracks by name, projects by id, so nothing
-// reshuffles between renders. Untracked projects come last and hang straight
-// off the hub; within a track, projects with no subtrack come first and hang
-// straight off the track.
+// Where a project sits in tier order: 1, 2, 3, then untiered. Untiered last
+// because it is an unanswered question, not the lowest priority.
+const tierRank = (project) => {
+  const found = TIER_ORDER.indexOf(project.tier ?? 0);
+  return found === -1 ? TIER_ORDER.length : found;
+};
+
+// Tracks sorted by name, subtracks by name, projects by tier then id, so
+// nothing reshuffles between renders. Untracked projects come last and hang
+// straight off the hub; within a track, projects with no subtrack come first
+// and hang straight off the track.
+//
+// Tier orders each list rather than the whole wedge: a subtrack owns a
+// contiguous run of slots and sits at the middle of it, so sorting across the
+// wedge would interleave subtracks and leave their nodes pointing at nothing.
 function mapGroups(projects) {
   const byTrack = new Map();
   for (const project of projects) {
@@ -1493,7 +1516,7 @@ function mapGroups(projects) {
       .map((name) => ({ name, projects: bySub.get(name) }));
 
     for (const list of [direct, ...subs.map((sub) => sub.projects)]) {
-      list.sort((a, b) => a.id - b.id);
+      list.sort((a, b) => tierRank(a) - tierRank(b) || a.id - b.id);
     }
     const total = subs.reduce((count, sub) => count + sub.projects.length,
       direct.length);
@@ -1508,15 +1531,54 @@ function mapGroups(projects) {
   return groups;
 }
 
+// One toggle per tier, counted off the whole dataset rather than the filtered
+// view, so a chip still tells you what is behind it while it is switched off.
+// Turning everything off is allowed: the empty map says why, and it is one
+// click back.
+function renderTierFilter() {
+  const bar = $("tier-filter");
+  bar.innerHTML = "";
+  const projects = state.graph.projects;
+
+  for (const tier of TIER_ORDER) {
+    const held = projects.filter(
+      (project) => (project.tier ?? 0) === tier).length;
+    const shown = state.mapTiers.has(tier);
+    const button = element("button",
+      `tier-chip tier-${tier}${shown ? " on" : ""}`,
+      `${TIER_LABEL[tier]} ${held}`);
+    button.type = "button";
+    button.setAttribute("aria-pressed", String(shown));
+    button.title = shown
+      ? `Hide ${TIER_LABEL[tier]} (${held} project${held === 1 ? "" : "s"})`
+      : `Show ${TIER_LABEL[tier]} (${held} project${held === 1 ? "" : "s"})`;
+    button.onclick = () => {
+      if (shown) state.mapTiers.delete(tier); else state.mapTiers.add(tier);
+      renderMap();
+    };
+    bar.appendChild(button);
+  }
+}
+
 function renderMap() {
   const canvas = $("map-canvas");
   canvas.innerHTML = "";
   $("department-name").value = state.graph.department_name || "";
+  renderTierFilter();
 
-  const projects = state.graph.projects;
-  if (projects.length === 0) {
+  // Filtered before grouping, so a wedge is sized by what is actually drawn and
+  // a track with nothing left in it drops off the map entirely. Hiding the
+  // noise is what widens the room around everything else.
+  const projects = state.graph.projects.filter(
+    (project) => state.mapTiers.has(project.tier ?? 0));
+  if (state.graph.projects.length === 0) {
     canvas.appendChild(element("p", "muted",
       "Nothing here yet. Capture a future direction below to start the map."));
+    return;
+  }
+  if (projects.length === 0) {
+    canvas.appendChild(element("p", "muted",
+      "Every project is filtered out. Switch a tier back on above to see them."));
     return;
   }
 
@@ -1755,11 +1817,20 @@ function groupNode(className, label, point, radius, place, limit) {
 }
 
 function projectNode(project, point, radius, place) {
+  const tier = project.tier ?? 0;
   const group = svgElement("g", {
-    class: `map-node stage-${project.stage}`, tabindex: "0", role: "button",
-    "data-project-id": project.id,
+    class: `map-node stage-${project.stage} tier-${tier}`, tabindex: "0",
+    role: "button", "data-project-id": project.id,
   });
   group.appendChild(svgElement("circle", { cx: point.x, cy: point.y, r: radius }));
+  // Tier 1 wears a second ring rather than a heavier stroke: hover and focus
+  // already thicken the stroke, and a top-tier project would otherwise look
+  // permanently hovered. Tier 3 fades instead, and tier 2 is the plain node.
+  if (tier === 1) {
+    group.appendChild(svgElement("circle", {
+      class: "map-halo", cx: point.x, cy: point.y, r: radius + 4,
+    }));
+  }
 
   const meta = [];
   if (project.stage === "idea") {
@@ -1770,6 +1841,11 @@ function projectNode(project, point, radius, place) {
     meta.push("no phases yet");
   }
   if (project.next_date) meta.push(`next ${project.next_date}`);
+  // Named on the first meta line rather than a line of its own: an extra line
+  // would grow every label block by one, and the map's label clearances are
+  // sized against the block. This way untiered is spelt out -- the circle alone
+  // cannot separate "ranked middling" from "never ranked".
+  meta[0] = `${TIER_LABEL[tier]} · ${meta[0]}`;
 
   group.appendChild(labelText([
     { text: truncate(project.name, 20), className: "map-name" },
@@ -1779,6 +1855,7 @@ function projectNode(project, point, radius, place) {
   // The full name and goal live in the tooltip, since the label is truncated.
   group.appendChild(svgElement("title", {}, [
     `${project.name} — ${project.stage}`,
+    tier === 0 ? "untiered" : `tier ${tier}`,
     `${project.effort_points} pts`,
     project.phases_total ? `${project.phases_done}/${project.phases_total} phases done` : null,
     project.next_date ? `next ${project.next_date}` : null,
@@ -2242,6 +2319,7 @@ function bindEvents() {
         goal: $("project-goal").value,
         start_date: $("project-start").value,
         stage: $("project-stage").value,
+        tier: Number($("project-tier").value),
         track: $("project-track").value,
         velocity_override: velocity === "" ? null : Number(velocity),
       }),
@@ -2249,7 +2327,8 @@ function bindEvents() {
     await loadProjects();
   };
   for (const id of ["project-name", "project-goal", "project-start",
-                    "project-stage", "project-track", "project-velocity"]) {
+                    "project-stage", "project-tier", "project-track",
+                    "project-velocity"]) {
     $(id).onchange = saveProject;
   }
 

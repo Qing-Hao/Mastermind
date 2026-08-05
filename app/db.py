@@ -35,6 +35,12 @@ CREATE TABLE IF NOT EXISTS project (
                       CHECK (stage IN ('idea', 'active', 'done')),
     -- Free-text grouping for the map view, e.g. 'Developer experience'.
     track             TEXT NOT NULL DEFAULT '',
+    -- Priority, 1 highest. 0 is untiered and is a state of its own, not a
+    -- fourth tier: it means nobody has ranked this yet. Nothing derives from
+    -- it and no rule reads it -- it exists so the map can be filtered down to
+    -- what matters when the roadmap gets crowded.
+    tier              INTEGER NOT NULL DEFAULT 0
+                      CHECK (tier IN (0, 1, 2, 3)),
     created_at        TEXT NOT NULL,
     updated_at        TEXT NOT NULL
 );
@@ -108,6 +114,9 @@ ADDED_COLUMNS = [
     ("project", "stage", "TEXT NOT NULL DEFAULT 'active' "
                          "CHECK (stage IN ('idea', 'active', 'done'))"),
     ("project", "track", "TEXT NOT NULL DEFAULT ''"),
+    # Existing projects arrive untiered rather than at some middle tier:
+    # inventing a rank for work nobody ranked would be a scheduling opinion.
+    ("project", "tier", "INTEGER NOT NULL DEFAULT 0 CHECK (tier IN (0, 1, 2, 3))"),
     ("settings", "department_name", "TEXT NOT NULL DEFAULT ''"),
     # Existing deliverables predate the tick, so they default to not done --
     # the safe read, since nothing recorded that they were finished.
@@ -125,6 +134,8 @@ DROPPED_COLUMNS = [
 ]
 
 STAGES = ("idea", "active", "done")
+# 0 is "untiered", not a fourth tier -- see the column comment.
+TIERS = (0, 1, 2, 3)
 
 _db_path = DEFAULT_DB_PATH
 
@@ -272,16 +283,16 @@ def get_project(project_id):
 
 
 def create_project(name, start_date, description="", goal="", velocity_override=None,
-                   stage="active", track=""):
+                   stage="active", track="", tier=0):
     timestamp = now_iso()
     with connect() as connection:
         cursor = connection.execute(
             """INSERT INTO project (name, description, goal, start_date,
-                                    velocity_override, stage, track,
+                                    velocity_override, stage, track, tier,
                                     created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (name, description, goal, start_date, velocity_override, stage, track,
-             timestamp, timestamp),
+             tier, timestamp, timestamp),
         )
         project_id = cursor.lastrowid
     return get_project(project_id)
@@ -289,7 +300,7 @@ def create_project(name, start_date, description="", goal="", velocity_override=
 
 def update_project(project_id, fields):
     allowed = {"name", "description", "goal", "start_date", "velocity_override",
-               "stage", "track"}
+               "stage", "track", "tier"}
     updates = {key: value for key, value in fields.items() if key in allowed}
     if updates:
         updates["updated_at"] = now_iso()
@@ -543,12 +554,12 @@ def export_all():
     return {
         # 3 added project.stage/track and settings.department_name; 4 dropped
         # the deliverable estimate and the V5 tolerance; 5 added deliverable.done;
-        # 6 moved dependencies from phases up to projects.
-        # Reads stay tolerant of older files, so a version-2 through -5 export
+        # 6 moved dependencies from phases up to projects; 7 added project.tier.
+        # Reads stay tolerant of older files, so a version-2 through -6 export
         # still imports -- fields that no longer exist are ignored, ones that did
         # not exist yet fall back to their default, and phase-level dependencies
         # are translated on the way in.
-        "version": 6,
+        "version": 7,
         "exported_at": now_iso(),
         "settings": get_settings(),
         "projects": projects,
@@ -630,9 +641,9 @@ def import_all(payload):
         for project in payload.get("projects", []):
             connection.execute(
                 """INSERT INTO project (id, name, description, goal, start_date,
-                                        velocity_override, stage, track,
+                                        velocity_override, stage, track, tier,
                                         created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     project["id"], project["name"], project.get("description", ""),
                     project.get("goal", ""),
@@ -641,6 +652,9 @@ def import_all(payload):
                     # committed project, so 'active' with no track is right.
                     project.get("stage") or "active",
                     project.get("track", ""),
+                    # Anything before 7 predates tiers: untiered is the honest
+                    # read, since nothing in the file ranked it.
+                    project.get("tier") or 0,
                     project.get("created_at") or now_iso(),
                     project.get("updated_at") or now_iso(),
                 ),

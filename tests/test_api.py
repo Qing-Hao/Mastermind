@@ -742,6 +742,104 @@ def test_an_unknown_stage_is_rejected_rather_than_stored(client):
         == "active"
 
 
+# --- tier -------------------------------------------------------------------
+
+
+def test_a_project_starts_untiered(client):
+    """Nobody has ranked a project the moment it is created, and 0 says so.
+
+    Defaulting to a middle tier would invent a priority the user never set --
+    the same reason an unscheduled project keeps an empty start date.
+    """
+    project = make_project(client)
+    assert project["tier"] == 0
+    assert make_direction(client)["tier"] == 0
+
+
+def test_a_tier_is_stored_and_reaches_the_map(client):
+    project = client.post("/api/projects", json={
+        "name": "Payments", "start_date": "2026-01-05", "tier": 1,
+    }).json()
+    assert project["tier"] == 1
+
+    node = next(item for item in client.get("/api/graph").json()["projects"]
+                if item["id"] == project["id"])
+    assert node["tier"] == 1
+
+    assert client.put(f"/api/projects/{project['id']}",
+                      json={"tier": 3}).json()["tier"] == 3
+
+
+def test_an_unknown_tier_is_rejected_rather_than_stored(client):
+    response = client.post("/api/projects", json={"name": "Odd", "tier": 4})
+    assert response.status_code == 422
+    assert "4" in response.json()["detail"]
+
+    project = client.post("/api/projects", json={
+        "name": "Payments", "start_date": "2026-01-05", "tier": 2,
+    }).json()
+    assert client.put(f"/api/projects/{project['id']}",
+                      json={"tier": -1}).status_code == 422
+    assert client.get(f"/api/projects/{project['id']}").json()["project"]["tier"] == 2
+
+
+def test_tier_changes_nothing_a_rule_reads(client):
+    """It is a label for the map, not a scheduling opinion."""
+    project = client.post("/api/projects", json={
+        "name": "Payments", "start_date": "2026-01-05", "tier": 1,
+    }).json()
+    make_phase(client, project["id"], "Design", "2026-01-05", 6, 55)
+    before = client.get(f"/api/projects/{project['id']}").json()
+    readiness_before = client.get("/api/projects").json()[0]["readiness"]
+
+    client.put(f"/api/projects/{project['id']}", json={"tier": 3})
+    after = client.get(f"/api/projects/{project['id']}").json()
+
+    assert after["warnings"] == before["warnings"]
+    assert [phase["start_date"] for phase in after["phases"]] \
+        == [phase["start_date"] for phase in before["phases"]]
+    assert client.get("/api/projects").json()[0]["readiness"] == readiness_before
+
+
+def test_a_pre_tier_export_imports_as_untiered(client):
+    """A version-6 file ranked nothing, so everything in it arrives unranked."""
+    legacy = {
+        "version": 6,
+        "settings": {"default_velocity_points_per_sprint": 20,
+                     "sprint_length_days": 14, "v1_tolerance_pct": 5.0,
+                     "department_name": "Platform Engineering"},
+        "projects": [{"id": 1, "name": "Payments", "description": "", "goal": "",
+                      "start_date": "2026-01-05", "velocity_override": None,
+                      "stage": "active", "track": "Source expansion",
+                      "created_at": "2026-01-01T00:00:00+00:00",
+                      "updated_at": "2026-01-01T00:00:00+00:00"}],
+        "phases": [], "deliverables": [], "dependencies": [],
+    }
+    assert client.post("/api/import", json=legacy).status_code == 200
+
+    project = client.get("/api/projects").json()[0]
+    assert project["tier"] == 0
+    assert project["track"] == "Source expansion"
+
+
+def test_tier_survives_a_round_trip(client):
+    client.post("/api/projects", json={
+        "name": "Payments", "start_date": "2026-01-05", "tier": 1,
+    })
+    client.post("/api/projects", json={
+        "name": "Caching", "start_date": "", "stage": "idea", "tier": 3,
+    })
+
+    exported = client.get("/api/export").json()
+    for existing in client.get("/api/projects").json():
+        client.delete(f"/api/projects/{existing['id']}")
+    assert client.post("/api/import", json=exported).status_code == 200
+
+    assert {project["name"]: project["tier"]
+            for project in client.get("/api/projects").json()} \
+        == {"Payments": 1, "Caching": 3}
+
+
 def test_promoting_a_direction_keeps_its_id_and_everything_written_on_it(client):
     idea = make_direction(client, "Build caching", track="Developer experience")
     client.put(f"/api/projects/{idea['id']}", json={"goal": "Cut CI to 5 minutes."})
@@ -835,7 +933,7 @@ def test_stage_track_and_department_survive_a_round_trip(client):
     make_direction(client, "Build caching", track="Developer experience")
 
     exported = client.get("/api/export").json()
-    assert exported["version"] == 6
+    assert exported["version"] == 7
 
     for existing in client.get("/api/projects").json():
         client.delete(f"/api/projects/{existing['id']}")
@@ -920,7 +1018,7 @@ def test_a_version_4_export_imports_with_every_deliverable_ongoing(client):
     assert client.post("/api/import", json=legacy).status_code == 200
 
     exported = client.get("/api/export").json()
-    assert exported["version"] == 6
+    assert exported["version"] == 7
     # Even under a phase marked done -- the tick is the user's to set, and a
     # phase status is not evidence about any particular deliverable.
     assert exported["deliverables"][0]["done"] == 0

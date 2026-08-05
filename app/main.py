@@ -67,6 +67,8 @@ class ProjectIn(BaseModel):
     # 'idea' captures a future direction before anyone commits to it.
     stage: str = "active"
     track: str = ""
+    # 0 is untiered: a new project is unranked until someone ranks it.
+    tier: int = 0
 
 
 class ProjectPatch(BaseModel):
@@ -77,6 +79,7 @@ class ProjectPatch(BaseModel):
     velocity_override: int | None = None
     stage: str | None = None
     track: str | None = None
+    tier: int | None = None
 
 
 class PhaseIn(BaseModel):
@@ -167,6 +170,21 @@ def clean_stage(value):
             status_code=422,
             detail=f"'{value}' is not a valid stage. Use one of: "
                    f"{', '.join(db.STAGES)}.",
+        )
+    return value
+
+
+def clean_tier(value):
+    """Same boundary check as `clean_stage`, for priority.
+
+    Tier ranks a project against the others so the map can be thinned down to
+    what matters. It is a label and nothing else: no rule reads it, no date
+    moves because of it, and 0 means nobody has ranked this yet.
+    """
+    if value not in db.TIERS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"'{value}' is not a valid tier. Use 1-3, or 0 for untiered.",
         )
     return value
 
@@ -293,6 +311,7 @@ def add_project(body: ProjectIn):
         velocity_override=body.velocity_override,
         stage=clean_stage(body.stage),
         track=body.track,
+        tier=clean_tier(body.tier),
     )
 
 
@@ -391,6 +410,8 @@ def read_graph():
             "name": project["name"],
             "stage": project["stage"],
             "track": project["track"],
+            # The map filters and ranks on this; 0 means untiered.
+            "tier": project["tier"],
             "goal": project["goal"],
             "phases_done": progress["done"],
             "phases_total": progress["total"],
@@ -437,6 +458,8 @@ def edit_project(project_id: int, body: ProjectPatch):
     # row keeps its id, goal and anything else already written against it.
     if "stage" in fields:
         fields["stage"] = clean_stage(fields["stage"])
+    if "tier" in fields:
+        fields["tier"] = clean_tier(fields["tier"])
     return db.update_project(project_id, fields)
 
 
