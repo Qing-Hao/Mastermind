@@ -39,9 +39,15 @@ constant is the guess this whole block exists to avoid._
 
 | | |
 |---|---|
-| Last 3 sprints delivered | a · b · c → avg |
+| Last 3 sprints — **roadmap** points delivered | a · b · c → avg |
 | Person-days normal / this sprint | 20 / N  _(name the holidays and the leave)_ |
 | **Baseline** (avg × this ÷ normal) | |
+
+_**Roadmap** points, not total: the "At close" table below separates the two, and
+this row reads the roadmap line. Averaging total load would predict how busy you
+will be, which you already know. What you need predicted is how much of the
+roadmap moves — and because past sprints carried their own interruptions, a
+typical amount of interruption is already priced in._
 
 _Your split between building and everything else is **already inside** the
 delivered number — that is why there is no focus factor to declare. Sprints 1–3
