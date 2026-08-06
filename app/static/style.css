@@ -328,6 +328,196 @@ table.deliverables tr.done input[type="text"] { color: #999; text-decoration: li
   pointer-events: none;
 }
 
+/* --- fortnight slice --- */
+/* A day-resolution strip: the fortnight, then a greyed lead-out week. Every
+   row runs on the same column track, which is what keeps a bar under the day
+   it starts on -- app.js sets only which columns each bar spans. `compact` is
+   the drawer's density: the same DOM at tighter metrics, so the drawer and the
+   sprint tab can never drift into two pictures of one fortnight. */
+.slice {
+  --slice-day-min: 20px;
+  --slice-bar-h: 22px;
+  overflow-x: auto;
+}
+.slice-compact { --slice-day-min: 15px; --slice-bar-h: 18px; }
+
+.slice-head {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.slice-strip {
+  min-width: calc(var(--slice-days, 21) * var(--slice-day-min));
+  border: 1px solid #e4e4e4;
+  border-radius: 3px;
+}
+
+.slice-ruler,
+.slice-backdrop,
+.slice-lane {
+  display: grid;
+  grid-template-columns: repeat(var(--slice-days, 21), minmax(0, 1fr));
+}
+
+.slice-ruler { border-bottom: 1px solid #ddd; }
+.slice-tick {
+  font-size: 10px;
+  line-height: 14px;
+  color: #999;
+  text-align: center;
+  border-left: 1px solid #f0f0f0;
+  overflow: hidden;
+}
+.slice-compact .slice-tick { font-size: 9px; }
+
+.slice-body { position: relative; padding: 4px 0; }
+/* One layer behind the lanes: weekends and the lead-out are shading, not
+   anything positional, so they do not belong as a class on every bar. */
+.slice-backdrop { position: absolute; inset: 0; }
+.slice-day { border-left: 1px solid #f4f4f4; }
+.slice-day.is-weekend, .slice-tick.is-weekend { background: #f7f7f7; }
+.slice-day.is-lead-out, .slice-tick.is-lead-out { background: #f1f1f1; }
+.slice-tick.is-lead-out { color: #b0b0b0; }
+.slice-day.is-weekend.is-lead-out { background: #eaeaea; }
+.slice-day.is-lead-edge, .slice-tick.is-lead-edge { border-left: 2px solid #c8c8c8; }
+
+/* Deliberately not red: red in this component means late, and today is not a
+   problem. It is absent entirely when today is off the strip. */
+.slice-today {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 2px solid #1a1a1a;
+  z-index: 2;
+}
+
+.slice-lane { position: relative; z-index: 1; padding: 2px 0 5px; }
+.slice-lane-title {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 11px;
+  padding: 0 3px;
+}
+.slice-project { font-weight: 600; color: #555; }
+.slice-phase { color: #777; }
+.slice-flag {
+  color: #b00020;
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.slice-bar {
+  position: relative;
+  height: var(--slice-bar-h);
+  line-height: calc(var(--slice-bar-h) - 4px);
+  padding: 2px 4px;
+  border-radius: 3px;
+  background: #90caf9;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.slice-bar.status-in_progress { background: #a5d6a7; }
+.slice-bar.status-done { background: #cfd8dc; }
+/* The lead-out is next fortnight's problem, so it sits back from the work in
+   hand without becoming a different vocabulary. */
+.slice-bar.band-lead_out { opacity: 0.6; }
+/* The one red in the component. An overdue phase ended before the window, so
+   both its ends clamp to the first column and it reads as a nub at the left
+   edge -- which is where "before this fortnight" belongs. */
+.slice-bar.band-overdue { background: #ef9a9a; }
+
+/* A clipped edge gets a solid tab and a chevron pointing the way the work
+   carries on. The portfolio's dotted 3px edge says the same thing at week
+   resolution; at day resolution 3px is most of a column, and "starts here"
+   against "started earlier" is the whole distinction the strip exists to draw. */
+.slice-bar.clip-start {
+  border-left: 4px solid #3949ab;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  padding-left: 9px;
+}
+.slice-bar.clip-end {
+  border-right: 4px solid #3949ab;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.slice-bar.clip-start::before,
+.slice-bar.clip-end::after {
+  position: absolute;
+  top: 0;
+  font-size: 10px;
+  line-height: var(--slice-bar-h);
+  color: #3949ab;
+}
+.slice-bar.clip-start::before { content: "«"; left: 2px; }
+.slice-bar.clip-end::after { content: "»"; right: 2px; }
+
+/* Under the strip, not on it: a deliverable carries no dates, so it has no
+   honest horizontal position. Names only -- no estimate, no owner, no tick. */
+.slice-deliverables { margin-top: 10px; }
+.slice-deliv-head {
+  font-size: 11px;
+  font-weight: 600;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.slice-deliv-group { margin-top: 6px; }
+.slice-deliv-title { font-size: 12px; color: #555; }
+.slice-deliv-group ul { margin: 2px 0 0; padding-left: 20px; font-size: 12px; }
+
+/* --- the fortnight drawer --- */
+/* Reads only, including file creation. It sits under the chart it was opened
+   from rather than over it: the two open weeks stay visible on the ruler, and
+   an overlay would cover the bars the strip is a close-up of. */
+.fortnight-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: #fcfcfd;
+}
+
+/* Load-bearing, for the same reason as `.draft-toggle[hidden]`,
+   `.direction-link-form[hidden]` and `.track-crumb[hidden]`: the class above
+   sets `display`, which outranks the UA sheet's `[hidden] { display: none }`,
+   so without this the drawer would never close. */
+.fortnight-drawer[hidden] { display: none; }
+
+.drawer-head { display: flex; align-items: center; gap: 8px; }
+.drawer-head h3 { margin: 0; font-size: 13px; text-transform: uppercase;
+                  letter-spacing: 0.04em; color: #555; }
+.drawer-close { margin-left: auto; border: 0; background: none; cursor: pointer;
+                font-size: 14px; color: #888; padding: 2px 6px; }
+.drawer-close:hover { color: #1a1a1a; }
+.drawer-foot {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  border-top: 1px solid #eee;
+  padding-top: 8px;
+  font-size: 12px;
+}
+
+/* A week column on the portfolio ruler is the way into a fortnight, so it has
+   to look like something you can press -- and be reachable without a mouse. */
+.week-target { cursor: pointer; }
+.week-target:hover { background: #eef1ff; color: #3949ab; }
+.week-target:focus-visible { outline: 2px solid #5c6bc0; outline-offset: -2px; }
+.week.week-open { background: #e8eaf6; color: #3949ab; font-weight: 600; }
+
 /* --- map view --- */
 /* Positions are computed in app.js; everything here is colour and type only,
    so the layout stays in one place. */

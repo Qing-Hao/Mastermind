@@ -94,6 +94,11 @@ let state = {
   // work by default would lose it. Survives re-renders and tab switches but not
   // a reload, same as the timeline mode: it is a way of looking, not a setting.
   mapTiers: new Set(TIER_ORDER),
+  // The fortnight the drawer is open on: the Monday it starts, and the slice
+  // the server computed for it. Same lifetime as the two above -- a way of
+  // looking, kept across re-renders and tab switches, gone on reload. `start`
+  // null means the drawer is closed.
+  fortnight: { start: null, slice: null },
 };
 
 // --- api --------------------------------------------------------------------
@@ -441,6 +446,13 @@ async function loadPlan() {
 
 async function loadPortfolio() {
   state.portfolio = await api("/api/portfolio");
+  // Dragging a bar moves work into or out of the open fortnight, so the slice
+  // is re-read with it. The drawer still writes nothing -- it is the chart's
+  // edit that invalidated what it was showing.
+  if (state.fortnight.start) {
+    state.fortnight.slice = await api(
+      `/api/fortnight?start=${encodeURIComponent(state.fortnight.start)}`);
+  }
   renderPortfolio();
 }
 
@@ -1040,7 +1052,7 @@ function renderPortfolio() {
 
   // Drawn even with nothing on it: the empty grid is the drop target for the
   // tray, and a dataset where nothing is dated yet is exactly when you need it.
-  const body = weekGrid(chart, view);
+  const body = weekGrid(chart, view, portfolioRuler);
 
   for (const project of projects) {
     const own = visible.filter((phase) => phase.project_id === project.id);
@@ -1060,6 +1072,9 @@ function renderPortfolio() {
 
   renderTray(body, view);
   renderPlacementUndo();
+  // Redrawn from the slice already in hand: the chart moving underneath it
+  // does not change which fortnight you opened.
+  renderFortnightDrawer();
 }
 
 // Work that is estimated but undated, waiting to be dropped onto the grid. The
@@ -1310,6 +1325,287 @@ function makeDraggable(bar, phase, view) {
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
   };
+}
+
+// --- fortnight slice --------------------------------------------------------
+
+// One fortnight of the roadmap, drawn as a day-resolution strip of phase bars
+// over a list of deliverables. Two layers because that is what the schema has,
+// not as a design preference: a phase carries dates and can be placed on a time
+// axis, while a deliverable carries none and cannot be placed on one at all.
+//
+// Divs on a CSS grid rather than SVG. The two charts this sits beside are divs
+// on a week grid; the map is the one hand-rolled SVG in the codebase and this
+// is not the map.
+//
+// The component reads and never writes. It is handed a slice and draws it --
+// no fetching, no opening, no closing. `compact` is what the drawer passes:
+// the same DOM at tighter metrics, so the drawer and the eventual sprint tab
+// cannot drift into two different pictures of one fortnight.
+//
+// Points are drawn **whole, on the bar**, and the part of a phase that falls
+// inside the window is carried by the bar's width and nothing else. There is no
+// windowed points total here and there must not be one.
+
+const BAND_NOTE = {
+  overdue: "ended before this fortnight and is still open",
+  window: "in this fortnight",
+  lead_out: "starts in the lead-out week",
+};
+
+const shortDate = (iso) => parseDate(iso).toLocaleDateString(
+  undefined, { day: "numeric", month: "short" });
+
+// The strip is the fortnight plus its lead-out, so it is measured off the
+// window rather than assumed: the server owns how long either half is.
+const sliceDays = (window) =>
+  daysBetween(parseDate(window.start), parseDate(window.lead_out_end)) + 1;
+
+const dayIndex = (window, iso) =>
+  daysBetween(parseDate(window.start), parseDate(iso));
+
+function renderSprintSlice(container, slice, { compact = false } = {}) {
+  const { window, lanes } = slice;
+  const days = sliceDays(window);
+  container.innerHTML = "";
+  container.classList.add("slice");
+  container.classList.toggle("slice-compact", compact);
+  container.style.setProperty("--slice-days", days);
+
+  container.appendChild(sliceHeading(window));
+
+  const strip = element("div", "slice-strip");
+  strip.appendChild(sliceRuler(window, days));
+
+  const body = element("div", "slice-body");
+  body.appendChild(sliceBackdrop(window, days));
+  // Absent rather than parked off-screen when today is not on the strip: a
+  // line at an edge would read as "today is here", which is the one thing it
+  // must never say.
+  if (window.today) body.appendChild(sliceTodayLine(window, days));
+  for (const lane of lanes) body.appendChild(sliceLane(lane, window, days));
+  strip.appendChild(body);
+  container.appendChild(strip);
+
+  if (lanes.length === 0) {
+    container.appendChild(element("p", "muted",
+      "Nothing scheduled in this fortnight."));
+    return;
+  }
+  container.appendChild(sliceDeliverables(lanes));
+}
+
+function sliceHeading(window) {
+  const head = element("div", "slice-head");
+  head.appendChild(element("strong", null,
+    `${shortDate(window.start)} – ${shortDate(window.end)}`));
+  head.appendChild(element("span", "muted",
+    `lead-out to ${shortDate(window.lead_out_end)}`));
+  // A fortnight always starts on a Monday. Saying so when the date you asked
+  // for was not one is cheaper than silently drawing a different fortnight.
+  if (window.requested_start !== window.start) {
+    head.appendChild(element("span", "muted",
+      `snapped back from ${shortDate(window.requested_start)}`));
+  }
+  return head;
+}
+
+function sliceRuler(window, days) {
+  const ruler = element("div", "slice-ruler");
+  const origin = parseDate(window.start);
+  for (let index = 0; index < days; index += 1) {
+    const day = addDays(origin, index);
+    const cell = element("div", sliceDayClass(day, index, "slice-tick"),
+      String(day.getDate()));
+    cell.title = day.toLocaleDateString(
+      undefined, { weekday: "long", day: "numeric", month: "long" });
+    ruler.appendChild(cell);
+  }
+  return ruler;
+}
+
+// Weekends and the lead-out are shading rather than anything positional, so
+// they are one layer behind the lanes instead of a class on every bar.
+function sliceBackdrop(window, days) {
+  const backdrop = element("div", "slice-backdrop");
+  const origin = parseDate(window.start);
+  for (let index = 0; index < days; index += 1) {
+    backdrop.appendChild(
+      element("div", sliceDayClass(addDays(origin, index), index, "slice-day")));
+  }
+  return backdrop;
+}
+
+function sliceDayClass(day, index, base) {
+  const weekend = day.getDay() === 0 || day.getDay() === 6;
+  // The fortnight is the first 14 columns; everything past it is the lead-out,
+  // and the first of those carries the divider.
+  const leadOut = index >= 14;
+  return `${base}${weekend ? " is-weekend" : ""}`
+    + `${leadOut ? " is-lead-out" : ""}${index === 14 ? " is-lead-edge" : ""}`;
+}
+
+function sliceTodayLine(window, days) {
+  const line = element("div", "slice-today");
+  line.style.left = `calc(${dayIndex(window, window.today)} * 100% / ${days})`;
+  line.title = `Today, ${shortDate(window.today)}`;
+  return line;
+}
+
+function sliceLane(lane, window, days) {
+  const row = element("div", `slice-lane band-${lane.band}`);
+
+  const title = element("div", "slice-lane-title");
+  title.appendChild(element("span", "slice-project", lane.project_name));
+  title.appendChild(element("span", "slice-phase", lane.phase_name));
+  if (lane.band === "overdue") {
+    title.appendChild(element("span", "slice-flag", "overdue"));
+  }
+  row.appendChild(title);
+  row.appendChild(sliceBar(lane, window, days));
+  return row;
+}
+
+function sliceBar(lane, window, days) {
+  const bar = element("div",
+    `slice-bar band-${lane.band} status-${lane.status}`);
+
+  let from = dayIndex(window, lane.start_date);
+  // The end date is the day work stops, so the last day drawn is the one
+  // before it. A same-week phase would otherwise reach a column too far.
+  let to = dayIndex(window, lane.end_date) - 1;
+  from = Math.max(from, 0);
+  to = Math.min(Math.max(to, from), days - 1);
+  // An overdue phase ends before the strip begins, so both ends clamp to the
+  // first column: it pins to the left edge, which is where "before this
+  // fortnight" belongs.
+  bar.style.gridColumn = `${from + 1} / ${to + 2}`;
+
+  bar.classList.toggle("clip-start", lane.clipped_start);
+  bar.classList.toggle("clip-end", lane.clipped_end);
+  // Whole, never pro-rated: this is the phase's own estimate, not a share of
+  // it apportioned to the fortnight.
+  bar.textContent = `${lane.effort_points} pts`;
+  bar.title = `${lane.project_name} · ${lane.phase_name}\n`
+    + `${lane.start_date} to ${lane.end_date} `
+    + `(${lane.duration_weeks}w, ${lane.effort_points} pts, ${lane.status})\n`
+    + BAND_NOTE[lane.band];
+  return bar;
+}
+
+// Names only. A deliverable is a planning unit -- no estimate, no owner, no
+// date -- and the tick is progress, which is not what this view is asking.
+function sliceDeliverables(lanes) {
+  const wrap = element("div", "slice-deliverables");
+  wrap.appendChild(element("div", "slice-deliv-head", "Deliverables in scope"));
+
+  let named = 0;
+  for (const lane of lanes) {
+    if (lane.deliverables.length === 0) continue;
+    named += 1;
+    const group = element("div", "slice-deliv-group");
+    group.appendChild(element("div", "slice-deliv-title",
+      `${lane.project_name} · ${lane.phase_name}`));
+    const list = element("ul", null);
+    for (const deliverable of lane.deliverables) {
+      list.appendChild(element("li", null, deliverable.name));
+    }
+    group.appendChild(list);
+    wrap.appendChild(group);
+  }
+
+  if (named === 0) {
+    wrap.appendChild(element("p", "muted",
+      "None of this fortnight's phases name a deliverable yet."));
+  }
+  return wrap;
+}
+
+// --- the fortnight drawer ---------------------------------------------------
+
+// Reads and nothing else, including file creation. Clicking a week on the
+// portfolio ruler opens the fortnight that starts on that Monday; the drawer
+// draws the same slice component the sprint tab will, and offers no edit.
+
+async function openFortnight(monday) {
+  state.fortnight.start = monday;
+  state.fortnight.slice = await api(
+    `/api/fortnight?start=${encodeURIComponent(monday)}`);
+  // The portfolio render draws the drawer and marks the two open weeks on the
+  // ruler. Nothing refetches: looking at a fortnight changes no plan.
+  renderPortfolio();
+}
+
+// Esc is bound on the document, so this can fire from any tab. Only the
+// portfolio has a ruler to unmark, and only it is guaranteed to have a chart
+// in hand to redraw.
+function closeFortnight() {
+  if (!state.fortnight.start) return;
+  state.fortnight = { start: null, slice: null };
+  if (state.view === "portfolio" && state.portfolio) renderPortfolio();
+  else renderFortnightDrawer();
+}
+
+function renderFortnightDrawer() {
+  const drawer = $("fortnight-drawer");
+  const { start, slice } = state.fortnight;
+  drawer.hidden = !start || !slice;
+  if (drawer.hidden) return;
+
+  drawer.innerHTML = "";
+  const head = element("div", "drawer-head");
+  head.appendChild(element("h3", null, "This fortnight"));
+  const close = element("button", "drawer-close", "✕");
+  close.title = "Close (Esc)";
+  close.onclick = closeFortnight;
+  head.appendChild(close);
+  drawer.appendChild(head);
+
+  const body = element("div", "drawer-body");
+  drawer.appendChild(body);
+  renderSprintSlice(body, slice, { compact: true });
+
+  drawer.appendChild(fortnightFooter());
+}
+
+// Sprint planning is on paper until there is history to design a schema
+// against. The button is here so the drawer says where this goes next, and
+// disabled because saying it is not the same as doing it.
+function fortnightFooter() {
+  const footer = element("div", "drawer-foot");
+  footer.appendChild(element("span", "muted",
+    "Sprint planning is on paper for now: copy templates/sprint.md to "
+    + "sprints/NN.md and fill it in."));
+  const button = element("button", null, "Plan this fortnight →");
+  button.disabled = true;
+  button.title = "Not yet — the in-app sprint file is deferred until there "
+    + "are real sprints to design it against.";
+  footer.appendChild(button);
+  return footer;
+}
+
+// The portfolio's own ruler: the shared one plus a click target per week. Kept
+// separate rather than flagged on, so the project timeline's ruler is untouched
+// and nothing there has to know the drawer exists.
+function portfolioRuler(view) {
+  const ruler = weekRuler(view);
+  const open = state.fortnight.start;
+  const second = open ? shiftDate(open, 7) : null;
+
+  ruler.querySelectorAll(".week").forEach((cell, index) => {
+    const monday = formatDate(addDays(view.origin, index * 7));
+    cell.classList.add("week-target");
+    cell.classList.toggle("week-open", monday === open || monday === second);
+    cell.tabIndex = 0;
+    cell.title += " — click to read the fortnight starting here";
+    cell.onclick = () => openFortnight(monday);
+    cell.onkeydown = (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      openFortnight(monday);
+    };
+  });
+  return ruler;
 }
 
 // --- map view ---------------------------------------------------------------
@@ -2484,6 +2780,12 @@ function bindEvents() {
     state.timelineMode = null;
     await loadPlan();
   };
+
+  // The drawer reads and nothing else, so Esc can close it unconditionally --
+  // there is never unsaved work behind it to lose.
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeFortnight();
+  });
 
   $("mode-dates").onclick = () => {
     state.timelineMode = "dates";

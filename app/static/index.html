@@ -186,6 +186,8 @@
           move that phase; it snaps to a week column, hold <kbd>Alt</kbd> to
           nudge it by single days. Nothing else reschedules itself &mdash; a
           project waiting on this one only starts warning.
+          Click a week number on the ruler to read that fortnight day by day;
+          the drawer that opens is read-only.
         </p>
         <div id="portfolio-window" class="window-bar"></div>
 
@@ -211,6 +213,10 @@
         <div id="portfolio-scroll">
           <div id="portfolio-chart"></div>
         </div>
+
+        <!-- Reads only, including file creation. Click a week on the ruler
+             above to open the fortnight starting that Monday. -->
+        <div id="fortnight-drawer" class="fortnight-drawer" hidden></div>
       </section>
 
       <section>
