@@ -1,4 +1,4 @@
-"""Plan validation rules V1-V4.
+"""Plan validation rules V1-V4, plus the derived views the frontend reads.
 
 Pure functions only: no database, no framework, no I/O. Every rule reports a
 problem and never repairs it -- the timeline must never auto-reschedule, so a
@@ -32,6 +32,15 @@ the work is settled. Empty is stored as ``""`` rather than NULL so it round-trip
 through an HTML ``<input type="date">`` untouched. Rules that need a date (V2,
 V4) skip unscheduled records; the estimate rule (V1) does not care about dates
 and keeps working throughout.
+
+The last section builds the **fortnight slice**: one fortnight of the roadmap
+cut out and flattened for reading, as a lane per scheduled phase with the
+deliverables each phase names underneath. Two things about it are load-bearing.
+Nothing in it writes a date -- a slice is derived and thrown away, so a sprint
+that overruns is recorded in the sprint file and never pushed back onto the
+plan. And nothing in it pro-rates points: a lane carries its phase's whole
+estimate and the overlap with the window is the bar's width, because summing
+points across a window is a points-per-day constant in disguise.
 """
 
 from dataclasses import dataclass
@@ -588,3 +597,216 @@ def validate_portfolio(projects, phases_by_project, dependencies):
             warnings.append(violation)
 
     return warnings
+
+
+# --- The fortnight slice ----------------------------------------------------
+
+# A *slice* is one fortnight of the roadmap, cut out and flattened for reading:
+# every scheduled phase touching a 14-day window, one lane each, with the
+# following week carried along as a greyed lead-out so you can see what lands
+# next. Deliverables ride under their phase by name, because they carry no
+# dates and cannot be placed on a time axis at all.
+#
+# Two invariants live here specifically:
+#
+#   1. Nothing in this section writes a date, and nothing derived here is
+#      stored -- the slice is rebuilt on every read.
+#   2. No pro-rated points, anywhere. A lane carries `effort_points` whole; the
+#      part of it that falls inside the window is the bar's width and nothing
+#      else. A windowed points sum would be a points-per-day constant in
+#      disguise, which the capacity design forbids outright.
+#
+# The functions are pure like the rest of the module: `today` arrives as an
+# argument, and it is the caller that decides which projects to hand over.
+
+FORTNIGHT_DAYS = 14
+LEAD_OUT_DAYS = 7
+
+BAND_OVERDUE = "overdue"
+BAND_WINDOW = "window"
+BAND_LEAD_OUT = "lead_out"
+
+# Left to right on the strip: what has already slipped, what is in hand, what
+# is coming. Lanes sort in this order.
+BAND_ORDER = (BAND_OVERDUE, BAND_WINDOW, BAND_LEAD_OUT)
+
+
+def fortnight_window(start, days=FORTNIGHT_DAYS, lead_out=LEAD_OUT_DAYS,
+                     today=None):
+    """The fortnight a slice covers, snapped back to the Monday of its week.
+
+    `end` is **inclusive** -- the last day of the fortnight, not the day after
+    it. The lead-out is the week that follows, drawn greyed, so the strip is
+    `days + lead_out` columns wide even though the fortnight is `days` long.
+
+    The requested start is echoed alongside the snapped one so the view can say
+    that it snapped rather than silently moving what you clicked. Reading is
+    strict here, unlike `as_optional_date`: a window is the frame everything
+    else is measured against, and a frame that quietly failed to parse would
+    hand back a slice of the wrong fortnight instead of an error.
+
+    `today` is echoed back only when it falls **inside the drawn strip**, which
+    includes the lead-out: the marker exists so the view can draw a today line,
+    and a line that vanished as today crossed into the greyed week would leave
+    the strip showing today with nothing on it. Outside the strip it is None
+    and no line is drawn. Passing no `today` at all is the same thing -- the
+    module never reads the clock itself.
+    """
+    requested = as_date(start)
+    monday = requested - timedelta(days=requested.weekday())
+    end = monday + timedelta(days=days - 1)
+    marker = as_optional_date(today)
+    lead_out_end = end + timedelta(days=lead_out)
+
+    if marker is not None and not monday <= marker <= lead_out_end:
+        marker = None
+
+    return {
+        "requested_start": requested.isoformat(),
+        "start": monday.isoformat(),
+        "end": end.isoformat(),
+        "lead_out_start": (end + timedelta(days=1)).isoformat(),
+        "lead_out_end": lead_out_end.isoformat(),
+        "days": days,
+        "today": marker.isoformat() if marker else None,
+    }
+
+
+def window_bounds(window):
+    """A window's four dates as `date` objects, in strip order.
+
+    `(start, end, lead_out_start, lead_out_end)`. The window travels as ISO
+    strings because it is part of an API payload; everything that measures
+    against it wants dates.
+    """
+    return (
+        as_date(window["start"]),
+        as_date(window["end"]),
+        as_date(window["lead_out_start"]),
+        as_date(window["lead_out_end"]),
+    )
+
+
+def phase_band(phase, window):
+    """Which band of the slice a phase belongs to, or None if it is not in it.
+
+    - `overdue`   -- ended before the window opened and is not done. This is
+                     **window-relative, not clock-relative**, so it needs no
+                     `today` and the function stays pure. `fortnight_slice`
+                     bounds it further; see there.
+    - `window`    -- overlaps the fortnight at all, inclusive of both edges.
+    - `lead_out`  -- begins in the week after the fortnight.
+
+    An unscheduled phase is in no band: it has no position on a time axis, and
+    inventing one is what the staging tray exists to avoid.
+
+    A phase end is the day work stops rather than the last day of work, so a
+    phase ending exactly on `window.start` is neither overdue nor absent -- it
+    lands in `window` and draws at the very left edge. Following the band rules
+    literally is deliberate: the two tests either side of that boundary are
+    `end < start` and `start <= end`, which between them leave no phase without
+    a band.
+    """
+    start = as_optional_date(phase.get("start_date"))
+    if start is None:
+        return None
+
+    window_start, window_end, lead_out_start, lead_out_end = window_bounds(window)
+    end = phase_end_date(phase)
+
+    if end is not None and end < window_start:
+        if phase.get("status") == "done":
+            return None
+        return BAND_OVERDUE
+    if start <= window_end:
+        return BAND_WINDOW
+    if lead_out_start <= start <= lead_out_end:
+        return BAND_LEAD_OUT
+    return None
+
+
+def fortnight_lane(project, phase, band, deliverables, window):
+    """One phase, flattened into everything the strip needs to draw it.
+
+    Both clip flags are measured against the **drawn strip**, which runs from
+    the window start to the end of the lead-out: they tell the renderer that a
+    bar runs off an edge and needs a marker, and the edges it can run off are
+    the ones on screen. A phase that merely crosses from the fortnight into the
+    lead-out is not clipped -- both parts of it are drawn.
+
+    `effort_points` and `duration_weeks` come through whole and unscaled, per
+    invariant 2. Deliverables come through as name and tick only; the tick is
+    carried so it can be shown, never so anything can be derived from it.
+    """
+    strip_start, _, _, strip_end = window_bounds(window)
+    start = as_optional_date(phase.get("start_date"))
+    end = phase_end_date(phase)
+
+    return {
+        "project_id": project["id"],
+        "project_name": project.get("name"),
+        "track": project.get("track"),
+        "phase_id": phase["id"],
+        "phase_name": phase.get("name"),
+        "start_date": start.isoformat() if start else UNSCHEDULED,
+        "end_date": end.isoformat() if end else UNSCHEDULED,
+        "effort_points": phase.get("effort_points"),
+        "duration_weeks": phase.get("duration_weeks"),
+        "status": phase.get("status"),
+        "band": band,
+        "clipped_start": start is not None and start < strip_start,
+        "clipped_end": end is not None and end > strip_end,
+        "deliverables": [
+            {
+                "id": deliverable["id"],
+                "name": deliverable.get("name"),
+                "done": deliverable.get("done", 0),
+            }
+            for deliverable in deliverables
+        ],
+    }
+
+
+def fortnight_slice(projects, phases_by_project, deliverables_by_phase, window):
+    """Every phase in the window, as lanes, in the order the strip draws them.
+
+    Lanes sort by band first, then by the order `projects` arrives in, then by
+    the order each project's phases arrive in. Both orders are the caller's --
+    `db.list_projects` and `db.list_phases` already impose the ones the
+    portfolio swimlanes and the map slots share, and re-deriving them here
+    would give the fortnight a fourth opinion about project order.
+
+    Ideas are skipped. They are every stored stage `SCHEDULABLE_STAGES` leaves
+    out, and the same reasoning applies twice over: nobody has committed, and
+    the drawer opens off a portfolio chart that never drew them.
+
+    **An overdue phase only appears if its project has other work in this
+    window or lead-out.** Without that bound a phase that ended two years ago
+    would surface in every fortnight forever. The slice answers "is this
+    fortnight's work ok", not "what is late across the dataset" -- V6 already
+    answers the second, globally and much earlier.
+    """
+    lanes = []
+
+    for project in projects:
+        if project.get("stage") == STAGE_IDEA:
+            continue
+
+        banded = []
+        for phase in phases_by_project.get(project["id"], []):
+            band = phase_band(phase, window)
+            if band is not None:
+                banded.append((band, phase))
+
+        if not any(band != BAND_OVERDUE for band, _ in banded):
+            continue
+
+        for band, phase in banded:
+            lanes.append(fortnight_lane(
+                project, phase, band,
+                deliverables_by_phase.get(phase["id"], []), window,
+            ))
+
+    # Stable, so project and phase order survive inside each band.
+    lanes.sort(key=lambda lane: BAND_ORDER.index(lane["band"]))
+    return lanes

@@ -9,6 +9,9 @@ from app.validation import (
     check_project_dependency_order,
     effective_velocity,
     find_dependency_cycle,
+    fortnight_slice,
+    fortnight_window,
+    phase_band,
     implied_weeks,
     next_milestone,
     phase_end_date,
@@ -575,3 +578,249 @@ def test_validate_plan_skips_the_newer_rules_without_their_inputs():
     assert [w.rule for w in validate_plan(PROJECT, phases)] == []
     with_both = validate_plan(PROJECT, phases, None, {}, AFTER)
     assert [w.rule for w in with_both] == ["V7"]
+
+
+# --- the fortnight slice ----------------------------------------------------
+
+
+# Monday 2026-08-03 to Sunday 2026-08-16, lead-out 2026-08-17 to 2026-08-23.
+WINDOW = fortnight_window("2026-08-03")
+
+COMMITTED_PROJECT = {**PROJECT, "stage": "planned", "track": "Core / Billing"}
+SECOND_PROJECT = {**LEDGER, "stage": "planned", "track": "Core"}
+
+
+def slice_phase(phase_id=1, name="Build", start="2026-08-04", weeks: float = 1,
+                points=10, project_id=1, status="in_progress"):
+    return {**make_phase(phase_id, name, start, weeks, points),
+            "project_id": project_id, "status": status}
+
+
+def band_of(**kwargs):
+    return phase_band(slice_phase(**kwargs), WINDOW)
+
+
+def test_the_window_snaps_back_to_its_monday_and_says_that_it_did():
+    window = fortnight_window("2026-08-05")          # a Wednesday
+    assert window["requested_start"] == "2026-08-05"
+    assert window["start"] == "2026-08-03"
+    assert window["end"] == "2026-08-16"
+    assert window["lead_out_start"] == "2026-08-17"
+    assert window["lead_out_end"] == "2026-08-23"
+    assert window["days"] == 14
+
+
+def test_a_monday_start_is_left_where_it_is():
+    window = fortnight_window("2026-08-03")
+    assert window["requested_start"] == window["start"] == "2026-08-03"
+
+
+def test_today_rides_along_while_it_is_on_the_strip():
+    assert fortnight_window("2026-08-03", today=date(2026, 8, 6))["today"] == "2026-08-06"
+    # The lead-out is drawn, so the today line still has somewhere to go.
+    assert fortnight_window("2026-08-03", today=date(2026, 8, 20))["today"] == "2026-08-20"
+
+
+def test_today_outside_the_strip_is_none():
+    assert fortnight_window("2026-08-03", today=date(2026, 7, 31))["today"] is None
+    assert fortnight_window("2026-08-03", today=date(2026, 8, 24))["today"] is None
+    assert fortnight_window("2026-08-03")["today"] is None
+
+
+# --- bands ------------------------------------------------------------------
+
+
+def test_a_phase_wholly_inside_the_fortnight_is_in_the_window_band():
+    assert band_of(start="2026-08-04", weeks=1) == "window"
+
+
+def test_a_phase_overlapping_either_edge_is_still_in_the_window_band():
+    assert band_of(start="2026-07-27", weeks=2) == "window"     # ends 2026-08-10
+    assert band_of(start="2026-08-14", weeks=2) == "window"     # ends 2026-08-28
+
+
+def test_a_phase_ending_the_day_the_window_opens_is_in_the_window_band():
+    """The end is the day work stops, not the last day of work. Nothing may
+    fall between `end < start` and `start <= end`, so this belongs to a band."""
+    assert band_of(start="2026-07-27", weeks=1) == "window"     # ends 2026-08-03
+
+
+def test_a_phase_starting_in_the_following_week_is_lead_out():
+    assert band_of(start="2026-08-17", weeks=1) == "lead_out"
+    assert band_of(start="2026-08-23", weeks=1) == "lead_out"
+
+
+def test_a_phase_starting_after_the_lead_out_is_in_no_band():
+    assert band_of(start="2026-08-24", weeks=1) is None
+
+
+def test_a_phase_that_ended_before_the_window_is_overdue_while_it_is_open():
+    assert band_of(start="2026-07-06", weeks=2) == "overdue"    # ends 2026-07-20
+
+
+def test_a_phase_that_ended_before_the_window_and_is_done_is_in_no_band():
+    assert band_of(start="2026-07-06", weeks=2, status="done") is None
+
+
+def test_an_unscheduled_phase_is_in_no_band():
+    assert band_of(start="") is None
+
+
+# --- lanes ------------------------------------------------------------------
+
+
+LANE_KEYS = {
+    "project_id", "project_name", "track", "phase_id", "phase_name",
+    "start_date", "end_date", "effort_points", "duration_weeks", "status",
+    "band", "clipped_start", "clipped_end", "deliverables",
+}
+
+
+def one_lane(phase, deliverables=None, project=COMMITTED_PROJECT):
+    lanes = fortnight_slice(
+        [project], {project["id"]: [phase]},
+        {phase["id"]: deliverables} if deliverables else {}, WINDOW,
+    )
+    assert len(lanes) == 1
+    return lanes[0]
+
+
+def test_a_lane_carries_the_phase_whole_and_names_its_project():
+    lane = one_lane(slice_phase(7, "Build", points=25, weeks=1))
+    assert lane["project_id"] == 1
+    assert lane["project_name"] == "Payments"
+    assert lane["track"] == "Core / Billing"
+    assert lane["phase_id"] == 7
+    assert lane["phase_name"] == "Build"
+    assert lane["start_date"] == "2026-08-04"
+    assert lane["end_date"] == "2026-08-11"          # derived, never stored
+    assert lane["effort_points"] == 25
+    assert lane["duration_weeks"] == 1
+    assert lane["status"] == "in_progress"
+    assert lane["band"] == "window"
+
+
+def test_nothing_in_the_slice_sums_points():
+    """Invariant 2. A windowed points total is a points-per-day constant in
+    disguise -- assert on the key sets so one cannot arrive quietly."""
+    lane = one_lane(slice_phase())
+    assert set(lane) == LANE_KEYS
+    assert set(WINDOW) == {
+        "requested_start", "start", "end", "lead_out_start", "lead_out_end",
+        "days", "today",
+    }
+
+
+def test_a_phase_starting_before_the_window_is_clipped_at_the_start_only():
+    lane = one_lane(slice_phase(start="2026-07-27", weeks=2))    # ends 2026-08-10
+    assert lane["clipped_start"] is True
+    assert lane["clipped_end"] is False
+
+
+def test_a_phase_starting_exactly_on_the_window_start_is_not_clipped():
+    """The distinction the strip's edge markers exist to draw."""
+    lane = one_lane(slice_phase(start="2026-08-03", weeks=1))
+    assert lane["clipped_start"] is False
+    assert lane["clipped_end"] is False
+
+
+def test_a_phase_running_past_both_edges_is_clipped_at_both():
+    lane = one_lane(slice_phase(start="2026-07-20", weeks=6))    # ends 2026-08-31
+    assert lane["clipped_start"] is True
+    assert lane["clipped_end"] is True
+
+
+def test_a_phase_wholly_inside_the_strip_is_clipped_at_neither_edge():
+    lane = one_lane(slice_phase(start="2026-08-04", weeks=1))
+    assert lane["clipped_start"] is False
+    assert lane["clipped_end"] is False
+
+
+def test_crossing_into_the_lead_out_is_not_clipping():
+    """The lead-out is drawn, so a bar that reaches into it is not cut off."""
+    lane = one_lane(slice_phase(start="2026-08-10", weeks=1.5))  # ends 2026-08-20
+    assert lane["clipped_end"] is False
+
+
+def test_a_lane_lists_the_deliverables_its_phase_names():
+    deliverables = [{"id": 41, "phase_id": 1, "name": "Retry + backoff", "done": 0}]
+    lane = one_lane(slice_phase(), deliverables)
+    assert lane["deliverables"] == [
+        {"id": 41, "name": "Retry + backoff", "done": 0}
+    ]
+
+
+def test_a_phase_naming_nothing_still_gets_a_lane():
+    """Presence is a planning fact, and its absence is not a reason to hide
+    work that is happening this fortnight."""
+    lane = one_lane(slice_phase())
+    assert lane["deliverables"] == []
+
+
+# --- what the slice leaves out ----------------------------------------------
+
+
+def test_an_idea_never_reaches_the_slice():
+    idea = {**COMMITTED_PROJECT, "stage": "idea"}
+    phase = slice_phase()
+    assert fortnight_slice([idea], {1: [phase]}, {}, WINDOW) == []
+
+
+def test_an_unscheduled_phase_never_reaches_the_slice():
+    phase = slice_phase(start="")
+    assert fortnight_slice([COMMITTED_PROJECT], {1: [phase]}, {}, WINDOW) == []
+
+
+def test_an_overdue_phase_shows_beside_the_projects_other_work_here():
+    late = slice_phase(1, "Discovery", start="2026-07-06", weeks=2)
+    current = slice_phase(2, "Build", start="2026-08-04", weeks=1)
+    lanes = fortnight_slice(
+        [COMMITTED_PROJECT], {1: [late, current]}, {}, WINDOW
+    )
+    assert [(lane["phase_id"], lane["band"]) for lane in lanes] == [
+        (1, "overdue"), (2, "window"),
+    ]
+
+
+def test_an_overdue_phase_alone_in_its_project_is_left_out():
+    """Otherwise a phase that ended two years ago shows in every fortnight
+    forever. V6 answers 'what is late' globally, and answers it better."""
+    late = slice_phase(1, "Discovery", start="2026-07-06", weeks=2)
+    assert fortnight_slice([COMMITTED_PROJECT], {1: [late]}, {}, WINDOW) == []
+
+
+def test_a_project_with_nothing_in_the_window_contributes_no_lanes():
+    phase = slice_phase(start="2026-09-07", weeks=1)
+    assert fortnight_slice([COMMITTED_PROJECT], {1: [phase]}, {}, WINDOW) == []
+
+
+# --- lane order -------------------------------------------------------------
+
+
+def test_lanes_sort_by_band_then_by_the_order_they_were_given_in():
+    first = [
+        slice_phase(1, "Late", start="2026-07-06", weeks=2),
+        slice_phase(2, "Now", start="2026-08-04", weeks=1),
+        slice_phase(3, "Next", start="2026-08-17", weeks=1),
+    ]
+    second = [
+        slice_phase(4, "Late", start="2026-07-06", weeks=2, project_id=2),
+        slice_phase(5, "Now", start="2026-08-10", weeks=1, project_id=2),
+    ]
+    lanes = fortnight_slice(
+        [COMMITTED_PROJECT, SECOND_PROJECT], {1: first, 2: second}, {}, WINDOW
+    )
+    assert [lane["phase_id"] for lane in lanes] == [1, 4, 2, 5, 3]
+    assert [lane["band"] for lane in lanes] == [
+        "overdue", "overdue", "window", "window", "lead_out",
+    ]
+
+
+def test_project_order_is_the_callers_and_is_not_re_derived():
+    """`db.list_projects` already imposes the order the portfolio swimlanes and
+    the map slots share. The fortnight does not get a fourth opinion."""
+    phases = {1: [slice_phase(1)], 2: [slice_phase(2, project_id=2)]}
+    lanes = fortnight_slice(
+        [SECOND_PROJECT, COMMITTED_PROJECT], phases, {}, WINDOW
+    )
+    assert [lane["project_id"] for lane in lanes] == [2, 1]
