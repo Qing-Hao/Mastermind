@@ -21,6 +21,8 @@ from app.validation import (
     UNSCHEDULED,
     as_optional_date,
     find_dependency_cycle,
+    fortnight_slice,
+    fortnight_window,
     is_scheduled,
     next_milestone,
     phase_end_date,
@@ -426,6 +428,46 @@ def read_portfolio():
         "unscheduled_count": len(phases) - len(scheduled),
         "dependencies": db.list_all_dependencies(with_names=True),
         "warnings": [warning.as_dict() for warning in portfolio_warnings()],
+    }
+
+
+@app.get("/api/fortnight")
+def read_fortnight(start: str | None = None):
+    """One fortnight of the roadmap, as a lane per phase. Reads only.
+
+    The window is whatever Monday `start` falls in, defaulting to this week's.
+    `validation.fortnight_window` does the snapping and reports both dates, so
+    the view can say that it moved what you clicked.
+
+    Assembly only, like every other route here: the bands, the clipping and the
+    ordering are all in `validation`, and the clock is read here and passed in
+    rather than reached for down there.
+
+    Nothing on this route writes, and nothing it returns is stored -- the slice
+    is rebuilt per request. A sprint that overran is recorded in the sprint
+    file; it never pushes a date back onto the plan.
+    """
+    today = date.today()
+    anchor = clean_date(start) if start else UNSCHEDULED
+    window = fortnight_window(anchor or today, today=today)
+
+    projects = db.list_projects(stages=SCHEDULABLE_STAGES)
+    committed = {project["id"] for project in projects}
+    phases = {}
+    for phase in db.list_all_phases():
+        if phase["project_id"] in committed:
+            phases.setdefault(phase["project_id"], []).append(with_end_date(phase))
+
+    # `deliverables_by_project` is the one query that reaches every deliverable;
+    # the slice wants them by phase, which is the same rows regrouped.
+    deliverables = {}
+    for rows in db.deliverables_by_project().values():
+        for row in rows:
+            deliverables.setdefault(row["phase_id"], []).append(row)
+
+    return {
+        "window": window,
+        "lanes": fortnight_slice(projects, phases, deliverables, window),
     }
 
 

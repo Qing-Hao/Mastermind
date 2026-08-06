@@ -1,5 +1,7 @@
 """End-to-end API tests mapped to the acceptance criteria in PROMPT.md."""
 
+from datetime import date, timedelta
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -1216,6 +1218,113 @@ def test_version_5_links_folding_onto_the_same_pair_collapse_to_one(client):
     ])
     assert client.post("/api/import", json=legacy).status_code == 200
     assert len(client.get("/api/export").json()["dependencies"]) == 1
+
+
+# --- the fortnight slice -----------------------------------------------------
+
+
+def fortnight(client, start=None):
+    response = client.get("/api/fortnight",
+                          params={"start": start} if start else None)
+    assert response.status_code == 200
+    return response.json()
+
+
+def test_the_fortnight_returns_a_lane_per_phase_in_the_window(client):
+    project = make_project(client, "Payments", "2026-08-03")
+    client.put(f"/api/projects/{project['id']}", json={"track": "Core / Billing"})
+    build = make_phase(client, project["id"], "Build", "2026-08-04", 1, 10)
+    client.post(f"/api/phases/{build['id']}/deliverables",
+                json={"name": "Retry + backoff"})
+
+    lanes = fortnight(client, "2026-08-03")["lanes"]
+    assert len(lanes) == 1
+    lane = lanes[0]
+    assert lane["project_name"] == "Payments"
+    assert lane["track"] == "Core / Billing"
+    assert lane["phase_name"] == "Build"
+    assert lane["start_date"] == "2026-08-04"
+    assert lane["end_date"] == "2026-08-11"
+    assert lane["effort_points"] == 10
+    assert lane["band"] == "window"
+    assert lane["clipped_start"] is False
+    assert [d["name"] for d in lane["deliverables"]] == ["Retry + backoff"]
+
+
+def test_the_fortnight_snaps_to_a_monday_and_says_that_it_did(client):
+    window = fortnight(client, "2026-08-05")["window"]      # a Wednesday
+    assert window["requested_start"] == "2026-08-05"
+    assert window["start"] == "2026-08-03"
+    assert window["end"] == "2026-08-16"
+    assert window["lead_out_end"] == "2026-08-23"
+
+
+def test_the_fortnight_defaults_to_the_monday_of_this_week(client):
+    today = date.today()
+    window = fortnight(client)["window"]
+    assert window["start"] == (today - timedelta(days=today.weekday())).isoformat()
+    # Today is inside its own fortnight, so the strip always has a today line.
+    assert window["today"] == today.isoformat()
+
+
+def test_a_garbage_start_is_rejected_rather_than_guessed_at(client):
+    assert client.get("/api/fortnight", params={"start": "next week"}).status_code == 422
+
+
+def test_the_fortnight_leaves_ideas_out(client):
+    """The drawer opens off the portfolio chart, which never drew them."""
+    idea = make_direction(client, "Build caching")
+    client.put(f"/api/projects/{idea['id']}", json={"start_date": "2026-08-03"})
+    make_phase(client, idea["id"], "Spike", "2026-08-04", 1, 10)
+    assert fortnight(client, "2026-08-03")["lanes"] == []
+
+
+def test_the_fortnight_never_sums_points(client):
+    """Invariant 2, checked at the boundary: a windowed total is a
+    points-per-day constant in disguise, and nothing may add one quietly."""
+    project = make_project(client, "Payments", "2026-08-03")
+    make_phase(client, project["id"], "Build", "2026-08-04", 1, 10)
+    make_phase(client, project["id"], "Ship", "2026-08-11", 1, 10)
+
+    payload = fortnight(client, "2026-08-03")
+    assert set(payload) == {"window", "lanes"}
+    assert set(payload["window"]) == {
+        "requested_start", "start", "end", "lead_out_start", "lead_out_end",
+        "days", "today",
+    }
+    assert all(set(lane) == {
+        "project_id", "project_name", "track", "phase_id", "phase_name",
+        "start_date", "end_date", "effort_points", "duration_weeks", "status",
+        "band", "clipped_start", "clipped_end", "deliverables",
+    } for lane in payload["lanes"])
+
+
+def test_the_fortnight_bands_late_work_beside_what_is_running(client):
+    project = make_project(client, "Payments", "2026-07-06")
+    make_phase(client, project["id"], "Discovery", "2026-07-06", 2, 20)
+    make_phase(client, project["id"], "Build", "2026-08-04", 1, 10)
+    make_phase(client, project["id"], "Ship", "2026-08-17", 1, 10)
+
+    lanes = fortnight(client, "2026-08-03")["lanes"]
+    assert [(lane["phase_name"], lane["band"]) for lane in lanes] == [
+        ("Discovery", "overdue"), ("Build", "window"), ("Ship", "lead_out"),
+    ]
+
+
+def test_an_empty_fortnight_still_returns_its_window(client):
+    """The strip is the drop target for the tray, so the frame always exists."""
+    payload = fortnight(client, "2026-08-03")
+    assert payload["lanes"] == []
+    assert payload["window"]["start"] == "2026-08-03"
+
+
+def test_unscheduled_work_stays_off_the_fortnight(client):
+    project = make_project(client, "Payments", "2026-08-03")
+    make_phase(client, project["id"], "Dated", "2026-08-04", 1, 10)
+    make_phase(client, project["id"], "Undated", "", 1, 10)
+
+    lanes = fortnight(client, "2026-08-03")["lanes"]
+    assert [lane["phase_name"] for lane in lanes] == ["Dated"]
 
 
 # --- migrating an existing file ---------------------------------------------
