@@ -64,7 +64,7 @@ for nothing when you tally the quarter.
 <details>
 <summary>Filled example</summary>
 
-# Sprint 14 · 2026-08-10 → 2026-08-21
+# Sprint 14 · 2026-08-24 → 2026-09-04
 
 **Goal:** Ship the v2 connector so client onboarding stops needing a manual import.
 
@@ -73,19 +73,21 @@ for nothing when you tally the quarter.
 | | Points |
 |---|---|
 | Nominal (velocity × people) | 20 |
-| Holidays / leave | −3 (Merdeka 31/8; A on leave 2d) |
+| Holidays / leave | −3 (Merdeka Mon 31/8; A on leave 2d) |
 | **Capacity** | **17** |
 | Carried in from Sprint 13 | 3 |
-| **Committed** | 16 |
+| **Committed** | **16** |
 
 ## Planned work
 
 **<u>Source expansion — Connector rewrite</u>**
-- [x] 3 · Parse v2 payloads — @qh / rev @a
+- [x] 3 · Parse v2 payloads *(carried)* — @qh / rev @a
 - [ ] 2 · Backfill script — @a / rev @qh
+- [ ] 5 · Contract tests for v2 payloads — @a / rev @qh
 
 **<u>Metrics — Dashboard v2</u>**
 - [ ] 5 · Aggregation query — @qh / rev @a
+- [ ] 1 · Wire the date filter — @qh / rev @a
 
 ## Unplanned work
 
@@ -95,10 +97,14 @@ for nothing when you tally the quarter.
 | Prod deploy + rollback | deployment | @qh | 1 | ✅ |
 | Staging disk full | ops/support | @qh | 1 | ✅ |
 
+_16 committed + 4 unplanned = 20 against a capacity of 17. Three over, and every
+one of them arrived unplanned — which is the whole argument for the section above._
+
 ## Reflection
 
 - **What surprised us:** the backfill needed a schema change nobody costed.
-- **What got interrupted, and by what:** two days on the CSV import for client X.
+- **What got interrupted, and by what:** two days on the CSV import for client X,
+  and the contract tests slipped.
 - **What should be automated:** third sprint running with a manual prod deploy —
   1–2 pts each time. Worth a half-sprint to script it.
 
