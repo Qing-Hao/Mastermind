@@ -11,3 +11,11 @@ data/
 
 # Personal status doc, not for the team
 STATUS.md
+
+# Filled-in sprints are data, the same as data/. templates/sprint.md is the
+# committed part; sprints/NN.md is what you actually ran.
+sprints/
+
+# Provider keys live in the environment. Never in the database - /api/export
+# writes the whole file to JSON and would carry a key straight back out.
+.env

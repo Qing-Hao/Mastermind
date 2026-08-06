@@ -14,7 +14,10 @@ migration framework, no auth.
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000   # http://127.0.0.1:8000
-.\.venv\Scripts\python.exe -m pytest -q                                   # 157 tests, ~3s
+.\.venv\Scripts\python.exe -m pytest -q                                   # 172 tests, ~4s
+
+.\.venv\Scripts\python.exe -m pip install -r requirements-ai.txt          # optional, sprint review only
+.\.venv\Scripts\python.exe scripts\sprint_review.py --history 3
 ```
 
 > **`--reload` runs `init_db()` — and therefore `db.migrate()` — against
@@ -38,6 +41,9 @@ Type checking is pyright, `basic` mode, config in `pyrightconfig.json`.
 | `app/static/{index.html,app.js,style.css}` | Frontend. Three tabs: Project / Portfolio / Map. |
 | `tests/test_validation.py` | Rules, pure. |
 | `tests/test_api.py` | Acceptance criteria, via `TestClient` + `tmp_path` db. |
+| `tests/test_sprint_review.py` | Sprint script — pure helpers + one `TestModel` run. Offline. |
+| `templates/sprint.md` | The sprint template. Copied to `sprints/NN.md` (gitignored). |
+| `scripts/sprint_review.py` | Post-sprint LLM review. Optional dep, lazy import, CLI only. |
 | `data/roadmap.db` | The dataset. Gitignored. `.bak` is the pre-migration copy. |
 
 Keep this shape. Extend an existing module rather than adding a file; propose a
@@ -541,12 +547,68 @@ Both charts share one week grid: Monday-based columns under a month/week ruler,
 window capped at 26 weeks, column width fitted to the container and clamped
 22–64px. A week belongs to the month of its Monday.
 
+## Sprint planning lives on paper, outside the app
+
+Third step after Project and Portfolio, and **deliberately not in the app yet**.
+`templates/sprint.md` is copied to `sprints/NN.md`, one file per fortnight;
+`sprints/` is gitignored, like `data/`. Nothing under `app/` knows sprints exist
+— no tables, no endpoints, no export bump.
+
+That is a staging decision, not a permanent one. The schema was going to be
+designed against guesses about which columns get filled in; running real sprints
+on paper first answers that for free. **Revisit at sprint 4**, when there is
+history to design against — that is also when the button belongs in the UI.
+
+**Capacity is two independent numbers that never correct each other**, the same
+shape as V1 cross-checking weeks against points:
+
+- **Declared** — bottom-up, per person, a *judgement*. The coding-days column
+  beside it is evidence for the judgement, not a multiplier. There is no
+  points-per-day constant anywhere and there must not be one.
+- **Baseline** — top-down, the last three sprints' delivered points scaled by
+  available person-days.
+
+Take the lower unless you write down why not. **There is no focus factor**, and
+that is the point: a lead who codes 35% of the time already shows up in what the
+team delivered, so declaring a fraction would be inventing a number the history
+already contains. Sprints 1–3 have no history and say so in the file.
+
+The **unplanned work** table carries review and management alongside customer
+requests, ops and deployment. Categories are a fixed eight-value list because
+they are counted across sprints, and a category invented once counts for
+nothing. Work that recurs but needs a human (review) is a reason to declare
+fewer coding days; work that recurs and is automatable (deploys) is the thing
+the table exists to find.
+
+`scripts/sprint_review.py` reads the last few sprint files and asks a model to
+read them — structured output (`SprintReview`), not prose, with
+`questions_for_next_planning` as the field that makes it teach rather than
+summarise. **History is the feature**: one manual deploy is noise, four is a
+pattern. Default model `openai:gpt-5.2`, overridden by `$env:SPRINT_MODEL` —
+Pydantic AI takes the provider as a string prefix, so switching to Anthropic or
+Google is config, not code.
+
+- `pydantic-ai` is in `requirements-ai.txt`, **not** `requirements.txt`, and is
+  imported lazily. The app installs, serves and passes its tests without it.
+- **The key is read from the environment and nowhere else.** Not the database:
+  `/api/export` writes the whole file to JSON and would carry it back out.
+- Tests never reach the network — `TestModel` passed straight to `build_agent`,
+  because building from a model *string* resolves the provider eagerly and fails
+  without a key before there is anything to override.
+
 ## Out of scope
 
-Phase 2 (**documented in `PROMPT.md`, do not build**): sprint generation,
-`sprint_goal`, allocating deliverables into sprints, capacity adjustments,
-delivery forecast. The only concessions already present are `sprint_length_days`
-and velocity in settings.
+Phase 2 (**documented in `PROMPT.md` as do-not-build**) is now **partly open**,
+deliberately: sprint planning and post-sprint analysis exist as the paper
+template and script above. Still not built, and still not to be built without
+asking: sprint generation from a project's date range, `sprint_goal` as a
+column, allocating deliverables into sprints against velocity, and the delivery
+forecast. The concessions in the app itself remain just `sprint_length_days` and
+velocity in settings.
+
+An LLM call is an **external integration**, which the non-goals below list as
+never-build. Opened knowingly for this one script; it is not a precedent for the
+app talking to anything.
 
 Non-goals (never build): ticket tracking, comments, activity feeds,
 notifications, accounts/roles/permissions, external integrations, BI dashboards,

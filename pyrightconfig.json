@@ -3,7 +3,7 @@
   "venv": ".venv",
   "pythonVersion": "3.12",
   "typeCheckingMode": "basic",
-  "include": ["app", "tests", "conftest.py"],
+  "include": ["app", "scripts", "tests", "conftest.py"],
   "exclude": ["**/__pycache__", ".venv", "data"],
   "extraPaths": ["."],
   "reportUnusedVariable": "none"
