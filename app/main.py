@@ -6,6 +6,7 @@ The only rule enforced at write time is V3 (dependency cycles), which returns
 """
 
 import os
+import re
 from contextlib import asynccontextmanager
 from datetime import date
 
@@ -45,6 +46,15 @@ from app.validation import (
 SCHEDULABLE_STAGES = ("planned", "active", "done")
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+
+# Sprints are files on disk, not rows: no table, no export version, nothing for
+# `migrate` to do. Deliberately, and only until there is enough history to know
+# what the columns would hold -- see "Sprint planning lives on paper" in
+# CLAUDE.md. These two are module level so a test can point them somewhere
+# else, the same way `db.set_db_path` does.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SPRINT_TEMPLATE = os.path.join(REPO_ROOT, "templates", "sprint.md")
+SPRINTS_DIR = os.path.join(REPO_ROOT, "sprints")
 
 
 @asynccontextmanager
@@ -133,6 +143,13 @@ class DependencyIn(BaseModel):
     # Project to project: which piece of work has to land before another starts.
     predecessor_project_id: int
     successor_project_id: int
+
+
+class SprintIn(BaseModel):
+    # The fortnight the file is for. Its number is **not** here: the server
+    # derives it from what is already on disk, so nothing a request says can
+    # name a path. Empty means the fortnight containing today.
+    start: str = ""
 
 
 # --- helpers ----------------------------------------------------------------
@@ -468,6 +485,104 @@ def read_fortnight(start: str | None = None):
     return {
         "window": window,
         "lanes": fortnight_slice(projects, phases, deliverables, window),
+    }
+
+
+# --- sprint files -----------------------------------------------------------
+
+# The one thing in this feature that writes, and it writes a file rather than a
+# row. It copies the template and fills in the heading; it parses nothing, reads
+# nothing back, and knows no more about a sprint than its number and its dates.
+# Everything an actual sprint holds -- capacity, planned work, what happened --
+# stays in markdown you edit by hand until there is history to design against.
+
+
+def next_sprint_number(directory):
+    """One past the highest leading number on disk. The first sprint is 1.
+
+    Same reading as `sprint_review.sprint_sort_key`, so the script and the
+    button agree about which file is sprint 4: leading digits after any
+    non-digits, and a name with no digits at all counts for nothing.
+
+    Deliberately not "lowest unused". A gap in the numbering is a sprint that
+    was skipped or a file that was deleted, and neither is an invitation to
+    reuse the number.
+    """
+    highest = 0
+    if os.path.isdir(directory):
+        for name in os.listdir(directory):
+            if not name.endswith(".md"):
+                continue
+            match = re.match(r"\D*(\d+)", os.path.splitext(name)[0])
+            if match:
+                highest = max(highest, int(match.group(1)))
+    return highest + 1
+
+
+def sprint_heading(number, window):
+    return f"# Sprint {number} · {window['start']} → {window['end']}"
+
+
+def fill_sprint_heading(template, number, window):
+    """The template with its first line replaced, and nothing else touched.
+
+    Everything below the heading is carried across exactly as written --
+    comments, prompts, blank sections and all. The template is the sprint
+    format; this only saves you typing the number and the dates at the top.
+    """
+    heading = sprint_heading(number, window)
+    first, separator, rest = template.partition("\n")
+    if not first.startswith("# "):
+        return f"{heading}\n\n{template}"
+    # Keep whatever line ending the file already uses rather than imposing one.
+    return heading + ("\r\n" if first.endswith("\r") else separator) + rest
+
+
+@app.post("/api/sprints", status_code=201)
+def add_sprint(body: SprintIn):
+    """Copy `templates/sprint.md` to the next `sprints/NN.md`. Nothing else.
+
+    This is the drawer's one exception to reading only, and it is bounded on
+    purpose: it creates a file and reports where. There is no editor, no
+    parsing, and nothing here reads a sprint file back -- the point is to start
+    running sprints on paper, not to move them into the app ahead of the
+    evidence that would tell us what the schema should be.
+
+    The number never comes from the request, so no path can be named from
+    outside, and the file is created exclusively: a sprint someone has already
+    filled in is a 409, never an overwrite.
+    """
+    window = fortnight_window(clean_date(body.start) or date.today())
+    number = next_sprint_number(SPRINTS_DIR)
+    name = f"{number:02d}.md"
+    path = os.path.join(SPRINTS_DIR, name)
+
+    try:
+        with open(SPRINT_TEMPLATE, encoding="utf-8", newline="") as handle:
+            template = handle.read()
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=500,
+            detail=f"No sprint template at {SPRINT_TEMPLATE}.",
+        )
+
+    os.makedirs(SPRINTS_DIR, exist_ok=True)
+    try:
+        # "x" rather than a prior existence check: the guard and the write are
+        # then the same operation, so nothing can slip in between them.
+        with open(path, "x", encoding="utf-8", newline="") as handle:
+            handle.write(fill_sprint_heading(template, number, window))
+    except FileExistsError:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{name} already exists. Sprint files are never overwritten.",
+        )
+
+    return {
+        "number": number,
+        "name": name,
+        "path": f"{os.path.basename(SPRINTS_DIR)}/{name}",
+        "window": window,
     }
 
 

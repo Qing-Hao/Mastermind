@@ -14,7 +14,7 @@ migration framework, no auth.
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000   # http://127.0.0.1:8000
-.\.venv\Scripts\python.exe -m pytest -q                                   # 172 tests, ~4s
+.\.venv\Scripts\python.exe -m pytest -q                                   # 217 tests, ~9s
 
 .\.venv\Scripts\python.exe -m pip install -r requirements-ai.txt          # optional, sprint review only
 .\.venv\Scripts\python.exe scripts\sprint_review.py --history 3
@@ -35,7 +35,7 @@ Type checking is pyright, `basic` mode, config in `pyrightconfig.json`.
 
 | Path | What lives there |
 |---|---|
-| `app/validation.py` | Rules V1–V4 + project summaries. **Pure functions, no I/O.** The heart of the tool. |
+| `app/validation.py` | Rules V1–V4 + project summaries + the fortnight slice. **Pure functions, no I/O.** The heart of the tool. |
 | `app/db.py` | Schema, CRUD, `migrate`, export/import. Rows in/out as plain dicts. |
 | `app/main.py` | FastAPI routes. Thin — no business logic beyond the V3 block. |
 | `app/static/{index.html,app.js,style.css}` | Frontend. Three tabs: Project / Portfolio / Map. |
@@ -251,8 +251,8 @@ of the picker among work in flight.
 DELETE · `/api/projects/{id}/layout` POST · `/api/projects/{id}/phases` POST ·
 `/api/phases/{id}` PUT DELETE · `/api/phases/{id}/deliverables` GET POST ·
 `/api/deliverables/{id}` PUT DELETE · `/api/dependencies` POST ·
-`/api/dependencies/{id}` DELETE · `/api/portfolio` GET · `/api/graph` GET ·
-`/api/export` GET · `/api/import` POST.
+`/api/dependencies/{id}` DELETE · `/api/portfolio` GET · `/api/fortnight` GET ·
+`/api/sprints` POST · `/api/graph` GET · `/api/export` GET · `/api/import` POST.
 
 `GET /api/projects` returns each project with a derived **`derived_stage`** (see
 above), alongside the stored `stage` and never overwriting it — the stored value
@@ -276,6 +276,16 @@ highlight, not for a permanent edge.
 `GET /api/portfolio` also returns `unscheduled`: per project, the phases still
 waiting for a date, with `total_weeks`, `total_points` and `scheduled_count`.
 Built by `main.unplaced_work`; it is what the staging tray is drawn from.
+
+`GET /api/fortnight?start=` returns **one fortnight, flattened**: a `window`
+and a lane per phase touching it. `start` is optional and snaps back to its
+Monday, both dates reported. The bands, the clip flags and the order are all
+`validation.fortnight_slice`; the route is assembly and passes `today` in.
+**Nothing in the payload sums points** — see the section below.
+
+`POST /api/sprints` copies `templates/sprint.md` to the next `sprints/NN.md`
+and fills in the heading. The one write in the fortnight feature, and it writes
+a file rather than a row.
 
 ## Schema changes and export versions
 
@@ -427,6 +437,30 @@ into one project link.
   Below the chart, every cross-project
   link as a **list**, V2-marked where violated — not arrows between swimlanes,
   because a link can point at an idea, which has no bar to draw to.
+- **Fortnight drawer** — clicking a week number on the portfolio ruler opens
+  the fortnight starting that Monday, under the chart, and marks the two weeks
+  it covers. The ruler variant (`portfolioRuler`) is **passed into `weekGrid`
+  rather than flagged on**, so the project timeline's ruler is untouched and
+  nothing there knows the drawer exists. `state.fortnight` survives re-renders
+  and tab switches but not a reload, like `timelineMode` and `state.mapTiers`.
+  `Esc` closes. `.fortnight-drawer[hidden]` is load-bearing — the fourth time
+  that trap has come up.
+  It draws `renderSprintSlice`, the **shared** component: a day-resolution
+  strip of 21 columns (the fortnight, then the lead-out week greyed behind a
+  divider), weekends shaded, a today line that is simply **absent** when today
+  is off the strip, over a list of the deliverables the phases name. Divs on a
+  CSS grid, not SVG — the charts either side of it are divs on a week grid, and
+  the map is the one hand-rolled SVG here. `compact` is the drawer's density:
+  same DOM, tighter metrics, so the drawer and the eventual sprint tab cannot
+  drift into two pictures of one fortnight.
+  **Points are drawn whole, on the bar**, and the share of a phase inside the
+  fortnight is the bar's width and nothing else. A clipped edge gets a solid
+  tab and a chevron rather than the portfolio's dotted edge, because at day
+  resolution 3px of dotting is most of a column.
+  The drawer **reads**, with one exception it owns: `Plan this fortnight →`
+  posts to `/api/sprints`, reports the path and stops. It leaves itself
+  disabled on success — a second press would be sprint N+1 for the same
+  fortnight.
 - **Map** — hand-rolled radial SVG, deterministic layout. Department hub → track
   ring → subtrack ring → project ring, ideas outermost and dashed. Nodes are
   styled off **`derived_stage`**, so the picture ages by itself: a project that
@@ -549,15 +583,34 @@ window capped at 26 weeks, column width fitted to the container and clamped
 
 ## Sprint planning lives on paper, outside the app
 
-Third step after Project and Portfolio, and **deliberately not in the app yet**.
+Third step after Project and Portfolio, and **still on paper**.
 `templates/sprint.md` is copied to `sprints/NN.md`, one file per fortnight;
-`sprints/` is gitignored, like `data/`. Nothing under `app/` knows sprints exist
-— no tables, no endpoints, no export bump.
+`sprints/` is gitignored, like `data/`. There is **no sprint table, no sprint
+column and no export bump** — nothing for `migrate()` to do.
 
-That is a staging decision, not a permanent one. The schema was going to be
-designed against guesses about which columns get filled in; running real sprints
-on paper first answers that for free. **Revisit at sprint 4**, when there is
-history to design against — that is also when the button belongs in the UI.
+What the app now does is start the file and nothing else. `POST /api/sprints`
+copies the template to the next `sprints/NN.md` and replaces the first line
+with `# Sprint N · YYYY-MM-DD → YYYY-MM-DD`. It parses nothing, reads nothing
+back, and never lists or edits a sprint. `SPRINTS_DIR` and `SPRINT_TEMPLATE`
+are module level in `main.py` so a test can point them at `tmp_path`, the same
+shape as `db.set_db_path` — the real `sprints/` holds work actually done.
+
+- **Numbering is next after the highest leading number on disk**, never
+  lowest-unused: a gap is a sprint that was skipped or a file that was deleted,
+  and neither is an invitation to reuse the number. Same reading as
+  `sprint_review.sprint_sort_key`, so the script and the button agree about
+  which file is sprint 4.
+- **The number never comes from the request** — the body carries a date, so
+  nothing outside can name a path.
+- The file is created with mode `"x"`, so the existence guard and the write are
+  one operation. An existing target is a **409**, never an overwrite.
+
+That is still a staging decision. The schema was going to be designed against
+guesses about which columns get filled in; running real sprints on paper first
+answers that for free. **Revisit at sprint 4**, when there is history to design
+against — that is when the editor, the sprint tab and any storage shape get
+decided, and the copy button exists to make sure four real files are there by
+then.
 
 **Capacity is two independent numbers that never correct each other**, the same
 shape as V1 cross-checking weeks against points:
@@ -600,11 +653,20 @@ Google is config, not code.
 
 Phase 2 (**documented in `PROMPT.md` as do-not-build**) is now **partly open**,
 deliberately: sprint planning and post-sprint analysis exist as the paper
-template and script above. Still not built, and still not to be built without
-asking: sprint generation from a project's date range, `sprint_goal` as a
-column, allocating deliverables into sprints against velocity, and the delivery
-forecast. The concessions in the app itself remain just `sprint_length_days` and
-velocity in settings.
+template and script above, the fortnight drawer reads a fortnight of the
+roadmap, and one button starts a sprint file. Still not built, and still not to
+be built without asking: sprint generation from a project's date range,
+`sprint_goal` as a column, allocating deliverables into sprints against
+velocity, and the delivery forecast. The concessions in the app itself remain
+`sprint_length_days` and velocity in settings, plus the drawer and the copy
+button — which between them hold no sprint data at all.
+
+**The fortnight drawer never sums points across its window**, and neither does
+the endpoint behind it. A 55-point six-week phase does not deliver 18 points in
+a fortnight; the whole estimate rides on the bar and the overlap is the bar's
+width. A windowed total would be a points-per-day constant in disguise, which
+the capacity design forbids outright. Any capacity number belongs in the sprint
+file, beside where the judgement is written down.
 
 An LLM call is an **external integration**, which the non-goals below list as
 never-build. Opened knowingly for this one script; it is not a precedent for the

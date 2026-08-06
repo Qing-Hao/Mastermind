@@ -511,6 +511,8 @@ table.deliverables tr.done input[type="text"] { color: #999; text-decoration: li
   font-size: 12px;
 }
 
+.drawer-result { color: #2e7d32; }
+
 /* A week column on the portfolio ruler is the way into a fortnight, so it has
    to look like something you can press -- and be reachable without a mouse. */
 .week-target { cursor: pointer; }

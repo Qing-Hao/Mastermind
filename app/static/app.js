@@ -1565,22 +1565,41 @@ function renderFortnightDrawer() {
   drawer.appendChild(body);
   renderSprintSlice(body, slice, { compact: true });
 
-  drawer.appendChild(fortnightFooter());
+  drawer.appendChild(fortnightFooter(slice.window));
 }
 
-// Sprint planning is on paper until there is history to design a schema
-// against. The button is here so the drawer says where this goes next, and
-// disabled because saying it is not the same as doing it.
-function fortnightFooter() {
+// The drawer's one write, and it writes a file rather than a plan: the sprint
+// template, copied and numbered. No editor -- sprint planning stays on paper
+// until there is enough of it to design a schema against, and this is what
+// makes the paper start existing.
+function fortnightFooter(window) {
   const footer = element("div", "drawer-foot");
-  footer.appendChild(element("span", "muted",
-    "Sprint planning is on paper for now: copy templates/sprint.md to "
-    + "sprints/NN.md and fill it in."));
+  const note = element("span", "muted",
+    "Copies templates/sprint.md to the next sprints/NN.md and stops there — "
+    + "fill it in by hand.");
   const button = element("button", null, "Plan this fortnight →");
-  button.disabled = true;
-  button.title = "Not yet — the in-app sprint file is deferred until there "
-    + "are real sprints to design it against.";
-  footer.appendChild(button);
+  const result = element("span", "muted");
+
+  button.onclick = async () => {
+    button.disabled = true;
+    try {
+      const created = await api("/api/sprints", {
+        method: "POST",
+        body: JSON.stringify({ start: window.start }),
+      });
+      result.className = "drawer-result";
+      result.textContent = `Created ${created.path} — open it and fill it in.`;
+      // Left disabled on success: the next press would be sprint N+1 for the
+      // same fortnight, which is never what you meant.
+      return;
+    } catch (error) {
+      result.className = "error";
+      result.textContent = error.message;
+      button.disabled = false;
+    }
+  };
+
+  footer.append(note, button, result);
   return footer;
 }
 

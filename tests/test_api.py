@@ -5,7 +5,7 @@ from datetime import date, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
-from app import db
+from app import db, main
 from app.main import app
 
 
@@ -1325,6 +1325,92 @@ def test_unscheduled_work_stays_off_the_fortnight(client):
 
     lanes = fortnight(client, "2026-08-03")["lanes"]
     assert [lane["phase_name"] for lane in lanes] == ["Dated"]
+
+
+# --- starting a sprint file --------------------------------------------------
+
+
+@pytest.fixture
+def sprints(tmp_path, monkeypatch):
+    """Point the sprint directory somewhere disposable.
+
+    The real one is `sprints/` at the repo root and holds work you have
+    actually done, so no test may go near it.
+    """
+    directory = tmp_path / "sprints"
+    monkeypatch.setattr(main, "SPRINTS_DIR", str(directory))
+    return directory
+
+
+def template_body():
+    """The template below its heading -- what a new file must reproduce."""
+    with open(main.SPRINT_TEMPLATE, encoding="utf-8", newline="") as handle:
+        return handle.read().partition("\n")[2]
+
+
+def start_sprint(client, start="2026-08-03"):
+    response = client.post("/api/sprints", json={"start": start})
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_the_first_sprint_file_is_01(client, sprints):
+    created = start_sprint(client)
+    assert created["number"] == 1
+    assert created["name"] == "01.md"
+    assert created["path"] == "sprints/01.md"
+    assert (sprints / "01.md").exists()
+
+
+def test_the_heading_carries_the_number_and_the_fortnight(client, sprints):
+    start_sprint(client, "2026-08-03")
+    first = (sprints / "01.md").read_text(encoding="utf-8").partition("\n")[0]
+    assert first == "# Sprint 1 · 2026-08-03 → 2026-08-16"
+
+
+def test_everything_below_the_heading_is_the_template_untouched(client, sprints):
+    """The template is the sprint format. This only fills in the top line."""
+    start_sprint(client)
+    with open(sprints / "01.md", encoding="utf-8", newline="") as handle:
+        assert handle.read().partition("\n")[2] == template_body()
+
+
+def test_numbering_carries_on_from_the_highest_file_present(client, sprints):
+    sprints.mkdir()
+    (sprints / "01.md").write_text("done", encoding="utf-8")
+    (sprints / "03.md").write_text("done", encoding="utf-8")
+    # 4, not 2: a gap is a sprint that was skipped, not a number to reuse.
+    assert start_sprint(client)["name"] == "04.md"
+
+
+def test_names_with_no_number_do_not_count(client, sprints):
+    sprints.mkdir()
+    (sprints / "notes.md").write_text("scratch", encoding="utf-8")
+    assert start_sprint(client)["name"] == "01.md"
+
+
+def test_a_sprint_file_is_never_overwritten(client, sprints, monkeypatch):
+    """Needs the number pinned: 'next after the highest' cannot collide on its
+    own, and this guard is here for the case where something else did."""
+    start_sprint(client)
+    monkeypatch.setattr(main, "next_sprint_number", lambda _: 1)
+    response = client.post("/api/sprints", json={"start": "2026-08-03"})
+    assert response.status_code == 409
+    # The filled-in file is still exactly what it was.
+    with open(sprints / "01.md", encoding="utf-8", newline="") as handle:
+        assert handle.read().partition("\n")[2] == template_body()
+
+
+def test_the_sprint_start_snaps_to_its_monday(client, sprints):
+    created = start_sprint(client, "2026-08-05")          # a Wednesday
+    assert created["window"]["start"] == "2026-08-03"
+    assert (sprints / "01.md").read_text(encoding="utf-8").partition("\n")[0] \
+        == "# Sprint 1 · 2026-08-03 → 2026-08-16"
+
+
+def test_a_garbage_sprint_start_is_rejected(client, sprints):
+    assert client.post("/api/sprints", json={"start": "soon"}).status_code == 422
+    assert not sprints.exists()
 
 
 # --- migrating an existing file ---------------------------------------------
