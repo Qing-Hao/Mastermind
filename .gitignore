@@ -12,6 +12,10 @@ data/
 # Personal status doc, not for the team
 STATUS.md
 
+# Personal build plans, same genre as STATUS.md. STATUS.md is the decision log;
+# these are the working plans behind one feature each.
+PLAN-*.md
+
 # Filled-in sprints are data, the same as data/. templates/sprint.md is the
 # committed part; sprints/NN.md is what you actually ran.
 sprints/
