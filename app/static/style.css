@@ -662,6 +662,9 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   cursor: pointer;
 }
 .sprint-menu-item[aria-selected="true"] { background: #eef1ff; color: #3949ab; }
+/* Shown rather than dropped: an entry that vanishes when it does not apply makes
+   the menu a different shape every time you open it. */
+.sprint-menu-item[aria-disabled="true"] { color: #bbb; cursor: default; background: none; }
 .sprint-menu-key {
   margin-left: auto;
   font: 10.5px ui-monospace, SFMono-Regular, Consolas, monospace;
@@ -693,6 +696,18 @@ kbd {
   border-radius: 3px;
   padding: 0 4px;
   color: #555;
+}
+
+/* Two sprints covering one day, which the app refuses to create and therefore only
+   ever sees when a heading was edited by hand. Sets no `display`, so the `[hidden]`
+   on the element still wins -- the trap that has now cost six features. */
+.sprint-overlap {
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  border-left: 3px solid #b00020;
+  background: #fdf3f4;
+  color: #7f0018;
+  font-size: 12.5px;
 }
 
 /* --- the table grid --- */
@@ -732,7 +747,56 @@ kbd {
   box-shadow: inset 0 0 0 1px #5c6bc0;
 }
 
-/* Only while the table is in use: four buttons under every table all the time
+/* --- the row and column grips --- */
+/* A gutter down the left and a strip across the top, each holding one handle. They
+   are table cells so they line up with the column they name however wide it is,
+   and they carry no border or background so the grid still reads as the grid. */
+.sprint-table .sprint-gutter,
+.sprint-table .sprint-corner,
+.sprint-table .sprint-colgrip {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  width: 1%;
+  min-width: 16px;
+  text-align: center;
+  vertical-align: middle;
+}
+.sprint-table .sprint-colgrip { height: 13px; }
+
+/* Revealed with the tools below, and for the same reason: a handle on every row
+   and column at once is more furniture than table. Opacity rather than `hidden`,
+   so the cells keep their width and the grid does not jump on hover. */
+.sprint-table .grip-handle {
+  border: 0;
+  background: transparent;
+  padding: 0 1px;
+  font-size: 11px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.sprint-table-block:hover .grip-handle,
+.sprint-table-block:focus-within .grip-handle { opacity: 1; }
+.sprint-table .grip-handle:focus { opacity: 1; outline: 1px solid #5c6bc0; }
+
+/* The row or column being dragged, and the edge it will land on. Drawn with an
+   inset shadow rather than a border, which would move the cells it sits beside. */
+.sprint-table tr.dragging > *, .sprint-table th.dragging { opacity: 0.4; }
+.sprint-table tr.drop-before > td, .sprint-table tr.drop-before > th {
+  box-shadow: inset 0 2px 0 -1px #5c6bc0;
+}
+.sprint-table tr.drop-after > td, .sprint-table tr.drop-after > th {
+  box-shadow: inset 0 -2px 0 -1px #5c6bc0;
+}
+.sprint-table th.drop-before { box-shadow: inset 2px 0 0 -1px #5c6bc0; }
+.sprint-table th.drop-after { box-shadow: inset -2px 0 0 -1px #5c6bc0; }
+
+/* Three short entries against a grip, not nine against a caret, so it wants none
+   of the insert menu's width. */
+.grid-menu { width: 168px; }
+
+/* Only while the table is in use: buttons under every table all the time
    is more furniture than document. */
 .sprint-table-tools {
   display: flex;

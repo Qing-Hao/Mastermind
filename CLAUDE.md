@@ -132,9 +132,15 @@ project occupies, its end being the latest phase end inside it.
 
 1. **The timeline never auto-reschedules.** Dates belong to the user. Every rule
    reports; nothing repairs. A plan may sit in a warning state forever.
-2. **V3 (dependency cycle) is the one exception** — malformed data, not a
-   scheduling opinion. `POST /api/dependencies` returns **409** naming the cycle
-   and writes nothing.
+2. **V3 (dependency cycle) is the one exception among the rules** — malformed
+   data, not a scheduling opinion. `POST /api/dependencies` returns **409**
+   naming the cycle and writes nothing.
+   There is now a **second write-time refusal, and it is not a rule**:
+   `POST /api/sprints` 409s on a fortnight overlapping a sprint already on disk.
+   Same reasoning — one team cannot run two sprints at once, so an overlap is
+   malformed rather than an opinion — but it guards a *file*, not the plan, so it
+   gets no V number and `validate_*` never sees it. Refusing to write a bad file
+   is not repairing a good one: no date in any existing file is ever touched.
 3. **Weeks and points are entered independently.** Neither derives the other; V1
    only cross-checks them.
 4. **Deliverables are planning units, not tasks.** Name + description + a `done`
@@ -268,7 +274,8 @@ DELETE · `/api/projects/{id}/layout` POST · `/api/projects/{id}/phases` POST �
 
 The five sprint routes are the sprint editor; see "Sprint planning lives in
 markdown files" below for what they may and may not do. `GET /api/sprints` lists
-the files for the picker (number, name, mtime, first line); `GET`/`PUT
+the files for the picker (number, name, mtime, first line, plus the `window` read
+back off that line and the `overlaps` it shares a day with); `GET`/`PUT
 /api/sprints/{number}` read and write one whole file, the `PUT` mtime-guarded;
 `/split` re-splits one edited block, which may have become several or changed
 type; `/table` turns an edited grid back into aligned markdown, which is why the
@@ -305,8 +312,10 @@ Monday, both dates reported. The bands, the clip flags and the order are all
 **Nothing in the payload sums points** — see the section below.
 
 `POST /api/sprints` copies `templates/sprint.md` to the next `sprints/NN.md`
-and fills in the heading. The one write in the fortnight feature, and it writes
-a file rather than a row.
+and fills in the heading. It writes a file rather than a row, and it has **two
+callers**: the drawer's `Plan this fortnight →` and the Sprint tab's `New
+sprint`. They share `state.plannedSprints`, so one fortnight does not get two
+files from one session.
 
 ## Schema changes and export versions
 
@@ -512,14 +521,60 @@ into one project link.
   mtime, which would arm the next save to overwrite the change it just refused.
   `.sprint-view[hidden]` is load-bearing in the CSS — the **fifth** time that
   trap has come up.
+  - **A landed save re-reads the picker** (`refreshSprintFiles`). The File list
+    names each file by its *first line*, so renaming a heading left the old name
+    showing until you left the tab and came back — `loadSprints` was the only
+    thing that re-read it. One localhost query per landed save, the same trade
+    `loadPlan` makes to retag a project badge. **Only the picker and the overlap
+    line are redrawn**: re-rendering the document would rebuild a block you may
+    still be typing in, which is the Chrome blur trap above. It also does not
+    adopt the listing's mtime — the save guard is the value the `PUT` quoted back.
+  - **An overlap is reported here, never repaired.** Two files covering one day
+    cannot both be run by one team; creating that is refused server-side, so what
+    this catches is dates edited by hand in a heading. The pair is named once,
+    from the lower number, and the editor prints the numbers `GET /api/sprints`
+    handed it — it reads no dates itself. `.sprint-overlap` deliberately sets no
+    `display`, so the element's `[hidden]` still wins.
   - **A table is a grid of `<input>`s and has no reveal gesture at all.** Every
     other block type swaps between rendered HTML and its markdown; a table swaps
     to cells, so raw pipes have nowhere to appear. `Tab`/`Shift+Tab` walk cells
-    and `Tab` off the last one grows a row; `+ Row` `+ Column` `− Row`
-    `− Column` sit under it on hover; and **pasting a spreadsheet range fills
-    from the anchor cell outwards**, growing the table to fit. That paste is the
-    feature the editor was built for. Editing a table's alignment markers, or
-    turning one back into prose, is the raw file view's job.
+    and `Tab` off the last one grows a row; `+ Row` `+ Column` sit under it on
+    hover; and **pasting a spreadsheet range fills from the anchor cell
+    outwards**, growing the table to fit. That paste is the feature the editor
+    was built for. Editing a table's alignment markers, or turning one back into
+    prose, is the raw file view's job.
+  - **Rows and columns are inserted, deleted and moved where they are**, from a
+    `⠿` grip beside every row and above every column: drag it to move that one,
+    click it for `Insert before` / `Insert after` / `Delete`. It replaced
+    `− Row` / `− Column`, which popped the end — so a row that belonged third
+    cost a retype of everything below it, in the one table the editor exists to
+    make easy to fill in. The drag is armed from the grip alone (and disarmed
+    again by the click that opens the menu, or a press in a cell would drag the
+    row), and every table event **stops propagating**, because the grid sits
+    inside a `.sprint-row` whose own handlers would otherwise reorder the whole
+    block. Deleting the last column stays forbidden; the header row has no grip
+    at all, since GFM has no table without one.
+    **A column is its cells *and* its `align[]` marker** — the one correctness
+    trap here, because a marker left behind silently right-aligns a different
+    column and the file still round-trips perfectly. A ragged table is squared
+    up before any structural edit, which writes nothing `serialise_table` would
+    not have padded anyway and is what makes "column 3" the same cell on every
+    row. Still no endpoint and no file-format change: these rearrange the grid,
+    and the file has always been written from the grid.
+  - **`New sprint` lives here too**, beside the picker: a date, `POST
+    /api/sprints`, then `revealSprintFile`. The tab that owns sprints could not
+    make one — the only path was a week number on the Portfolio ruler that
+    nothing marks as clickable, and that path does not exist at all for a
+    fortnight outside the chart's window. It is **dates only and reads no
+    roadmap**: the drawer is the roadmap-aware path, and duplicating it would
+    put roadmap knowledge in a tab that has none. The number is still the
+    server's, off the directory, and a 409 re-reads the picker and says which
+    file it refused to overwrite — or which sprint's days the fortnight you asked
+    for would have overlapped, since both refusals arrive as a 409 and the
+    server's message is what distinguishes them. It shares `state.plannedSprints`
+    with the
+    drawer, so pressing both for one fortnight opens the file instead of making
+    a second one — in memory, which is why the 409 still has to be handled.
   - **Grids become markdown inside the save, not on cell blur.** Blur would leave
     a window where the autosave fires first and writes a stale table; as the
     save's first step it cannot be written stale, and it costs one request per
@@ -762,6 +817,19 @@ and replaces the first line with `# Sprint N · YYYY-MM-DD → YYYY-MM-DD`.
 point them at `tmp_path`, the same shape as `db.set_db_path` — **no test may
 reach the real `sprints/`**, which holds work actually done.
 
+- **One team runs one sprint at a time, so overlapping windows are refused.**
+  `POST /api/sprints` reads each file's window back off its first line and 409s,
+  writing nothing, if the requested fortnight shares a day with one. Back to back
+  is fine — one ends the day before the next begins. `GET /api/sprints` also
+  reports `overlaps` per file, because refusing creation leaves exactly one way
+  in: dates edited by hand afterwards, which the app does not own and will not
+  rewrite. `sprint_window_from_heading` is **the only thing in the app that reads
+  a sprint file for meaning**, and it lives in `main.py` because `main.py` is what
+  writes that line — `markdown.py` and `editor.js` still know nothing about
+  sprints, so the gate condition is untouched. Reading is lenient like
+  `as_optional_date`: one date, no dates or a backwards pair is **no window**, and
+  a file with no window blocks nothing and overlaps nothing. Guessing would refuse
+  a real sprint on the strength of an invented fortnight.
 - **Numbering is next after the highest leading number on disk**, never
   lowest-unused: a gap is a sprint that was skipped or a file that was deleted,
   and neither is an invitation to reuse the number. Same reading as

@@ -591,16 +591,74 @@ def write_sprint_file(path, text):
         raise
 
 
-def sprint_summary(number, name):
-    """One row of the sprint picker: its number, its file and its first line."""
-    path = os.path.join(SPRINTS_DIR, name)
+def sprint_first_line(path):
+    """The first line of a file, which is where a sprint says what it covers."""
     with open(path, encoding="utf-8", newline="") as handle:
-        first = handle.readline()
+        return handle.readline()
+
+
+# Two ISO dates in the heading. Deliberately not the whole `sprint_heading` format:
+# a heading you retitled by hand still says which fortnight it is about.
+SPRINT_HEADING_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def sprint_window_from_heading(first_line):
+    """The days a sprint covers, read back from its first line. None if unreadable.
+
+    The inverse of `sprint_heading`, and the only thing in the app that reads a
+    sprint file for meaning rather than for display. It lives here because this
+    module is what *writes* that line -- `markdown.py` and the editor still know
+    nothing about sprints, which is the condition the sprint-4 gate rests on.
+
+    Reading is lenient, the way `as_optional_date` is: a heading with one date, no
+    dates, or a pair in the wrong order simply has no window. Nothing may guess it
+    -- a sprint whose days cannot be read is left out of the overlap check rather
+    than compared against invented ones.
+    """
+    found = []
+    for text in SPRINT_HEADING_DATE.findall(first_line or ""):
+        try:
+            found.append(date.fromisoformat(text))
+        except ValueError:
+            continue
+        if len(found) == 2:
+            break
+    if len(found) != 2 or found[1] < found[0]:
+        return None
+    return {"start": found[0].isoformat(), "end": found[1].isoformat()}
+
+
+def windows_overlap(one, other):
+    """True when two inclusive windows share a day. ISO strings sort as dates."""
+    return one["start"] <= other["end"] and other["start"] <= one["end"]
+
+
+def overlapping_sprints(window):
+    """The sprints on disk sharing a day with `window`, as `(number, window)`.
+
+    **One team runs one sprint at a time**, so an overlap is a mistake rather than
+    a plan. Two of them are back to back when one ends the day before the next
+    begins; a shared day means two sprints are live at once.
+    """
+    clashes = []
+    for number, name in sprint_files(SPRINTS_DIR):
+        found = sprint_window_from_heading(
+            sprint_first_line(os.path.join(SPRINTS_DIR, name)))
+        if found and windows_overlap(window, found):
+            clashes.append((number, found))
+    return clashes
+
+
+def sprint_summary(number, name):
+    """One row of the sprint picker: its number, its file, first line and window."""
+    path = os.path.join(SPRINTS_DIR, name)
+    first = sprint_first_line(path)
     return {
         "number": number,
         "name": name,
         "mtime": os.path.getmtime(path),
         "heading": first.strip().lstrip("#").strip(),
+        "window": sprint_window_from_heading(first),
     }
 
 
@@ -636,8 +694,27 @@ def add_sprint(body: SprintIn):
     The number never comes from the request, so no path can be named from
     outside, and the file is created exclusively: a sprint someone has already
     filled in is a 409, never an overwrite.
+
+    **A fortnight that overlaps a sprint already on disk is also a 409**, and
+    nothing is written. This is the second blocking rule in the app, and it is here
+    for the same reason V3 is: one team cannot run two sprints at once, so an
+    overlap is malformed rather than a scheduling opinion. Refusing to write a bad
+    file is not the same as repairing a good one -- rule 1 still holds, and the
+    dates in a file that exists are never touched.
     """
     window = fortnight_window(clean_date(body.start) or date.today())
+
+    clashes = overlapping_sprints(window)
+    if clashes:
+        named = ", ".join(
+            f"sprint {number} ({found['start']} → {found['end']})"
+            for number, found in clashes)
+        raise HTTPException(
+            status_code=409,
+            detail=(f"{window['start']} → {window['end']} overlaps {named}. "
+                    "One team runs one sprint at a time, so nothing was created."),
+        )
+
     number = next_sprint_number(SPRINTS_DIR)
     name = f"{number:02d}.md"
     path = os.path.join(SPRINTS_DIR, name)
@@ -680,8 +757,23 @@ def add_sprint(body: SprintIn):
 
 @app.get("/api/sprints")
 def list_sprints():
-    """Every sprint file on disk, for the picker. Lowest number first."""
-    return [sprint_summary(number, name) for number, name in sprint_files(SPRINTS_DIR)]
+    """Every sprint file on disk, for the picker. Lowest number first.
+
+    Each row carries the days it covers and `overlaps`, the other sprints it shares
+    a day with. Creating an overlap is refused outright, so what this catches is the
+    other way in: dates edited by hand afterwards, in a file the app does not own.
+    Reported at both ends of the pair, and repaired at neither -- the heading is
+    yours to fix.
+    """
+    files = [sprint_summary(number, name) for number, name in sprint_files(SPRINTS_DIR)]
+    for one in files:
+        one["overlaps"] = [
+            other["number"] for other in files
+            if other["number"] != one["number"]
+            and one["window"] and other["window"]
+            and windows_overlap(one["window"], other["window"])
+        ]
+    return files
 
 
 @app.post("/api/sprints/split")

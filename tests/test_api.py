@@ -1411,10 +1411,15 @@ def test_names_with_no_number_do_not_count(client, sprints):
 
 def test_a_sprint_file_is_never_overwritten(client, sprints, monkeypatch):
     """Needs the number pinned: 'next after the highest' cannot collide on its
-    own, and this guard is here for the case where something else did."""
+    own, and this guard is here for the case where something else did.
+
+    The second start is the **next** fortnight, not the same one. Reusing it would
+    trip the overlap check first and this test would pass without ever reaching the
+    exclusive create it exists for.
+    """
     start_sprint(client)
     monkeypatch.setattr(main, "next_sprint_number", lambda _: 1)
-    response = client.post("/api/sprints", json={"start": "2026-08-03"})
+    response = client.post("/api/sprints", json={"start": "2026-08-17"})
     assert response.status_code == 409
     # The filled-in file is still exactly what it was.
     with open(sprints / "01.md", encoding="utf-8", newline="") as handle:
@@ -1431,6 +1436,89 @@ def test_the_sprint_start_snaps_to_its_monday(client, sprints):
 def test_a_garbage_sprint_start_is_rejected(client, sprints):
     assert client.post("/api/sprints", json={"start": "soon"}).status_code == 422
     assert not sprints.exists()
+
+
+# --- one team, one sprint at a time ------------------------------------------
+#
+# Two sprints covering the same day cannot both be run by one team, so creating
+# that is refused and existing files that manage it anyway are reported. The dates
+# are read back out of the heading `sprint_heading` writes; a heading that cannot
+# be read has no window and takes part in nothing.
+
+
+def test_a_heading_window_is_read_back_out_of_the_line_it_was_written_on():
+    assert main.sprint_window_from_heading("# Sprint 1 · 2026-08-03 → 2026-08-16") \
+        == {"start": "2026-08-03", "end": "2026-08-16"}
+    # Retitled by hand, but it still says which fortnight it is about.
+    assert main.sprint_window_from_heading("# The bad one, 2026-08-03 to 2026-08-16") \
+        == {"start": "2026-08-03", "end": "2026-08-16"}
+
+
+@pytest.mark.parametrize("heading", [
+    "# Sprint 1",                                  # no dates at all
+    "# Sprint 1 · 2026-08-03",                     # only one
+    "# Sprint 1 · 2026-08-16 → 2026-08-03",        # backwards, so not a window
+    "# Sprint 1 · 2026-13-01 → 2026-13-14",        # not dates
+    "",
+])
+def test_a_heading_that_cannot_be_read_has_no_window(heading):
+    """Lenient like `as_optional_date`: none of these is guessed at."""
+    assert main.sprint_window_from_heading(heading) is None
+
+
+def test_a_fortnight_overlapping_a_sprint_on_disk_is_refused(client, sprints):
+    start_sprint(client, "2026-08-03")                     # covers 03 -> 16 Aug
+    response = client.post("/api/sprints", json={"start": "2026-08-10"})
+    assert response.status_code == 409
+    assert "one sprint at a time" in response.json()["detail"]
+    assert "sprint 1" in response.json()["detail"]
+    # Refused means nothing was written, not written and then complained about.
+    assert sorted(path.name for path in sprints.iterdir()) == ["01.md"]
+
+
+def test_the_very_same_fortnight_is_an_overlap_too(client, sprints):
+    start_sprint(client, "2026-08-03")
+    assert client.post("/api/sprints", json={"start": "2026-08-03"}).status_code == 409
+    assert sorted(path.name for path in sprints.iterdir()) == ["01.md"]
+
+
+def test_back_to_back_fortnights_are_not_an_overlap(client, sprints):
+    """One ends the day before the next begins, which is how sprints run."""
+    start_sprint(client, "2026-08-03")                     # 03 -> 16 Aug
+    created = start_sprint(client, "2026-08-17")           # 17 -> 30 Aug
+    assert created["name"] == "02.md"
+    assert (sprints / "02.md").exists()
+
+
+def test_a_file_whose_heading_cannot_be_read_blocks_nothing(client, sprints):
+    """It might cover those days. Guessing that it does would refuse a real sprint
+    on the strength of an invented window."""
+    write_sprint(sprints, "01.md", "# notes to self\n\nnothing here yet.\n")
+    assert start_sprint(client, "2026-08-03")["name"] == "02.md"
+
+
+def test_the_list_reports_the_window_and_who_it_overlaps(client, sprints):
+    # Written by hand, because the app refuses to create this state.
+    write_sprint(sprints, "01.md", "# Sprint 1 · 2026-08-03 → 2026-08-16\n")
+    write_sprint(sprints, "02.md", "# Sprint 2 · 2026-08-10 → 2026-08-23\n")
+    write_sprint(sprints, "03.md", "# Sprint 3 · 2026-08-24 → 2026-09-06\n")
+
+    listed = {file["number"]: file for file in client.get("/api/sprints").json()}
+    assert listed[1]["window"] == {"start": "2026-08-03", "end": "2026-08-16"}
+    # Reported at both ends, so opening either file tells you.
+    assert listed[1]["overlaps"] == [2]
+    assert listed[2]["overlaps"] == [1]
+    # Back to back with 2, and nowhere near 1.
+    assert listed[3]["overlaps"] == []
+
+
+def test_a_file_with_no_readable_window_overlaps_nothing(client, sprints):
+    write_sprint(sprints, "01.md", "# Sprint 1 · 2026-08-03 → 2026-08-16\n")
+    write_sprint(sprints, "02.md", "# untitled\n")
+    listed = {file["number"]: file for file in client.get("/api/sprints").json()}
+    assert listed[2]["window"] is None
+    assert listed[2]["overlaps"] == []
+    assert listed[1]["overlaps"] == []
 
 
 # --- reading and writing a sprint file ---------------------------------------

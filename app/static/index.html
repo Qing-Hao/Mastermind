@@ -308,7 +308,9 @@
           The sprint file itself, edited in place. Click any block to see its
           markdown, click away to put it back &mdash; saving happens on its own.
           <kbd>/</kbd> on an empty block inserts one; drag <span
-          class="grip-glyph">&#10287;</span> in the margin to reorder.
+          class="grip-glyph">&#10287;</span> in the margin to reorder. In a table
+          the same handle sits beside every row and above every column &mdash;
+          drag it to move that one, click it to insert or delete there.
           Nothing here writes to the roadmap: a sprint that overruns is recorded
           in Reflection, and phase dates are changed by hand in the Project tab
           or not at all.
@@ -326,10 +328,32 @@
           </span>
         </div>
 
+        <!-- Starting a sprint, on the tab that owns them. Dates only: the
+             fortnight drawer is the roadmap-aware path and this deliberately is
+             not one, so the Sprint tab still knows nothing about the roadmap.
+             The number is the server's, off the directory. -->
+        <div class="row sprint-new-row">
+          <label>New sprint from
+            <input id="sprint-new-start" type="date"
+              title="Any day in the fortnight. Snapped back to its Monday.">
+          </label>
+          <button id="sprint-new" type="button">New sprint</button>
+          <span id="sprint-new-note" class="muted">
+            Copies <code>templates/sprint.md</code> to the next
+            <code>sprints/NN.md</code> and opens it.
+          </span>
+        </div>
+
+        <!-- One team, one sprint at a time. Creating an overlap is refused, so
+             this fires for dates edited by hand afterwards. -->
+        <p id="sprint-overlap" class="sprint-overlap" hidden></p>
+
         <p id="sprint-empty" class="hint" hidden>
-          No sprint files yet. Open <strong>Portfolio</strong>, click a week on
-          the ruler and press <em>Plan this fortnight &rarr;</em> to start one
-          from the template.
+          No sprint files yet. Pick a fortnight above and press
+          <em>New sprint</em> to start one from the template &mdash; or open
+          <strong>Portfolio</strong>, click a week on the ruler and press
+          <em>Plan this fortnight &rarr;</em>, which does the same thing beside
+          the work it is for.
         </p>
 
         <div id="sprint-document" class="sprint-doc"></div>
