@@ -2,3 +2,7 @@ fastapi>=0.115
 uvicorn[standard]>=0.32
 pytest>=8.0
 httpx>=0.27
+# The sprint editor renders markdown blocks server-side. Not optional, unlike
+# requirements-ai.txt: the Sprint tab cannot draw a file without them.
+markdown-it-py>=4.2
+mdit-py-plugins>=0.6.1

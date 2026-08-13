@@ -4,8 +4,11 @@ import os
 import pytest
 
 from app.markdown import (
+    MERMAID_CLASS,
+    document_blocks,
     join_blocks,
     parse_table,
+    render_block,
     serialise_table,
     split_blocks,
 )
@@ -240,6 +243,63 @@ def test_serialise_table_grows_to_its_widest_row():
 def test_serialise_table_flattens_a_newline_pasted_into_a_cell():
     written = serialise_table({"head": ["a"], "align": [""], "rows": [["x\ny"]]})
     assert len(written.splitlines()) == 3
+
+
+def test_raw_html_survives_rendering():
+    # The template wraps deliverable headings in <u> and hides its worked
+    # example in <details>, so html=True is load-bearing rather than lax.
+    assert "<u>Project</u>" in render_block({"raw": "**<u>Project</u>**"})
+    assert render_block({"raw": "<details>\n<summary>Filled example</summary>"}).startswith(
+        "<details>"
+    )
+
+
+def test_gfm_tables_and_strikethrough_render():
+    html = render_block({"raw": "| a | b |\n|---|---:|\n| c | d |"})
+    assert "<table>" in html
+    assert 'style="text-align:right"' in html
+    assert "<s>gone</s>" in render_block({"raw": "~~gone~~"})
+
+
+def test_task_list_renders_as_checkboxes():
+    html = render_block({"raw": "- [ ] todo\n- [x] done"})
+    assert html.count("<input") == 2
+    assert 'checked="checked"' in html
+
+
+def test_mermaid_fence_is_marked_and_its_source_preserved():
+    html = render_block({"raw": "```mermaid\ngraph TD\n  a-->b\n```"})
+    assert f'class="{MERMAID_CLASS}"' in html
+    assert "graph TD" in html
+    # Drawing it is the frontend's job -- nothing here emits SVG.
+    assert "<svg" not in html
+
+
+def test_other_fences_render_normally():
+    html = render_block({"raw": "```text\nhello\n```"})
+    assert MERMAID_CLASS not in html
+    assert "language-text" in html
+
+
+def test_rendering_never_mutates_raw():
+    block = {"raw": "| a | b |\n|---|---|\n| c | d |"}
+    before = block["raw"]
+    render_block(block)
+    assert block["raw"] == before
+
+
+def test_document_blocks_attaches_html_to_every_block():
+    blocks = document_blocks(AWKWARD)
+    assert all(block["html"] for block in blocks)
+    assert join_blocks(blocks) == AWKWARD
+
+
+@pytest.mark.parametrize("path", CORPUS, ids=[os.path.basename(p) for p in CORPUS])
+def test_every_block_in_the_corpus_renders(path):
+    with open(path, encoding="utf-8", newline="") as handle:
+        blocks = document_blocks(handle.read())
+    for block in blocks:
+        assert block["html"], f'{block["type"]} block {block["index"]} rendered to nothing'
 
 
 def test_join_blocks_falls_back_to_a_blank_line_for_a_new_block():
