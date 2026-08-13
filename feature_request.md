@@ -55,6 +55,83 @@ why FR-13 sits above FR-12.
 
 ---
 
+## Dependencies, and what can run in parallel
+
+Written so several of these can be developed at once in separate worktrees.
+There are **no schema changes anywhere in FR-9 to FR-14** — no table, no column,
+no `migrate()` step, no export bump — so the usual `--reload` migration hazard
+does not apply to any of this work.
+
+### What actually blocks what
+
+Only three real dependencies exist. Everything else is independent.
+
+```
+FR-13 ──> FR-2        both edit main.read_portfolio; do FR-13 first, it is smaller
+FR-11 ──> tab reorder same change, same files, one commit
+FR-14 ──> a decision  option A/B/C/D, not code
+```
+
+- **FR-13 before FR-2.** `read_portfolio` (`app/main.py:442-469`) returns
+  `projects` straight from `db.list_projects` with no span, so FR-13 has to
+  attach one. FR-2's portfolio-wide warnings assemble in the same function. Two
+  branches editing that return dict is the one merge conflict worth avoiding —
+  keep them in one worktree, in that order.
+- **FR-9, FR-10, FR-12, FR-14 depend on nothing.** All four can start today.
+- **FR-11 depends on nothing either, but it moves DOM other branches render
+  into** — see the merge order below.
+
+### Where each one lands
+
+| FR | Python | `app.js` | `editor.js` | `index.html` | `style.css` | Tests |
+|---|---|---|---|---|---|---|
+| FR-9 | — | — | 660–840 (table) | — | ~700–750 | — |
+| FR-10 | — | — | ~50 (`loadSprints`) | Sprint section | sprint picker | — |
+| FR-11 | — | 463–473, 2933–2947 | — | **header, 10–26** | header | — |
+| FR-12 | — | 1270–1470 (drags) | — | — | new pill class | — |
+| FR-13 | `main.read_portfolio` | 1202–1216 (lanes) | — | — | — | `test_api.py` |
+| FR-14 | — | map render | — | — | 790–900 (map) | — |
+
+Two properties worth noticing:
+
+- **Only FR-13 touches Python at all.** The other five cannot break the 273
+  tests, which is what makes running them in parallel cheap.
+- **`style.css` is touched by five of the six, in five disjoint regions.** Git
+  merges that fine as long as nobody reflows the file. Do not reorder or
+  reformat blocks you are not changing. The `[hidden]` trap — a class setting
+  `display` outranks the UA sheet — has now cost five separate features; check it
+  before adding any new hideable element.
+
+### Suggested worktrees
+
+| Tree | Items, in order | Why they belong together |
+|---|---|---|
+| **A · sprint editor** | FR-9, then FR-10 | Both are `editor.js`. Different regions, but one file, so one tree. Zero Python. |
+| **B · portfolio** | FR-13, then FR-12, then FR-2 | All in the portfolio view; FR-13 and FR-2 share `read_portfolio`. The only tree that runs the test suite. |
+| **C · map** | FR-14 | Its own region of `app.js` and its own block of `style.css`. Blocked on the option decision, not on A or B. |
+| **D · shell** | FR-11 + tab reorder | Held back — see below. |
+
+A, B and C are near-disjoint and can run at the same time.
+
+**D goes last, alone.** Not because it conflicts textually — the header is its
+own region — but because it moves the project picker out of the global header
+into the Project view and reorders the tabs. Every other branch renders into a
+page whose shape it changes, and `#empty-state`, `loadProjectList` and the badge
+refresh in `loadPlan` all get touched. Rebasing three branches onto a moved
+header is worse than rebasing one moved header onto three merged branches.
+
+### Running several worktrees at once — two practical traps
+
+- **`data/` and `sprints/` are gitignored, so a fresh worktree has neither.**
+  A new tree comes up with an empty database and no sprint files, which makes
+  the map, the portfolio and the Sprint tab all look broken when they are not.
+  Copy `data/roadmap.db` and `sprints/` into each tree. Copy — do not point two
+  servers at the one file.
+- **One port per tree.** `--port 8000`, `8001`, `8002`. Two `--reload` servers on
+  one port fail in a way that looks like a code error.
+
+---
+
 ## FR-1 · One point currency, stated out loud — **P1**
 
 **What:** Write down, in `templates/sprint.md` and `CLAUDE.md`, that a point on
