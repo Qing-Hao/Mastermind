@@ -1566,10 +1566,12 @@ def test_an_edited_grid_comes_back_as_aligned_markdown(client):
         json={"head": ["Person", "Days"], "align": ["", "right"], "rows": [["@qh", "10"]]},
     ).json()["blocks"]
     assert [block["type"] for block in blocks] == ["table"]
+    # The right-aligned column pads on the left, so its numbers line up in the
+    # file the same way they line up when the table is rendered.
     assert blocks[0]["raw"].splitlines() == [
         "| Person | Days |",
         "| ------ | ---: |",
-        "| @qh    | 10   |",
+        "| @qh    |   10 |",
     ]
 
 

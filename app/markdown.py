@@ -295,16 +295,29 @@ def serialise_table(table):
         for column in range(columns)
     ]
 
-    lines = [_write_row(head, widths), _write_row(_write_delimiters(align, widths), widths)]
-    lines += [_write_row(row, widths) for row in rows]
+    lines = [_write_row(head, widths, align), _write_row(_write_delimiters(align, widths), widths)]
+    lines += [_write_row(row, widths, align) for row in rows]
     return "\n".join(lines)
 
 
-def _write_row(cells, widths):
-    padded = [
-        (cells[column] if column < len(cells) else "").ljust(widths[column])
-        for column in range(len(widths))
-    ]
+def _write_row(cells, widths, align=None):
+    """One row, each cell padded to its column -- and to that column's side.
+
+    A right-aligned column is padded on the left, so a column of numbers lines
+    up on its last digit in the file as well as on screen. That is the whole
+    reason someone marks the column right-aligned. Delimiter cells arrive at
+    exactly their width and pass through either way.
+    """
+    padded = []
+    for column, width in enumerate(widths):
+        cell = cells[column] if column < len(cells) else ""
+        marker = align[column] if align and column < len(align) else ""
+        if marker == "right":
+            padded.append(cell.rjust(width))
+        elif marker == "center":
+            padded.append(cell.center(width))
+        else:
+            padded.append(cell.ljust(width))
     return "| " + " | ".join(padded) + " |"
 
 

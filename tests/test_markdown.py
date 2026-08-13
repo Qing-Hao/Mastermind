@@ -211,6 +211,24 @@ def test_serialise_table_pads_a_ragged_grid():
     )
 
 
+def test_serialise_table_pads_a_cell_to_its_column_side():
+    # A right-aligned column is what you write when the numbers should line up,
+    # so they line up in the file too, not only on screen.
+    written = serialise_table(
+        {"head": ["Task", "Pts"], "align": ["", "right"], "rows": [["Ship it", "5"]]}
+    )
+    assert written.splitlines() == [
+        "| Task    | Pts |",
+        "| ------- | --: |",
+        "| Ship it |   5 |",
+    ]
+
+
+def test_serialise_table_centres_a_centred_column():
+    written = serialise_table({"head": ["Owner"], "align": ["center"], "rows": [["@qh"]]})
+    assert written.splitlines()[2] == "|  @qh  |"
+
+
 def test_serialise_table_is_idempotent():
     once = serialise_table(grid("| a | bbbbb |\n|---|---|\n| cc | d |"))
     assert serialise_table(grid(once)) == once

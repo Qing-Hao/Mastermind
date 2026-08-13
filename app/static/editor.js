@@ -142,6 +142,13 @@ function renderSprintDocument() {
   doc.innerHTML = "";
 
   sprint.blocks.forEach((block, index) => {
+    // A table is edited as a grid and never as raw pipes, so it has no reveal
+    // gesture at all -- the cells *are* the editor. Everything else swaps
+    // between rendered HTML and its own markdown.
+    if (block.type === "table" && block.table) {
+      doc.appendChild(sprintTable(block, index));
+      return;
+    }
     doc.appendChild(index === sprint.editing
       ? sprintEditor(block, index)
       : sprintBlock(block, index));
@@ -223,6 +230,205 @@ function startSprintBlock() {
   renderSprintDocument();
 }
 
+// --- tables -----------------------------------------------------------------
+
+// The grid is the reason the editor exists: the capacity and unplanned-work
+// tables get filled in every fortnight, and typing pipes by hand is the part
+// that makes people not bother.
+//
+// `block.table` is authoritative while the grid is on screen -- a cell edit
+// changes it and nothing else. `raw` is regenerated from it **server-side** by
+// `serialise_table` when the file is saved, so column padding and alignment
+// happen in exactly one place and the frontend never writes a pipe.
+//
+// Nothing here knows what a capacity table is. Any pipe table in any sprint file
+// gets this same grid, which is the condition the sprint-4 gate override rests on.
+
+const CELL_ALIGN = { right: "right", center: "center" };
+
+// A pipe inside a cell is stored escaped, because that is what the file needs.
+// The grid shows the character itself; the server escapes it again on the way
+// back, which is why `_escape_cell` unescapes before it escapes.
+const cellText = (value) => String(value ?? "").replace(/\\\|/g, "|");
+
+function sprintTable(block, index) {
+  const node = element("div", "sprint-block sprint-table-block");
+  const scroller = element("div", "sprint-grid");
+  const table = element("table", "sprint-table");
+  const grid = block.table;
+
+  const head = element("tr");
+  grid.head.forEach((cell, column) => {
+    const th = element("th");
+    th.appendChild(sprintCell(block, index, -1, column, cell));
+    head.appendChild(th);
+  });
+  table.appendChild(element("thead")).appendChild(head);
+
+  const body = element("tbody");
+  grid.rows.forEach((row, r) => {
+    const tr = element("tr");
+    row.forEach((cell, column) => {
+      tr.appendChild(element("td")).appendChild(sprintCell(block, index, r, column, cell));
+    });
+    body.appendChild(tr);
+  });
+  table.appendChild(body);
+
+  scroller.appendChild(table);
+  node.append(scroller, sprintTableTools(block, index));
+  return node;
+}
+
+function sprintCell(block, index, r, column, value) {
+  const grid = block.table;
+  const cell = element("input", "sprint-cell");
+  cell.type = "text";
+  cell.value = cellText(value);
+  cell.dataset.r = r;
+  cell.dataset.c = column;
+  cell.spellcheck = false;
+  // Alignment is the column's, so the grid reads the way the rendered table does.
+  cell.style.textAlign = CELL_ALIGN[grid.align[column]] || "";
+
+  cell.oninput = () => {
+    if (r === -1) grid.head[column] = cell.value;
+    else grid.rows[r][column] = cell.value;
+    tableEdited(block);
+  };
+
+  cell.onkeydown = (event) => {
+    if (event.key !== "Tab") return;
+    event.preventDefault();
+    const columns = grid.head.length;
+    let row = r;
+    let next = column + (event.shiftKey ? -1 : 1);
+    if (next >= columns) { next = 0; row = r + 1; }
+    if (next < 0) { next = columns - 1; row = r - 1; }
+    // Tab off the last cell grows the table rather than leaving it.
+    if (row > grid.rows.length - 1) {
+      grid.rows.push(new Array(columns).fill(""));
+      tableEdited(block);
+      renderSprintDocument();
+      focusSprintCell(index, grid.rows.length - 1, 0);
+      return;
+    }
+    if (row < -1) return;   // Shift+Tab out of the first header cell stays put
+    focusSprintCell(index, row, next);
+  };
+
+  cell.onpaste = (event) => {
+    const text = (event.clipboardData || window.clipboardData).getData("text");
+    // One value is an ordinary paste; a range is a grid, and that is the point.
+    if (!text || !/[\t\n]/.test(text)) return;
+    event.preventDefault();
+    pasteIntoTable(block, r, column, text);
+    renderSprintDocument();
+    focusSprintCell(index, r, column);
+  };
+
+  return cell;
+}
+
+// Fills from the anchor cell, growing the table to fit what was pasted. A
+// spreadsheet range arrives as tab-separated lines, which is what makes the
+// capacity table a paste rather than an afternoon.
+function pasteIntoTable(block, r, column, text) {
+  const grid = block.table;
+  const rows = text.replace(/\r\n?/g, "\n").replace(/\n$/, "").split("\n");
+
+  rows.forEach((line, downwards) => {
+    line.split("\t").forEach((value, across) => {
+      const targetRow = r + downwards;
+      const targetColumn = column + across;
+      while (grid.head.length <= targetColumn) {
+        grid.head.push("");
+        grid.align.push("");
+        grid.rows.forEach((row) => row.push(""));
+      }
+      while (grid.rows.length <= targetRow) {
+        grid.rows.push(new Array(grid.head.length).fill(""));
+      }
+      if (targetRow === -1) grid.head[targetColumn] = value.trim();
+      else grid.rows[targetRow][targetColumn] = value.trim();
+    });
+  });
+  tableEdited(block);
+}
+
+function sprintTableTools(block, index) {
+  const grid = block.table;
+  const tools = element("div", "sprint-table-tools");
+
+  const change = (apply) => () => {
+    apply();
+    tableEdited(block);
+    renderSprintDocument();
+  };
+
+  tools.append(
+    gridButton("+ Row", change(() => grid.rows.push(new Array(grid.head.length).fill("")))),
+    gridButton("+ Column", change(() => {
+      grid.head.push("");
+      grid.align.push("");
+      grid.rows.forEach((row) => row.push(""));
+    })),
+    gridButton("− Row", change(() => grid.rows.pop()), grid.rows.length === 0),
+    // A table with no columns is not a table, so the last one cannot go.
+    gridButton("− Column", change(() => {
+      grid.head.pop();
+      grid.align.pop();
+      grid.rows.forEach((row) => row.pop());
+    }), grid.head.length <= 1),
+    element("span", "sprint-table-note", "Tab moves · paste from a spreadsheet fills the grid"),
+  );
+  return tools;
+}
+
+function gridButton(label, onclick, disabled = false) {
+  const button = element("button", "grid-btn", label);
+  button.type = "button";
+  button.disabled = disabled;
+  button.onclick = onclick;
+  return button;
+}
+
+function focusSprintCell(index, r, column) {
+  const doc = $("sprint-document");
+  const block = doc.children[index];
+  const cell = block && block.querySelector(`input[data-r="${r}"][data-c="${column}"]`);
+  if (cell) {
+    cell.focus();
+    cell.select();
+  }
+}
+
+// A grid edit leaves `raw` stale until the save regenerates it, so the block is
+// flagged rather than re-serialised here -- there is no markdown in this file.
+function tableEdited(block) {
+  block.tableEdited = true;
+  scheduleSprintSave();
+}
+
+// Every flagged table becomes markdown again before the file is joined. Done at
+// save time rather than on each keystroke: one request per debounce, not per
+// character, and the file can never be written with a stale table in it.
+async function serialiseEditedTables() {
+  for (const block of state.sprint.blocks) {
+    if (!block.tableEdited) continue;
+    const fresh = (await api("/api/sprints/table", {
+      method: "POST",
+      body: JSON.stringify(block.table),
+    })).blocks[0];
+    if (!fresh) continue;
+    // `raw` and `html` come from the server; `table` stays the live grid, so a
+    // cell being typed into is not overwritten underneath the cursor.
+    block.raw = fresh.raw;
+    block.html = fresh.html;
+    block.tableEdited = false;
+  }
+}
+
 // One edited box can become several blocks (paste three paragraphs), change type
 // (type `## ` in front), or none at all (delete the lot). The server re-splits
 // it, because the splitter is the same one that read the file.
@@ -294,11 +500,14 @@ async function saveSprint() {
   clearTimeout(sprintSaveTimer);
 
   const number = sprint.number;
-  const text = joinSprintBlocks(sprint.blocks);
   sprint.status = "saving";
   renderSprintStatus();
 
   try {
+    // Grids become markdown first, so what is joined below is never stale.
+    await serialiseEditedTables();
+    if (sprint.number !== number) return;
+    const text = joinSprintBlocks(sprint.blocks);
     const saved = await api(`/api/sprints/${number}`, {
       method: "PUT",
       body: JSON.stringify({ text, mtime: sprint.mtime }),

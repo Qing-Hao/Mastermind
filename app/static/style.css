@@ -584,6 +584,60 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
    and a checkbox you cannot press is better than one that quietly does nothing. */
 .sprint-block input[type="checkbox"] { margin-right: 4px; }
 
+/* --- the table grid --- */
+/* A table block is edited as a grid and never as raw pipes, so it gets no reveal
+   affordance: the cells are the editor. */
+.sprint-table-block { cursor: default; }
+.sprint-table-block:hover { background: transparent; border-left-color: transparent; }
+
+/* Wide tables scroll inside the block rather than widening the document. */
+.sprint-grid { overflow-x: auto; }
+
+.sprint-table {
+  border-collapse: collapse;
+  /* Monospace with tabular figures: these columns are mostly numbers being
+     compared down the column, and the file they are written to is monospace. */
+  font: 12.5px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  width: 100%;
+}
+.sprint-table th, .sprint-table td { border: 1px solid #e0e0e0; padding: 0; }
+.sprint-table th { background: #f6f6f6; }
+
+.sprint-cell {
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  width: 100%;
+  min-width: 76px;
+  padding: 5px 7px;
+  border: 0;
+  background: transparent;
+  box-sizing: border-box;
+}
+.sprint-table th .sprint-cell { font-weight: 600; }
+.sprint-cell:focus {
+  outline: none;
+  background: #eef1ff;
+  box-shadow: inset 0 0 0 1px #5c6bc0;
+}
+
+/* Only while the table is in use: four buttons under every table all the time
+   is more furniture than document. */
+.sprint-table-tools {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 6px 0 0;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.sprint-table-block:hover .sprint-table-tools,
+.sprint-table-block:focus-within .sprint-table-tools { opacity: 1; }
+
+.grid-btn { font-size: 11.5px; padding: 2px 8px; }
+.grid-btn:disabled { opacity: 0.4; }
+.sprint-table-note { margin-left: auto; color: #888; font-size: 11.5px; }
+
 /* The same block, showing its markdown. Monospace and full width: this is the
    file, not a form field. */
 .sprint-raw {
