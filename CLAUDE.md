@@ -389,6 +389,20 @@ into one project link.
   with expandable deliverables (`3/5` tally on the phase row), dependencies. The
   dependency panel lists both directions (`← waits on X`, `→ Y waits on this`)
   and links by picking another project plus a direction.
+  The **deliverable list is typed straight through**: adding one keeps the
+  cursor in the adder, and Enter on a name already in the list lands there too.
+  Adding reloads the whole plan — that is what retags the picker badge — so the
+  box is rebuilt underneath you and `state.focusAdder` is what puts the cursor
+  back; `renderPhases` consumes it after appending, since an input out of the
+  document cannot take focus.
+  Rows **reorder by dragging a `⠿` grip**, which is its own column because the
+  rest of the row is a checkbox and a text field, and a drag surface over either
+  would cost click-to-place-cursor inside the name. It writes `sort_order` and
+  nothing else — not the tick, not the phase, no date anywhere — the same
+  contract as the timeline's phase drag, reusing its `DRAG_ARM_PX` guard and
+  renumbering from zero with only the moved rows written
+  (`saveDeliverableOrder`, the twin of `saveOrder`). Ordering deliverables is
+  arrangement, not state: no rule reads it, so nothing fires.
   The **Stage** field offers three choices — `idea | committed | closed` —
   because those are the only three the ladder does not derive. "Committed"
   writes `planned`; a legacy `active` row reads back as committed, since they

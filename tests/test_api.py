@@ -542,6 +542,25 @@ def test_deliverables_are_returned_with_their_phase(client):
     assert names == ["Payment intent API", "Webhook receiver", "Refund flow"]
 
 
+def test_deliverables_can_be_resequenced(client):
+    """What a drag on the grip writes: sort_order only, tick untouched."""
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Core", "2026-01-05", 5.5, 55)
+    intent = add_deliverable(client, phase["id"], "Payment intent API")
+    webhook = add_deliverable(client, phase["id"], "Webhook receiver")
+    refund = add_deliverable(client, phase["id"], "Refund flow")
+    client.put(f"/api/deliverables/{intent['id']}", json={"done": True})
+
+    # Refund flow dragged to the top: every row that moved is renumbered.
+    for index, moved in enumerate([refund, intent, webhook]):
+        client.put(f"/api/deliverables/{moved['id']}", json={"sort_order": index})
+
+    returned = plan_of(client, project["id"])["phases"][0]["deliverables"]
+    assert [deliverable["name"] for deliverable in returned] == [
+        "Refund flow", "Payment intent API", "Webhook receiver"]
+    assert [deliverable["done"] for deliverable in returned] == [0, 1, 0]
+
+
 def test_deliverable_carries_no_estimate(client):
     """Weeks and points live on the phase; a deliverable is just an entry."""
     project = make_project(client)

@@ -78,6 +78,12 @@ let state = {
   graph: null,
   settings: null,
   expandedPhases: new Set(),
+  // Which phase's deliverable adder should hold the cursor after the next
+  // render. Adding a deliverable reloads the whole plan -- that is what retags
+  // the picker badge -- so the box you were typing in is rebuilt underneath you.
+  // A phase id here puts the cursor back, which is what makes a list typeable
+  // straight through. Consumed by `renderPhases` and cleared as it is read.
+  focusAdder: null,
   // Which timeline the project view draws. null means "decide from the data":
   // a project with nothing scheduled opens on weeks, anything else on dates.
   // Clicking the switch pins it until you change project.
@@ -893,6 +899,14 @@ function renderPhases() {
     body.appendChild(row);
     if (isOpen) body.appendChild(deliverableRow(phase));
   }
+
+  // An input can only take focus once it is in the document, so this happens
+  // here rather than where the adder is built.
+  if (state.focusAdder !== null) {
+    const adder = body.querySelector(`input.adder[data-phase="${state.focusAdder}"]`);
+    state.focusAdder = null;
+    if (adder) adder.focus();
+  }
 }
 
 function deliverableRow(phase) {
@@ -902,13 +916,23 @@ function deliverableRow(phase) {
 
   const table = element("table", "deliverables");
   const head = element("tr");
-  for (const heading of ["Done", "Deliverable", ""]) {
+  for (const heading of ["", "Done", "Deliverable", ""]) {
     head.appendChild(element("th", null, heading));
   }
   table.appendChild(head);
 
+  const lines = [];
   for (const deliverable of phase.deliverables) {
     const line = element("tr", deliverable.done ? "done" : null);
+
+    // The grip is its own column because the rest of the row is a checkbox and
+    // a text field: a drag surface over either would cost you click-to-place-
+    // cursor inside the name.
+    const gripCell = element("td", "grip");
+    const grip = element("span", "grip-handle", "⠿");
+    grip.title = "Drag to reorder";
+    gripCell.appendChild(grip);
+    line.appendChild(gripCell);
 
     const tickCell = element("td", "tick");
     const tick = element("input");
@@ -919,7 +943,18 @@ function deliverableRow(phase) {
     tickCell.appendChild(tick);
     line.appendChild(tickCell);
 
-    line.appendChild(fieldCell(deliverable, "name", "text", saveDeliverable));
+    const nameCell = fieldCell(deliverable, "name", "text", saveDeliverable);
+    // Enter on a name already in the list ends up in the adder too, so a
+    // correction leaves the cursor where the next one is typed. The flag is set
+    // in keydown; the `change` Enter fires next is what saves and re-renders.
+    // With nothing edited there is no change to wait for, so render now.
+    const nameInput = nameCell.querySelector("input");
+    nameInput.onkeydown = (event) => {
+      if (event.key !== "Enter") return;
+      state.focusAdder = phase.id;
+      if (nameInput.value === deliverable.name) renderPhases();
+    };
+    line.appendChild(nameCell);
 
     const actionCell = element("td");
     const remove = element("button", null, "✕");
@@ -931,14 +966,17 @@ function deliverableRow(phase) {
     actionCell.appendChild(remove);
     line.appendChild(actionCell);
     table.appendChild(line);
+    lines.push({ line, grip, deliverable });
   }
 
   const adder = element("tr");
   // Nothing to tick yet -- a new deliverable always starts ongoing.
+  const gripSpacer = element("td");
   const spacerCell = element("td");
   const nameCell = element("td");
-  const nameInput = element("input");
+  const nameInput = element("input", "adder");
   nameInput.placeholder = "New deliverable";
+  nameInput.dataset.phase = phase.id;
   nameCell.appendChild(nameInput);
 
   const buttonCell = element("td");
@@ -950,17 +988,86 @@ function deliverableRow(phase) {
       method: "POST",
       body: JSON.stringify({ name }),
     });
+    // The reload rebuilds this box; the cursor comes back to the new one.
+    state.focusAdder = phase.id;
     await loadPlan();
   };
   nameInput.onkeydown = (event) => { if (event.key === "Enter") add.click(); };
   buttonCell.appendChild(add);
 
-  adder.append(spacerCell, nameCell, buttonCell);
+  adder.append(gripSpacer, spacerCell, nameCell, buttonCell);
   table.appendChild(adder);
+
+  // Wired once the whole list exists: a drag needs its neighbours, and the
+  // adder is the anchor for a drop past the last row.
+  lines.forEach((entry, index) =>
+    makeDeliverableDraggable(entry, lines, index, adder, phase));
 
   cell.appendChild(table);
   row.appendChild(cell);
   return row;
+}
+
+// Dragging a deliverable writes `sort_order` and nothing else -- not the tick,
+// not the phase above it, and no date anywhere. Rows are uniform height, so the
+// drop index is the distance travelled in rows; the row itself moves during the
+// drag and the others close the gap behind it, so the landing place is read off
+// the list on screen rather than guessed.
+function makeDeliverableDraggable(entry, lines, index, adder, phase) {
+  entry.grip.onmousedown = (event) => {
+    event.preventDefault();
+    const from = { x: event.clientX, y: event.clientY };
+    const row = entry.line;
+    const table = row.parentElement;
+    const others = lines.filter((other) => other !== entry).map((other) => other.line);
+    const step = row.getBoundingClientRect().height;
+    let targetIndex = index;
+    let armed = false;
+
+    const onMove = (moveEvent) => {
+      if (!armed) {
+        const travelled = Math.hypot(moveEvent.clientX - from.x, moveEvent.clientY - from.y);
+        if (travelled < DRAG_ARM_PX) return;
+        armed = true;
+        row.classList.add("dragging");
+      }
+      const moved = Math.round((moveEvent.clientY - from.y) / step);
+      const next = Math.min(Math.max(index + moved, 0), lines.length - 1);
+      if (next === targetIndex) return;
+      targetIndex = next;
+      table.insertBefore(row, others[targetIndex] || adder);
+    };
+
+    const onUp = async () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      row.classList.remove("dragging");
+      if (!armed) return;
+      if (targetIndex === index) {
+        renderPhases();  // put the previewed list back where it was
+        return;
+      }
+      const reordered = phase.deliverables.filter((item) => item.id !== entry.deliverable.id);
+      reordered.splice(targetIndex, 0, entry.deliverable);
+      await saveDeliverableOrder(reordered);
+    };
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+}
+
+// Renumbered from zero so the stored order matches what is on screen, and only
+// the rows that actually moved are written. The phase twin is `saveOrder`.
+async function saveDeliverableOrder(deliverables) {
+  for (let index = 0; index < deliverables.length; index += 1) {
+    if (deliverables[index].sort_order === index) continue;
+    await api(`/api/deliverables/${deliverables[index].id}`, {
+      method: "PUT",
+      body: JSON.stringify({ sort_order: index }),
+    });
+  }
+  await loadPlan();
 }
 
 function fieldCell(record, key, type, save, attributes = {}) {
