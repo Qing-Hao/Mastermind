@@ -45,7 +45,7 @@ why FR-13 sits above FR-12.
 | FR-2 | Portfolio-wide warnings, not just V2 | Small | High | High | **P1** |
 | FR-11 | Project picker belongs to the Project tab | Medium | High | Medium | **P2** |
 | FR-12 | Show the date you are dropping on, while dragging | Small | High | Medium | **P2** |
-| FR-14 | Colour the map by track, tone by subtrack | Medium | Medium | High | **P3** — pick an option first |
+| FR-14 | Colour the map by track, tone by subtrack | Medium | Medium | High | **Built** 2026-08-13 — option A |
 | FR-3 | Overlap check across projects (**not** a points sum) | Small–medium | Low | Medium | **P3** — sprint 4 |
 | FR-4 | Capacity roster — people and their available days | Medium (new table) | Fortnightly | Medium | **P3** — paper until sprint 4 |
 | FR-5 | Velocity learns from delivered history | Medium | Rare | Medium | **P3** — needs 3 baselines |
@@ -571,9 +571,31 @@ value**, which is what puts it in P1 ahead of FR-12.
 
 ---
 
-## FR-14 · Colour the map by track, tone by subtrack — **P3, pick an option first**
+## FR-14 · Colour the map by track, tone by subtrack — **Built**
 
-*From `comments.md` #6.*
+*From `comments.md` #6.* **Built 2026-08-13 as option A, without D's tick** —
+the requester narrowed it to the track and subtrack rings only, so no mark
+reaches a project label and the project ring is untouched. See the *Map* entry
+in `CLAUDE.md` for what shipped. The option table below is kept as the record
+of what was weighed.
+
+Two things the build settled that the request could only guess at:
+
+- **The palette is keyed off every track in the dataset, not the tracks drawn.**
+  Constraint 1 asked only that adding a project not reshuffle the colours, and
+  missed the sharper version: the tier filter runs before `mapGroups`, so
+  hiding a tier can remove a whole track and shift every colour after it.
+  Measured at twelve colours moved on the real dataset.
+- **Eight hues, ordered for neighbours.** Constraint 2 asked for a bounded
+  palette and got one; what it did not anticipate is that wedges lay out in
+  sorted track order, so palette slots N and N+1 land side by side. Ordering
+  for the weakest *adjacent* pair lifts it from 17 to 36. Seven tracks exist
+  today, so there is one hue spare before the grey overflow is reached.
+
+A **mini task rode along with it**: `done` now shows green where every phase is
+finished and keeps its grey where the project was closed with phases still
+open. It colours nothing on the current dataset, which is the point — the one
+`done` project is a close at 0 of 2 phases.
 
 **What:** make a track identifiable at a glance, with hue for the track and a
 tone of it for the subtrack.

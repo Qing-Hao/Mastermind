@@ -575,9 +575,20 @@ into one project link.
   and dashed, **planning** hollow with a light outline, **planned** hollow with
   a solid one (shaped and committed to, nothing slotted), **dated** pale-filled
   (on the calendar, not begun), **active** filled, **overdue** filled with a
-  heavy warning outline, **done** filled grey. Overdue keeps a live project's
+  heavy warning outline, **done** filled — **green where every phase is
+  finished, grey where it is not**. Overdue keeps a live project's
   filled body and spends its difference on the stroke, rather than inventing a
-  fifth fill. A fourth ring for
+  fifth fill.
+  **Green is the one place the map splits a rung in two.** `done` is reached
+  two ways — every phase finished, or the manual close — and the data model is
+  explicit that the stored close is *"not delivered but closed without
+  finishing"*, as often cancelled or descoped as done. So the green is derived
+  the same way the ladder derives the rung, off the phase tally, and only
+  all-phases-done earns it; a close with phases still open keeps the grey it
+  always had. Painting a cancelled project as a success is worse than leaving
+  it uncoloured. On the real dataset this currently colours **nothing** — the
+  one `done` project is a close with 0 of 2 phases finished, which is the case
+  the split exists for. A fourth ring for
   `planned` was the alternative and was rejected on cost — ring gaps are the
   tightest budget on the map and `MAX_RING_ASPECT` would have needed re-fitting. Node radius
   `sqrt(points)`, clamped 16–38px. A track's wedge is sized by how many projects
@@ -617,6 +628,33 @@ into one project link.
   nothing moves. Verified by collision sweep over the real dataset: clean from
   1000px to 1530px; below ~900px twelve projects genuinely do not fit and
   labels touch again.
+  **Track is a hue, and it stops at the two inner rings.** The track ring, the
+  subtrack ring, their labels and the spokes between them carry one colour per
+  track; the subtrack takes the same hue mixed 45% towards white, so the
+  hierarchy still reads off weight the way the two greys it replaced did. The
+  spokes out to the projects stay grey and **no hue reaches a project node** —
+  `derived_stage` owns the fill and stroke out there, and a second colour axis
+  on the same circles would not add a vocabulary, it would destroy the one
+  there is. Colour arrives as `--track-dot` / `--track-text` / `--track-edge`,
+  set inline because a track is free text and the hue is a value rather than
+  one of a fixed set of classes; it has to be `style` and not a `fill`
+  attribute, since the CSS rule outranks the attribute. Every variable falls
+  back to the grey it used to be hard-coded to.
+  `TRACK_HUES` is **eight and bounded** — distinguishable colours are, and
+  free-text tracks are not — so a ninth track takes the grey rather than a hue
+  nobody could tell from another. The eight were picked by maximising the worst
+  pair under protanopia, deuteranopia and tritanopia with a 3:1 floor on white,
+  hue being the only cue carrying track identity and the ring labels being
+  drawn in it. **The order is load-bearing**: wedges lay out in sorted track
+  order, so slots N and N+1 land side by side, and sequencing for the weakest
+  *neighbouring* pair lifts it from 17 to 36. One green only, because two were
+  the weakest pair and green now means delivered on a project node.
+  `trackPalette` keys off **every track in the dataset, not the tracks drawn** —
+  the tier filter runs before `mapGroups`, so a track can leave the map
+  entirely, and keying off what is drawn moves twelve colours the moment you
+  hide a tier. Counting off the whole dataset is what the tier chips already
+  do, for the same reason. Adding a project never moves a colour; adding a new
+  track only moves the tracks after it alphabetically.
   **Tier is the crowd control.** Above the canvas, one toggle per tier —
   `T1 T2 T3 untiered`, counted off the whole dataset so a chip still says what
   is behind it while it is off, and all on by default because a filter that

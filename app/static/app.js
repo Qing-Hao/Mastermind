@@ -1845,6 +1845,28 @@ const ACROSS_RING = false;
 // Metrics". Convention, not schema -- project.track stays one free-text column
 // and a name without a slash is simply a track with no subtracks under it.
 const SUBTRACK_SEPARATOR = "/";
+// Hues for the track and subtrack rings. Bounded at eight because
+// distinguishable colours are bounded and free-text tracks are not; a ninth
+// track takes the grey rather than a hue nobody could tell from another.
+//
+// Picked by maximising the worst pair under protanopia, deuteranopia and
+// tritanopia, with a floor of 3:1 on white because the ring labels are drawn in
+// the hue as well as the dots. That floor is what ruled out the light entries
+// of the palettes these come from -- Okabe-Ito and Tol muted, both designed for
+// exactly this. One green only: two were the weakest pair on the map and green
+// now means delivered on a project node.
+//
+// The order is load-bearing. Wedges are laid out in sorted track order, so
+// slots N and N+1 land side by side; sequenced for the weakest *neighbouring*
+// pair, which it lifts from 17 to 36.
+const TRACK_HUES = [
+  "#CC79A7", "#D55E00", "#882255", "#EE6677",
+  "#0072B2", "#009E73", "#332288", "#40607A",
+];
+// How far a subtrack's tone sits from its track's hue, mixed towards white.
+// Far enough to read as lighter across the 40-55px ring gap, near enough to
+// still read as the same colour.
+const SUBTRACK_TONE = 0.45;
 
 function svgElement(tag, attributes = {}, text) {
   const node = document.createElementNS(SVG_NS, tag);
@@ -1857,6 +1879,19 @@ function svgElement(tag, attributes = {}, text) {
 
 const truncate = (text, limit) =>
   text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
+
+// Track colour has to be inline: a track is free text, so the hue is a value
+// rather than one of a fixed set of classes. It goes on `style` and not on a
+// `fill`/`stroke` attribute because the CSS rule would outrank the attribute --
+// the same specificity trap `[hidden]` has now cost five features. Every
+// variable falls back to the grey already in style.css, so a group with no hue
+// draws exactly as it did before.
+const paint = (node, variables) => {
+  for (const [name, value] of Object.entries(variables)) {
+    if (value) node.style.setProperty(name, value);
+  }
+  return node;
+};
 
 const polar = (cx, cy, rings, fraction, angle) => ({
   x: cx + rings.x * fraction * Math.cos(angle),
@@ -2002,6 +2037,34 @@ function splitTrack(raw) {
   return track ? { track, sub } : { track: sub, sub: "" };
 }
 
+// One hue per track name, keyed off **every** track in the dataset rather than
+// the tracks currently drawn. The tier filter runs before mapGroups, so a track
+// can leave the map entirely; keying off what is drawn would recolour the whole
+// map when you toggle a tier off. Counting off the whole dataset is what the
+// tier chips already do, for the same reason.
+//
+// Sorted, so the assignment is deterministic: adding a project never moves a
+// colour, and adding a new track only moves the tracks after it alphabetically.
+// A track past the eighth gets no hue and falls back to the map's grey.
+function trackPalette(projects) {
+  const names = [...new Set(
+    projects.map((project) => splitTrack(project.track).track))]
+    .filter(Boolean)
+    .sort();
+  return new Map(names.map((name, index) => [name, TRACK_HUES[index]]));
+}
+
+// Mix a hue towards white. The subtrack ring is its track's colour a few steps
+// lighter, so the hierarchy still reads off weight the way the two greys it
+// replaces did.
+function mixWhite(hex, amount) {
+  const channel = (at) => {
+    const value = parseInt(hex.slice(at, at + 2), 16);
+    return Math.round(value + (255 - value) * amount);
+  };
+  return `rgb(${channel(1)}, ${channel(3)}, ${channel(5)})`;
+}
+
 // Where a project sits in tier order: 1, 2, 3, then untiered. Untiered last
 // because it is an unanswered question, not the lowest priority.
 const tierRank = (project) => {
@@ -2137,20 +2200,26 @@ function renderMap() {
   const weight = groups.reduce(
     (total, group) => total + Math.max(group.total, 1), 0);
   const ruler = arcRuler(rings, PROJECT_RING);
+  // Unfiltered on purpose -- see trackPalette.
+  const palette = trackPalette(state.graph.projects);
 
   let travelled = 0;  // start at 12 o'clock and go clockwise
   for (const group of groups) {
     const span = (Math.max(group.total, 1) / weight) * ruler.total;
+    // Null for the untracked group, which draws no track node at all, and for
+    // a track past the end of the palette. Both then fall back to the grey.
+    const hue = group.track ? palette.get(group.track) : null;
+    const tone = hue ? mixWhite(hue, SUBTRACK_TONE) : null;
 
     let anchor = { x: cx, y: cy };
     if (group.track) {
       const trackAngle = ruler.angleAt(travelled + span / 2);
       anchor = polar(cx, cy, rings, TRACK_RING, trackAngle);
-      edges.appendChild(svgElement("line", {
+      edges.appendChild(paint(svgElement("line", {
         class: "map-edge", x1: cx, y1: cy, x2: anchor.x, y2: anchor.y,
-      }));
+      }), { "--track-edge": hue }));
       nodes.appendChild(trackNode(group.track, anchor, labelPlace(
-        anchor, rings, trackAngle, TRACK_DOT + LABEL_GAP, ALONG_RING)));
+        anchor, rings, trackAngle, TRACK_DOT + LABEL_GAP, ALONG_RING), hue));
     }
 
     // Every project still gets one angular slot, subtracked ones after the
@@ -2183,11 +2252,12 @@ function renderMap() {
       const point = polar(cx, cy, rings, SUBTRACK_RING, subAngle);
       subAnchors.set(sub, point);
 
-      edges.appendChild(svgElement("line", {
+      edges.appendChild(paint(svgElement("line", {
         class: "map-edge", x1: anchor.x, y1: anchor.y, x2: point.x, y2: point.y,
-      }));
+      }), { "--track-edge": hue }));
       subNodes.push(subtrackNode(sub.name, point, labelPlace(
-        point, rings, subAngle, SUBTRACK_DOT + LABEL_GAP, ALONG_RING)));
+        point, rings, subAngle, SUBTRACK_DOT + LABEL_GAP, ALONG_RING),
+        hue, tone));
     }
 
     slots.forEach((slot, index) => {
@@ -2320,16 +2390,23 @@ function hubNode(name, cx, cy) {
   return group;
 }
 
-const trackNode = (track, point, place) =>
-  groupNode("map-track", track, point, TRACK_DOT, place, 22);
+const trackNode = (track, point, place, hue) =>
+  groupNode("map-track", track, point, TRACK_DOT, place, 22, hue, hue);
 
-const subtrackNode = (name, point, place) =>
-  groupNode("map-subtrack", name, point, SUBTRACK_DOT, place, 18);
+// The dot takes the lighter tone and the label takes the full hue: at 10px,
+// text in the tone is the one place the lightening costs legibility, and the
+// hierarchy is already carried by the dot and the type size.
+const subtrackNode = (name, point, place, hue, tone) =>
+  groupNode("map-subtrack", name, point, SUBTRACK_DOT, place, 18, tone, hue);
 
 // Both are placed ALONG_RING by their caller, so a subtrack's name runs into
 // the empty arc beside it rather than onto the ring in front or behind.
-function groupNode(className, label, point, radius, place, limit) {
-  const group = svgElement("g", { class: className });
+//
+// Colour rides on the group: custom properties inherit, so the circle and the
+// text below pick them up from here.
+function groupNode(className, label, point, radius, place, limit, dot, text) {
+  const group = paint(svgElement("g", { class: className }),
+    { "--track-dot": dot, "--track-text": text });
   group.appendChild(
     svgElement("circle", { cx: point.x, cy: point.y, r: radius }));
   group.appendChild(labelText([{ text: truncate(label, limit) }], place));
@@ -2341,9 +2418,21 @@ function projectNode(project, point, radius, place) {
   // Styled off the derived stage, not the stored one. The map used to show a
   // project as committed-not-started until somebody remembered to change the
   // field by hand; now the picture ages by itself as dates pass.
+  // `done` is two different things wearing one name. Every phase finished is
+  // work delivered; a manual close with phases still open is work that stopped,
+  // which is as often cancelled or descoped as finished -- CLAUDE.md is
+  // explicit that the stored close is "not delivered but closed without
+  // finishing". Only the first earns the green: painting a cancelled project as
+  // a success is worse than leaving it grey. Derived the same way the ladder
+  // derives the rung, off the tally the graph payload already carries.
+  const delivered = project.derived_stage === "done"
+    && project.phases_total > 0
+    && project.phases_done === project.phases_total;
+
   const group = svgElement("g", {
-    class: `map-node stage-${project.derived_stage} tier-${tier}`, tabindex: "0",
-    role: "button", "data-project-id": project.id,
+    class: `map-node stage-${project.derived_stage} tier-${tier}`
+      + (delivered ? " delivered" : ""),
+    tabindex: "0", role: "button", "data-project-id": project.id,
   });
   group.appendChild(svgElement("circle", { cx: point.x, cy: point.y, r: radius }));
   // Tier 1 wears a numbered pip on its shoulder. A ring around the node was the
@@ -2388,7 +2477,7 @@ function projectNode(project, point, radius, place) {
 
   // The full name and goal live in the tooltip, since the label is truncated.
   group.appendChild(svgElement("title", {}, [
-    `${project.name} — ${project.derived_stage}`,
+    `${project.name} — ${project.derived_stage}${delivered ? ", delivered" : ""}`,
     tier === 0 ? "untiered" : `tier ${tier}`,
     `${project.effort_points} pts`,
     project.phases_total ? `${project.phases_done}/${project.phases_total} phases done` : null,
