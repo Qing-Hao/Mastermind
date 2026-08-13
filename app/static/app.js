@@ -105,6 +105,12 @@ let state = {
   // looking, kept across re-renders and tab switches, gone on reload. `start`
   // null means the drawer is closed.
   fortnight: { start: null, slice: null },
+  // Fortnights a sprint file has been started for, by window start, holding what
+  // `POST /api/sprints` said it made. In memory only, like the two above, and it
+  // exists to stop the drawer offering to start a *second* sprint for the same
+  // fortnight -- pressing again would be sprint N+1 with the same heading. After
+  // a reload the offer comes back; the file on disk is the real record.
+  plannedSprints: new Map(),
   // The sprint file the Sprint tab has open, and the state of the edit in
   // flight. Declared here with the rest of the state; everything that reads or
   // writes it lives in editor.js. `mtime` is what a save quotes back to prove
@@ -1703,29 +1709,36 @@ function renderFortnightDrawer() {
 }
 
 // The drawer's one write, and it writes a file rather than a plan: the sprint
-// template, copied and numbered. No editor -- sprint planning stays on paper
-// until there is enough of it to design a schema against, and this is what
-// makes the paper start existing.
+// template, copied and numbered. The drawer still only reads the roadmap -- what
+// it creates is a markdown file, and editing that file is the Sprint tab's job,
+// which is where this hands you.
+//
+// A second press for the same fortnight is the thing to guard against, because
+// the number comes off the directory: it would make sprint N+1 with the same
+// heading. So once a file exists for this window the button opens it instead.
 function fortnightFooter(window) {
   const footer = element("div", "drawer-foot");
-  const note = element("span", "muted",
-    "Copies templates/sprint.md to the next sprints/NN.md and stops there — "
-    + "fill it in by hand.");
-  const button = element("button", null, "Plan this fortnight →");
+  const made = state.plannedSprints.get(window.start);
+  const note = element("span", "muted", made
+    ? `Started ${made.path}.`
+    : "Copies templates/sprint.md to the next sprints/NN.md and opens it on the "
+      + "Sprint tab.");
+  const button = element("button", null,
+    made ? `Open ${made.name} →` : "Plan this fortnight →");
   const result = element("span", "muted");
 
   button.onclick = async () => {
     button.disabled = true;
     try {
-      const created = await api("/api/sprints", {
+      const created = made || await api("/api/sprints", {
         method: "POST",
         body: JSON.stringify({ start: window.start }),
       });
-      result.className = "drawer-result";
-      result.textContent = `Created ${created.path} — open it and fill it in.`;
-      // Left disabled on success: the next press would be sprint N+1 for the
-      // same fortnight, which is never what you meant.
-      return;
+      state.plannedSprints.set(window.start, created);
+      // Creating the file and then leaving you to find it in a picker is the
+      // step that makes a button not worth pressing.
+      closeFortnight();
+      await revealSprintFile(created.number);
     } catch (error) {
       result.className = "error";
       result.textContent = error.message;

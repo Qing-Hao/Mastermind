@@ -91,6 +91,21 @@ async function switchSprintFile(number) {
   renderSprintView();
 }
 
+// Show the Sprint tab with one particular file open, whatever was open before.
+// The drawer's `Plan this fortnight →` is the caller: it creates a file and then
+// hands you to it.
+//
+// `refreshView` re-reads the picker, and opens a file itself only when none is
+// open, so the second half is what makes this land on the *asked-for* number
+// rather than whichever one was already showing. It goes through
+// `switchSprintFile`, so unsaved work in the file being left is flushed first and
+// a write that will not land still refuses to move.
+async function revealSprintFile(number) {
+  state.view = "sprint";
+  await refreshView();
+  if (state.sprint.number !== number) await switchSprintFile(number);
+}
+
 function resetSprint() {
   clearTimeout(sprintSaveTimer);
   Object.assign(state.sprint, {

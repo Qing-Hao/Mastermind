@@ -11,10 +11,17 @@ and `STATUS.md` (my working notes) unless you need their detail.**
 FastAPI + SQLite (stdlib `sqlite3`) + vanilla JS. No build step, no ORM, no
 migration framework, no auth.
 
+`requirements.txt` carries **one runtime parsing dependency**: `markdown-it-py`
+(4.2.0) with `mdit-py-plugins` (0.6.1), for the sprint editor. Not optional and
+not lazily imported — the Sprint tab cannot draw a file without them. Both are
+pure Python, so there is still no build step. linkify is deliberately **off**:
+the `gfm-like` preset enables it and it needs a *third* package (`linkify-it-py`)
+that raises at render time when absent.
+
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000   # http://127.0.0.1:8000
-.\.venv\Scripts\python.exe -m pytest -q                                   # 217 tests, ~9s
+.\.venv\Scripts\python.exe -m pytest -q                                   # 272 tests, ~5s
 
 .\.venv\Scripts\python.exe -m pip install -r requirements-ai.txt          # optional, sprint review only
 .\.venv\Scripts\python.exe scripts\sprint_review.py --history 3
@@ -37,9 +44,12 @@ Type checking is pyright, `basic` mode, config in `pyrightconfig.json`.
 |---|---|
 | `app/validation.py` | Rules V1–V4 + project summaries + the fortnight slice. **Pure functions, no I/O.** The heart of the tool. |
 | `app/db.py` | Schema, CRUD, `migrate`, export/import. Rows in/out as plain dicts. |
+| `app/markdown.py` | Splits a markdown file into blocks, renders one to HTML, serialises a table back. **Pure functions, no I/O** — the `validation.py` genre. Knows nothing about sprints. |
 | `app/main.py` | FastAPI routes. Thin — no business logic beyond the V3 block. |
-| `app/static/{index.html,app.js,style.css}` | Frontend. Three tabs: Project / Portfolio / Map. |
+| `app/static/{index.html,app.js,style.css}` | Frontend. Four tabs: Project / Portfolio / Map / Sprint. |
+| `app/static/editor.js` | The Sprint tab's block editor. Its own file because `app.js` is already 2,800 lines; it reads `state`, `api`, `$` and `element` from there. |
 | `tests/test_validation.py` | Rules, pure. |
+| `tests/test_markdown.py` | The block model, mirroring `app/markdown.py`. The round trip is the gate. |
 | `tests/test_api.py` | Acceptance criteria, via `TestClient` + `tmp_path` db. |
 | `tests/test_sprint_review.py` | Sprint script — pure helpers + one `TestModel` run. Offline. |
 | `templates/sprint.md` | The sprint template. Copied to `sprints/NN.md` (gitignored). |
@@ -252,7 +262,18 @@ DELETE · `/api/projects/{id}/layout` POST · `/api/projects/{id}/phases` POST �
 `/api/phases/{id}` PUT DELETE · `/api/phases/{id}/deliverables` GET POST ·
 `/api/deliverables/{id}` PUT DELETE · `/api/dependencies` POST ·
 `/api/dependencies/{id}` DELETE · `/api/portfolio` GET · `/api/fortnight` GET ·
-`/api/sprints` POST · `/api/graph` GET · `/api/export` GET · `/api/import` POST.
+`/api/sprints` GET POST · `/api/sprints/{number}` GET PUT ·
+`/api/sprints/split` POST · `/api/sprints/table` POST · `/api/graph` GET ·
+`/api/export` GET · `/api/import` POST.
+
+The five sprint routes are the sprint editor; see "Sprint planning lives in
+markdown files" below for what they may and may not do. `GET /api/sprints` lists
+the files for the picker (number, name, mtime, first line); `GET`/`PUT
+/api/sprints/{number}` read and write one whole file, the `PUT` mtime-guarded;
+`/split` re-splits one edited block, which may have become several or changed
+type; `/table` turns an edited grid back into aligned markdown, which is why the
+frontend never writes a pipe. `PUT` never creates — a missing number is a 404,
+and `POST /api/sprints` is the only thing that makes a file.
 
 `GET /api/projects` returns each project with a derived **`derived_stage`** (see
 above), alongside the stored `stage` and never overwriting it — the stored value
@@ -465,16 +486,55 @@ into one project link.
   is off the strip, over a list of the deliverables the phases name. Divs on a
   CSS grid, not SVG — the charts either side of it are divs on a week grid, and
   the map is the one hand-rolled SVG here. `compact` is the drawer's density:
-  same DOM, tighter metrics, so the drawer and the eventual sprint tab cannot
-  drift into two pictures of one fortnight.
+  same DOM, tighter metrics, so the drawer and the Sprint tab cannot drift into
+  two pictures of one fortnight.
   **Points are drawn whole, on the bar**, and the share of a phase inside the
   fortnight is the bar's width and nothing else. A clipped edge gets a solid
   tab and a chevron rather than the portfolio's dotted edge, because at day
   resolution 3px of dotting is most of a column.
-  The drawer **reads**, with one exception it owns: `Plan this fortnight →`
-  posts to `/api/sprints`, reports the path and stops. It leaves itself
-  disabled on success — a second press would be sprint N+1 for the same
-  fortnight.
+  The drawer **reads the roadmap**, with one exception it owns:
+  `Plan this fortnight →` posts to `/api/sprints`, then **closes the drawer and
+  hands you to the Sprint tab with the new file open** (`revealSprintFile`).
+  What it writes is a markdown file, never a plan. A second press for the same
+  fortnight is the thing to guard against — the number comes off the directory,
+  so it would make sprint N+1 with the same heading — so once a file exists for
+  that window the button reads `Open NN.md →` and opens it instead of posting.
+  That lives in `state.plannedSprints`, in memory: after a reload the offer comes
+  back, and the file on disk is the real record.
+- **Sprint** — the fourth tab: `sprints/NN.md` edited as a **block document**,
+  not a textarea. A picker lists the files newest first; each block of the file
+  renders as formatted HTML, clicking one swaps in a `<textarea>` holding its own
+  raw markdown, and blurring re-renders and saves it. **Autosave on blur**,
+  debounced 600ms, whole file per `PUT`, with a three-state indicator —
+  saved / saving / **failed** — because a silently failed autosave loses a retro.
+  A 409 stops autosaving, says the file changed on disk and offers Reload; it
+  **never merges and never overwrites**, and deliberately does not adopt the disk
+  mtime, which would arm the next save to overwrite the change it just refused.
+  `.sprint-view[hidden]` is load-bearing in the CSS — the **fifth** time that
+  trap has come up.
+  - **A table is a grid of `<input>`s and has no reveal gesture at all.** Every
+    other block type swaps between rendered HTML and its markdown; a table swaps
+    to cells, so raw pipes have nowhere to appear. `Tab`/`Shift+Tab` walk cells
+    and `Tab` off the last one grows a row; `+ Row` `+ Column` `− Row`
+    `− Column` sit under it on hover; and **pasting a spreadsheet range fills
+    from the anchor cell outwards**, growing the table to fit. That paste is the
+    feature the editor was built for. Editing a table's alignment markers, or
+    turning one back into prose, is the raw file view's job.
+  - **Grids become markdown inside the save, not on cell blur.** Blur would leave
+    a window where the autosave fires first and writes a stale table; as the
+    save's first step it cannot be written stale, and it costs one request per
+    debounce instead of per keystroke. `block.table` stays the client's live copy,
+    so a cell being typed into is never overwritten under the cursor.
+  - Two frontend traps worth knowing, both found in a browser. Chrome fires
+    `blur` when a focused element is **removed** from the document, so a
+    re-render while a block was open committed the box it was about to destroy,
+    over what the render was drawing — `renderSprintDocument` detaches the
+    handler before wiping. And `state.sprint` is **mutated, never replaced**: a
+    commit in flight holds a reference to it, so swapping in a fresh object left
+    the splice landing nowhere with nothing reporting it.
+  - `Esc` **commits** rather than cancels. With the file as the record and the
+    save automatic there is no cancel story to tell, and undo is typing it back
+    — so there is one way out of a block, not two.
 - **Map** — hand-rolled radial SVG, deterministic layout. Department hub → track
   ring → subtrack ring → project ring, ideas outermost and dashed. Nodes are
   styled off **`derived_stage`**, so the picture ages by itself: a project that
@@ -595,36 +655,93 @@ Both charts share one week grid: Monday-based columns under a month/week ruler,
 window capped at 26 weeks, column width fitted to the container and clamped
 22–64px. A week belongs to the month of its Monday.
 
-## Sprint planning lives on paper, outside the app
+## Sprint planning lives in markdown files, not in the schema
 
-Third step after Project and Portfolio, and **still on paper**.
-`templates/sprint.md` is copied to `sprints/NN.md`, one file per fortnight;
-`sprints/` is gitignored, like `data/`. There is **no sprint table, no sprint
-column and no export bump** — nothing for `migrate()` to do.
+Third step after Project and Portfolio. `templates/sprint.md` is copied to
+`sprints/NN.md`, one file per fortnight; `sprints/` is gitignored, like `data/`.
+There is **no sprint table, no sprint column and no export bump** — nothing for
+`migrate()` to do, and nothing in this feature touches `db.py` at all.
 
-What the app now does is start the file and nothing else. `POST /api/sprints`
-copies the template to the next `sprints/NN.md` and replaces the first line
-with `# Sprint N · YYYY-MM-DD → YYYY-MM-DD`. It parses nothing, reads nothing
-back, and never lists or edits a sprint. `SPRINTS_DIR` and `SPRINT_TEMPLATE`
-are module level in `main.py` so a test can point them at `tmp_path`, the same
-shape as `db.set_db_path` — the real `sprints/` holds work actually done.
+**The app now edits those files.** It did not until 2026-08-13, and an earlier
+version of this section said the sprint endpoint "parses nothing, reads nothing
+back, and never lists or edits a sprint" — that is no longer true of any of the
+three clauses. What is still true, and is the whole point, is that **the markdown
+file is the one record**: the editor is a view over the file, not a second store.
+
+`POST /api/sprints` still only copies the template to the next `sprints/NN.md`
+and replaces the first line with `# Sprint N · YYYY-MM-DD → YYYY-MM-DD`.
+`SPRINTS_DIR` and `SPRINT_TEMPLATE` are module level in `main.py` so a test can
+point them at `tmp_path`, the same shape as `db.set_db_path` — **no test may
+reach the real `sprints/`**, which holds work actually done.
 
 - **Numbering is next after the highest leading number on disk**, never
   lowest-unused: a gap is a sprint that was skipped or a file that was deleted,
   and neither is an invitation to reuse the number. Same reading as
-  `sprint_review.sprint_sort_key`, so the script and the button agree about
-  which file is sprint 4.
-- **The number never comes from the request** — the body carries a date, so
-  nothing outside can name a path.
+  `sprint_review.sprint_sort_key`, so the script, the button and the editor agree
+  about which file is sprint 4. `sprint_path` resolves a number **against the
+  directory** rather than formatting a filename, so `04-retro.md` is reachable as
+  sprint 4 and no request string ever becomes a path.
+- **The number never comes from the request body** — it comes from the directory
+  on create and from the path on read and write.
 - The file is created with mode `"x"`, so the existence guard and the write are
   one operation. An existing target is a **409**, never an overwrite.
+- **A save never overwrites a file that changed on disk.** `PUT` quotes back the
+  `mtime` it was given and a stale one is a **409** carrying the disk value —
+  never a merge. `sprint_review.py` reads these files and you will edit them by
+  hand, so the app is not entitled to decide whose version wins.
+- Writes are **atomic**: a temp file beside the target, then `os.replace`. Both
+  ends open with `newline=""`, because on Windows the default would translate
+  every `\n` to `\r\n` and rewrite the whole file the editor promised not to
+  touch.
 
-That is still a staging decision. The schema was going to be designed against
-guesses about which columns get filled in; running real sprints on paper first
-answers that for free. **Revisit at sprint 4**, when there is history to design
-against — that is when the editor, the sprint tab and any storage shape get
-decided, and the copy button exists to make sure four real files are there by
-then.
+### The block model — `app/markdown.py`
+
+A file is a list of blocks, each carrying **its own raw markdown** plus the
+`gap` that separated it from the next one. So there is **no round-trip parser**:
+`join_blocks(split_blocks(text)) == text` byte for byte, and the serialiser for
+prose is the identity function. That guarantee is tested against
+`templates/sprint.md` and **every** `sprints/*.md` on disk, so a new sprint file
+is covered the day it exists.
+
+- `gap` is what makes the round trip exact rather than nearly exact. Joining with
+  `\n\n` unconditionally fails on the template itself, which writes
+  `**<u>Deliverable</u>**` directly above its task list; every line of the input
+  belongs to exactly one block's `raw` or one block's `gap`, and CRLF rides along
+  for free.
+- `html` is **display only**. Nothing is ever parsed back out of it.
+- **Tables are the one deliberate exception to "prose is never rewritten"**, and
+  the reformatting is the feature: a table's grid is authoritative and `raw` is
+  regenerated by `serialise_table`, which pads every column to its widest cell
+  and pads a cell to its column's **side**, so a right-aligned column's numbers
+  line up in the file as well as on screen. A save only rewrites the tables that
+  were actually edited.
+- A pipe row is a table only when the delimiter row **matches the header's column
+  count** (GFM's rule). Being lenient would mean `serialise_table` rewriting rows
+  nobody touched — and the template's baseline table has an empty header row.
+- `html=True` is on, for the `<u>` and `<details>` the template relies on. This
+  is your own file on localhost with no untrusted input; revisit only if a sprint
+  file ever holds content from outside.
+- **It knows nothing about sprints.** No section is recognised, no point counted,
+  no category validated — any pipe table in any markdown file gets the same
+  treatment. That is deliberate and load-bearing: see the gate below.
+
+### Why the sprint-4 gate was overridden
+
+The staging decision was **revisit at sprint 4**, on the grounds that *"the
+schema and the editor get designed against what the columns actually turn out to
+hold."* `sprints/` held one file when the editor was built, so the gate was
+overridden rather than met — knowingly, on one condition.
+
+The schema half of that risk is **absent from this feature entirely**: no table,
+no column, no `migrate()` step, no export bump. The half that could still trip
+the gate is an editor that knows what a capacity table is, so **it must not**.
+The test a future reader can run: no string from `templates/sprint.md` appears in
+`app/markdown.py` or `editor.js`. Under that condition it is a markdown editor
+that happens to open sprint files, and **sprint 4 still decides the storage
+question with nothing committed to it**.
+
+What is still deferred to that decision: a sprint table, a `sprint_goal` column,
+export v10, and anything that allocates deliverables into sprints.
 
 **Capacity is two independent numbers that never correct each other**, the same
 shape as V1 cross-checking weeks against points:
@@ -666,14 +783,15 @@ Google is config, not code.
 ## Out of scope
 
 Phase 2 (**documented in `PROMPT.md` as do-not-build**) is now **partly open**,
-deliberately: sprint planning and post-sprint analysis exist as the paper
-template and script above, the fortnight drawer reads a fortnight of the
-roadmap, and one button starts a sprint file. Still not built, and still not to
-be built without asking: sprint generation from a project's date range,
-`sprint_goal` as a column, allocating deliverables into sprints against
-velocity, and the delivery forecast. The concessions in the app itself remain
-`sprint_length_days` and velocity in settings, plus the drawer and the copy
-button — which between them hold no sprint data at all.
+deliberately: sprint planning and post-sprint analysis exist as the markdown
+template, the review script and the Sprint tab above, and the fortnight drawer
+reads a fortnight of the roadmap. Still not built, and still not to be built
+without asking: sprint generation from a project's date range, `sprint_goal` as a
+column, allocating deliverables into sprints against velocity, and the delivery
+forecast. The concessions in the app itself remain `sprint_length_days` and
+velocity in settings, plus the drawer and the editor — **and the editor holds no
+sprint data**, because it holds no data at all: every byte of it lives in a file
+you could edit in Notepad instead.
 
 **The fortnight drawer never sums points across its window**, and neither does
 the endpoint behind it. A 55-point six-week phase does not deliver 18 points in
