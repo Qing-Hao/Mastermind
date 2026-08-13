@@ -119,6 +119,7 @@ function resetSprint() {
 function renderSprintView() {
   renderSprintPicker();
   renderSprintStatus();
+  renderSprintMode();
   renderSprintDocument();
 }
 
@@ -139,7 +140,67 @@ function renderSprintPicker() {
   const none = sprint.files.length === 0;
   select.hidden = none;
   $("sprint-empty").hidden = !none;
-  $("sprint-document").hidden = none;
+  $("sprint-view-switch").hidden = none;
+}
+
+// --- rendered or raw ---------------------------------------------------------
+
+// Two views of one file. The document is the editor; the raw pane is the escape
+// hatch for the things a block cannot express -- a table's alignment markers, or
+// turning a table back into prose. Both write the same file the same way.
+function renderSprintMode() {
+  const sprint = state.sprint;
+  const raw = sprint.view === "raw";
+  const none = sprint.files.length === 0;
+
+  $("sprint-view-doc").classList.toggle("active", !raw);
+  $("sprint-view-raw").classList.toggle("active", raw);
+  $("sprint-document").hidden = none || raw;
+  $("sprint-raw-pane").hidden = none || !raw;
+
+  if (!raw) return;
+  const area = $("sprint-raw-file");
+  // Not while it is being typed in: this runs on every re-render, and replacing
+  // the text under the cursor would undo the edit in progress.
+  if (document.activeElement !== area) area.value = joinSprintBlocks(sprint.blocks);
+}
+
+function setSprintView(view) {
+  const sprint = state.sprint;
+  if (sprint.view === view) return;
+  sprint.view = view;
+  sprint.editing = null;
+  sprint.draft = null;
+  closeSprintMenu();
+  renderSprintMode();
+  renderSprintDocument();
+}
+
+// The whole file re-split in one go. `/split` is the same splitter that read the
+// file, so what comes back is what a reload would have shown -- which is the
+// only reason it is safe to replace every block at once.
+async function commitSprintRawFile(text) {
+  const sprint = state.sprint;
+  const number = sprint.number;
+  if (number === null || text === joinSprintBlocks(sprint.blocks)) return;
+
+  let blocks;
+  try {
+    blocks = (await api("/api/sprints/split", {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    })).blocks;
+  } catch (failure) {
+    sprint.status = "failed";
+    sprint.error = failure.message;
+    renderSprintStatus();
+    return;
+  }
+  if (sprint.number !== number) return;
+
+  sprint.blocks = blocks;
+  renderSprintDocument();
+  scheduleSprintSave();
 }
 
 function renderSprintDocument() {
@@ -157,16 +218,20 @@ function renderSprintDocument() {
   doc.innerHTML = "";
 
   sprint.blocks.forEach((block, index) => {
+    const row = element("div", "sprint-row");
+    row.appendChild(sprintRail(block, index, row));
+
     // A table is edited as a grid and never as raw pipes, so it has no reveal
     // gesture at all -- the cells *are* the editor. Everything else swaps
     // between rendered HTML and its own markdown.
     if (block.type === "table" && block.table) {
-      doc.appendChild(sprintTable(block, index));
-      return;
+      row.appendChild(sprintTable(block, index));
+    } else {
+      row.appendChild(index === sprint.editing
+        ? sprintEditor(block, index)
+        : sprintBlock(block, index));
     }
-    doc.appendChild(index === sprint.editing
-      ? sprintEditor(block, index)
-      : sprintBlock(block, index));
+    doc.appendChild(row);
   });
 
   // A document edited down to nothing would otherwise have no way back in.
@@ -195,6 +260,13 @@ function sprintBlock(block, index) {
   node.onclick = (event) => {
     // A link in a sprint file is there to be followed, not to open an editor.
     if (event.target.closest("a")) return;
+    // Nor is a checkbox: ticking one is an edit in its own right, and opening
+    // the markdown instead would make the tick unreachable.
+    const box = event.target.closest('input[type="checkbox"]');
+    if (box) {
+      toggleSprintTask(index, box, node);
+      return;
+    }
     editSprintBlock(index);
   };
   node.onkeydown = (event) => {
@@ -210,17 +282,356 @@ function sprintEditor(block, index) {
   const area = element("textarea", "sprint-raw");
   area.value = sprint.draft ?? block.raw;
   area.spellcheck = false;
-  area.oninput = () => autosizeSprintArea(area);
-  area.onblur = () => commitSprintBlock(index, area.value);
+  area.oninput = () => {
+    autosizeSprintArea(area);
+    maybeOpenSprintMenu(area, index);
+  };
+  area.onblur = () => {
+    // Blurring past an open menu picks nothing: what was typed is what commits,
+    // which for `/tab` is a paragraph reading `/tab`. Visible and one edit away
+    // from gone, where a swallowed blur leaves a box that has stopped
+    // responding to anything.
+    closeSprintMenu();
+    commitSprintBlock(index, area.value);
+  };
   area.onkeydown = (event) => {
+    // While the menu is up it owns the arrows, Enter and Esc.
+    if (sprintMenu.open && sprintMenuKey(event)) return;
     // Esc commits like clicking away does. There is no cancel here: the file is
     // the record and the save is automatic, so "undo" is typing it back.
     if (event.key === "Escape") {
       event.preventDefault();
       area.blur();
+      return;
+    }
+    // Enter with nothing after the cursor ends this block and opens an empty one
+    // below. **This is what makes the insert menu reachable at all** -- `/` needs
+    // an empty block to be typed into, and nothing else in the editor makes one.
+    // Not in a list or a fence, where a newline is a newline you meant.
+    if (event.key === "Enter" && !event.shiftKey
+      && block.type !== "list" && block.type !== "code" && block.type !== "html"
+      && area.value.trim() && !area.value.slice(area.selectionEnd).trim()) {
+      event.preventDefault();
+      insertSprintBlockAfter(index, area.value.slice(0, area.selectionEnd));
+      return;
+    }
+    // Backspace in a block you have emptied removes it, rather than leaving a
+    // blank one behind for the commit to tidy up invisibly.
+    if (event.key === "Backspace" && !area.value && state.sprint.blocks.length > 1) {
+      event.preventDefault();
+      removeSprintBlock(index);
     }
   };
   return area;
+}
+
+// Commit what was typed, then open an empty paragraph after whatever that became
+// -- one box can have split into three, so the insertion point is counted rather
+// than assumed. No save is scheduled for the empty block itself: it is not part
+// of the file until something is typed into it, and committing it empty removes
+// it again.
+async function insertSprintBlockAfter(index, text) {
+  const sprint = state.sprint;
+  const number = sprint.number;
+  const before = sprint.blocks.length;
+
+  await commitSprintBlock(index, text);
+  if (sprint.number !== number) return;
+
+  const at = index + Math.max(1, sprint.blocks.length - before + 1);
+  sprint.blocks.splice(at, 0, {
+    index: at, type: "paragraph", raw: "", gap: sprintBlankLine(sprint.blocks), html: "",
+  });
+  sprint.blocks.forEach((block, position) => { block.index = position; });
+  sprint.editing = at;
+  sprint.draft = null;
+  renderSprintDocument();
+}
+
+// The last block owns the file's trailing newline, so removing it hands that on
+// rather than losing it.
+function removeSprintBlock(index) {
+  const sprint = state.sprint;
+  const blocks = sprint.blocks;
+  const tail = blocks[blocks.length - 1].gap;
+
+  blocks.splice(index, 1);
+  if (blocks.length) blocks[blocks.length - 1].gap = tail;
+  blocks.forEach((block, position) => { block.index = position; });
+
+  sprint.editing = Math.max(0, index - 1);
+  sprint.draft = null;
+  renderSprintDocument();
+  scheduleSprintSave();
+}
+
+// --- the gutter rail --------------------------------------------------------
+
+// What a block is, in the margin. Short because it sits in a 46px gutter, and
+// worth having because a paragraph that looks like a heading is exactly the thing
+// you want to know before dragging it somewhere.
+const SPRINT_TAG = {
+  heading: "h", paragraph: "p", list: "list", table: "table",
+  code: "code", quote: "quote", rule: "rule", html: "html",
+};
+
+function sprintRail(block, index, row) {
+  const rail = element("div", "sprint-rail");
+  rail.appendChild(element("span", "sprint-tag", SPRINT_TAG[block.type] || block.type));
+
+  const grip = element("button", "grip-handle", "⠿");
+  grip.type = "button";
+  grip.title = "Drag to reorder";
+  grip.setAttribute("aria-label", "Move this block");
+  rail.appendChild(grip);
+
+  // `draggable` is armed from the grip and disarmed after the drop, so a press
+  // anywhere else in the block still places a cursor. That is the same reasoning
+  // as the deliverable list's grip column, reached by a different route: there
+  // the drag is hand-rolled because the row itself had to stay clickable, here
+  // HTML5 drag-and-drop is free because nothing but the handle is ever draggable.
+  grip.onmousedown = () => { row.draggable = true; };
+
+  row.ondragstart = (event) => {
+    state.sprint.dragIndex = index;
+    row.classList.add("dragging");
+    event.dataTransfer.effectAllowed = "move";
+    // Firefox starts no drag at all unless the transfer carries something.
+    event.dataTransfer.setData("text/plain", String(index));
+  };
+  row.ondragend = () => {
+    row.draggable = false;
+    row.classList.remove("dragging");
+    state.sprint.dragIndex = null;
+    clearSprintDropMarks();
+  };
+  row.ondragover = (event) => {
+    const from = state.sprint.dragIndex;
+    if (from === null || from === index) return;
+    event.preventDefault();
+    clearSprintDropMarks();
+    // Which edge it will actually land on. Dropping onto a block puts the
+    // dragged one where that block is, which is above it coming down the
+    // document and below it going up.
+    row.classList.add(from > index ? "drop-above" : "drop-below");
+  };
+  row.ondragleave = () => clearSprintDropMarks();
+  row.ondrop = (event) => {
+    event.preventDefault();
+    const from = state.sprint.dragIndex;
+    clearSprintDropMarks();
+    state.sprint.dragIndex = null;
+    if (from === null || from === index) return;
+    reorderSprintBlocks(from, index);
+  };
+
+  return rail;
+}
+
+function clearSprintDropMarks() {
+  for (const row of $("sprint-document").querySelectorAll(".drop-above, .drop-below")) {
+    row.classList.remove("drop-above", "drop-below");
+  }
+}
+
+// True when a gap holds a blank line, which separates any two blocks safely.
+const gapSeparates = (gap) => ((gap || "").match(/\n/g) || []).length >= 2;
+
+// A CRLF file keeps its CRLF: the round trip is byte for byte, so a separator
+// this code invents has to match the ones already in the file.
+function sprintBlankLine(blocks) {
+  const crlf = blocks.some((block) => /\r\n/.test(block.gap || "") || /\r\n/.test(block.raw || ""));
+  return crlf ? "\r\n\r\n" : "\n\n";
+}
+
+// Moving a block moves its `raw`; its `gap` has to be reasoned about instead of
+// carried along, because a gap is what separates *this* block from the *next*
+// one and a move changes which separators sit where.
+//
+// A gap holding a blank line separates any two blocks safely. A single newline
+// does not: two paragraphs joined by one newline re-read as **one** paragraph, so
+// a reorder that created that adjacency would merge two blocks rather than move
+// one. So the adjacencies the move actually changed get a blank line where they
+// do not already have one, and **every other separator in the file is left
+// exactly as it was** — which is what keeps this inside invariant 2. Whichever
+// block ends up last inherits what used to end the file, so the trailing newline
+// is neither lost nor doubled.
+function reorderSprintBlocks(from, to) {
+  const blocks = state.sprint.blocks;
+  if (from === to || !blocks[from] || !blocks[to]) return;
+
+  const tail = blocks[blocks.length - 1].gap;
+  const followed = new Map(blocks.map((block, index) => [block, blocks[index + 1] || null]));
+  const blankLine = sprintBlankLine(blocks);
+
+  blocks.splice(to, 0, blocks.splice(from, 1)[0]);
+
+  blocks.forEach((block, index) => {
+    block.index = index;
+    const next = blocks[index + 1] || null;
+    if (next === followed.get(block)) return;      // this adjacency did not change
+    if (next === null) block.gap = tail;           // this block ends the file now
+    else if (!gapSeparates(block.gap)) block.gap = blankLine;
+  });
+
+  renderSprintDocument();
+  scheduleSprintSave();
+}
+
+// --- the insert menu --------------------------------------------------------
+
+// `/` on an otherwise empty block. Nine ways in, and **not one of them is a
+// sprint concept**: the table is an empty two-by-two, not a capacity table, and
+// the task list is one empty task rather than a filled-in line. Deliberate — see
+// point 2 in the header. The snippets are plain markdown and go through the same
+// `/split` every other edit does, so nothing here builds a block by hand.
+const SPRINT_MENU = [
+  { key: "h2", label: "Heading", markdown: "## " },
+  { key: "h3", label: "Subheading", markdown: "### " },
+  { key: "table", label: "Table", markdown: "|  |  |\n| --- | --- |\n|  |  |" },
+  { key: "task", label: "Task list", markdown: "- [ ] " },
+  { key: "list", label: "Bullet list", markdown: "- " },
+  { key: "quote", label: "Quote", markdown: "> " },
+  {
+    key: "mermaid",
+    label: "Mermaid diagram",
+    markdown: "```mermaid\nflowchart LR\n  A[Start] --> B[Finish]\n```",
+  },
+  { key: "code", label: "Code block", markdown: "```\n\n```" },
+  { key: "rule", label: "Divider", markdown: "---" },
+];
+
+const sprintMenu = { open: false, node: null, items: [], selected: 0, area: null, index: 0 };
+
+function maybeOpenSprintMenu(area, index) {
+  const text = area.value;
+  // A slash first and nothing but the filter after it. Any whitespace closes the
+  // menu, so a line that genuinely starts with a slash is only a menu until you
+  // type the next character.
+  if (text.startsWith("/") && !/\s/.test(text)) openSprintMenu(area, index, text.slice(1));
+  else closeSprintMenu();
+}
+
+function openSprintMenu(area, index, filter) {
+  const wanted = filter.toLowerCase();
+  sprintMenu.area = area;
+  sprintMenu.index = index;
+  sprintMenu.items = SPRINT_MENU.filter((item) => !wanted
+    || item.label.toLowerCase().startsWith(wanted)
+    || item.key.startsWith(wanted));
+  sprintMenu.selected = 0;
+  sprintMenu.open = true;
+  renderSprintMenu();
+}
+
+function renderSprintMenu() {
+  if (!sprintMenu.node) {
+    // On `body` rather than in the document: the block it belongs to is inside a
+    // column that scrolls and clips, and a menu that gets cut off is worse than
+    // one positioned by hand.
+    sprintMenu.node = element("div", "sprint-menu");
+    document.body.appendChild(sprintMenu.node);
+  }
+  const node = sprintMenu.node;
+  node.innerHTML = "";
+
+  if (sprintMenu.items.length === 0) {
+    node.appendChild(element("div", "sprint-menu-empty", "Nothing matches"));
+  }
+  sprintMenu.items.forEach((item, position) => {
+    const row = element("div", "sprint-menu-item");
+    row.setAttribute("aria-selected", position === sprintMenu.selected ? "true" : "false");
+    row.append(element("span", null, item.label), element("span", "sprint-menu-key", `/${item.key}`));
+    // `mousedown` with the default prevented, so the textarea never loses focus
+    // and its blur handler never commits the `/table` you were typing.
+    row.onmousedown = (event) => {
+      event.preventDefault();
+      pickSprintMenuItem(position);
+    };
+    node.appendChild(row);
+  });
+
+  const box = sprintMenu.area.getBoundingClientRect();
+  node.style.left = `${box.left + window.scrollX}px`;
+  node.style.top = `${box.bottom + window.scrollY + 4}px`;
+  node.hidden = false;
+}
+
+function sprintMenuKey(event) {
+  const count = sprintMenu.items.length;
+  if (event.key === "ArrowDown" && count) {
+    event.preventDefault();
+    sprintMenu.selected = (sprintMenu.selected + 1) % count;
+    renderSprintMenu();
+    return true;
+  }
+  if (event.key === "ArrowUp" && count) {
+    event.preventDefault();
+    sprintMenu.selected = (sprintMenu.selected - 1 + count) % count;
+    renderSprintMenu();
+    return true;
+  }
+  if (event.key === "Enter") {
+    event.preventDefault();
+    pickSprintMenuItem(sprintMenu.selected);
+    return true;
+  }
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeSprintMenu();
+    return true;
+  }
+  return false;
+}
+
+function closeSprintMenu() {
+  sprintMenu.open = false;
+  if (sprintMenu.node) sprintMenu.node.hidden = true;
+}
+
+async function pickSprintMenuItem(position) {
+  const item = sprintMenu.items[position];
+  const index = sprintMenu.index;
+  closeSprintMenu();
+  if (!item) return;
+
+  await commitSprintBlock(index, item.markdown);
+
+  // Land where the typing goes next. A table has no markdown editor at all, so
+  // the cursor belongs in its first cell; everything else reopens as raw, since
+  // an empty `## ` exists to be typed into.
+  const fresh = state.sprint.blocks[index];
+  if (!fresh) return;
+  if (fresh.type === "table") focusSprintCell(index, -1, 0);
+  else editSprintBlock(index);
+}
+
+// --- ticking a task ---------------------------------------------------------
+
+// A tick is an edit to the block's own markdown and nothing more: the nth `[ ]`
+// in this block becomes `[x]`, the block re-splits, the file is saved. Nothing
+// derives from it, here or anywhere — a sprint file's ticks are not roadmap
+// state, and no rule reads them.
+function toggleSprintTask(index, box, node) {
+  const block = state.sprint.blocks[index];
+  if (!block) return;
+
+  const boxes = Array.from(node.querySelectorAll('input[type="checkbox"]'));
+  const nth = boxes.indexOf(box);
+  if (nth < 0) return;
+
+  let seen = -1;
+  const lines = block.raw.split("\n").map((line) => {
+    // The marker only, so a `[x]` written mid-sentence is left alone.
+    const marker = line.match(/^(\s*(?:[-*+]|\d+[.)])\s+\[)([ xX])\]/);
+    if (!marker) return line;
+    seen += 1;
+    if (seen !== nth) return line;
+    const head = marker[1];
+    return head + (marker[2].toLowerCase() === "x" ? " " : "x") + line.slice(head.length + 1);
+  });
+
+  commitSprintBlock(index, lines.join("\n"));
 }
 
 function autosizeSprintArea(area) {
@@ -451,6 +862,7 @@ async function commitSprintBlock(index, text) {
   const sprint = state.sprint;
   const original = sprint.blocks[index];
   const number = sprint.number;
+  closeSprintMenu();
   sprint.editing = null;
   sprint.draft = null;
 

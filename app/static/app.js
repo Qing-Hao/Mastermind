@@ -123,6 +123,11 @@ let state = {
     // Which block is showing its markdown, and the text in that box if a
     // commit failed and it is being kept rather than thrown away.
     editing: null, draft: null,
+    // doc | raw -- the block document, or the whole file in one textarea. A way
+    // of looking, so it is not pinned per file and a reload returns to doc.
+    view: "doc",
+    // Which block a gutter drag is carrying, by index. Null unless dragging.
+    dragIndex: null,
   },
 };
 
@@ -2943,6 +2948,19 @@ function bindEvents() {
   };
 
   $("sprint-select").onchange = (event) => switchSprintFile(Number(event.target.value));
+  $("sprint-view-doc").onclick = () => setSprintView("doc");
+  $("sprint-view-raw").onclick = () => setSprintView("raw");
+  // Blur, not input: re-splitting the whole file on every keystroke would rebuild
+  // the document under the cursor.
+  $("sprint-raw-file").onblur = (event) => commitSprintRawFile(event.target.value);
+  // Esc leaves the box first and the view second, in that order: the blur is what
+  // re-splits the document, so switching away before it would drop the edit.
+  $("sprint-raw-file").onkeydown = (event) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.target.blur();
+    setSprintView("doc");
+  };
 
   $("project-select").onchange = async (event) => {
     state.currentProjectId = Number(event.target.value);
@@ -2956,7 +2974,14 @@ function bindEvents() {
   // The drawer reads and nothing else, so Esc can close it unconditionally --
   // there is never unsaved work behind it to lose.
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeFortnight();
+    if (event.key !== "Escape") return;
+    closeFortnight();
+    // Esc out of the raw file view too, but only from outside the textarea:
+    // inside it, Esc is how you leave the box, and the blur that follows is what
+    // re-splits the document. Leaving the view first would throw that away.
+    if (state.sprint.view === "raw" && document.activeElement !== $("sprint-raw-file")) {
+      setSprintView("doc");
+    }
   });
 
   $("mode-dates").onclick = () => {

@@ -285,6 +285,16 @@ def test_task_list_renders_as_checkboxes():
     assert 'checked="checked"' in html
 
 
+def test_checkboxes_are_not_disabled():
+    """Ticking one rewrites the block's markdown, so it has to be pressable.
+
+    The plugin disables them by default. Asserted rather than left to the
+    configuration, because a disabled checkbox fails silently -- it looks right
+    and simply does not respond.
+    """
+    assert "disabled" not in render_block({"raw": "- [ ] todo"})
+
+
 def test_mermaid_fence_is_marked_and_its_source_preserved():
     html = render_block({"raw": "```mermaid\ngraph TD\n  a-->b\n```"})
     assert f'class="{MERMAID_CLASS}"' in html

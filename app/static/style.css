@@ -538,7 +538,9 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
    by the same `hidden` attribute every other view uses. */
 .sprint-view[hidden] { display: none; }
 
-.sprint-doc { display: flex; flex-direction: column; }
+/* The left padding is the gutter the rail is drawn in: the rail is positioned
+   outside each row, so without it the tag and grip would sit off the page. */
+.sprint-doc { display: flex; flex-direction: column; padding-left: 46px; }
 .sprint-doc[hidden] { display: none; }
 
 /* One block, rendered. The hover outline is the affordance -- there is no edit
@@ -580,9 +582,118 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   border-left: 3px solid #e0e0e0;
   color: #555;
 }
-/* Ticking one is phase 6's job -- until then the server renders them disabled,
-   and a checkbox you cannot press is better than one that quietly does nothing. */
-.sprint-block input[type="checkbox"] { margin-right: 4px; }
+/* Ticking one rewrites the block's markdown, so it is a control and gets a
+   pointer. Nothing else reads it -- a tick in a sprint file is not roadmap state. */
+.sprint-block input[type="checkbox"] { margin-right: 4px; cursor: pointer; }
+.sprint-block li.task-list-item { list-style: none; margin-left: -18px; }
+
+/* --- the gutter rail --- */
+/* The block, plus a margin holding what it is and a handle to move it. The rail
+   is absolutely positioned so it cannot widen the column the document is
+   measured for, and the document keeps room for it with padding-left. */
+.sprint-row { position: relative; }
+.sprint-rail {
+  position: absolute;
+  left: -46px;
+  top: 3px;
+  width: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  padding-right: 6px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+/* Only when you are pointing at the block, or working inside it: a handle and a
+   type tag on every block at once is more furniture than document. */
+.sprint-row:hover .sprint-rail,
+.sprint-row:focus-within .sprint-rail { opacity: 1; }
+
+.sprint-tag {
+  font: 10px/1 ui-monospace, SFMono-Regular, Consolas, monospace;
+  color: #bbb;
+  letter-spacing: 0.03em;
+}
+.sprint-rail .grip-handle {
+  border: 0;
+  background: transparent;
+  padding: 2px;
+  font-size: 13px;
+  line-height: 1;
+}
+.sprint-row.dragging { opacity: 0.4; }
+
+/* The edge the dragged block will land on. Drawn on the row rather than between
+   rows, so there is no gap element to keep in sync with the list. */
+.sprint-row.drop-above::before,
+.sprint-row.drop-below::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #5c6bc0;
+  border-radius: 2px;
+}
+.sprint-row.drop-above::before { top: -3px; }
+.sprint-row.drop-below::after { bottom: -3px; }
+
+/* --- the insert menu --- */
+/* On `body`, positioned against the textarea, so nothing clips it. */
+.sprint-menu {
+  position: absolute;
+  z-index: 60;
+  width: 230px;
+  padding: 4px;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.13);
+}
+.sprint-menu[hidden] { display: none; }
+.sprint-menu-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.sprint-menu-item[aria-selected="true"] { background: #eef1ff; color: #3949ab; }
+.sprint-menu-key {
+  margin-left: auto;
+  font: 10.5px ui-monospace, SFMono-Regular, Consolas, monospace;
+  color: #aaa;
+}
+.sprint-menu-item[aria-selected="true"] .sprint-menu-key { color: #5c6bc0; }
+.sprint-menu-empty { padding: 6px 8px; font-size: 12.5px; color: #888; }
+
+/* --- the raw file view --- */
+.sprint-raw-pane[hidden] { display: none; }
+.sprint-raw-note { border-left: 2px solid #e0a800; padding-left: 8px; margin-bottom: 8px; }
+#sprint-raw-file {
+  font: 13px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
+  width: 100%;
+  min-height: 60vh;
+  padding: 12px 14px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.grip-glyph { color: #aaa; }
+kbd {
+  font: 11px ui-monospace, SFMono-Regular, Consolas, monospace;
+  background: #f6f6f6;
+  border: 1px solid #ddd;
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  padding: 0 4px;
+  color: #555;
+}
 
 /* --- the table grid --- */
 /* A table block is edited as a grid and never as raw pipes, so it gets no reveal

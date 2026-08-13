@@ -300,6 +300,8 @@
         <p class="hint">
           The sprint file itself, edited in place. Click any block to see its
           markdown, click away to put it back &mdash; saving happens on its own.
+          <kbd>/</kbd> on an empty block inserts one; drag <span
+          class="grip-glyph">&#10287;</span> in the margin to reorder.
           Nothing here writes to the roadmap: a sprint that overruns is recorded
           in Reflection, and phase dates are changed by hand in the Project tab
           or not at all.
@@ -309,6 +311,12 @@
             <select id="sprint-select"
               title="Newest first. One file per fortnight, in sprints/"></select>
           </label>
+          <span class="spacer"></span>
+          <span id="sprint-view-switch" class="mode-switch"
+                title="The document, or the whole file as text (Esc returns)">
+            <button id="sprint-view-doc" type="button" class="mode active">Rendered</button>
+            <button id="sprint-view-raw" type="button" class="mode">Raw file</button>
+          </span>
         </div>
 
         <p id="sprint-empty" class="hint" hidden>
@@ -318,6 +326,15 @@
         </p>
 
         <div id="sprint-document" class="sprint-doc"></div>
+
+        <div id="sprint-raw-pane" class="sprint-raw-pane" hidden>
+          <p class="hint sprint-raw-note">
+            The whole file, exactly as it sits in <code>sprints/</code>. Edit it
+            here and click away &mdash; the document re-splits from it. The file
+            is the record; the document is a view of it.
+          </p>
+          <textarea id="sprint-raw-file" spellcheck="false"></textarea>
+        </div>
       </section>
     </div>
   </main>

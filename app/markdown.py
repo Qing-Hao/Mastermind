@@ -395,9 +395,14 @@ def _build_renderer():
 
     linkify is off so the app needs no third dependency for it; a bare URL is
     still a link when written as one.
+
+    `enabled=True` on the tasklists plugin drops the `disabled` attribute the
+    plugin adds by default, so a `- [ ]` can be ticked. It renders the checkbox;
+    what a tick *means* is the frontend's problem, and there it is a rewrite of
+    the block's own markdown -- the file is still the record.
     """
     md = MarkdownIt("gfm-like", {"html": True, "linkify": False}, renderer_cls=_Renderer)
-    return md.use(tasklists_plugin)
+    return md.use(tasklists_plugin, enabled=True)
 
 
 _RENDERER = _build_renderer()
