@@ -560,7 +560,9 @@ def found_sprint(number):
     """The path of sprint `number`, or a 404. PUT never creates a file."""
     path = sprint_path(number)
     if not path:
-        raise HTTPException(status_code=404, detail=f"No sprint {number} in {SPRINTS_DIR}.")
+        # Named by number rather than by path: the message goes on screen, and
+        # the absolute directory is both long and none of the page's business.
+        raise HTTPException(status_code=404, detail=f"No sprint {number} on disk.")
     return path
 
 

@@ -105,6 +105,19 @@ let state = {
   // looking, kept across re-renders and tab switches, gone on reload. `start`
   // null means the drawer is closed.
   fortnight: { start: null, slice: null },
+  // The sprint file the Sprint tab has open, and the state of the edit in
+  // flight. Declared here with the rest of the state; everything that reads or
+  // writes it lives in editor.js. `mtime` is what a save quotes back to prove
+  // the file has not changed underneath it, so it is never updated except from
+  // a read or a successful write.
+  sprint: {
+    files: [], number: null, name: "", blocks: [], mtime: null,
+    // clean | dirty | saving | saved | failed | conflict
+    status: "clean", error: "",
+    // Which block is showing its markdown, and the text in that box if a
+    // commit failed and it is being kept rather than thrown away.
+    editing: null, draft: null,
+  },
 };
 
 // --- api --------------------------------------------------------------------
@@ -119,7 +132,15 @@ async function api(path, options = {}) {
     try {
       detail = (await response.json()).detail || detail;
     } catch (_) { /* body was not json */ }
-    throw new Error(detail);
+    // A detail is usually a string, but it does not have to be: the sprint
+    // editor's 409 carries the file's mtime beside its message. So the Error
+    // keeps both -- `message` for the callers that only show it, `status` and
+    // `detail` for the one that has to act on which failure this was.
+    const error = new Error(
+      typeof detail === "string" ? detail : detail.error || response.statusText);
+    error.status = response.status;
+    error.detail = detail;
+    throw error;
   }
   return response.status === 204 ? null : response.json();
 }
@@ -417,22 +438,28 @@ async function refreshView() {
   const isProject = state.view === "project";
   const isPortfolio = state.view === "portfolio";
   const isMap = state.view === "map";
+  const isSprint = state.view === "sprint";
   // The map is still worth showing with nothing planned -- it is where the
-  // first future direction gets captured.
+  // first future direction gets captured. So is the sprint tab: its files are
+  // on disk and have nothing to do with whether a project exists.
   const noProjects = state.projects.length === 0;
 
   $("empty-state").hidden = !(isProject && noProjects);
   $("workspace").hidden = !isProject || noProjects;
   $("portfolio-view").hidden = !isPortfolio;
   $("map-view").hidden = !isMap;
+  $("sprint-view").hidden = !isSprint;
   $("tab-project").classList.toggle("active", isProject);
   $("tab-portfolio").classList.toggle("active", isPortfolio);
   $("tab-map").classList.toggle("active", isMap);
+  $("tab-sprint").classList.toggle("active", isSprint);
 
   if (isProject) {
     if (!noProjects) await loadPlan();
   } else if (isPortfolio) {
     await loadPortfolio();
+  } else if (isSprint) {
+    await loadSprints();
   } else {
     await loadGraph();
   }
@@ -2897,6 +2924,12 @@ function bindEvents() {
     state.view = "map";
     await refreshView();
   };
+  $("tab-sprint").onclick = async () => {
+    state.view = "sprint";
+    await refreshView();
+  };
+
+  $("sprint-select").onchange = (event) => switchSprintFile(Number(event.target.value));
 
   $("project-select").onchange = async (event) => {
     state.currentProjectId = Number(event.target.value);

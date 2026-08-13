@@ -528,6 +528,94 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 .week-target:focus-visible { outline: 2px solid #5c6bc0; outline-offset: -2px; }
 .week.week-open { background: #e8eaf6; color: #3949ab; font-weight: 600; }
 
+/* --- sprint view --- */
+/* A document, so it is measured for reading rather than given the width of a
+   chart: prose at chart width is a worse editor than prose in a column. */
+.sprint-view { max-width: 860px; }
+/* Load-bearing, the fifth time this trap has come up -- see
+   `.fortnight-drawer[hidden]` above. The rule on the line before sets a width,
+   not a display, but the document below sets one, and the whole view is toggled
+   by the same `hidden` attribute every other view uses. */
+.sprint-view[hidden] { display: none; }
+
+.sprint-doc { display: flex; flex-direction: column; }
+.sprint-doc[hidden] { display: none; }
+
+/* One block, rendered. The hover outline is the affordance -- there is no edit
+   button, because the block is the button. Padding rather than margin so the
+   outline does not sit tight against the text. */
+.sprint-block {
+  padding: 2px 8px;
+  border-left: 2px solid transparent;
+  border-radius: 3px;
+  cursor: text;
+}
+.sprint-block:hover { background: #fafafa; border-left-color: #ddd; }
+.sprint-block:focus-visible { outline: 2px solid #5c6bc0; outline-offset: -2px; }
+.sprint-block > :first-child { margin-top: 4px; }
+.sprint-block > :last-child { margin-bottom: 4px; }
+.sprint-block table { font-size: 13px; }
+.sprint-block h1 { font-size: 20px; }
+.sprint-block h2 {
+  /* The document's own headings, not the app's section headings, which are
+     uppercased and ruled off. A sprint file's `## Capacity` is a heading in a
+     document you are reading. */
+  font-size: 16px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: #1a1a1a;
+  border-bottom: 0;
+  padding: 0;
+}
+.sprint-block h3 { font-size: 14px; }
+.sprint-block pre {
+  background: #f6f6f6;
+  padding: 8px 10px;
+  border-radius: 3px;
+  overflow-x: auto;
+}
+.sprint-block blockquote {
+  margin: 4px 0;
+  padding-left: 10px;
+  border-left: 3px solid #e0e0e0;
+  color: #555;
+}
+/* Ticking one is phase 6's job -- until then the server renders them disabled,
+   and a checkbox you cannot press is better than one that quietly does nothing. */
+.sprint-block input[type="checkbox"] { margin-right: 4px; }
+
+/* The same block, showing its markdown. Monospace and full width: this is the
+   file, not a form field. */
+.sprint-raw {
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #5c6bc0;
+  border-radius: 3px;
+  resize: vertical;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.sprint-placeholder { color: #888; cursor: text; padding: 8px; }
+
+/* Whether the file on disk matches what is on screen. Never silent: a failed
+   autosave that says nothing is how a retro gets lost. */
+.save-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 10px;
+  font-size: 12px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: #888;
+}
+.save-saved { color: #2e7d32; }
+.save-failed, .save-conflict { color: #b00020; }
+.save-action { font-size: 12px; padding: 1px 8px; }
+
 /* --- map view --- */
 /* Positions are computed in app.js; everything here is colour and type only,
    so the layout stays in one place. */
