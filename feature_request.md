@@ -52,6 +52,7 @@ why FR-13 sits above FR-12.
 | FR-6 | Slippage memory — has this date moved before? | Large | Low | High | **P3** — deferred deliberately |
 | FR-7 | Owners at roadmap level | Small | — | Negative | **Won't build** |
 | FR-8 | A "this fortnight" view | ~600 lines | High | High | **Built** 2026-08-13 |
+| FR-15 | Refuse and report overlapping sprint windows | Small | Fortnightly | High | **Built** 2026-08-13 |
 
 ---
 
@@ -94,8 +95,10 @@ FR-14 ──> a decision  option A/B/C/D, not code
 
 Two properties worth noticing:
 
-- **Only FR-13 touches Python at all.** The other five cannot break the 273
-  tests, which is what makes running them in parallel cheap.
+- **Only FR-13 touches Python** *of the six as scoped here*. That was what made
+  running them in parallel cheap, and it held right up until FR-15 was raised
+  mid-tree and needed `main.py` — worth remembering that the property was a
+  property of the scope, not of the trees.
 - **`style.css` is touched by five of the six, in five disjoint regions.** Git
   merges that fine as long as nobody reflows the file. Do not reorder or
   reformat blocks you are not changing. The `[hidden]` trap — a class setting
@@ -106,7 +109,7 @@ Two properties worth noticing:
 
 | Tree | Items, in order | Why they belong together |
 |---|---|---|
-| **A · sprint editor** | ~~FR-9, then FR-10~~ **done** | Both are `editor.js`. Different regions, but one file, so one tree. Zero Python — and the 273 tests were green throughout, as predicted. |
+| **A · sprint editor** | ~~FR-9, then FR-10~~, then FR-15 — **done** | Both of the first two are `editor.js`. Different regions, but one file, so one tree. FR-15 arrived mid-tree from the requester and **did** touch Python, so the "zero Python" note below no longer holds for this tree: 285 tests now, 12 of them new. |
 | **B · portfolio** | FR-13, then FR-12, then FR-2 | All in the portfolio view; FR-13 and FR-2 share `read_portfolio`. The only tree that runs the test suite. |
 | **C · map** | FR-14 | Its own region of `app.js` and its own block of `style.css`. Blocked on the option decision, not on A or B. |
 | **D · shell** | FR-11 + tab reorder | Held back — see below. |
@@ -630,6 +633,47 @@ decisions, not work.
 schema, no endpoint. The palette assignment is ~30 lines; the risk is entirely in
 whether the result reads better, which can only be judged against the real
 dataset. **Decide the option before writing any of it.**
+
+---
+
+## FR-15 · One team, one sprint at a time — **Built**
+
+*Requester, 2026-08-13, alongside the stale-picker bug: "there should be a checking
+where if there is interference of sprint time. It shouldn't be happening as this is
+for one team only."* **Built the same day**, on `tree-a-sprint-editor`.
+
+**What:** a fortnight overlapping a sprint already on disk is a **409 that writes
+nothing**, and `GET /api/sprints` reports the overlaps it can see, both ends of
+each pair. Back to back is not an overlap.
+
+**The decision worth recording.** Four shapes went up: refuse at create only,
+report only, refuse **and** report, or warn-but-create-anyway. Refuse-and-report
+won because the two halves cover different holes — refusing is free at the one
+moment the mistake is made, and reporting is the only thing that catches an overlap
+introduced *afterwards* by editing dates in a heading, which the app does not own.
+Warn-but-create was rejected outright: it leaves you deleting a file by hand.
+
+**Why this does not break rule 1.** "Every rule reports; nothing repairs" is about
+the plan, and nothing here changes a date in a file that exists. Refusing to write
+a *new* bad file is the same move `POST /api/dependencies` makes for a cycle — and
+the same reasoning, one team being unable to run two sprints at once, so an overlap
+is malformed rather than an opinion. It is **not** a V rule, though: it guards a
+file, so `validate_plan` and `validate_portfolio` never see it.
+
+**Where the dates come from, and why that is safe.** `sprint_window_from_heading`
+reads them back off the first line — the inverse of `sprint_heading`, in the same
+module that writes it. `markdown.py` and `editor.js` learn nothing: the editor
+prints the numbers the endpoint hands it. So the sprint-4 gate condition still
+holds, and there is still no sprint table, column or export bump.
+
+**The one trap.** Reading has to be lenient. A heading with one date, no dates or a
+backwards pair has **no window**, and a file with no window blocks nothing and
+overlaps nothing — guessing would refuse a real sprint on the strength of an
+invented fortnight. Also worth knowing: this made
+`test_a_sprint_file_is_never_overwritten` pass for the wrong reason, because its
+second `POST` reused the first fortnight and now trips the overlap check before it
+ever reaches the exclusive create. Its start date moved; the test is only about the
+guard it names.
 
 ---
 
