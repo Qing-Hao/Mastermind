@@ -2948,6 +2948,7 @@ function bindEvents() {
   };
 
   $("sprint-select").onchange = (event) => switchSprintFile(Number(event.target.value));
+  $("sprint-new").onclick = createSprintFile;
   $("sprint-view-doc").onclick = () => setSprintView("doc");
   $("sprint-view-raw").onclick = () => setSprintView("raw");
   // Blur, not input: re-splitting the whole file on every keystroke would rebuild

@@ -118,6 +118,7 @@ function resetSprint() {
 
 function renderSprintView() {
   renderSprintPicker();
+  renderSprintNew();
   renderSprintStatus();
   renderSprintMode();
   renderSprintDocument();
@@ -141,6 +142,82 @@ function renderSprintPicker() {
   select.hidden = none;
   $("sprint-empty").hidden = !none;
   $("sprint-view-switch").hidden = none;
+}
+
+// --- starting one ------------------------------------------------------------
+
+// The tab that owns sprints could not make one: the only path was Portfolio, a
+// week number nothing marks as clickable, the fortnight drawer, and a button at the
+// bottom of it -- which also does not exist for a fortnight outside the chart's
+// window. This is that button, on the tab you would look for it on.
+//
+// Three things it deliberately does not do:
+//
+//   * **It does not read the roadmap.** No prefilled dates from a project, no
+//     phases, no deliverables. The drawer is the roadmap-aware path and it already
+//     exists; duplicating it here would put roadmap knowledge in a tab that has
+//     none, which is worth more than the convenience.
+//   * **It does not pick the number.** That comes off the directory, server-side,
+//     as it does for the drawer -- so the script, the button and the picker cannot
+//     disagree about which file is sprint 4.
+//   * **It never overwrites.** A 409 is reported and the picker re-read, so the
+//     file that already exists is there to open. `POST` has no force.
+function renderSprintNew() {
+  const input = $("sprint-new-start");
+  // Only when it is empty: this runs on every render, and rewriting the box would
+  // undo a fortnight you had just picked.
+  if (!input.value) input.value = formatDate(weekStart(new Date()));
+}
+
+// The Monday the server will snap this date back to, which is the key the drawer
+// files its own creations under. Worked out here rather than read back off the
+// response, because it has to be known *before* the post to know not to post.
+function sprintFortnightStart(value) {
+  const asked = value ? parseDate(value) : new Date();
+  return formatDate(weekStart(asked));
+}
+
+async function createSprintFile() {
+  const input = $("sprint-new-start");
+  const button = $("sprint-new");
+  const note = $("sprint-new-note");
+  const start = sprintFortnightStart(input.value);
+
+  note.className = "muted";
+  button.disabled = true;
+  try {
+    // A fortnight this session already made a file for opens it instead of making
+    // a second one with the same heading and the next number. Shared with the
+    // drawer, so pressing both does not make two files for one fortnight; in
+    // memory, so after a reload the file on disk is the only record -- which is
+    // why the 409 below still has to be handled.
+    const made = state.plannedSprints.get(start);
+    if (made) {
+      note.textContent = `${made.name} already covers the fortnight from ${start}.`;
+      await revealSprintFile(made.number);
+      return;
+    }
+
+    const created = await api("/api/sprints", {
+      method: "POST",
+      body: JSON.stringify({ start }),
+    });
+    state.plannedSprints.set(created.window.start, created);
+    note.textContent = `Started ${created.path}, `
+      + `${created.window.start} → ${created.window.end}.`;
+    await revealSprintFile(created.number);
+  } catch (failure) {
+    note.className = "error";
+    // The server names the file it refused to write over. Re-reading the picker is
+    // what turns that into something you can act on: the file is then in the list,
+    // whatever number it carries.
+    note.textContent = failure.status === 409
+      ? `${failure.message} Pick it from File above.`
+      : failure.message;
+    if (failure.status === 409) await loadSprints();
+  } finally {
+    button.disabled = false;
+  }
 }
 
 // --- rendered or raw ---------------------------------------------------------
@@ -665,7 +742,9 @@ function startSprintBlock() {
 // `block.table` is authoritative while the grid is on screen -- a cell edit
 // changes it and nothing else. `raw` is regenerated from it **server-side** by
 // `serialise_table` when the file is saved, so column padding and alignment
-// happen in exactly one place and the frontend never writes a pipe.
+// happen in exactly one place and the frontend never writes a pipe. That is also
+// why inserting, deleting and reordering rows and columns needs no endpoint: they
+// rearrange the grid, and the file is written from the grid either way.
 //
 // Nothing here knows what a capacity table is. Any pipe table in any sprint file
 // gets this same grid, which is the condition the sprint-4 gate override rests on.
@@ -682,18 +761,39 @@ function sprintTable(block, index) {
   const scroller = element("div", "sprint-grid");
   const table = element("table", "sprint-table");
   const grid = block.table;
+  const thead = element("thead");
+
+  // A strip of column grips above the header, and one gutter cell per row down
+  // the left. Both are their own cells rather than marks inside the header: a
+  // header cell is an `<input>`, and a handle drawn over one would cost the click
+  // that places a cursor in it.
+  const grips = element("tr", "sprint-colgrips");
+  grips.appendChild(element("th", "sprint-corner"));
+  grid.head.forEach((_, column) => {
+    const cell = element("th", "sprint-colgrip");
+    cell.appendChild(gridGrip(block, index, "column", column, cell));
+    grips.appendChild(cell);
+  });
+  thead.appendChild(grips);
 
   const head = element("tr");
+  // The header row gets no grip: GFM has no table without a header row, so it can
+  // neither be moved nor removed. Its cells are reordered by moving the columns.
+  head.appendChild(element("th", "sprint-gutter"));
   grid.head.forEach((cell, column) => {
     const th = element("th");
     th.appendChild(sprintCell(block, index, -1, column, cell));
     head.appendChild(th);
   });
-  table.appendChild(element("thead")).appendChild(head);
+  thead.appendChild(head);
+  table.appendChild(thead);
 
   const body = element("tbody");
   grid.rows.forEach((row, r) => {
     const tr = element("tr");
+    const gutter = element("td", "sprint-gutter");
+    gutter.appendChild(gridGrip(block, index, "row", r, tr));
+    tr.appendChild(gutter);
     row.forEach((cell, column) => {
       tr.appendChild(element("td")).appendChild(sprintCell(block, index, r, column, cell));
     });
@@ -733,10 +833,8 @@ function sprintCell(block, index, r, column, value) {
     if (next < 0) { next = columns - 1; row = r - 1; }
     // Tab off the last cell grows the table rather than leaving it.
     if (row > grid.rows.length - 1) {
-      grid.rows.push(new Array(columns).fill(""));
-      tableEdited(block);
-      renderSprintDocument();
-      focusSprintCell(index, grid.rows.length - 1, 0);
+      insertGridRow(block, grid.rows.length);
+      applyGridChange(block, index, grid.rows.length - 1, 0);
       return;
     }
     if (row < -1) return;   // Shift+Tab out of the first header cell stays put
@@ -782,6 +880,298 @@ function pasteIntoTable(block, r, column, text) {
   tableEdited(block);
 }
 
+// --- rows and columns, where they actually are -------------------------------
+
+// The grid used to grow and shrink from the end only, so a row that turned out to
+// belong third, or a column typed in the wrong order, cost a retype of everything
+// below or to the right of it -- in the one table the editor exists to make easy
+// to fill in. These are the operations that fix that, and every one of them is
+// generic: a row, a column, a position. Nothing here knows what a capacity table
+// is, which is the condition the sprint-4 gate override rests on.
+
+// `serialise_table` pads a ragged table out to a rectangle on the way to the file
+// anyway, so squaring it up before a structural edit writes nothing the save would
+// not have written. It is also what makes "column 3" name the same cell on every
+// row, which every operation below assumes.
+function squareGrid(grid) {
+  const columns = Math.max(grid.head.length, ...grid.rows.map((row) => row.length), 1);
+  while (grid.head.length < columns) grid.head.push("");
+  while (grid.align.length < columns) grid.align.push("");
+  for (const row of grid.rows) while (row.length < columns) row.push("");
+  return columns;
+}
+
+function insertGridRow(block, at) {
+  const grid = block.table;
+  const columns = squareGrid(grid);
+  grid.rows.splice(at, 0, new Array(columns).fill(""));
+}
+
+function deleteGridRow(block, at) {
+  squareGrid(block.table);
+  block.table.rows.splice(at, 1);
+}
+
+function moveGridRow(block, from, to) {
+  const rows = block.table.rows;
+  squareGrid(block.table);
+  rows.splice(to, 0, rows.splice(from, 1)[0]);
+}
+
+// **A column is its cells and its alignment marker.** `align` is a parallel array,
+// so anything that inserts, removes or moves a column has to do the same to the
+// marker in the same breath. Miss it and a right-aligned column of numbers quietly
+// lines up under a different heading -- which the round-trip test cannot catch,
+// because the file it writes still round-trips perfectly.
+function insertGridColumn(block, at) {
+  const grid = block.table;
+  squareGrid(grid);
+  grid.head.splice(at, 0, "");
+  grid.align.splice(at, 0, "");
+  for (const row of grid.rows) row.splice(at, 0, "");
+}
+
+function deleteGridColumn(block, at) {
+  const grid = block.table;
+  squareGrid(grid);
+  grid.head.splice(at, 1);
+  grid.align.splice(at, 1);
+  for (const row of grid.rows) row.splice(at, 1);
+}
+
+function moveGridColumn(block, from, to) {
+  const grid = block.table;
+  squareGrid(grid);
+  grid.head.splice(to, 0, grid.head.splice(from, 1)[0]);
+  grid.align.splice(to, 0, grid.align.splice(from, 1)[0]);
+  for (const row of grid.rows) row.splice(to, 0, row.splice(from, 1)[0]);
+}
+
+// Flag, redraw, and put the cursor back in the grid: a structural edit that leaves
+// focus on a button you have to click away from is a step you have to undo.
+function applyGridChange(block, index, r, column) {
+  tableEdited(block);
+  renderSprintDocument();
+  focusSprintCell(index, r, column);
+}
+
+// Which row or column is being dragged. Transient, so it lives here rather than in
+// `state`: nothing re-renders between the dragstart and the drop.
+const gridDrag = { block: null, kind: null, position: null };
+
+// One handle, two gestures. Drag it to move this row or column; click it for what
+// a drag cannot say -- insert on either side, or delete this one. The drag is armed
+// from the handle alone, so a press in a cell still places a cursor in it: the same
+// conclusion the deliverable list and the block rail both reached.
+function gridGrip(block, index, kind, position, target) {
+  const what = kind === "row" ? "row" : "column";
+  const grip = element("button", "grip-handle", "⠿");
+  grip.type = "button";
+  grip.title = `Drag to move this ${what} · click to insert or delete`;
+  grip.setAttribute("aria-label", `This ${what}`);
+  grip.onmousedown = () => { target.draggable = true; };
+  grip.onclick = () => {
+    // Disarmed again, because a click is not a drag: a completed drag ends in
+    // `ondragend`, but a click that only opened the menu would leave the row
+    // draggable, and the next press *in one of its cells* would drag it instead of
+    // placing a cursor -- the thing arming from the grip alone exists to prevent.
+    target.draggable = false;
+    openGridMenu(block, index, kind, position, grip);
+  };
+
+  // Every handler below stops the event, because a table lives inside a
+  // `.sprint-row` that has drag handlers of its own and these events bubble.
+  // Without it, dragging a row arms the block reorder and moves the whole block.
+  target.ondragstart = (event) => {
+    event.stopPropagation();
+    Object.assign(gridDrag, { block, kind, position });
+    target.classList.add("dragging");
+    event.dataTransfer.effectAllowed = "move";
+    // Firefox starts no drag at all unless the transfer carries something.
+    event.dataTransfer.setData("text/plain", `${kind}:${position}`);
+  };
+  target.ondragend = (event) => {
+    event.stopPropagation();
+    target.draggable = false;
+    target.classList.remove("dragging");
+    gridDrag.kind = null;
+    clearGridDropMarks();
+  };
+  target.ondragover = (event) => {
+    if (!gridDragging(block, kind, position)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    clearGridDropMarks();
+    // Which edge it lands on. Dropping onto a row or column puts the dragged one
+    // where that one is, which is before it moving up the grid and after it
+    // moving down -- the same reading the block reorder uses.
+    target.classList.add(gridDrag.position > position ? "drop-before" : "drop-after");
+  };
+  target.ondragleave = (event) => {
+    event.stopPropagation();
+    clearGridDropMarks();
+  };
+  target.ondrop = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const from = gridDrag.position;
+    const moving = gridDragging(block, kind, position);
+    clearGridDropMarks();
+    gridDrag.kind = null;
+    if (!moving) return;
+    if (kind === "row") {
+      moveGridRow(block, from, position);
+      applyGridChange(block, index, position, 0);
+    } else {
+      moveGridColumn(block, from, position);
+      applyGridChange(block, index, -1, position);
+    }
+  };
+
+  return grip;
+}
+
+// A drag only means something within one axis of one table: a row cannot be
+// dropped on a column, and neither can cross into another block's grid.
+function gridDragging(block, kind, position) {
+  return gridDrag.kind === kind && gridDrag.block === block && gridDrag.position !== position;
+}
+
+function clearGridDropMarks() {
+  for (const node of $("sprint-document").querySelectorAll(".drop-before, .drop-after")) {
+    node.classList.remove("drop-before", "drop-after");
+  }
+}
+
+// --- the row and column menu -------------------------------------------------
+
+// The insert menu's smaller sibling, and deliberately the same furniture: the
+// `.sprint-menu` classes, arrows to move, Enter to pick, Esc to close having done
+// nothing. Its own state because the two are never open at once and this one is
+// anchored to a button rather than to a textarea's caret.
+const gridMenu = {
+  node: null, items: [], selected: 0, open: false, block: null, index: 0, anchor: null,
+};
+
+// Each entry reports where the cursor belongs afterwards, worked out **after** the
+// mutation: `rows.length` below is the length once the row is gone.
+function gridMenuItems(block, kind, position) {
+  const grid = block.table;
+  if (kind === "row") {
+    return [
+      { label: "Insert row above", run: () => { insertGridRow(block, position); return [position, 0]; } },
+      { label: "Insert row below", run: () => { insertGridRow(block, position + 1); return [position + 1, 0]; } },
+      {
+        label: "Delete row",
+        run: () => {
+          deleteGridRow(block, position);
+          // Nothing left to land in puts the cursor in the header, which is the
+          // one row a table always has.
+          return [Math.min(position, grid.rows.length - 1), 0];
+        },
+      },
+    ];
+  }
+  return [
+    { label: "Insert column left", run: () => { insertGridColumn(block, position); return [-1, position]; } },
+    { label: "Insert column right", run: () => { insertGridColumn(block, position + 1); return [-1, position + 1]; } },
+    {
+      label: "Delete column",
+      // A table with no columns is not a table, so the last one cannot go.
+      disabled: grid.head.length <= 1,
+      run: () => {
+        deleteGridColumn(block, position);
+        return [-1, Math.min(position, grid.head.length - 1)];
+      },
+    },
+  ];
+}
+
+function openGridMenu(block, index, kind, position, anchor) {
+  closeSprintMenu();
+  Object.assign(gridMenu, {
+    items: gridMenuItems(block, kind, position),
+    selected: 0,
+    open: true,
+    block,
+    index,
+    anchor,
+  });
+  renderGridMenu();
+  // While it is up it owns the keyboard. Capturing, so Esc closes the menu rather
+  // than reaching the handler that closes the fortnight drawer behind it.
+  document.addEventListener("keydown", gridMenuKey, true);
+  document.addEventListener("mousedown", gridMenuOutside, true);
+}
+
+function renderGridMenu() {
+  if (!gridMenu.node) {
+    // On `body`, like the insert menu: the block it belongs to sits in a column
+    // that scrolls and clips, and a menu cut off by its own table is worse than
+    // one positioned by hand.
+    gridMenu.node = element("div", "sprint-menu grid-menu");
+    document.body.appendChild(gridMenu.node);
+  }
+  const node = gridMenu.node;
+  node.innerHTML = "";
+
+  gridMenu.items.forEach((item, position) => {
+    const row = element("div", "sprint-menu-item", item.label);
+    row.setAttribute("aria-selected", position === gridMenu.selected ? "true" : "false");
+    if (item.disabled) row.setAttribute("aria-disabled", "true");
+    // `mousedown` with the default prevented, so the click never blurs its way
+    // through the outside-click listener before it is handled.
+    row.onmousedown = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      pickGridMenuItem(position);
+    };
+    node.appendChild(row);
+  });
+
+  // Against the grip, every time: the arrow keys re-render, and measuring the menu
+  // instead would walk it down the page one press at a time.
+  const box = gridMenu.anchor.getBoundingClientRect();
+  node.style.left = `${box.left + window.scrollX}px`;
+  node.style.top = `${box.bottom + window.scrollY + 4}px`;
+  node.hidden = false;
+}
+
+function gridMenuKey(event) {
+  const count = gridMenu.items.length;
+  const move = (step) => {
+    gridMenu.selected = (gridMenu.selected + step + count) % count;
+    renderGridMenu();
+  };
+  if (event.key === "ArrowDown") move(1);
+  else if (event.key === "ArrowUp") move(-1);
+  else if (event.key === "Enter") pickGridMenuItem(gridMenu.selected);
+  else if (event.key === "Escape") closeGridMenu();
+  else return;
+  event.preventDefault();
+  event.stopPropagation();
+}
+
+function gridMenuOutside(event) {
+  if (!gridMenu.node.contains(event.target)) closeGridMenu();
+}
+
+function closeGridMenu() {
+  gridMenu.open = false;
+  if (gridMenu.node) gridMenu.node.hidden = true;
+  document.removeEventListener("keydown", gridMenuKey, true);
+  document.removeEventListener("mousedown", gridMenuOutside, true);
+}
+
+function pickGridMenuItem(at) {
+  const item = gridMenu.items[at];
+  const { block, index } = gridMenu;
+  closeGridMenu();
+  if (!item || item.disabled) return;
+  const [r, column] = item.run();
+  applyGridChange(block, index, r, column);
+}
+
 function sprintTableTools(block, index) {
   const grid = block.table;
   const tools = element("div", "sprint-table-tools");
@@ -792,21 +1182,15 @@ function sprintTableTools(block, index) {
     renderSprintDocument();
   };
 
+  // Append only. `− Row` and `− Column` used to sit here and popped the last one;
+  // deleting is a grip-menu job now, where you can say *which*. Adding at the end
+  // stays because it is the common case and because an empty table has no row grip
+  // to open a menu on.
   tools.append(
-    gridButton("+ Row", change(() => grid.rows.push(new Array(grid.head.length).fill("")))),
-    gridButton("+ Column", change(() => {
-      grid.head.push("");
-      grid.align.push("");
-      grid.rows.forEach((row) => row.push(""));
-    })),
-    gridButton("− Row", change(() => grid.rows.pop()), grid.rows.length === 0),
-    // A table with no columns is not a table, so the last one cannot go.
-    gridButton("− Column", change(() => {
-      grid.head.pop();
-      grid.align.pop();
-      grid.rows.forEach((row) => row.pop());
-    }), grid.head.length <= 1),
-    element("span", "sprint-table-note", "Tab moves · paste from a spreadsheet fills the grid"),
+    gridButton("+ Row", change(() => insertGridRow(block, grid.rows.length))),
+    gridButton("+ Column", change(() => insertGridColumn(block, grid.head.length))),
+    element("span", "sprint-table-note",
+      "Tab moves · paste from a spreadsheet fills the grid · ⠿ moves a row or column"),
   );
   return tools;
 }
