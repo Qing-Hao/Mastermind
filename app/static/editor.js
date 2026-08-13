@@ -118,6 +118,7 @@ function resetSprint() {
 
 function renderSprintView() {
   renderSprintPicker();
+  renderSprintOverlaps();
   renderSprintNew();
   renderSprintStatus();
   renderSprintMode();
@@ -208,16 +209,45 @@ async function createSprintFile() {
     await revealSprintFile(created.number);
   } catch (failure) {
     note.className = "error";
-    // The server names the file it refused to write over. Re-reading the picker is
-    // what turns that into something you can act on: the file is then in the list,
-    // whatever number it carries.
+    // Two different 409s reach here -- a name already on disk, and a fortnight that
+    // overlaps a sprint already running -- and the server's message names which.
+    // Re-reading the picker is what turns either into something you can act on: the
+    // file it is talking about is then in the list, whatever number it carries.
     note.textContent = failure.status === 409
-      ? `${failure.message} Pick it from File above.`
+      ? `${failure.message} Pick it from File above to open it.`
       : failure.message;
-    if (failure.status === 409) await loadSprints();
+    if (failure.status === 409) await refreshSprintFiles();
   } finally {
     button.disabled = false;
   }
+}
+
+// One team runs one sprint at a time, so two files covering the same day is a
+// mistake. The server refuses to *create* one, which leaves exactly one way in: the
+// dates edited by hand in a heading afterwards. So this reports rather than
+// repairs -- the heading is yours, and nothing here rewrites one.
+//
+// Which pairs overlap is `GET /api/sprints`'s answer, not this file's. The editor
+// still reads no sprint dates: it prints the numbers it was handed.
+function renderSprintOverlaps() {
+  const node = $("sprint-overlap");
+  const named = new Map(state.sprint.files.map((file) => [file.number, file]));
+  const pairs = [];
+
+  for (const file of state.sprint.files) {
+    for (const other of file.overlaps || []) {
+      // Both ends of an overlap report it, so a pair is named once -- from the
+      // lower number, which is also the order they were run in.
+      if (other <= file.number) continue;
+      const window = file.window ? ` (${file.window.start} → ${file.window.end})` : "";
+      pairs.push(`${file.name}${window} and ${named.get(other)?.name ?? `sprint ${other}`}`);
+    }
+  }
+
+  node.hidden = pairs.length === 0;
+  node.textContent = pairs.length === 0 ? "" : `⚠ ${pairs.join("; ")} cover `
+    + "overlapping days. One team runs one sprint at a time — fix the dates in a "
+    + "heading, or delete the file that should not exist.";
 }
 
 // --- rendered or raw ---------------------------------------------------------
@@ -1338,6 +1368,35 @@ async function saveSprint() {
     sprint.error = failure.message;
   }
   renderSprintStatus();
+  if (sprint.status === "saved") await refreshSprintFiles();
+}
+
+// The picker names every file by its **first line**, so renaming a sprint's
+// heading left the File list showing the old name until you left the tab and came
+// back -- `loadSprints` was the only thing that re-read it. One localhost query per
+// landed save, which is the same trade `loadPlan` makes to retag a project badge.
+//
+// **Only the picker is redrawn.** Re-rendering the document here would rebuild a
+// block you may still be typing in, and Chrome fires `blur` on a focused element
+// that gets removed -- the trap `renderSprintDocument` documents. Nor is
+// `sprint.mtime` touched: the save guard is the value the `PUT` quoted back, and
+// adopting the one off this listing would arm the next save against a different
+// read of the file.
+async function refreshSprintFiles() {
+  const number = state.sprint.number;
+  let files;
+  try {
+    files = (await api("/api/sprints")).slice().reverse();   // newest first
+  } catch (failure) {
+    return;   // The save landed. A label one edit out of date is not a failure.
+  }
+  if (state.sprint.number !== number) return;
+  state.sprint.files = files;
+  renderSprintPicker();
+  // Editing the dates in a heading is the one way an overlap can still arrive, and
+  // this is the moment it lands on disk -- so the warning appears with the save
+  // that caused it rather than the next time the tab is opened.
+  renderSprintOverlaps();
 }
 
 function renderSprintStatus() {
