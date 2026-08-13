@@ -90,7 +90,7 @@ FR-14 ──> a decision  option A/B/C/D, not code
 | FR-11 | — | 463–473, 2933–2947 | — | **header, 10–26** | header | — |
 | FR-12 | — | 1270–1470 (drags) | — | — | new pill class | — |
 | FR-13 | `main.read_portfolio` | 1202–1216 (lanes) | — | — | — | `test_api.py` |
-| FR-14 | — | map render | — | — | 790–900 (map) | — |
+| FR-14 | — | map render, filters | — | map filter row | 790–900 (map) | — |
 
 Two properties worth noticing:
 
@@ -108,7 +108,7 @@ Two properties worth noticing:
 |---|---|---|
 | **A · sprint editor** | FR-9, then FR-10 | Both are `editor.js`. Different regions, but one file, so one tree. Zero Python. |
 | **B · portfolio** | FR-13, then FR-12, then FR-2 | All in the portfolio view; FR-13 and FR-2 share `read_portfolio`. The only tree that runs the test suite. |
-| **C · map** | FR-14 | Its own region of `app.js` and its own block of `style.css`. Blocked on the option decision, not on A or B. |
+| **C · map** | FR-14 | ~~Its own region of `app.js` and its own block of `style.css`. Blocked on the option decision, not on A or B.~~ **Merged 2026-08-13.** It also took `index.html`'s map filter row, which the table above did not predict — small and its own region, so it did not collide. |
 | **D · shell** | FR-11 + tab reorder | Held back — see below. |
 
 A, B and C are near-disjoint and can run at the same time.
@@ -592,10 +592,19 @@ Two things the build settled that the request could only guess at:
   for the weakest *adjacent* pair lifts it from 17 to 36. Seven tracks exist
   today, so there is one hue spare before the grey overflow is reached.
 
-A **mini task rode along with it**: `done` now shows green where every phase is
-finished and keeps its grey where the project was closed with phases still
-open. It colours nothing on the current dataset, which is the point — the one
-`done` project is a close at 0 of 2 phases.
+**Two follow-ups rode along with it**, both requested after seeing the first:
+
+- `done` now shows **green where every phase is finished** and keeps its grey
+  where the project was closed with phases still open. It colours nothing on the
+  current dataset, which is the point — the one `done` project is a close at 0
+  of 2 phases, and the naive version would have painted it as a success.
+- **Finished projects are filtered off the map by default**, under a `Status`
+  group beside the tier chips. It is the first filter here that starts off, and
+  it is an exception to *"a filter that hides work by default loses it"* rather
+  than an override of it: a hidden tier is live work you stopped looking at, a
+  hidden `done` project is work there is nothing left to do about, and the chip
+  counts it while off. Expect the `UX` track to leave the map by default — its
+  only project is the closed one.
 
 **What:** make a track identifiable at a glance, with hue for the track and a
 tone of it for the subtrack.
