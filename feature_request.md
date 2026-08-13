@@ -4,15 +4,24 @@ Gaps found by walking the tool end to end as a product owner would: capture an
 idea, cost it, put it on a calendar, run a fortnight against it, come back and
 update it. Opened 2026-08-06.
 
-**FR-9 to FR-14 are the requester's own, from `comments.md` on 2026-08-13** —
+**FR-9 to FR-14 were the requester's own, from `comments.md` on 2026-08-13** —
 six items written after using the tool rather than after reading it, which is
-why every one of them is about a gesture rather than a rule. Each names the
-comment it came from.
+why every one of them is about a gesture rather than a rule. FR-16 arrived the
+same way on 2026-08-14. Each names the comment it came from.
 
 This file is the **backlog of things the tool does not do yet**, with the reason
 each one matters and the reason it might not be worth building. It is not a
 plan. `comments.md` is requester feedback, `STATUS.md` is the decision log,
 `PLAN-*.md` are the working plans behind one feature each.
+
+**A built item is deleted from this file, not marked built.** The commits and
+`STATUS.md` are the record of what shipped and why; a backlog that also carries
+it stops being a list of what is left and becomes a second, staler history. The
+numbers are never reused, so a gap in the sequence means built — look for it in
+`git log` and `STATUS.md`. **Won't-build items stay**, because nothing was
+committed for them: the argument against building is the whole artefact, and
+deleting it invites the idea back in six months. Built so far and gone from
+here: FR-8, FR-9, FR-10, FR-14, FR-15.
 
 Every item below is written against the invariants in `CLAUDE.md`. Where a
 request has an obvious bad version that would break one, the bad version is
@@ -30,7 +39,7 @@ things and nothing else:
 - **Impact** — how much worse the tool is without it.
 
 **P1** next up · **P2** soon after · **P3** blocked on evidence or a decision,
-not on effort · **Built** · **Won't build**.
+not on effort · **Won't build**.
 
 Frequency does most of the ranking. A one-line tooltip on a control you hover
 forty times a week outranks a rule you would read once a sprint, and that is
@@ -38,90 +47,85 @@ why FR-13 sits above FR-12.
 
 | # | Request | Complexity | Frequency | Impact | Priority |
 |---|---|---|---|---|---|
-| FR-9 | Insert, delete and reorder a table's rows and columns | Medium | High | High | **Built** 2026-08-13 |
-| FR-10 | Create a sprint from the Sprint tab | Small | Fortnightly | High | **Built** 2026-08-13 |
+| FR-16 | Phase status never updates itself | Medium | High | High | **P1** — one decision first |
 | FR-13 | Project span on the portfolio swimlane title | Tiny | High | Medium | **P1** |
 | FR-1 | Say that sprint task points and phase `effort_points` are one currency | Prose only | — | High | **P1** |
 | FR-2 | Portfolio-wide warnings, not just V2 | Small | High | High | **P1** |
 | FR-11 | Project picker belongs to the Project tab | Medium | High | Medium | **P2** |
 | FR-12 | Show the date you are dropping on, while dragging | Small | High | Medium | **P2** |
-| FR-14 | Colour the map by track, tone by subtrack | Medium | Medium | High | **Built** 2026-08-13 — option A |
 | FR-3 | Overlap check across projects (**not** a points sum) | Small–medium | Low | Medium | **P3** — sprint 4 |
 | FR-4 | Capacity roster — people and their available days | Medium (new table) | Fortnightly | Medium | **P3** — paper until sprint 4 |
 | FR-5 | Velocity learns from delivered history | Medium | Rare | Medium | **P3** — needs 3 baselines |
 | FR-6 | Slippage memory — has this date moved before? | Large | Low | High | **P3** — deferred deliberately |
 | FR-7 | Owners at roadmap level | Small | — | Negative | **Won't build** |
-| FR-8 | A "this fortnight" view | ~600 lines | High | High | **Built** 2026-08-13 |
-| FR-15 | Refuse and report overlapping sprint windows | Small | Fortnightly | High | **Built** 2026-08-13 |
+
+FR-16 is **P1 with a block on it**, which the letters above would normally call
+P3. The difference is that its block is a single question put to the requester
+in the same pass that raised it, not a wait on evidence that does not exist yet
+— the shape FR-14 had, which went from blocked to built the day an option was
+picked.
 
 ---
 
 ## Dependencies, and what can run in parallel
 
 Written so several of these can be developed at once in separate worktrees.
-There are **no schema changes anywhere in FR-9 to FR-14** — no table, no column,
-no `migrate()` step, no export bump — so the usual `--reload` migration hazard
-does not apply to any of this work.
+**No item below needs a schema change** — no table, no column, no `migrate()`
+step, no export bump — so the usual `--reload` migration hazard does not apply
+to any of this work. FR-4's option B is the one exception, and it is deferred.
 
 ### What actually blocks what
 
-Only three real dependencies exist. Everything else is independent.
+Only two real dependencies exist among the near-term items. Everything else is
+independent.
 
 ```
 FR-13 ──> FR-2        both edit main.read_portfolio; do FR-13 first, it is smaller
 FR-11 ──> tab reorder same change, same files, one commit
-FR-14 ──> a decision  option A/B/C/D, not code
+FR-16 ──> a decision  option A/B/C/D, not code
 ```
 
-- **FR-13 before FR-2.** `read_portfolio` (`app/main.py:442-469`) returns
-  `projects` straight from `db.list_projects` with no span, so FR-13 has to
-  attach one. FR-2's portfolio-wide warnings assemble in the same function. Two
-  branches editing that return dict is the one merge conflict worth avoiding —
-  keep them in one worktree, in that order.
-- **FR-9, FR-10, FR-12, FR-14 depend on nothing.** All four can start today.
+- **FR-13 before FR-2.** `read_portfolio` returns `projects` straight from
+  `db.list_projects` with no span, so FR-13 has to attach one. FR-2's
+  portfolio-wide warnings assemble in the same function. Two branches editing
+  that return dict is the one merge conflict worth avoiding — keep them in one
+  worktree, in that order.
+- **FR-12 and FR-16 depend on nothing.** Both can start today, FR-16 once its
+  option is picked.
 - **FR-11 depends on nothing either, but it moves DOM other branches render
   into** — see the merge order below.
 
 ### Where each one lands
 
-| FR | Python | `app.js` | `editor.js` | `index.html` | `style.css` | Tests |
-|---|---|---|---|---|---|---|
-| FR-9 | — | — | 660–840 (table) | — | ~700–750 | — |
-| FR-10 | — | — | ~50 (`loadSprints`) | Sprint section | sprint picker | — |
-| FR-11 | — | 463–473, 2933–2947 | — | **header, 10–26** | header | — |
-| FR-12 | — | 1270–1470 (drags) | — | — | new pill class | — |
-| FR-13 | `main.read_portfolio` | 1202–1216 (lanes) | — | — | — | `test_api.py` |
-| FR-14 | — | map render, filters | — | map filter row | 790–900 (map) | — |
+| FR | Python | `app.js` | `index.html` | `style.css` | Tests |
+|---|---|---|---|---|---|
+| FR-11 | — | 463–473, 2933–2947 | **header, 10–26** | header | — |
+| FR-12 | — | 1270–1470 (drags) | — | new pill class | — |
+| FR-13 | `main.read_portfolio` | 1202–1216 (lanes) | — | — | `test_api.py` |
+| FR-16 | `validation`, `main` | ~890–935 (phase row) | phase table head | phase status | both suites |
 
-Two properties worth noticing:
-
-- **Only FR-13 touches Python** *of the six as scoped here*. That was what made
-  running them in parallel cheap, and it held right up until FR-15 was raised
-  mid-tree and needed `main.py` — worth remembering that the property was a
-  property of the scope, not of the trees.
-- **`style.css` is touched by five of the six, in five disjoint regions.** Git
-  merges that fine as long as nobody reflows the file. Do not reorder or
-  reformat blocks you are not changing. The `[hidden]` trap — a class setting
-  `display` outranks the UA sheet — has now cost five separate features; check it
-  before adding any new hideable element.
+One property worth noticing: **`style.css` gets touched by most of these, in
+disjoint regions.** Git merges that fine as long as nobody reflows the file. Do
+not reorder or reformat blocks you are not changing. The `[hidden]` trap — a
+class setting `display` outranks the UA sheet — has now cost five separate
+features; check it before adding any new hideable element.
 
 ### Suggested worktrees
 
 | Tree | Items, in order | Why they belong together |
 |---|---|---|
-| **A · sprint editor** | ~~FR-9, then FR-10~~, then FR-15 — **done** | Both of the first two are `editor.js`. Different regions, but one file, so one tree. FR-15 arrived mid-tree from the requester and **did** touch Python, so the "zero Python" note below no longer holds for this tree: 285 tests now, 12 of them new. |
 | **B · portfolio** | FR-13, then FR-12, then FR-2 | All in the portfolio view; FR-13 and FR-2 share `read_portfolio`. The only tree that runs the test suite. |
-| **C · map** | FR-14 | ~~Its own region of `app.js` and its own block of `style.css`. Blocked on the option decision, not on A or B.~~ **Merged 2026-08-13.** It also took `index.html`'s map filter row, which the table above did not predict — small and its own region, so it did not collide. |
+| **E · status** | FR-16 | `validation.py` + the phase row. Touches the same payload FR-13 does but a different function, and it is the only live item with a rule-shaped decision in it. |
 | **D · shell** | FR-11 + tab reorder | Held back — see below. |
 
-A, B and C are near-disjoint and can run at the same time.
+B and E are near-disjoint and can run at the same time.
 
 **D goes last, alone.** Not because it conflicts textually — the header is its
 own region — but because it moves the project picker out of the global header
 into the Project view and reorders the tabs. Every other branch renders into a
 page whose shape it changes, and `#empty-state`, `loadProjectList` and the badge
-refresh in `loadPlan` all get touched. Rebasing three branches onto a moved
-header is worse than rebasing one moved header onto three merged branches.
+refresh in `loadPlan` all get touched. Rebasing several branches onto a moved
+header is worse than rebasing one moved header onto merged branches.
 
 ### Running several worktrees at once — two practical traps
 
@@ -182,10 +186,16 @@ already computes the answer. It just never shows it in one place.
 **Cost:** small. The rules exist and are pure; this is an assembly loop in
 `main.read_portfolio` plus a list in the view. No schema change, no export bump.
 
-**Note for FR-8:** `validation.fortnight_slice` deliberately bounds overdue lanes
-in the fortnight drawer to projects with work in that window, on the grounds
-that *"V6 on the Project tab already does the latter, globally and better."*
-That is only true once this item is built. Right now V6 is global in nothing.
+**Interaction with the fortnight drawer:** `validation.fortnight_slice`
+deliberately bounds overdue lanes to projects with work in that window, on the
+grounds that *"V6 on the Project tab already does the latter, globally and
+better."* That is only true once this item is built. Right now V6 is global in
+nothing.
+
+**Interaction with FR-16:** the two are the same complaint from opposite ends.
+FR-16 makes a phase say where it stands; this makes the whole portfolio say it
+at once. Neither needs the other, and doing FR-16 first would make this list
+read against a status people actually maintain.
 
 **Verdict: do it now.** Highest value per line on the list.
 
@@ -353,7 +363,9 @@ visible at all — you may find that seeing it is enough.
 scheduled in the same weeks are really one person.
 
 **Verdict: recommend not building.** Listed because it is the obvious next
-thought after FR-4 and should be argued with rather than drifted into.
+thought after FR-4 and should be argued with rather than drifted into. It stays
+in this file for exactly that reason: no commit records a decision not to build,
+so this entry is the only record there is.
 
 Velocity is a team-level number by design, and the sprint file is where `@owner`
 already lives (`templates/sprint.md:69`) — at the task level, for one fortnight,
@@ -366,127 +378,10 @@ overlap problem is real, FR-3 addresses it without naming anybody.
 
 ---
 
-## FR-8 · A "this fortnight" view — **Built**
-
-**Built** — the read half on 2026-08-06, the Sprint tab and its editor on
-2026-08-13. See the *fortnight drawer* and *Sprint* entries in `CLAUDE.md`.
-Recorded here only so the backlog is complete.
-
-The gap it fills: Project is one project, Portfolio is 26 weeks, Map is the whole
-department, and nothing answers *"what is in flight right now."* The read half
-(~600 lines) was never gated; the editor was gated at sprint 4 and that gate was
-**overridden** with one file on disk — see *"Why the sprint-4 gate was
-overridden"* in `CLAUDE.md` for the condition it rests on.
-
-Two interactions with this file: it assumes FR-2 exists (see the note there), and
-its capacity meter is deferred to the editor pane, which is where FR-4 would
-surface if B is ever built.
-
----
-
-## FR-9 · Insert, delete and reorder a table's rows and columns — **Built**
-
-*From `comments.md` #1.* **Built 2026-08-13**, on branch `tree-a-sprint-editor`,
-as the shape recommended below: hover-revealed `⠿` grips, one per row in a leading
-gutter and one per column above the header, dragged to move and clicked for
-`Insert before` / `Insert after` / `Delete`. `− Row` and `− Column` are gone —
-popping the end is what the request was about. See the *Sprint* entry in
-`CLAUDE.md`; the `align[]` trap named below is the reason that entry spells it out.
-
-**What:** delete *this* column rather than the last one; insert a row after *this*
-row; move a row or a column to where it belongs.
-
-**Why it matters.** The grid grows and shrinks from the end only. `+ Row` and
-`+ Column` append, `− Row` and `− Column` pop (`app/static/editor.js:796-808`),
-and `Tab` off the last cell grows a row (`editor.js:735`). So a row that turns
-out to belong third, or a column typed in the wrong order, costs a retype of
-every cell below or to the right of it — in the one table the tool exists to make
-easy to fill in.
-
-It bites hardest on the feature the editor was built for. Pasting a spreadsheet
-range fills from the anchor cell outwards (`editor.js:762`), so the columns have
-to already be in the source's order before the paste, and today the only way to
-get them there is to retype them.
-
-Frequency is what puts this at the top: the capacity and unplanned-work tables
-are refilled every fortnight, by hand, and this is the part of that job the
-editor currently does not help with.
-
-**The bad version — two of them.**
-
-- **A control that knows what a capacity table is.** "Add a person row", or a
-  fixed column order, would put a sprint concept in `editor.js` and break the
-  condition the sprint-4 gate override rests on: *no string from
-  `templates/sprint.md` appears in `app/markdown.py` or `editor.js`*
-  (`CLAUDE.md`). Every control here is generic or it is not built.
-- **Dragging a row by its cells.** HTML5 drag on the cells themselves costs
-  click-to-place-cursor inside a cell. Arm the drag from a grip alone — the
-  conclusion the deliverable list and the block gutter both already reached, by
-  two different routes.
-
-**The one correctness trap:** a column carries `align[]` as well as its cells.
-Moving or deleting a column has to move or delete its alignment marker with it,
-or the file's right-aligned numbers silently move to a different column. That is
-what the round-trip test is for. Deleting the last column stays forbidden, as it
-is now — a table with no columns is not a table.
-
-**Cost:** frontend only. `serialise_table` regenerates `raw` from
-`head`/`align`/`rows` server-side, so nothing about the file format changes and
-no new endpoint is needed. Roughly 120–180 lines in `editor.js` plus CSS.
-
-**Shape to build:** hover-revealed grips — one per row in a leading gutter, one
-per column in the header — matching how `.sprint-table-tools` already appears on
-hover. Permanent chrome would roughly double the height of a small table.
-Alignment markers stay the raw file view's job; this adds no reveal gesture.
-
----
-
-## FR-10 · Create a sprint from the Sprint tab — **Built**
-
-*From `comments.md` #2.* **Built 2026-08-13**, same branch: a date input defaulting
-to the Monday of the current fortnight, a `New sprint` button, then the existing
-`revealSprintFile`. Dates only, no roadmap prefill, number still off the directory,
-409 surfaced rather than forced — all as argued below. It shares
-`state.plannedSprints` with the drawer so one fortnight cannot get two files from
-one session.
-
-**What:** a `New sprint` control on the Sprint tab.
-
-**Why it matters.** The only way to make a sprint file is Portfolio → click a
-week number on the ruler → the fortnight drawer → `Plan this fortnight →`
-(`app/static/app.js:1732-1746`). The Sprint tab lists files and opens them and
-cannot make one. So the tab that owns sprints is the one place you cannot start
-a sprint, and the path that works runs through a drawer on another tab that has
-to be discovered by clicking a week number nothing marks as clickable.
-
-It also fails outright for a fortnight outside the current portfolio window: you
-have to scroll the chart to the right weeks before the button you want exists.
-
-**The server already does this.** `SprintIn.start` defaults to `""`, meaning the
-fortnight containing today (`app/main.py:150-154`); the number comes from the
-directory, never the body; an existing target is a 409, never an overwrite. This
-is a button, a date input and one call to an endpoint that is already built and
-already tested.
-
-**The bad version:** a create control that picks the number, or that decides for
-itself what to do about a fortnight that already has a file. The number stays the
-server's, and the 409 gets surfaced as "sprint N already exists — open it"
-rather than turned into an overwrite.
-
-**Keep it dates-only.** Do not prefill it from the roadmap — the drawer is the
-roadmap-aware path and it already exists. Duplicating it would put roadmap
-knowledge in the Sprint tab, which currently has none, and that is worth more
-than the convenience.
-
-**Cost:** small, ~40–60 lines: a date input defaulting to the Monday of the
-current fortnight, `POST /api/sprints`, then the existing `revealSprintFile`.
-
----
-
 ## FR-11 · The project picker belongs to the Project tab — **P2**
 
-*From `comments.md` #3. It confirms the **Tab order** note at the foot of this
-file, which called this out as an observation; it is now a request.*
+*From `comments.md` #3 on 2026-08-13. It confirms the **Tab order** note at the
+foot of this file, which called this out as an observation; it is now a request.*
 
 **What:** move the project `<select>` (and `Delete`) out of the global header
 into the Project view. `New project` stays where it is, but clicking it switches
@@ -520,7 +415,7 @@ a project selector is the first thing you see.
 
 ## FR-12 · Show the date you are dropping on, while dragging — **P2**
 
-*From `comments.md` #4.*
+*From `comments.md` #4 on 2026-08-13.*
 
 **What:** a date readout that is legible during the drag, not just present in
 the DOM.
@@ -554,7 +449,7 @@ column highlight alongside it.
 
 ## FR-13 · Project span on the portfolio swimlane title — **P1**
 
-*From `comments.md` #5.*
+*From `comments.md` #5 on 2026-08-13.*
 
 **What:** hovering a swimlane's project name says when that project starts and
 ends, the way hovering its bars already says when each phase does.
@@ -584,127 +479,102 @@ value**, which is what puts it in P1 ahead of FR-12.
 
 ---
 
-## FR-14 · Colour the map by track, tone by subtrack — **Built**
+## FR-16 · Phase status never updates itself — **P1, one decision first**
 
-*From `comments.md` #6.* **Built 2026-08-13 as option A, without D's tick** —
-the requester narrowed it to the track and subtrack rings only, so no mark
-reaches a project label and the project ring is untouched. See the *Map* entry
-in `CLAUDE.md` for what shipped. The option table below is kept as the record
-of what was weighed.
+*From `comments.md` #1 on 2026-08-14: "it seems like the current status of
+project is not automatic update yet. Previously i already give you how it should
+behave, there should be a gap to implement that."*
 
-Two things the build settled that the request could only guess at:
+**What is already automatic, so that the gap can be stated precisely.**
+`validation.project_stage` derives the whole ladder on every read, and the picker
+badge, the map node styling and the portfolio ordering all follow it
+(`STATUS.md` item 54). A project that starts next Monday reads `dated` today and
+`active` on the day, with nobody editing a field. That half is built and it
+works.
 
-- **The palette is keyed off every track in the dataset, not the tracks drawn.**
-  Constraint 1 asked only that adding a project not reshuffle the colours, and
-  missed the sharper version: the tier filter runs before `mapGroups`, so
-  hiding a tier can remove a whole track and shift every colour after it.
-  Measured at twelve colours moved on the real dataset.
-- **Eight hues, ordered for neighbours.** Constraint 2 asked for a bounded
-  palette and got one; what it did not anticipate is that wedges lay out in
-  sorted track order, so palette slots N and N+1 land side by side. Ordering
-  for the weakest *adjacent* pair lifts it from 17 to 36. Seven tracks exist
-  today, so there is one hue spare before the grey overflow is reached.
+**What is not automatic is one rung below: `phase.status`.** It is a stored
+three-value enum (`planned | in_progress | done`) edited by hand from a `<select>`
+on the phase row (`app/static/app.js:921-931`), and **nothing anywhere derives,
+ages or prompts for it.** Measured against `data/roadmap.db` on 2026-08-14:
 
-**Two follow-ups rode along with it**, both requested after seeing the first:
+| | |
+|---|---|
+| phases at `planned` | **29 of 30** |
+| phases at `done` | 1 |
+| phases at `in_progress` | **0** |
+| dated phases whose window contains today, still `planned` | 6 |
+| dated phases past their end and not `done` | 2 |
 
-- `done` now shows **green where every phase is finished** and keeps its grey
-  where the project was closed with phases still open. It colours nothing on the
-  current dataset, which is the point — the one `done` project is a close at 0
-  of 2 phases, and the naive version would have painted it as a success.
-- **Finished projects are filtered off the map by default**, under a `Status`
-  group beside the tier chips. It is the first filter here that starts off, and
-  it is an exception to *"a filter that hides work by default loses it"* rather
-  than an override of it: a hidden tier is live work you stopped looking at, a
-  hidden `done` project is work there is nothing left to do about, and the chip
-  counts it while off. Expect the `UX` track to leave the map by default — its
-  only project is the closed one.
+`in_progress` has never been used once, on any phase, ever. Six phases are
+running right now and all six of them say `planned`.
 
-**What:** make a track identifiable at a glance, with hue for the track and a
-tone of it for the subtrack.
+**Why that reads as "the project status does not update".** The ladder's `done`
+rung derives from `all(phase.status == 'done')` — chosen deliberately over
+deriving from deliverable ticks (`STATUS.md` item 54) precisely so that closing
+phases is what completes a project. With phase status unmaintained that rung is
+**unreachable**: no project can ever finish itself, and every dated project
+walks `dated → active → overdue` and stops there. **The only exit is the manual
+close**, which the data model defines as *"not delivered but closed without
+finishing"* — so the one way to finish a project today is through the hatch
+built for cancelled work. That is the gap, and it is a real one.
 
-**The problem is real.** Track and subtrack are currently greys —
-`.map-track circle { fill: #9e9e9e }`, `.map-subtrack circle { fill: #c4c4c4 }`
-(`app/static/style.css:796-802`) — so the only thing telling you which projects
-belong together is which wedge they sit in, on a radial layout where wedges have
-no borders.
+### The trap that decides the shape
 
-**The conflict, stated plainly: colour on the map is already spent.**
-`derived_stage` owns the project node's fill and stroke in a deliberate ramp —
-cool while planning, warm once dated, and red appearing exactly once in the whole
-vocabulary (`CLAUDE.md`, *Map*; `style.css:823-856`). A second colour axis on the
-same circles does not add a vocabulary, it destroys the one there is.
+**Deriving `done` from dates kills V6.** V6 fires when a phase's derived end has
+passed and `status != done`; `CLAUDE.md` calls it *the rule that actually finds
+late work*, and it is the only rule that found anything on the real file. If a
+phase past its end auto-reads `done`, V6 can never fire again and the roadmap
+becomes a document in which everything delivered on time. V7 goes the same way,
+and the `done` rung of the ladder stops meaning anything either.
+
+So **`done` stays a human fact.** What *can* be derived is where a phase sits
+against the calendar, which is a calendar fact — the same line the project
+ladder already draws between what you say and what is worked out.
+
+### Options
 
 | Option | Pro | Con |
 |---|---|---|
-| **A.** Hue on the track ring, subtrack ring and the spokes between them; project circles keep the stage ramp | No clash at all; the spoke into a project names its track | The node itself stays neutral, so reading a track means following a line inward |
-| **B.** Hue on the project node's **stroke**, stage keeps the fill | Track readable on the node itself | Stroke already carries meaning — weight for overdue, dash for idea. Needs a third property and muddies the dashed ring |
-| **C.** A faint coloured sector behind each track's wedge | Strongest grouping cue; colour never touches a node | Hand-rolled sector maths against `arcRuler`; risks washing out the labels sitting over it |
-| **D.** Colour only the track/subtrack labels, plus a small coloured tick beside each project label | Cheapest, zero clash | Weakest at a glance — which is the actual complaint |
+| **A.** Derive the phase's calendar position (`upcoming / running / overdue`), keep `done` stored and manual. The row's only editable status control becomes a done tick. | One vocabulary with the project ladder; nothing new stored; V6, V7 and the `done` rung untouched; `planned`/`in_progress` stop being fields nobody maintains | Loses "should have started, has not" — the calendar reads a dated phase as running whether or not anyone began it |
+| **B.** Keep the select, print the derived position beside it | Cheapest; no field changes meaning | Two axes disagreeing about one phase — exactly the `project_readiness` mistake item 54 removed. Do not repeat it |
+| **C.** Derive only when the stored value is the untouched default `planned`; a stored `in_progress` or `done` wins | No signal lost; a deliberate edit is honoured | `planned` silently comes to mean "unset", a hidden convention; and it becomes unsayable for a phase deliberately not started |
+| **D.** Derive nothing. Make closing a phase cheap where you already are — a done tick on the phase row, and an action on the V6 warning that already names it | No new derivation, no invariant anywhere near it; attacks the actual cause, which is that 29 of 30 at the default is a bookkeeping-cost problem | Still manual; a phase nobody visits still never closes |
 
-**Recommendation: A plus D's tick.** The ring, its spokes and its label carry the
-hue; every project label gets a small mark in its track colour so you never have
-to trace a line; the node keeps the stage ramp intact. C stays on the table if
-that turns out not to be enough — it is the strongest and it is also the one that
-can go wrong quietly.
+**Recommendation: A for the calendar half, with D alongside it.** A is a pure
+function next to `project_stage`, surfaced as `derived_status` on the phase
+payload the way `with_derived_stage` already tags projects — never stored, never
+written back. The phase row's editable control shrinks to a single `done` tick,
+which is the one fact only you hold and the fact V6, V7 and the `done` rung all
+read. D is what makes that tick actually get used.
 
-**Constraints any option has to meet.** These are why this is P3: they are
-decisions, not work.
+**Take C instead if `in_progress` is worth keeping as a deliberate signal** —
+that is the one thing A gives up, and it is your call, not mine. **B is the one
+to avoid**: it re-creates the two-axis disagreement this project already removed
+once, at the cost of a week of confusion.
 
-1. Colour assigned **deterministically** from the sorted track name, so adding a
-   project never reshuffles the map's colours.
-2. Tracks are free text and therefore unbounded, while distinguishable hues are
-   not — a bounded palette (~8–10) with a defined overflow, probably grey.
-3. Colourblind-safe, since hue would be the only cue carrying track identity.
-4. A subtrack's tone must stay distinct from its parent's across a 40–55px ring
-   gap.
-5. Tier 3 already renders at `fill-opacity: .5` (`style.css:874`). The track hue
-   has to survive that fade and still be the same colour as its ring.
+### If the request is instead about the Stage field
 
-**Cost:** medium, frontend only — the map render in `app.js` and `style.css`, no
-schema, no endpoint. The palette assignment is ~30 lines; the risk is entirely in
-whether the result reads better, which can only be judged against the real
-dataset. **Decide the option before writing any of it.**
+If what "not automatic" means is that the Project tab's **Stage** dropdown
+should change by itself — start saying `active`, then `overdue` — that is a
+deliberate refusal and stays one. `main.with_derived_stage` tags projects with
+`derived_stage` *alongside* the stored `stage` and never overwrites it, because
+the portfolio filters on the stored value and a form round trip echoes it back;
+writing a derived value into the column would let today's date silently edit your
+data. The derived rung is already on screen as the picker badge. What the Project
+tab does not do is say it **in words, in the view that owns the project** — that
+is four lines beside the Stage field and worth taking whichever option wins
+above.
 
----
+**Cost:** ~25 lines of pure function in `validation.py`, a tag on the phase
+payload in `main.py`, the phase row and the fortnight lane in the frontend, plus
+tests in both suites. **No schema change and no export bump** — `phase.status`
+keeps its column and its CHECK, and no stored value changes, so nothing in
+`data/roadmap.db` needs migrating.
 
-## FR-15 · One team, one sprint at a time — **Built**
-
-*Requester, 2026-08-13, alongside the stale-picker bug: "there should be a checking
-where if there is interference of sprint time. It shouldn't be happening as this is
-for one team only."* **Built the same day**, on `tree-a-sprint-editor`.
-
-**What:** a fortnight overlapping a sprint already on disk is a **409 that writes
-nothing**, and `GET /api/sprints` reports the overlaps it can see, both ends of
-each pair. Back to back is not an overlap.
-
-**The decision worth recording.** Four shapes went up: refuse at create only,
-report only, refuse **and** report, or warn-but-create-anyway. Refuse-and-report
-won because the two halves cover different holes — refusing is free at the one
-moment the mistake is made, and reporting is the only thing that catches an overlap
-introduced *afterwards* by editing dates in a heading, which the app does not own.
-Warn-but-create was rejected outright: it leaves you deleting a file by hand.
-
-**Why this does not break rule 1.** "Every rule reports; nothing repairs" is about
-the plan, and nothing here changes a date in a file that exists. Refusing to write
-a *new* bad file is the same move `POST /api/dependencies` makes for a cycle — and
-the same reasoning, one team being unable to run two sprints at once, so an overlap
-is malformed rather than an opinion. It is **not** a V rule, though: it guards a
-file, so `validate_plan` and `validate_portfolio` never see it.
-
-**Where the dates come from, and why that is safe.** `sprint_window_from_heading`
-reads them back off the first line — the inverse of `sprint_heading`, in the same
-module that writes it. `markdown.py` and `editor.js` learn nothing: the editor
-prints the numbers the endpoint hands it. So the sprint-4 gate condition still
-holds, and there is still no sprint table, column or export bump.
-
-**The one trap.** Reading has to be lenient. A heading with one date, no dates or a
-backwards pair has **no window**, and a file with no window blocks nothing and
-overlaps nothing — guessing would refuse a real sprint on the strength of an
-invented fortnight. Also worth knowing: this made
-`test_a_sprint_file_is_never_overwritten` pass for the wrong reason, because its
-second `POST` reused the first fortnight and now trips the overlap check before it
-ever reaches the exclusive create. Its start date moved; the test is only about the
-guard it names.
+**One thing to check rather than assume:** the fortnight lane already carries
+`status` (`validation.py:755`) and bands an overdue lane off `status == 'done'`
+(`validation.py:717-720`). Under A both keep reading the stored `done` and the
+drawer is untouched — verify that before writing the frontend, not after.
 
 ---
 

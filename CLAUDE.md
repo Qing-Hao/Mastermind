@@ -984,3 +984,13 @@ mobile layouts.
 - Commit locally as work lands. **Never push or open a PR without approval.**
 - Record decisions and open items in `STATUS.md` (gitignored, personal). Requester
   feedback arrives in `comments.md`.
+- **A built feature request is deleted from `feature_request.md`, not marked
+  built.** The commits and `STATUS.md` are already the record of what shipped and
+  why; a backlog that also carries it stops being a list of what is left and
+  becomes a second, staler history of what is done — and the two drift. Keep only
+  what still needs developing. **The FR numbers are never reused**, so a gap in
+  the sequence means built: find it in `git log` and `STATUS.md`.
+  Two things stay in the file: **won't-build** entries, because no commit records
+  a decision *not* to build and the argument is the whole artefact, and anything
+  still open about a built feature — a follow-up, a deferred half, an unmet gate
+  — reopened under its own number rather than left inside the closed entry.
