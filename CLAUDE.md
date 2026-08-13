@@ -21,7 +21,7 @@ that raises at render time when absent.
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000   # http://127.0.0.1:8000
-.\.venv\Scripts\python.exe -m pytest -q                                   # 272 tests, ~5s
+.\.venv\Scripts\python.exe -m pytest -q                                   # 273 tests, ~5s
 
 .\.venv\Scripts\python.exe -m pip install -r requirements-ai.txt          # optional, sprint review only
 .\.venv\Scripts\python.exe scripts\sprint_review.py --history 3
@@ -535,6 +535,38 @@ into one project link.
   - `Esc` **commits** rather than cancels. With the file as the record and the
     save automatic there is no cancel story to tell, and undo is typing it back
     — so there is one way out of a block, not two.
+  - **`/` on an empty block opens an insert menu** — nine block types, filtered
+    as you type, arrows and `Enter` to pick, `Esc` to close without inserting.
+    Every entry is a **markdown snippet** put through the same `/split` any other
+    edit uses, so nothing builds a block by hand, and **not one of the nine is a
+    sprint concept**: the table is an empty two-by-two, not a capacity table.
+    `Enter` at the end of a block opens an empty one below it and `Backspace` in
+    an emptied block removes it — those two exist because without a way to *make*
+    an empty block the menu has no path to it.
+  - **A gutter rail** carries what the block is and a `⠿` grip that reorders it.
+    `draggable` is armed from the grip alone, so a press anywhere else still
+    places a cursor — the same conclusion the deliverable list reached, by a
+    different route: there the drag is hand-rolled because the row had to stay
+    clickable, here HTML5 drag-and-drop is free because only the handle is ever
+    draggable.
+  - **Reordering reasons about `gap`s rather than carrying them along.** A gap
+    separates a block from the *next* one, so moving a block moves the wrong
+    separator with it — and two paragraphs joined by a single newline re-read as
+    **one** paragraph, which would merge two blocks while claiming to move one.
+    Only the adjacencies a move actually changed are given a blank line, every
+    other separator is left exactly as it was (invariant 2), and whichever block
+    ends up last inherits what used to end the file.
+  - **`Rendered | Raw file`** switches between the document and the whole file in
+    one textarea. Blurring the textarea re-splits the document from it — safe
+    because `/split` is the same splitter that read the file. `Esc` leaves the box
+    *before* the view, since the blur is what re-splits and switching away first
+    would drop the edit. It is also the only way to edit a table's alignment
+    markers or turn a table back into prose, which is why a table needs no reveal
+    gesture of its own.
+  - **Ticking a `- [ ]`** rewrites that line in the block's own markdown and
+    saves. It needed `enabled=True` on the tasklists plugin, whose default is a
+    `disabled` checkbox. Nothing derives from a tick — a sprint file's ticks are
+    not roadmap state, and no rule reads them.
 - **Map** — hand-rolled radial SVG, deterministic layout. Department hub → track
   ring → subtrack ring → project ring, ideas outermost and dashed. Nodes are
   styled off **`derived_stage`**, so the picture ages by itself: a project that
