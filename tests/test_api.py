@@ -1,5 +1,6 @@
 """End-to-end API tests mapped to the acceptance criteria in PROMPT.md."""
 
+import os
 from datetime import date, timedelta
 
 import pytest
@@ -1430,6 +1431,151 @@ def test_the_sprint_start_snaps_to_its_monday(client, sprints):
 def test_a_garbage_sprint_start_is_rejected(client, sprints):
     assert client.post("/api/sprints", json={"start": "soon"}).status_code == 422
     assert not sprints.exists()
+
+
+# --- reading and writing a sprint file ---------------------------------------
+
+SPRINT_FILE = """# Sprint 3 · 2026-08-10 → 2026-08-23
+
+**Goal:** something.
+
+| Person | Days |
+|---|---|
+| @qh | 10 |
+"""
+
+
+def write_sprint(sprints, name="03.md", text=SPRINT_FILE):
+    sprints.mkdir(exist_ok=True)
+    path = sprints / name
+    with open(path, "w", encoding="utf-8", newline="") as handle:
+        handle.write(text)
+    return path
+
+
+def read_sprint(client, number=3):
+    response = client.get(f"/api/sprints/{number}")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_the_sprint_list_is_sorted_and_carries_headings(client, sprints):
+    write_sprint(sprints, "10.md", "# Sprint 10 · later\n")
+    write_sprint(sprints, "03.md")
+    listed = client.get("/api/sprints").json()
+    assert [row["number"] for row in listed] == [3, 10]
+    assert listed[0]["heading"] == "Sprint 3 · 2026-08-10 → 2026-08-23"
+    assert listed[1]["name"] == "10.md"
+
+
+def test_the_sprint_list_is_empty_before_any_sprint_exists(client, sprints):
+    assert client.get("/api/sprints").json() == []
+
+
+def test_a_name_with_no_number_is_ignored_but_left_alone(client, sprints):
+    write_sprint(sprints, "notes.md", "scratch\n")
+    assert client.get("/api/sprints").json() == []
+    assert (sprints / "notes.md").exists()
+
+
+def test_reading_a_sprint_returns_its_text_and_its_blocks(client, sprints):
+    write_sprint(sprints)
+    payload = read_sprint(client)
+    assert payload["text"] == SPRINT_FILE
+    assert [block["type"] for block in payload["blocks"]] == [
+        "heading",
+        "paragraph",
+        "table",
+    ]
+    assert payload["blocks"][2]["table"]["head"] == ["Person", "Days"]
+    assert payload["mtime"] > 0
+
+
+def test_reading_a_missing_sprint_is_a_404(client, sprints):
+    assert client.get("/api/sprints/7").status_code == 404
+
+
+def test_saving_a_sprint_persists_it_and_returns_a_new_mtime(client, sprints):
+    path = write_sprint(sprints)
+    payload = read_sprint(client)
+    edited = SPRINT_FILE.replace("something", "something else")
+
+    response = client.put("/api/sprints/3", json={"text": edited, "mtime": payload["mtime"]})
+    assert response.status_code == 200, response.text
+    with open(path, encoding="utf-8", newline="") as handle:
+        assert handle.read() == edited
+    assert response.json()["mtime"] == os.path.getmtime(path)
+
+
+def test_a_stale_mtime_is_a_409_and_the_file_is_untouched(client, sprints):
+    """The AI review script reads these files and you will edit them by hand, so
+    the app never decides whose version wins."""
+    path = write_sprint(sprints)
+    response = client.put("/api/sprints/3", json={"text": "clobbered", "mtime": 1.0})
+    assert response.status_code == 409
+    assert response.json()["detail"]["mtime"] == os.path.getmtime(path)
+    with open(path, encoding="utf-8", newline="") as handle:
+        assert handle.read() == SPRINT_FILE
+
+
+def test_saving_leaves_no_temporary_file_behind(client, sprints):
+    write_sprint(sprints)
+    payload = read_sprint(client)
+    client.put("/api/sprints/3", json={"text": "edited\n", "mtime": payload["mtime"]})
+    assert [path.name for path in sprints.iterdir()] == ["03.md"]
+
+
+def test_saving_a_missing_sprint_is_a_404_and_creates_nothing(client, sprints):
+    sprints.mkdir()
+    response = client.put("/api/sprints/7", json={"text": "new", "mtime": 0.0})
+    assert response.status_code == 404
+    assert list(sprints.iterdir()) == []
+
+
+def test_saving_without_an_mtime_is_rejected(client, sprints):
+    # The guard is not optional: a caller cannot save by leaving it out.
+    write_sprint(sprints)
+    assert client.put("/api/sprints/3", json={"text": "edited"}).status_code == 422
+
+
+def test_line_endings_survive_a_save(client, sprints):
+    text = SPRINT_FILE.replace("\n", "\r\n")
+    path = write_sprint(sprints, text=text)
+    payload = read_sprint(client)
+    client.put("/api/sprints/3", json={"text": payload["text"], "mtime": payload["mtime"]})
+    with open(path, encoding="utf-8", newline="") as handle:
+        assert handle.read() == text
+
+
+def test_split_turns_one_edited_block_into_several(client):
+    blocks = client.post(
+        "/api/sprints/split", json={"text": "one\n\ntwo\n\nthree"}
+    ).json()["blocks"]
+    assert [block["raw"] for block in blocks] == ["one", "two", "three"]
+
+
+def test_split_changes_the_type_when_a_heading_is_typed(client):
+    blocks = client.post("/api/sprints/split", json={"text": "## Capacity"}).json()["blocks"]
+    assert [block["type"] for block in blocks] == ["heading"]
+    assert "<h2>" in blocks[0]["html"]
+
+
+def test_an_edited_grid_comes_back_as_aligned_markdown(client):
+    blocks = client.post(
+        "/api/sprints/table",
+        json={"head": ["Person", "Days"], "align": ["", "right"], "rows": [["@qh", "10"]]},
+    ).json()["blocks"]
+    assert [block["type"] for block in blocks] == ["table"]
+    assert blocks[0]["raw"].splitlines() == [
+        "| Person | Days |",
+        "| ------ | ---: |",
+        "| @qh    | 10   |",
+    ]
+
+
+def test_an_empty_grid_is_rejected_rather_than_written_as_pipes(client):
+    response = client.post("/api/sprints/table", json={"head": [], "align": [], "rows": []})
+    assert response.status_code == 422
 
 
 # --- migrating an existing file ---------------------------------------------

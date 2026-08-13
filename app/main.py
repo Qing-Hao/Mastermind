@@ -7,6 +7,7 @@ The only rule enforced at write time is V3 (dependency cycles), which returns
 
 import os
 import re
+import tempfile
 from contextlib import asynccontextmanager
 from datetime import date
 
@@ -16,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app import db
+from app.markdown import document_blocks, serialise_table
 from app.validation import (
     STAGE_DONE,
     STAGE_IDEA,
@@ -150,6 +152,25 @@ class SprintIn(BaseModel):
     # derives it from what is already on disk, so nothing a request says can
     # name a path. Empty means the fortnight containing today.
     start: str = ""
+
+
+class SprintSave(BaseModel):
+    # `mtime` has no default on purpose: it is the guard against overwriting a
+    # file that changed on disk, so a caller must not be able to skip it.
+    text: str
+    mtime: float
+
+
+class SprintText(BaseModel):
+    text: str
+
+
+class SprintTable(BaseModel):
+    # A table block's grid, as the editor holds it. Serialising it back to
+    # markdown is the server's job so the column alignment lives in one place.
+    head: list[str] = []
+    align: list[str] = []
+    rows: list[list[str]] = []
 
 
 # --- helpers ----------------------------------------------------------------
@@ -497,26 +518,88 @@ def read_fortnight(start: str | None = None):
 # stays in markdown you edit by hand until there is history to design against.
 
 
-def next_sprint_number(directory):
-    """One past the highest leading number on disk. The first sprint is 1.
+def sprint_files(directory):
+    """Every numbered sprint file on disk as `(number, name)`, lowest first.
 
-    Same reading as `sprint_review.sprint_sort_key`, so the script and the
-    button agree about which file is sprint 4: leading digits after any
-    non-digits, and a name with no digits at all counts for nothing.
+    Same reading as `sprint_review.sprint_sort_key`, so the script, the button
+    and the editor agree about which file is sprint 4: leading digits after any
+    non-digits, and a name with no digits at all is not a sprint file. If two
+    names claim one number, the alphabetically first wins and the other is only
+    reachable on disk.
+    """
+    found = []
+    if os.path.isdir(directory):
+        for name in sorted(os.listdir(directory)):
+            if not name.endswith(".md"):
+                continue
+            match = re.match(r"\D*(\d+)", os.path.splitext(name)[0])
+            if match:
+                found.append((int(match.group(1)), name))
+    return sorted(found)
+
+
+def next_sprint_number(directory):
+    """One past the highest number on disk. The first sprint is 1.
 
     Deliberately not "lowest unused". A gap in the numbering is a sprint that
     was skipped or a file that was deleted, and neither is an invitation to
     reuse the number.
     """
-    highest = 0
-    if os.path.isdir(directory):
-        for name in os.listdir(directory):
-            if not name.endswith(".md"):
-                continue
-            match = re.match(r"\D*(\d+)", os.path.splitext(name)[0])
-            if match:
-                highest = max(highest, int(match.group(1)))
-    return highest + 1
+    return max((number for number, _ in sprint_files(directory)), default=0) + 1
+
+
+def sprint_path(number):
+    """The path of sprint `number`, or None. Never built from a request string."""
+    for found, name in sprint_files(SPRINTS_DIR):
+        if found == number:
+            return os.path.join(SPRINTS_DIR, name)
+    return None
+
+
+def found_sprint(number):
+    """The path of sprint `number`, or a 404. PUT never creates a file."""
+    path = sprint_path(number)
+    if not path:
+        raise HTTPException(status_code=404, detail=f"No sprint {number} in {SPRINTS_DIR}.")
+    return path
+
+
+def read_sprint_file(path):
+    with open(path, encoding="utf-8", newline="") as handle:
+        return handle.read()
+
+
+def write_sprint_file(path, text):
+    """Write beside the target and rename over it, so a crash cannot truncate it.
+
+    `newline=""` is load-bearing on Windows: translating "\\n" to "\\r\\n" here
+    would rewrite every line ending in the file the editor promised not to touch.
+    """
+    directory = os.path.dirname(path)
+    scratch = tempfile.NamedTemporaryFile(
+        "w", encoding="utf-8", newline="", dir=directory, prefix=".", suffix=".tmp", delete=False
+    )
+    try:
+        with scratch as handle:
+            handle.write(text)
+        os.replace(scratch.name, path)
+    except BaseException:
+        if os.path.exists(scratch.name):
+            os.unlink(scratch.name)
+        raise
+
+
+def sprint_summary(number, name):
+    """One row of the sprint picker: its number, its file and its first line."""
+    path = os.path.join(SPRINTS_DIR, name)
+    with open(path, encoding="utf-8", newline="") as handle:
+        first = handle.readline()
+    return {
+        "number": number,
+        "name": name,
+        "mtime": os.path.getmtime(path),
+        "heading": first.strip().lstrip("#").strip(),
+    }
 
 
 def sprint_heading(number, window):
@@ -584,6 +667,71 @@ def add_sprint(body: SprintIn):
         "path": f"{os.path.basename(SPRINTS_DIR)}/{name}",
         "window": window,
     }
+
+
+# The sprint editor reads and writes these files as blocks of markdown. The file
+# on disk stays the one record: no table, no column, nothing for `migrate` to do,
+# and no export version to bump. Nothing below knows what a sprint section is --
+# any pipe table is just a table -- which is what keeps the storage question open
+# for sprint 4 to answer.
+
+
+@app.get("/api/sprints")
+def list_sprints():
+    """Every sprint file on disk, for the picker. Lowest number first."""
+    return [sprint_summary(number, name) for number, name in sprint_files(SPRINTS_DIR)]
+
+
+@app.post("/api/sprints/split")
+def split_sprint(body: SprintText):
+    """Re-split one edited block, which may have become several or changed type."""
+    return {"blocks": document_blocks(body.text)}
+
+
+@app.post("/api/sprints/table")
+def align_sprint_table(body: SprintTable):
+    """Write an edited grid back as aligned markdown, and return it as a block.
+
+    The editor never types a pipe: it edits cells and asks for the markdown, so
+    padding and alignment happen in `serialise_table` and nowhere else.
+    """
+    if not body.head and not body.rows:
+        raise HTTPException(status_code=422, detail="A table needs at least one row.")
+    return {"blocks": document_blocks(serialise_table(body.model_dump()))}
+
+
+@app.get("/api/sprints/{number}")
+def read_sprint(number: int):
+    """One sprint file: its whole text, its blocks, and the mtime a save quotes back."""
+    path = found_sprint(number)
+    text = read_sprint_file(path)
+    return {
+        "number": number,
+        "name": os.path.basename(path),
+        "text": text,
+        "mtime": os.path.getmtime(path),
+        "blocks": document_blocks(text),
+    }
+
+
+@app.put("/api/sprints/{number}")
+def save_sprint(number: int, body: SprintSave):
+    """Overwrite a sprint file, unless it changed on disk since it was read.
+
+    A stale `mtime` is a 409 carrying the disk value, never a merge and never an
+    overwrite: `sprint_review.py` reads these files and you will edit them by
+    hand, so the app is not entitled to decide whose version wins.
+    """
+    path = found_sprint(number)
+    current = os.path.getmtime(path)
+    if current != body.mtime:
+        raise HTTPException(
+            status_code=409,
+            detail={"error": f"{os.path.basename(path)} changed on disk.", "mtime": current},
+        )
+
+    write_sprint_file(path, body.text)
+    return {"mtime": os.path.getmtime(path)}
 
 
 @app.get("/api/graph")
