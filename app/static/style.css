@@ -901,8 +901,18 @@ kbd {
   stroke-opacity: 1;
 }
 
-.tier-filter { display: flex; gap: 4px; align-items: center; }
-.tier-chip {
+/* Two captioned groups of chips. The gap between groups is wider than the gap
+   inside one, which is the whole of what makes them read as two things. */
+.map-filters { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.filter-group { display: flex; gap: 4px; align-items: center; }
+.filter-caption {
+  color: #aaa;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.map-chip {
   padding: 3px 8px;
   border: 1px solid #ddd;
   border-radius: 10px;
@@ -910,10 +920,10 @@ kbd {
   color: #999;
   font-size: 12px;
 }
-.tier-chip.on { border-color: #5c6bc0; background: #eef0ff; color: #333; }
+.map-chip.on { border-color: #5c6bc0; background: #eef0ff; color: #333; }
 /* Tier 1's chip carries the same ring the node does. */
-.tier-chip.tier-1.on { box-shadow: 0 0 0 2px #eef0ff, 0 0 0 3px #c5cae9; }
-.tier-chip.tier-0 { font-style: italic; }
+.map-chip.tier-1.on { box-shadow: 0 0 0 2px #eef0ff, 0 0 0 3px #c5cae9; }
+.map-chip.tier-0 { font-style: italic; }
 
 .map-label { pointer-events: none; }
 .map-name { fill: #1a1a1a; font-size: 12px; font-weight: 600; }

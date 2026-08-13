@@ -252,11 +252,18 @@
             <input id="department-name" type="text"
               placeholder="e.g. Platform Engineering | Product">
           </label>
-          <!-- Independent toggles rather than a "tier 1 and above" slider:
-               untiered is a state of its own, so it needs its own switch. Each
-               button is filled by `renderTierFilter`. -->
-          <span class="tier-filter" id="tier-filter"
-            title="Show only these tiers. Filtering resizes the track wedges, so hiding the noise widens what is left."></span>
+          <!-- Two groups, filled by `renderMapFilters`. Tier is independent
+               toggles rather than a "tier 1 and above" slider, because untiered
+               is a state of its own and needs its own switch. Status is kept
+               apart from them: it asks whether finished work is on the picture
+               at all, which is a different question from how much of the
+               ranking to draw. -->
+          <span class="map-filters">
+            <span class="filter-group" id="tier-filter"
+              title="Show only these tiers. Filtering resizes the track wedges, so hiding the noise widens what is left."></span>
+            <span class="filter-group" id="status-filter"
+              title="Finished projects are off by default. The map is for where the team is pointed next, and work that is done has no bearing on that."></span>
+          </span>
         </div>
         <div id="map-canvas"></div>
       </section>

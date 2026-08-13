@@ -655,14 +655,32 @@ into one project link.
   hide a tier. Counting off the whole dataset is what the tier chips already
   do, for the same reason. Adding a project never moves a colour; adding a new
   track only moves the tracks after it alphabetically.
-  **Tier is the crowd control.** Above the canvas, one toggle per tier —
-  `T1 T2 T3 untiered`, counted off the whole dataset so a chip still says what
-  is behind it while it is off, and all on by default because a filter that
-  hides work by default loses it. Filtering happens **before `mapGroups`**, so a
+  **Tier is the crowd control.** Above the canvas, `renderMapFilters` draws
+  **two captioned groups** — `Tier` (`T1 T2 T3 untiered`) and `Status` (`done`)
+  — kept apart because they answer different questions: how much of the ranking
+  to draw, and whether finished work is on the picture at all. In one row the
+  status chip read as a stray fifth tier.
+  Every chip is counted off the whole dataset so it still says what is behind it
+  while it is off. Tiers are all on by default because a filter that hides work
+  by default loses it. **`done` is the one that starts off**, and the exception
+  rests on a different fact rather than overriding that rule: a hidden tier is
+  live work you have stopped looking at, while a hidden `done` project is work
+  there is nothing left to do about. The map answers "where is the team
+  pointed", and finished work has no bearing on the answer. It is not lost —
+  the chip counts it while it is off, so the map says how much it is not
+  showing. It hides the **whole rung**, the green and the grey alike: the nodes
+  tell delivered from closed, the filter has no reason to.
+  A consequence to expect: a track whose only projects are finished leaves the
+  map by default, the same way an emptied tier does. On the real dataset that
+  is `UX`.
+  Filtering happens **before `mapGroups`**, so a
   wedge is sized by what is actually drawn and a track with nothing left in it
   leaves the map entirely — hiding the noise is what widens the room around
-  what remains. Turning every tier off is allowed and says so on the canvas.
-  Lives in `state.mapTiers`: it survives re-renders and tab switches but not a
+  what remains. It does **not** reach `trackPalette`, which is keyed off the
+  whole dataset, so hiding finished work never moves a colour.
+  Turning every tier off is allowed and says so on the canvas.
+  Lives in `state.mapTiers` and `state.mapDone`: both survive re-renders and tab
+  switches but not a
   reload, like `timelineMode`, because it is a way of looking rather than a
   setting. A dependency pointing at a filtered-out project simply is not drawn —
   `wireMapFocus` already skipped links whose ends it has no centre for.

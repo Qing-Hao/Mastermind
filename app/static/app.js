@@ -100,6 +100,15 @@ let state = {
   // work by default would lose it. Survives re-renders and tab switches but not
   // a reload, same as the timeline mode: it is a way of looking, not a setting.
   mapTiers: new Set(TIER_ORDER),
+  // Whether the map draws finished projects, and the one filter that starts
+  // **off**. That looks like the opposite of the rule above and rests on a
+  // different fact: a hidden tier is live work you have stopped looking at,
+  // while a hidden `done` project is work there is nothing left to do about.
+  // The map answers "where is the team pointed", and finished work is the part
+  // of that picture with no bearing on the answer. It is not lost either --
+  // the chip counts it while it is off, so the map says how much it is not
+  // showing you. Same lifetime as the tiers: a way of looking, gone on reload.
+  mapDone: false,
   // The fortnight the drawer is open on: the Monday it starts, and the slice
   // the server computed for it. Same lifetime as the two above -- a way of
   // looking, kept across re-renders and tab switches, gone on reload. `start`
@@ -2065,6 +2074,12 @@ function mixWhite(hex, amount) {
   return `rgb(${channel(1)}, ${channel(3)}, ${channel(5)})`;
 }
 
+// The whole `done` rung, both of the things it covers: work that shipped, and
+// work that was closed with phases still open. The node colours tell those two
+// apart; the filter deliberately does not, because neither has any bearing on
+// where the team is pointed next.
+const isFinished = (project) => project.derived_stage === "done";
+
 // Where a project sits in tier order: 1, 2, 3, then untiered. Untiered last
 // because it is an unanswered question, not the lowest priority.
 const tierRank = (project) => {
@@ -2114,46 +2129,71 @@ function mapGroups(projects) {
   return groups;
 }
 
-// One toggle per tier, counted off the whole dataset rather than the filtered
-// view, so a chip still tells you what is behind it while it is switched off.
-// Turning everything off is allowed: the empty map says why, and it is one
-// click back.
-function renderTierFilter() {
-  const bar = $("tier-filter");
-  bar.innerHTML = "";
+// Two groups of chips, because they answer two different questions: how much
+// of the ranking to draw, and whether finished work is on the picture at all.
+// Mixing them into one row read as four tiers and a stray fifth thing.
+//
+// Every count is off the whole dataset rather than the filtered view, so a chip
+// still tells you what is behind it while it is switched off. That now means a
+// tier count can exceed what is drawn, since `done` may be hiding some of it --
+// the alternative is counts that move when you touch a different filter, which
+// is worse. Turning everything off is allowed: the empty map says why, and it
+// is one click back.
+function renderMapFilters() {
   const projects = state.graph.projects;
 
+  const openGroup = (id, caption) => {
+    const bar = $(id);
+    bar.innerHTML = "";
+    bar.appendChild(element("span", "filter-caption", caption));
+    return bar;
+  };
+
+  const chip = (bar, modifier, label, held, shown, subject, toggle) => {
+    const button = element("button",
+      `map-chip ${modifier}${shown ? " on" : ""}`, `${label} ${held}`);
+    button.type = "button";
+    button.setAttribute("aria-pressed", String(shown));
+    button.title = `${shown ? "Hide" : "Show"} ${subject} `
+      + `(${held} project${held === 1 ? "" : "s"})`;
+    button.onclick = () => {
+      toggle();
+      renderMap();
+    };
+    bar.appendChild(button);
+    return button;
+  };
+
+  const tiers = openGroup("tier-filter", "Tier");
   for (const tier of TIER_ORDER) {
     const held = projects.filter(
       (project) => (project.tier ?? 0) === tier).length;
     const shown = state.mapTiers.has(tier);
-    const button = element("button",
-      `tier-chip tier-${tier}${shown ? " on" : ""}`,
-      `${TIER_LABEL[tier]} ${held}`);
-    button.type = "button";
-    button.setAttribute("aria-pressed", String(shown));
-    button.title = shown
-      ? `Hide ${TIER_LABEL[tier]} (${held} project${held === 1 ? "" : "s"})`
-      : `Show ${TIER_LABEL[tier]} (${held} project${held === 1 ? "" : "s"})`;
-    button.onclick = () => {
-      if (shown) state.mapTiers.delete(tier); else state.mapTiers.add(tier);
-      renderMap();
-    };
-    bar.appendChild(button);
+    chip(tiers, `tier-${tier}`, TIER_LABEL[tier], held, shown,
+      TIER_LABEL[tier], () => {
+        if (shown) state.mapTiers.delete(tier); else state.mapTiers.add(tier);
+      });
   }
+
+  const status = openGroup("status-filter", "Status");
+  chip(status, "status-done", "done", projects.filter(isFinished).length,
+    state.mapDone, "finished projects", () => {
+      state.mapDone = !state.mapDone;
+    });
 }
 
 function renderMap() {
   const canvas = $("map-canvas");
   canvas.innerHTML = "";
   $("department-name").value = state.graph.department_name || "";
-  renderTierFilter();
+  renderMapFilters();
 
   // Filtered before grouping, so a wedge is sized by what is actually drawn and
   // a track with nothing left in it drops off the map entirely. Hiding the
   // noise is what widens the room around everything else.
-  const projects = state.graph.projects.filter(
-    (project) => state.mapTiers.has(project.tier ?? 0));
+  const projects = state.graph.projects.filter((project) =>
+    state.mapTiers.has(project.tier ?? 0)
+    && (state.mapDone || !isFinished(project)));
   if (state.graph.projects.length === 0) {
     canvas.appendChild(element("p", "muted",
       "Nothing here yet. Capture a future direction below to start the map."));
@@ -2161,7 +2201,8 @@ function renderMap() {
   }
   if (projects.length === 0) {
     canvas.appendChild(element("p", "muted",
-      "Every project is filtered out. Switch a tier back on above to see them."));
+      "Every project is filtered out. Switch a tier — or done — back on above "
+      + "to see them."));
     return;
   }
 
