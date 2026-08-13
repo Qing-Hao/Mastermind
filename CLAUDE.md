@@ -305,8 +305,10 @@ Monday, both dates reported. The bands, the clip flags and the order are all
 **Nothing in the payload sums points** — see the section below.
 
 `POST /api/sprints` copies `templates/sprint.md` to the next `sprints/NN.md`
-and fills in the heading. The one write in the fortnight feature, and it writes
-a file rather than a row.
+and fills in the heading. It writes a file rather than a row, and it has **two
+callers**: the drawer's `Plan this fortnight →` and the Sprint tab's `New
+sprint`. They share `state.plannedSprints`, so one fortnight does not get two
+files from one session.
 
 ## Schema changes and export versions
 
@@ -515,11 +517,40 @@ into one project link.
   - **A table is a grid of `<input>`s and has no reveal gesture at all.** Every
     other block type swaps between rendered HTML and its markdown; a table swaps
     to cells, so raw pipes have nowhere to appear. `Tab`/`Shift+Tab` walk cells
-    and `Tab` off the last one grows a row; `+ Row` `+ Column` `− Row`
-    `− Column` sit under it on hover; and **pasting a spreadsheet range fills
-    from the anchor cell outwards**, growing the table to fit. That paste is the
-    feature the editor was built for. Editing a table's alignment markers, or
-    turning one back into prose, is the raw file view's job.
+    and `Tab` off the last one grows a row; `+ Row` `+ Column` sit under it on
+    hover; and **pasting a spreadsheet range fills from the anchor cell
+    outwards**, growing the table to fit. That paste is the feature the editor
+    was built for. Editing a table's alignment markers, or turning one back into
+    prose, is the raw file view's job.
+  - **Rows and columns are inserted, deleted and moved where they are**, from a
+    `⠿` grip beside every row and above every column: drag it to move that one,
+    click it for `Insert before` / `Insert after` / `Delete`. It replaced
+    `− Row` / `− Column`, which popped the end — so a row that belonged third
+    cost a retype of everything below it, in the one table the editor exists to
+    make easy to fill in. The drag is armed from the grip alone (and disarmed
+    again by the click that opens the menu, or a press in a cell would drag the
+    row), and every table event **stops propagating**, because the grid sits
+    inside a `.sprint-row` whose own handlers would otherwise reorder the whole
+    block. Deleting the last column stays forbidden; the header row has no grip
+    at all, since GFM has no table without one.
+    **A column is its cells *and* its `align[]` marker** — the one correctness
+    trap here, because a marker left behind silently right-aligns a different
+    column and the file still round-trips perfectly. A ragged table is squared
+    up before any structural edit, which writes nothing `serialise_table` would
+    not have padded anyway and is what makes "column 3" the same cell on every
+    row. Still no endpoint and no file-format change: these rearrange the grid,
+    and the file has always been written from the grid.
+  - **`New sprint` lives here too**, beside the picker: a date, `POST
+    /api/sprints`, then `revealSprintFile`. The tab that owns sprints could not
+    make one — the only path was a week number on the Portfolio ruler that
+    nothing marks as clickable, and that path does not exist at all for a
+    fortnight outside the chart's window. It is **dates only and reads no
+    roadmap**: the drawer is the roadmap-aware path, and duplicating it would
+    put roadmap knowledge in a tab that has none. The number is still the
+    server's, off the directory, and a 409 re-reads the picker and says which
+    file it refused to overwrite. It shares `state.plannedSprints` with the
+    drawer, so pressing both for one fortnight opens the file instead of making
+    a second one — in memory, which is why the 409 still has to be handled.
   - **Grids become markdown inside the save, not on cell blur.** Blur would leave
     a window where the autosave fires first and writes a stale table; as the
     save's first step it cannot be written stale, and it costs one request per

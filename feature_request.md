@@ -38,8 +38,8 @@ why FR-13 sits above FR-12.
 
 | # | Request | Complexity | Frequency | Impact | Priority |
 |---|---|---|---|---|---|
-| FR-9 | Insert, delete and reorder a table's rows and columns | Medium | High | High | **P1** |
-| FR-10 | Create a sprint from the Sprint tab | Small | Fortnightly | High | **P1** |
+| FR-9 | Insert, delete and reorder a table's rows and columns | Medium | High | High | **Built** 2026-08-13 |
+| FR-10 | Create a sprint from the Sprint tab | Small | Fortnightly | High | **Built** 2026-08-13 |
 | FR-13 | Project span on the portfolio swimlane title | Tiny | High | Medium | **P1** |
 | FR-1 | Say that sprint task points and phase `effort_points` are one currency | Prose only | — | High | **P1** |
 | FR-2 | Portfolio-wide warnings, not just V2 | Small | High | High | **P1** |
@@ -106,7 +106,7 @@ Two properties worth noticing:
 
 | Tree | Items, in order | Why they belong together |
 |---|---|---|
-| **A · sprint editor** | FR-9, then FR-10 | Both are `editor.js`. Different regions, but one file, so one tree. Zero Python. |
+| **A · sprint editor** | ~~FR-9, then FR-10~~ **done** | Both are `editor.js`. Different regions, but one file, so one tree. Zero Python — and the 273 tests were green throughout, as predicted. |
 | **B · portfolio** | FR-13, then FR-12, then FR-2 | All in the portfolio view; FR-13 and FR-2 share `read_portfolio`. The only tree that runs the test suite. |
 | **C · map** | FR-14 | Its own region of `app.js` and its own block of `style.css`. Blocked on the option decision, not on A or B. |
 | **D · shell** | FR-11 + tab reorder | Held back — see below. |
@@ -381,9 +381,14 @@ surface if B is ever built.
 
 ---
 
-## FR-9 · Insert, delete and reorder a table's rows and columns — **P1**
+## FR-9 · Insert, delete and reorder a table's rows and columns — **Built**
 
-*From `comments.md` #1.*
+*From `comments.md` #1.* **Built 2026-08-13**, on branch `tree-a-sprint-editor`,
+as the shape recommended below: hover-revealed `⠿` grips, one per row in a leading
+gutter and one per column above the header, dragged to move and clicked for
+`Insert before` / `Insert after` / `Delete`. `− Row` and `− Column` are gone —
+popping the end is what the request was about. See the *Sprint* entry in
+`CLAUDE.md`; the `align[]` trap named below is the reason that entry spells it out.
 
 **What:** delete *this* column rather than the last one; insert a row after *this*
 row; move a row or a column to where it belongs.
@@ -433,9 +438,14 @@ Alignment markers stay the raw file view's job; this adds no reveal gesture.
 
 ---
 
-## FR-10 · Create a sprint from the Sprint tab — **P1**
+## FR-10 · Create a sprint from the Sprint tab — **Built**
 
-*From `comments.md` #2.*
+*From `comments.md` #2.* **Built 2026-08-13**, same branch: a date input defaulting
+to the Monday of the current fortnight, a `New sprint` button, then the existing
+`revealSprintFile`. Dates only, no roadmap prefill, number still off the directory,
+409 surfaced rather than forced — all as argued below. It shares
+`state.plannedSprints` with the drawer so one fortnight cannot get two files from
+one session.
 
 **What:** a `New sprint` control on the Sprint tab.
 
