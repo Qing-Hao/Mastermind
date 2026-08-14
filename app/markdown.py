@@ -69,6 +69,13 @@ DEFAULT_GAP = "\n\n"
 # reads as one and a `:---:` has room for both markers.
 MIN_COLUMN_WIDTH = 3
 
+# How a line break inside a cell is written to the file. A GFM cell is inline
+# content and cannot hold a real newline -- and a newline in a pipe row *is* a
+# new row, so writing one would split the table silently. `cellText` in
+# `editor.js` reads this back into a newline, the same contract `MERMAID_CLASS`
+# has with that file: the string is the whole agreement between the two.
+CELL_BREAK = "<br>"
+
 _BLANK = re.compile(r"^[ \t]*\r?\n?$")
 _ATX = re.compile(r"^ {0,3}#{1,6}([ \t]|$)")
 _FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
@@ -82,6 +89,8 @@ _HTML_TAG = re.compile(r"^ {0,3}</?[A-Za-z][A-Za-z0-9-]*")
 _INDENTED = re.compile(r"^([ ]{2,}|\t)")
 _DELIMITER_CELL = re.compile(r"^:?-+:?$")
 _UNESCAPED_PIPE = re.compile(r"(?<!\\)\|")
+# Any line ending a grid cell can arrive with, CRLF first so it becomes one break.
+_CELL_NEWLINE = re.compile(r"\r\n|[\r\n]")
 
 
 # --- reading the document ---------------------------------------------------
@@ -361,8 +370,15 @@ def _split_row(line):
 
 
 def _escape_cell(cell):
-    """One line, with any pipe escaped exactly once."""
-    return cell.replace("\\|", "|").replace("|", "\\|").replace("\r", " ").replace("\n", " ")
+    """One file line: any pipe escaped exactly once, any newline as `CELL_BREAK`.
+
+    Both directions of this translation are somebody's job -- the pipe is
+    unescaped before it is escaped so the pass is idempotent, and `<br>` reads
+    back as a newline in `editor.js`. A cell already holding `<br>` therefore
+    survives untouched, which is what keeps a saved table byte-stable.
+    """
+    escaped = cell.replace("\\|", "|").replace("|", "\\|")
+    return _CELL_NEWLINE.sub(CELL_BREAK, escaped)
 
 
 # --- rendering ---------------------------------------------------------------

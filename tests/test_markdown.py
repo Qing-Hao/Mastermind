@@ -258,9 +258,38 @@ def test_serialise_table_grows_to_its_widest_row():
     assert grid(written)["rows"] == [["b", "c"]]
 
 
-def test_serialise_table_flattens_a_newline_pasted_into_a_cell():
+def test_serialise_table_writes_a_newline_in_a_cell_as_a_break():
+    # A newline inside a pipe row *is* a new row, so a multi-line cell has to
+    # reach the file as `<br>` or it splits the table. Still three lines.
     written = serialise_table({"head": ["a"], "align": [""], "rows": [["x\ny"]]})
     assert len(written.splitlines()) == 3
+    assert written.splitlines()[2] == "| x<br>y |"
+    assert grid(written)["rows"] == [["x<br>y"]]
+
+
+def test_serialise_table_writes_one_break_for_a_crlf_cell():
+    written = serialise_table({"head": ["a"], "align": [""], "rows": [["x\r\ny"]]})
+    assert grid(written)["rows"] == [["x<br>y"]]
+
+
+def test_serialise_table_escapes_a_pipe_and_a_newline_in_one_cell():
+    written = serialise_table({"head": ["a"], "align": [""], "rows": [["x | y\nz"]]})
+    assert grid(written)["rows"] == [["x \\| y<br>z"]]
+
+
+def test_serialise_table_leaves_a_break_alone_on_the_way_back():
+    # The cell the frontend hands back already holds `<br>` for any line it did
+    # not change, so a save must not double it up into `&lt;br&gt;` or a second
+    # break. This is what keeps an untouched multi-line cell byte-stable.
+    once = serialise_table({"head": ["a"], "align": [""], "rows": [["x\ny"]]})
+    assert serialise_table(grid(once)) == once
+
+
+def test_a_cell_holding_a_break_survives_the_round_trip():
+    # The gate, on the construct this feature writes: a `<br>` in a cell is
+    # ordinary text to the splitter, so the file comes back byte for byte.
+    text = "| a   | b      |\n| --- | ------ |\n| x   | y<br>z |\n"
+    assert join_blocks(split_blocks(text)) == text
 
 
 def test_raw_html_survives_rendering():

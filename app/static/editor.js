@@ -365,11 +365,26 @@ function renderSprintDocument() {
     doc.appendChild(row);
   });
 
-  // A document edited down to nothing would otherwise have no way back in.
-  if (sprint.blocks.length === 0 && sprint.number !== null) {
-    const empty = element("p", "sprint-placeholder", "Empty file — click to start typing.");
-    empty.onclick = () => startSprintBlock();
-    doc.appendChild(empty);
+  // The foot of the document, and the only way to start a block at the end of a
+  // file. It used to appear at `blocks.length === 0` alone, which left **a file
+  // ending in a table with no gesture anywhere that adds a block after it**: a
+  // table has no textarea, so the `Enter` that opens the next block cannot
+  // happen, and `Tab` off the last cell grows a row instead of leaving. Fixing
+  // the class rather than the instance -- the target is always there, and it
+  // never learns what a table is.
+  if (sprint.number !== null) {
+    const empty = sprint.blocks.length === 0;
+    const foot = element("p", `sprint-placeholder${empty ? "" : " sprint-foot"}`,
+      empty ? "Empty file — click to start typing." : "+ Start a block");
+    foot.title = "Add a block at the end of the file";
+    foot.tabIndex = 0;
+    foot.onclick = () => (empty ? startSprintBlock() : appendSprintBlock());
+    foot.onkeydown = (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      if (empty) startSprintBlock(); else appendSprintBlock();
+    };
+    doc.appendChild(foot);
   }
 
   // An input outside the document cannot take focus, so this happens after the
@@ -381,6 +396,11 @@ function renderSprintDocument() {
     area.setSelectionRange(area.value.length, area.value.length);
     autosizeSprintArea(area);
   }
+
+  // Same reason, for every grid cell: a cell's height is its wrapped text, and
+  // `scrollHeight` outside the document is zero. `rows` already got it close, so
+  // this is the wrapped-line correction rather than the whole measurement.
+  doc.querySelectorAll(".sprint-cell").forEach(autosizeSprintArea);
 
   // Also after the append, and for the same reason: a diagram is measured text,
   // and a detached node has no measurements.
@@ -480,6 +500,19 @@ async function insertSprintBlockAfter(index, text) {
   sprint.blocks.forEach((block, position) => { block.index = position; });
   sprint.editing = at;
   sprint.draft = null;
+  renderSprintDocument();
+}
+
+// An abandoned empty block, taken back out with the file left exactly as it was
+// -- which is the point, so clicking the foot target and changing your mind is
+// not an edit. `appendSprintBlock` handed the file's trailing newline to the new
+// block; this hands it back to whatever ends up last. A block from the middle of
+// the document takes its own separator with it and nothing else moves.
+function discardEmptySprintBlock(index) {
+  const blocks = state.sprint.blocks;
+  const gone = blocks.splice(index, 1)[0];
+  if (blocks.length && index === blocks.length) blocks[blocks.length - 1].gap = gone.gap;
+  blocks.forEach((block, position) => { block.index = position; });
   renderSprintDocument();
 }
 
@@ -916,6 +949,34 @@ function startSprintBlock() {
   renderSprintDocument();
 }
 
+// An empty block at the end of the file, opened for typing. The gaps are the
+// whole care here, and the rule is `removeSprintBlock`'s in reverse: **the last
+// block owns the file's trailing newline**, so the new block inherits it and
+// what used to be last is given a separator instead. It has to be a blank line
+// -- handing on a single newline would re-read the two paragraphs as one.
+//
+// No save is scheduled: an empty block is not part of the file until something
+// is typed into it, the same contract `insertSprintBlockAfter` has.
+function appendSprintBlock() {
+  const sprint = state.sprint;
+  const blocks = sprint.blocks;
+  if (!blocks.length) {
+    startSprintBlock();
+    return;
+  }
+
+  const last = blocks[blocks.length - 1];
+  const tail = last.gap;
+  last.gap = sprintBlankLine(blocks);
+  blocks.push({
+    index: blocks.length, type: "paragraph", raw: "", gap: tail, html: "",
+  });
+
+  sprint.editing = blocks.length - 1;
+  sprint.draft = null;
+  renderSprintDocument();
+}
+
 // --- tables -----------------------------------------------------------------
 
 // The grid is the reason the editor exists: the capacity and unplanned-work
@@ -934,10 +995,16 @@ function startSprintBlock() {
 
 const CELL_ALIGN = { right: "right", center: "center" };
 
-// A pipe inside a cell is stored escaped, because that is what the file needs.
-// The grid shows the character itself; the server escapes it again on the way
-// back, which is why `_escape_cell` unescapes before it escapes.
-const cellText = (value) => String(value ?? "").replace(/\\\|/g, "|");
+// A pipe inside a cell is stored escaped, and a line break is stored as `<br>`,
+// because that is what the file needs: GFM has no block content in a cell, and a
+// real newline in a pipe row is a new row. The grid shows the character itself
+// both times; `_escape_cell` writes both back, which is why it unescapes before
+// it escapes. Read leniently — `<br/>`, `<br />` and any case are the same break,
+// because a file you hand-edit will hold whichever one you typed — and written in
+// exactly one spelling, `markdown.CELL_BREAK`.
+const cellText = (value) => String(value ?? "")
+  .replace(/\\\|/g, "|")
+  .replace(/<br\s*\/?>/gi, "\n");
 
 function sprintTable(block, index) {
   const node = element("div", "sprint-block sprint-table-block");
@@ -989,11 +1056,17 @@ function sprintTable(block, index) {
   return node;
 }
 
+// A `<textarea>` and not an `<input>`, because an input has no second line to
+// give: `Enter` in a cell is a line break within it, and the height follows the
+// text. `Tab` still walks the grid rather than typing a tab, and `rows` is set
+// from the line count so a cell is the right size before it is ever measured --
+// `scrollHeight` on a node outside the document is zero, so the exact autosize
+// waits until after the append, beside the focus and the diagrams.
 function sprintCell(block, index, r, column, value) {
   const grid = block.table;
-  const cell = element("input", "sprint-cell");
-  cell.type = "text";
+  const cell = element("textarea", "sprint-cell");
   cell.value = cellText(value);
+  cell.rows = Math.max(1, cell.value.split("\n").length);
   cell.dataset.r = r;
   cell.dataset.c = column;
   cell.spellcheck = false;
@@ -1003,6 +1076,7 @@ function sprintCell(block, index, r, column, value) {
   cell.oninput = () => {
     if (r === -1) grid.head[column] = cell.value;
     else grid.rows[r][column] = cell.value;
+    autosizeSprintArea(cell);
     tableEdited(block);
   };
 
@@ -1027,6 +1101,8 @@ function sprintCell(block, index, r, column, value) {
   cell.onpaste = (event) => {
     const text = (event.clipboardData || window.clipboardData).getData("text");
     // One value is an ordinary paste; a range is a grid, and that is the point.
+    // Deliberately unchanged by multi-line cells: a one-column range is still
+    // rows, and `Enter` is how a second line goes into a single cell.
     if (!text || !/[\t\n]/.test(text)) return;
     event.preventDefault();
     pasteIntoTable(block, r, column, text);
@@ -1389,7 +1465,7 @@ function gridButton(label, onclick, disabled = false) {
 function focusSprintCell(index, r, column) {
   const doc = $("sprint-document");
   const block = doc.children[index];
-  const cell = block && block.querySelector(`input[data-r="${r}"][data-c="${column}"]`);
+  const cell = block && block.querySelector(`.sprint-cell[data-r="${r}"][data-c="${column}"]`);
   if (cell) {
     cell.focus();
     cell.select();
@@ -1434,6 +1510,15 @@ async function commitSprintBlock(index, text) {
   sprint.draft = null;
 
   if (!original || text === original.raw) {
+    // An empty block committed empty was never in the file: only the foot target
+    // and the `Enter` above make one, and the splitter never returns an empty
+    // block. So it goes, rather than lingering as a blank paragraph that the next
+    // save would write out as a stray blank line. Nothing is scheduled, because
+    // the file on disk never held it.
+    if (original && !text && !original.raw && sprint.blocks.length > 1) {
+      discardEmptySprintBlock(index);
+      return;
+    }
     renderSprintDocument();
     return;
   }

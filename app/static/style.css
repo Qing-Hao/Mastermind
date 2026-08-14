@@ -749,6 +749,9 @@ kbd {
 .sprint-table th, .sprint-table td { border: 1px solid #e0e0e0; padding: 0; }
 .sprint-table th { background: #f6f6f6; }
 
+/* A textarea, so a cell can hold a second line — sized by its text rather than
+   resizable, and `display: block` because a textarea's baseline would otherwise
+   leave a gap under every row. */
 .sprint-cell {
   font: inherit;
   font-variant-numeric: tabular-nums;
@@ -758,6 +761,9 @@ kbd {
   border: 0;
   background: transparent;
   box-sizing: border-box;
+  display: block;
+  resize: none;
+  overflow: hidden;
 }
 .sprint-table th .sprint-cell { font-weight: 600; }
 .sprint-cell:focus {
@@ -846,6 +852,23 @@ kbd {
 }
 
 .sprint-placeholder { color: #888; cursor: text; padding: 8px; }
+
+/* The foot of a file that already has content. Quiet until it is wanted: a
+   permanent click target under every document should read as room to type, not as
+   a button. Dashed, so it is visibly a place rather than a block. */
+.sprint-foot {
+  margin: 2px 0 0;
+  border: 1px dashed transparent;
+  border-radius: 3px;
+  font-size: 12.5px;
+  color: #bbb;
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+.sprint-foot:hover, .sprint-foot:focus {
+  color: #5c6bc0;
+  border-color: #c5cae9;
+  outline: none;
+}
 
 /* Whether the file on disk matches what is on screen. Never silent: a failed
    autosave that says nothing is how a retro gets lost. */
