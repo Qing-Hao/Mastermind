@@ -699,10 +699,10 @@ def test_the_project_list_carries_the_ladder_through_the_whole_lifecycle(client)
     assert stages_of(client)[0] == {"Payments": "planning"}
 
     client.post(f"/api/phases/{phase['id']}/deliverables", json={"name": "Wireframes"})
-    # Named, but a plan is being drafted until the user says otherwise.
+    # Named, but a plan with nothing to aim at is still being drafted.
     assert stages_of(client)[0] == {"Payments": "planning"}
 
-    client.put(f"/api/projects/{project['id']}", json={"draft_complete": 1})
+    db.create_milestone(project["id"], "Private beta")
     assert stages_of(client)[0] == {"Payments": "planned"}
 
     client.put(f"/api/projects/{project['id']}", json={"start_date": "2099-01-05"})
@@ -755,17 +755,28 @@ def test_finished_work_sorts_below_ideas_and_ideas_below_live_work(client):
     assert stages_of(client)[1] == ["Payments", "Caching", "Ledger"]
 
 
-def test_a_project_finished_by_its_phases_sorts_last_too(client):
+def test_a_project_finished_by_its_milestones_sorts_last_too(client):
     """`db.list_projects` can only sort on the stored stage, which now says done
     for a manual close alone. The list re-sorts on the ladder for this reason."""
     make_project(client, "Payments", start="2099-01-05")
     finished = make_project(client, "Ledger", start="2026-01-05")
-    phase = make_phase(client, finished["id"], "Design", "2026-01-05", 4, 40)
-    client.put(f"/api/phases/{phase['id']}", json={"status": "done"})
+    make_phase(client, finished["id"], "Design", "2026-01-05", 4, 40)
+    reached = created(db.create_milestone(finished["id"], "Launch"))
+    db.update_milestone(reached["id"], {"achieved": True})
 
     listed, order = stages_of(client)
     assert listed["Ledger"] == "done"
     assert order == ["Payments", "Ledger"]
+
+
+def test_closing_every_phase_does_not_finish_a_project(client):
+    """`phase.status` left the ladder: nothing maintained it, so the route was
+    unreachable. Milestones carry the decision now; V6 and V7 still read status."""
+    project = make_project(client, "Ledger", start="2026-01-05")
+    phase = make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+    client.put(f"/api/phases/{phase['id']}", json={"status": "done"})
+
+    assert stages_of(client)[0]["Ledger"] == "overdue"
 
 
 # --- future directions ------------------------------------------------------
@@ -973,7 +984,7 @@ def test_the_stored_stage_and_the_derived_one_both_travel(client):
     project = make_planned(client)
     phase = make_phase(client, project["id"], "Design", "", 2, 20)
     client.post(f"/api/phases/{phase['id']}/deliverables", json={"name": "Wireframes"})
-    client.put(f"/api/projects/{project['id']}", json={"draft_complete": 1})
+    db.create_milestone(project["id"], "Private beta")
 
     listed = client.get("/api/projects").json()[0]
     assert listed["stage"] == "planned"

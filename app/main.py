@@ -334,7 +334,7 @@ def write_settings(body: SettingsIn):
 # --- projects ---------------------------------------------------------------
 
 
-def with_derived_stage(projects, phases, deliverables, today):
+def with_derived_stage(projects, phases, deliverables, milestones, today):
     """Tag each project with `derived_stage`, leaving the stored one alone.
 
     Both travel: `stage` stays the commitment the user recorded, which is what
@@ -348,6 +348,7 @@ def with_derived_stage(projects, phases, deliverables, today):
             project,
             phases.get(project["id"], []),
             deliverables.get(project["id"], []),
+            milestones.get(project["id"], []),
             today,
         )
     return projects
@@ -368,9 +369,10 @@ def read_projects():
     """
     phases = db.phases_by_project()
     deliverables = db.deliverables_by_project()
+    milestones = db.milestones_by_project()
     today = date.today()
     projects = with_derived_stage(
-        db.list_projects(), phases, deliverables, today)
+        db.list_projects(), phases, deliverables, milestones, today)
     # Stable, so the db ordering survives inside each of the three groups.
     rank = {STAGE_DONE: 2, STAGE_IDEA: 1}
     projects.sort(key=lambda project: rank.get(project["derived_stage"], 0))
@@ -409,17 +411,19 @@ def read_project_plan(project_id: int):
     phases = db.list_phases(project_id)
     dependencies = db.list_dependencies(project_id)
     grouped = db.deliverables_by_phase(project_id)
+    milestones = db.list_milestones(project_id)
     settings = db.get_settings()
     today = date.today()
     warnings = validate_plan(project, phases, settings, grouped, today)
     warnings += warnings_touching(project_id, portfolio_warnings())
     offsets = relative_layout(phases)
     # The ladder does ride on this payload, unlike the readiness it replaced:
-    # the drafting toggle lives in this view, and a switch you cannot see the
-    # effect of is a switch you have to guess at.
+    # the milestone list lives in this view, and a checkpoint whose effect on
+    # the stage you cannot see is a checkpoint you have to guess at.
     project["derived_stage"] = project_stage(
         project, phases,
         [item for items in grouped.values() for item in items],
+        milestones,
         today,
     )
 
@@ -434,6 +438,7 @@ def read_project_plan(project_id: int):
     return {
         "project": project,
         "phases": enriched,
+        "milestones": milestones,
         "dependencies": dependencies,
         "warnings": [warning.as_dict() for warning in warnings],
         "settings": settings,
@@ -892,11 +897,12 @@ def read_graph():
     settings = db.get_settings()
     grouped = db.phases_by_project()
     deliverables = db.deliverables_by_project()
+    milestones = db.milestones_by_project()
     today = date.today()
 
     nodes = []
     for project in with_derived_stage(
-            db.list_projects(), grouped, deliverables, today):
+            db.list_projects(), grouped, deliverables, milestones, today):
         phases = grouped.get(project["id"], [])
         progress = project_progress(phases)
         nodes.append({
