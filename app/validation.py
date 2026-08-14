@@ -43,7 +43,7 @@ estimate and the overlap with the window is the bar's width, because summing
 points across a window is a points-per-day constant in disguise.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 
 DAYS_PER_WEEK = 7
@@ -544,6 +544,12 @@ def validate_plan(project, phases, settings=None, deliverables_by_phase=None,
     input. This module stays pure: reading the clock here would make every test
     of it depend on the day it runs, so the caller supplies the date the same way
     `next_milestone` has always required it.
+
+    Every warning returned is stamped with the project it was asked about. The
+    four rules below name a phase and stop there, which is all the project view
+    needs -- it is looking at one project already. A portfolio-wide list is a
+    flat pile from every project at once, and there the first thing a warning has
+    to say is whose it is.
     """
     settings = {**DEFAULT_SETTINGS, **(settings or {})}
     velocity = effective_velocity(project, settings)
@@ -570,7 +576,7 @@ def validate_plan(project, phases, settings=None, deliverables_by_phase=None,
             if empty:
                 warnings.append(empty)
 
-    return warnings
+    return [replace(warning, project_id=project.get("id")) for warning in warnings]
 
 
 def validate_portfolio(projects, phases_by_project, dependencies):

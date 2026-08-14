@@ -115,6 +115,13 @@ td input { width: 100%; min-width: 80px; }
 .warnings li, .deps li { padding: 4px 0; border-bottom: 1px solid #f2f2f2; }
 .deps li button { margin-left: 10px; }
 
+/* The portfolio's warning panel groups by project, so a project heads a nested
+   list. The inner rows drop their rules for the outer one, or every line would
+   carry two. */
+.warn-project { font-weight: 600; }
+.warn-nested { margin: 2px 0 2px 14px; }
+.warn-nested li:last-child { border-bottom: 0; }
+
 .rule {
   display: inline-block;
   background: #b00020;
