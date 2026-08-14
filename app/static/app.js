@@ -806,10 +806,14 @@ function renderTimeline() {
   offWindowNote(timeline, phases.length - visible.length);
 
   const body = weekGrid(timeline, view);
+  const { marks, undated, offWindow } = datedMilestoneMarks(view);
+  if (marks.length > 0) body.appendChild(milestoneLane(marks));
+
   const warned = warnedPhaseIds();
   for (const phase of visible) {
     body.appendChild(phaseBar(phase, view, warned.has(phase.id)));
   }
+  milestoneNotes(timeline, undated, offWindow);
 }
 
 // Half-open against the window: a phase touching the last day is still in.
@@ -851,6 +855,81 @@ function phaseBar(phase, view, isWarned) {
     + `(${phase.duration_weeks}w, ${phase.effort_points} pts)`;
   bar.textContent = phase.name;
   return bar;
+}
+
+// --- milestone diamonds ------------------------------------------------------
+
+// A milestone is a point rather than a span, so it draws as a diamond and needs
+// a lane of its own: a zero-width bar among the phases would be invisible and
+// impossible to hover. The lane sits above the bars because that is what the
+// phases are aiming at.
+//
+// Diamonds are absolutely positioned inside the lane so several share one line.
+// Every other bar in this app is a block element owning its own row, which is
+// exactly what a point marker must not be.
+function milestoneLane(marks) {
+  const lane = element("div", "milestone-lane");
+  for (const { milestone, x } of marks) {
+    const mark = element("div",
+      `milestone-mark${milestone.achieved ? " reached" : ""}`);
+    mark.style.left = `${x}px`;
+    mark.title = `${milestone.name}${milestone.target_date ? ` — ${milestone.target_date}` : ""}`
+      + (milestone.achieved ? " (reached)" : "");
+    mark.appendChild(element("span", "milestone-diamond"));
+    mark.appendChild(element("span", "milestone-label", milestone.name));
+    lane.appendChild(mark);
+  }
+  return lane;
+}
+
+// Undated and off-window are counted apart because they are different problems:
+// one is a checkpoint nobody has committed to a date, the other is one you have
+// simply scrolled away from.
+function milestoneNotes(chart, undated, offWindow) {
+  if (undated > 0) {
+    chart.appendChild(element("p", "muted",
+      `${undated} milestone(s) with no target date.`));
+  }
+  if (offWindow > 0) {
+    chart.appendChild(element("p", "muted",
+      `${offWindow} milestone(s) outside this window.`));
+  }
+}
+
+// Placed on the calendar, the same arithmetic `phaseSpan` uses.
+function datedMilestoneMarks(view) {
+  const marks = [];
+  let undated = 0;
+  let offWindow = 0;
+
+  for (const milestone of state.plan.milestones || []) {
+    if (!milestone.target_date) { undated += 1; continue; }
+    const day = daysBetween(view.origin, parseDate(milestone.target_date));
+    if (day < 0 || day > view.totalDays) { offWindow += 1; continue; }
+    marks.push({ milestone, x: day * view.pxPerDay });
+  }
+  return { marks, undated, offWindow };
+}
+
+// Weeks mode has no calendar, so a milestone's stored date has to be measured
+// against something: the project's own start. Without that there is no origin to
+// count from and nothing can be placed -- which is the common case here, since
+// this mode is what an undated project opens on. Counting them as undated says
+// so rather than dropping them silently.
+function relativeMilestoneMarks(view) {
+  const marks = [];
+  let undated = 0;
+  let offWindow = 0;
+  // Tested as a string: `parseDate("")` is an Invalid Date, which is truthy.
+  const start = state.plan.project.start_date;
+
+  for (const milestone of state.plan.milestones || []) {
+    if (!milestone.target_date || !start) { undated += 1; continue; }
+    const weeks = daysBetween(parseDate(start), parseDate(milestone.target_date)) / 7;
+    if (weeks < 0 || weeks > view.weeks) { offWindow += 1; continue; }
+    marks.push({ milestone, x: weeks * view.pxPerWeek });
+  }
+  return { marks, undated, offWindow };
 }
 
 // --- relative timeline (W1, W2, ...) ----------------------------------------
@@ -896,11 +975,15 @@ function renderRelativeTimeline() {
   view.totalDays = view.weeks * 7;
 
   const body = weekGrid(timeline, view, relativeRuler);
+  const { marks, undated, offWindow } = relativeMilestoneMarks(view);
+  if (marks.length > 0) body.appendChild(milestoneLane(marks));
+
   const warned = warnedPhaseIds();
 
   phases.forEach((phase, index) => {
     body.appendChild(relativeBar(phase, index, phase.offset_weeks, view, warned));
   });
+  milestoneNotes(timeline, undated, offWindow);
 }
 
 function relativeRuler({ weeks }) {

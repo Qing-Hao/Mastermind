@@ -128,6 +128,51 @@ td input { width: 100%; min-width: 80px; }
 .bar.status-done { background: #cfd8dc; }
 .bar-warn { outline: 2px solid #b00020; }
 
+/* The milestone lane. A milestone is a point, not a span, so it cannot be a
+   `.bar` -- those are block elements owning a row, and several points share one
+   line. Hence the positioned lane and absolutely-placed marks.
+
+   `overflow: visible` is deliberate: a label runs to the right of its diamond
+   and past the end of the chart if the checkpoint is near it, which is better
+   than clipping the name of the thing the plan is aiming at. Two checkpoints a
+   few days apart will overlap their labels; the `title` carries the full text,
+   and thinning them out would need measurement this view does not do. */
+.milestone-lane {
+  position: relative;
+  height: 20px;
+  margin-bottom: 6px;
+  overflow: visible;
+}
+.milestone-mark {
+  position: absolute;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  /* Centred on its date: the diamond is the marker, not its left edge. The
+     label then hangs to the right of centre, which is what a gantt does. */
+  transform: translateX(-5px);
+}
+.milestone-diamond {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  transform: rotate(45deg);
+  border: 1.5px solid #6a1b9a;
+  background: #fff;
+}
+/* Hollow until reached, filled once it is -- the same vocabulary the map uses
+   for a project node, where hollow is shaped-but-not-started and filled is
+   under way. Nothing here is derived: this is the stored tick. */
+.milestone-mark.reached .milestone-diamond { background: #6a1b9a; }
+.milestone-label {
+  font-size: 11px;
+  color: #6a1b9a;
+  line-height: 10px;
+}
+.milestone-mark.reached .milestone-label { color: #4a148c; }
+
 tr.row-warn td { background: #fff8e1; }
 
 /* --- tabs --- */
