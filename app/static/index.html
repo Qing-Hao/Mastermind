@@ -128,11 +128,31 @@
 
       <section>
         <div class="section-head">
+          <h2>Milestones</h2>
+          <span id="milestone-tally" class="muted"></span>
+        </div>
+        <p class="hint">
+          Checkpoints the plan is aiming at, between the phases. Reaching every
+          one is what finishes a project &mdash; closing phases does not.
+        </p>
+        <table id="milestone-table">
+          <thead>
+            <tr>
+              <th></th><th>Reached</th><th>Checkpoint</th><th>Target</th><th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <div class="row">
+          <input id="new-milestone-name" type="text" placeholder="New milestone name">
+          <input id="new-milestone-date" type="date" title="Optional — name it now, date it when you commit">
+          <button id="add-milestone">Add milestone</button>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head">
           <h2>Phases &amp; deliverables</h2>
-          <label id="draft-toggle" class="draft-toggle" hidden>
-            <input id="project-draft-complete" type="checkbox">
-            <span id="draft-toggle-text">Still drafting</span>
-          </label>
         </div>
         <p class="hint">
           Expand a phase to list what it produces. Deliverables are named, not

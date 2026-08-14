@@ -49,33 +49,18 @@ h2 {
   padding-bottom: 4px;
 }
 
-/* A heading with a control on its right. The h2 keeps the underline for the
-   whole width, so the control has to sit inside the same box rather than
+/* A heading with a readout on its right. The h2 keeps the underline for the
+   whole width, so the readout has to sit inside the same box rather than
    beside it -- hence the wrapper and the negative pull, not a flex h2. */
 .section-head { position: relative; }
-.section-head .draft-toggle {
+.section-head > .muted {
   position: absolute;
   right: 0;
   top: -2px;
-}
-
-/* Load-bearing, for the same reason as `.track-crumb[hidden]` and
-   `.direction-link-form[hidden]`: a class setting `display` outranks the UA
-   sheet's `[hidden] { display: none }`, so without this the switch would still
-   show on a project where it decides nothing. */
-.draft-toggle[hidden] { display: none; }
-.draft-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   font-size: 12px;
-  color: #666;
-  cursor: pointer;
   text-transform: none;
   letter-spacing: normal;
 }
-.draft-toggle input { cursor: pointer; }
-.draft-toggle:hover { color: #1a1a1a; }
 
 .row {
   display: flex;
@@ -191,6 +176,21 @@ table.deliverables td.grip { width: 1%; text-align: center; }
 .grip-handle:hover { color: #555; }
 table.deliverables tr.dragging { background: #eef3fb; opacity: 0.85; }
 table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
+
+/* The milestone list borrows the deliverable list's row furniture -- same grip,
+   same tick, same struck-through name when it is ticked -- because it is the
+   same gesture on a different record, and two spellings of one row would drift.
+   It is a top-level table rather than a nested one, so only the cell rules are
+   shared and the widths are its own. */
+#milestone-table td.tick { width: 1%; text-align: center; }
+#milestone-table td.tick input { min-width: 0; }
+#milestone-table td.grip { width: 1%; text-align: center; }
+#milestone-table tr.done input[type="text"] { color: #999; text-decoration: line-through; }
+#milestone-table tr.dragging { background: #eef3fb; opacity: 0.85; }
+#milestone-table tr.dragging .grip-handle { cursor: grabbing; }
+/* A date input has an intrinsic width and no need for the 100% every other cell
+   input takes, which would otherwise push the name column narrow. */
+#milestone-table td input[type="date"] { width: auto; min-width: 0; }
 
 .done-count { color: #888; font-size: 11px; margin-left: 2px; }
 
@@ -497,8 +497,8 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   background: #fcfcfd;
 }
 
-/* Load-bearing, for the same reason as `.draft-toggle[hidden]`,
-   `.direction-link-form[hidden]` and `.track-crumb[hidden]`: the class above
+/* Load-bearing, for the same reason as `.direction-link-form[hidden]` and
+   `.track-crumb[hidden]`: the class above
    sets `display`, which outranks the UA sheet's `[hidden] { display: none }`,
    so without this the drawer would never close. */
 .fortnight-drawer[hidden] { display: none; }
