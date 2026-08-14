@@ -163,19 +163,40 @@ function renderSprintPicker() {
 //     disagree about which file is sprint 4.
 //   * **It never overwrites.** A 409 is reported and the picker re-read, so the
 //     file that already exists is there to open. `POST` has no force.
+//
+// The date box is **prefilled from the newest file's end date** -- see
+// `latestSprintHandover`. That is the file listing, not the roadmap, so the first
+// rule above still holds.
 function renderSprintNew() {
   const input = $("sprint-new-start");
   // Only when it is empty: this runs on every render, and rewriting the box would
-  // undo a fortnight you had just picked.
-  if (!input.value) input.value = formatDate(weekStart(new Date()));
+  // undo a fortnight you had just picked. `createSprintFile` empties it on a
+  // landed create, which is what re-offers the *new* handover day.
+  if (!input.value) {
+    input.value = latestSprintHandover() ?? formatDate(new Date());
+  }
 }
 
-// The Monday the server will snap this date back to, which is the key the drawer
-// files its own creations under. Worked out here rather than read back off the
-// response, because it has to be known *before* the post to know not to post.
+// The day the sprint on disk hands over, which is the day the next one starts --
+// `sprint_window` ends a sprint on its successor's first day. So the newest file's
+// end date is the offer, and pressing the button continues the cadence.
+//
+// `null` when there is nothing to read: a heading edited into something with no
+// window has no cadence to continue, and guessing one is what
+// `sprint_window_from_heading` refuses to do on the server for the same reason.
+function latestSprintHandover() {
+  // `files` is newest first, so [0] is the highest number on disk -- the same
+  // reading `next_sprint_number` uses to decide what the next file is called.
+  const latest = state.sprint.files[0];
+  return latest?.window?.end ?? null;
+}
+
+// The window start the drawer files its own creations under, worked out here
+// rather than read back off the response because it has to be known *before* the
+// post to know not to post. **Nothing is snapped** -- the server takes the date
+// as given, so this is the date as given.
 function sprintFortnightStart(value) {
-  const asked = value ? parseDate(value) : new Date();
-  return formatDate(weekStart(asked));
+  return value || formatDate(new Date());
 }
 
 async function createSprintFile() {
@@ -206,6 +227,9 @@ async function createSprintFile() {
     state.plannedSprints.set(created.window.start, created);
     note.textContent = `Started ${created.path}, `
       + `${created.window.start} → ${created.window.end}.`;
+    // Emptied so the next render offers the handover day of the file just made,
+    // rather than leaving the date you already used sitting in the box.
+    input.value = "";
     await revealSprintFile(created.number);
   } catch (failure) {
     note.className = "error";

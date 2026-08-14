@@ -9,7 +9,7 @@ import os
 import re
 import tempfile
 from contextlib import asynccontextmanager
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -19,9 +19,11 @@ from pydantic import BaseModel
 from app import db
 from app.markdown import document_blocks, serialise_table
 from app.validation import (
+    FORTNIGHT_DAYS,
     STAGE_DONE,
     STAGE_IDEA,
     UNSCHEDULED,
+    as_date,
     as_optional_date,
     find_dependency_cycle,
     fortnight_slice,
@@ -673,6 +675,34 @@ def sprint_summary(number, name):
     }
 
 
+def sprint_window(start):
+    """The days a new sprint covers: the date you gave, ending on the handover day.
+
+    **Nothing is snapped.** The cadence is the team's own -- planning happens on
+    whatever weekday the sync is -- so the start is the date asked for.
+    `validation.fortnight_window` still snaps to a Monday, and must: that one
+    frames the drawer's strip, which is drawn on Monday-based week columns. A
+    chart window and a file heading are different things.
+
+    `end` is `FORTNIGHT_DAYS` past the start rather than one day short of it, so
+    it lands on the day the next sprint begins. That is the convention the sprints
+    are written in -- `17 Jun → 01 Jul` followed by `01 Jul → 15 Jul` -- and the
+    shared day is a planning and a retro, not two sprints at once. So every
+    window this route generates now ends on a boundary day, and the single
+    touching endpoint `windows_overlap` allows is what keeps consecutive sprints
+    creatable.
+
+    Reading is strict, like `fortnight_window`: a window is what the overlap
+    check measures against, and one that quietly failed to parse would refuse a
+    real sprint on the strength of an invented fortnight.
+    """
+    first = as_date(start)
+    return {
+        "start": first.isoformat(),
+        "end": (first + timedelta(days=FORTNIGHT_DAYS)).isoformat(),
+    }
+
+
 def sprint_heading(number, window):
     return f"# Sprint {number} · {window['start']} → {window['end']}"
 
@@ -714,11 +744,14 @@ def add_sprint(body: SprintIn):
     dates in a file that exists are never touched.
 
     Meeting on a single handover day is **not** an overlap -- see
-    `windows_overlap`. A window this route generates never lands there anyway,
-    since a fortnight ends the day before the next Monday; it is the headings
-    edited by hand that use the shared-day convention.
+    `windows_overlap`. Every window this route generates now lands exactly there,
+    because `sprint_window` ends a sprint on the day the next one starts: the
+    shared-day allowance is what makes consecutive sprints creatable at all, not
+    a concession to headings edited by hand.
+
+    **The start is the date asked for, unsnapped** -- see `sprint_window`.
     """
-    window = fortnight_window(clean_date(body.start) or date.today())
+    window = sprint_window(clean_date(body.start) or date.today())
 
     clashes = overlapping_sprints(window)
     if clashes:

@@ -27,7 +27,7 @@ step: it is a prebuilt bundle served as a static file.
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000   # http://127.0.0.1:8000
-.\.venv\Scripts\python.exe -m pytest -q                                   # 290 tests, ~9s
+.\.venv\Scripts\python.exe -m pytest -q                                   # 291 tests, ~11s
 
 .\.venv\Scripts\python.exe -m pip install -r requirements-ai.txt          # optional, sprint review only
 .\.venv\Scripts\python.exe scripts\sprint_review.py --history 3
@@ -584,6 +584,17 @@ into one project link.
     with the
     drawer, so pressing both for one fortnight opens the file instead of making
     a second one — in memory, which is why the 409 still has to be handled.
+    **The date box prefills with the latest sprint's end date** — its handover
+    day, which is the next sprint's start — so continuing the cadence is one
+    press. `latestSprintHandover` reads it off `state.sprint.files[0]`, newest
+    first, the same "highest number on disk" reading `next_sprint_number` uses.
+    That is the *file listing*, already loaded for the picker, not the roadmap,
+    so "reads no roadmap" above still holds. A heading with no readable window
+    has no cadence to continue, so it falls back to today rather than guessing —
+    `sprint_window_from_heading`'s stance. `createSprintFile` empties the box on
+    a landed create, which is what re-offers the new handover day; only an empty
+    box is ever prefilled, since this runs on every render and would otherwise
+    undo a date you had just picked.
   - **Grids become markdown inside the save, not on cell blur.** Blur would leave
     a window where the autosave fires first and writes a stale table; as the
     save's first step it cannot be written stale, and it costs one request per
@@ -846,6 +857,24 @@ and replaces the first line with `# Sprint N · YYYY-MM-DD → YYYY-MM-DD`.
 point them at `tmp_path`, the same shape as `db.set_db_path` — **no test may
 reach the real `sprints/`**, which holds work actually done.
 
+- **The window is the date you asked for, and it ends on the handover day.**
+  `sprint_window` in `main.py` — **nothing snaps.** The cadence is the team's own
+  (planning happens on the sync day, a Wednesday here), so a Wednesday start stays
+  a Wednesday. `validation.fortnight_window` still snaps to a Monday and must:
+  that one frames the **drawer's strip**, which is drawn on Monday-based week
+  columns. A chart window and a file heading are different things, and this is
+  why the two functions exist separately.
+  `end` is `FORTNIGHT_DAYS` past the start rather than one day short of it, so it
+  lands on the day the next sprint begins — the `17 Jun → 01 Jul`, `01 Jul →
+  15 Jul` convention. Continuing a cadence therefore means asking for a fortnight
+  starting on the previous sprint's end date, which the boundary allowance below
+  is what permits.
+  The cost, accepted: the drawer and the Sprint tab both post here, so a
+  drawer-created sprint also ends a day past the strip it was planned from — the
+  strip's last column is the last *working* day, the heading's end is the
+  *handover* day. One convention reading a day long on a chart beats two
+  conventions in one app.
+
 - **One team runs one sprint at a time, so overlapping windows are refused.**
   `POST /api/sprints` reads each file's window back off its first line and 409s,
   writing nothing, if the requested fortnight shares **more than a boundary day**
@@ -856,9 +885,11 @@ reach the real `sprints/`**, which holds work actually done.
   at once. `windows_overlap` is therefore `<` on both sides rather than `<=` —
   comparing an inclusive end strictly is the same test as a half-open interval,
   so a single touching endpoint falls through while a nested one-day window does
-  not. A window this app *generates* never lands on the boundary anyway (a
-  fortnight ends the day before the next Monday), so the allowance only ever
-  matters for headings edited by hand. `GET /api/sprints` also
+  not. **Every window this app generates now lands exactly on that boundary**, so
+  the allowance is what makes a second sprint creatable at all rather than a
+  concession to headings edited by hand — see `sprint_window` below. The
+  strictly-back-to-back case (ending the day *before*) is the one that now only
+  arrives by hand. `GET /api/sprints` also
   reports `overlaps` per file, because refusing creation leaves exactly one way
   in: dates edited by hand afterwards, which the app does not own and will not
   rewrite. `sprint_window_from_heading` is **the only thing in the app that reads

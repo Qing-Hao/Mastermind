@@ -1386,7 +1386,8 @@ def test_the_first_sprint_file_is_01(client, sprints):
 def test_the_heading_carries_the_number_and_the_fortnight(client, sprints):
     start_sprint(client, "2026-08-03")
     first = (sprints / "01.md").read_text(encoding="utf-8").partition("\n")[0]
-    assert first == "# Sprint 1 · 2026-08-03 → 2026-08-16"
+    # Ends on the handover day -- the day sprint 2 starts, not the day before it.
+    assert first == "# Sprint 1 · 2026-08-03 → 2026-08-17"
 
 
 def test_everything_below_the_heading_is_the_template_untouched(client, sprints):
@@ -1427,11 +1428,18 @@ def test_a_sprint_file_is_never_overwritten(client, sprints, monkeypatch):
         assert handle.read().partition("\n")[2] == template_body()
 
 
-def test_the_sprint_start_snaps_to_its_monday(client, sprints):
-    created = start_sprint(client, "2026-08-05")          # a Wednesday
-    assert created["window"]["start"] == "2026-08-03"
+def test_the_sprint_start_is_the_date_it_was_given(client, sprints):
+    """Nothing is snapped: the cadence is the team's, and it is not always Monday.
+
+    `validation.fortnight_window` still snaps, and `GET /api/fortnight` still
+    wants it to -- the drawer's strip is drawn on Monday week columns. A sprint
+    file's heading is not a chart window.
+    """
+    created = start_sprint(client, "2026-08-05")          # a Wednesday, and it stays one
+    assert created["window"]["start"] == "2026-08-05"
+    assert created["window"]["end"] == "2026-08-19"
     assert (sprints / "01.md").read_text(encoding="utf-8").partition("\n")[0] \
-        == "# Sprint 1 · 2026-08-03 → 2026-08-16"
+        == "# Sprint 1 · 2026-08-05 → 2026-08-19"
 
 
 def test_a_garbage_sprint_start_is_rejected(client, sprints):
@@ -1447,9 +1455,11 @@ def test_a_garbage_sprint_start_is_rejected(client, sprints):
 # be read has no window and takes part in nothing.
 #
 # The **handover day is the exception**: one sprint may end on the day the next
-# begins, which is how the sprints are written down. A window this app generates
-# never lands there -- a fortnight ends the day before the next Monday -- so the
-# cases below write those headings by hand, which is also the only way they occur.
+# begins, which is how the sprints are written down. Every window this app
+# generates now lands exactly there -- `sprint_window` ends a sprint on its
+# successor's first day -- so the allowance is what makes consecutive sprints
+# creatable at all. The strictly-back-to-back case is the one that now only
+# arrives by hand, and it is written that way below.
 
 
 def test_a_heading_window_is_read_back_out_of_the_line_it_was_written_on():
@@ -1473,7 +1483,7 @@ def test_a_heading_that_cannot_be_read_has_no_window(heading):
 
 
 def test_a_fortnight_overlapping_a_sprint_on_disk_is_refused(client, sprints):
-    start_sprint(client, "2026-08-03")                     # covers 03 -> 16 Aug
+    start_sprint(client, "2026-08-03")                     # covers 03 -> 17 Aug
     response = client.post("/api/sprints", json={"start": "2026-08-10"})
     assert response.status_code == 409
     assert "one sprint at a time" in response.json()["detail"]
@@ -1489,26 +1499,53 @@ def test_the_very_same_fortnight_is_an_overlap_too(client, sprints):
 
 
 def test_back_to_back_fortnights_are_not_an_overlap(client, sprints):
-    """One ends the day before the next begins, which is how sprints run."""
-    start_sprint(client, "2026-08-03")                     # 03 -> 16 Aug
-    created = start_sprint(client, "2026-08-17")           # 17 -> 30 Aug
+    """One ending the day *before* the next begins is still fine.
+
+    Written by hand: a generated window ends on the handover day now, so a gapless
+    pair that does not share a day only arrives by editing a heading.
+    """
+    write_sprint(sprints, "01.md", "# Sprint 1 · 2026-08-03 → 2026-08-16\n")
+    created = start_sprint(client, "2026-08-17")           # 17 -> 31 Aug
     assert created["name"] == "02.md"
     assert (sprints / "02.md").exists()
 
 
 def test_a_shared_handover_day_is_not_an_overlap(client, sprints):
-    """`... -> 10 Aug` then `10 Aug -> ...` is one day of planning, not two sprints.
+    """`... -> 17 Aug` then `17 Aug -> ...` is one day of planning, not two sprints.
 
-    Written by hand because a generated fortnight ends on a Sunday and the next
-    one snaps to the Monday after -- this convention only ever arrives by editing
-    the heading, which is exactly what the app is not entitled to refuse.
+    **This is the cadence, created twice through the API.** A sprint ends on the
+    day the next one starts, so continuing a cadence means asking for a fortnight
+    that begins on the previous sprint's end date -- and it has to be accepted, or
+    the app could not start a second sprint at all.
     """
-    write_sprint(sprints, "01.md", "# Sprint 1 · 2026-07-27 → 2026-08-10\n")
-    created = start_sprint(client, "2026-08-10")           # snaps to its own Monday
-    assert created["window"]["start"] == "2026-08-10"       # the day 01.md ends
-    assert created["window"]["end"] == "2026-08-23"
+    first = start_sprint(client, "2026-08-03")
+    assert first["window"]["end"] == "2026-08-17"
+
+    created = start_sprint(client, first["window"]["end"])
+    assert created["window"]["start"] == "2026-08-17"      # the day 01.md ends
+    assert created["window"]["end"] == "2026-08-31"
     assert created["name"] == "02.md"
     assert (sprints / "02.md").exists()
+
+
+def test_the_cadence_keeps_the_weekday_it_started_on(client, sprints):
+    """Wednesday to Wednesday, sprint after sprint, with nothing snapping it back.
+
+    The point of the unsnapped start: a team whose sync is on a Wednesday plans on
+    Wednesdays, and the file headings say so.
+    """
+    made = []
+    start = "2026-08-12"                                   # a Wednesday
+    for _ in range(3):
+        created = start_sprint(client, start)
+        made.append((created["window"]["start"], created["window"]["end"]))
+        start = created["window"]["end"]                   # hand over, carry on
+
+    assert made == [
+        ("2026-08-12", "2026-08-26"),
+        ("2026-08-26", "2026-09-09"),
+        ("2026-09-09", "2026-09-23"),
+    ]
 
 
 def test_one_day_past_the_handover_is_still_an_overlap(client, sprints):
