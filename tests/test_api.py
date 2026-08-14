@@ -2005,6 +2005,67 @@ def test_milestones_by_project_groups_every_project_in_one_query(tmp_path):
         db.set_db_path(db.DEFAULT_DB_PATH)
 
 
+def test_milestones_round_trip_through_their_routes(client):
+    project = make_project(client, start="")
+    created_at = client.post(f"/api/projects/{project['id']}/milestones", json={
+        "name": "Private beta", "target_date": "2026-03-02",
+    })
+    assert created_at.status_code == 201
+    assert created_at.json()["achieved"] == 0
+
+    listed = client.get(f"/api/projects/{project['id']}/milestones").json()
+    assert [m["name"] for m in listed] == ["Private beta"]
+
+    # They ride on the plan payload too, so the view needs no second fetch.
+    plan = client.get(f"/api/projects/{project['id']}").json()
+    assert [m["name"] for m in plan["milestones"]] == ["Private beta"]
+
+
+def test_a_milestone_date_is_strict_on_the_way_in(client):
+    """Writes are strict so a bad value never gets stored; empty stays empty."""
+    project = make_project(client, start="")
+    bad = client.post(f"/api/projects/{project['id']}/milestones", json={
+        "name": "Private beta", "target_date": "next tuesday",
+    })
+    assert bad.status_code == 422
+
+    undated = client.post(f"/api/projects/{project['id']}/milestones",
+                          json={"name": "Launch"})
+    assert undated.json()["target_date"] == ""
+
+
+def test_missing_projects_and_milestones_are_404(client):
+    assert client.get("/api/projects/999/milestones").status_code == 404
+    assert client.post("/api/projects/999/milestones",
+                       json={"name": "Launch"}).status_code == 404
+    assert client.put("/api/milestones/999", json={"achieved": True}).status_code == 404
+    assert client.delete("/api/milestones/999").status_code == 404
+
+
+def test_ticking_the_last_milestone_through_the_route_finishes_the_project(client):
+    project = make_project(client, start="2026-01-05")
+    make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+    beta = client.post(f"/api/projects/{project['id']}/milestones",
+                       json={"name": "Private beta"}).json()
+    launch = client.post(f"/api/projects/{project['id']}/milestones",
+                         json={"name": "Launch"}).json()
+
+    client.put(f"/api/milestones/{beta['id']}", json={"achieved": True})
+    assert stages_of(client)[0]["Payments"] == "overdue"
+
+    client.put(f"/api/milestones/{launch['id']}", json={"achieved": True})
+    assert stages_of(client)[0]["Payments"] == "done"
+
+    # Untick one and the project is unfinished again -- nothing latches.
+    client.put(f"/api/milestones/{launch['id']}", json={"achieved": False})
+    assert stages_of(client)[0]["Payments"] == "overdue"
+
+    # And deleting the only unreached one finishes it, which is the same rule
+    # read the other way: what is left to aim at is all that counts.
+    client.delete(f"/api/milestones/{launch['id']}")
+    assert stages_of(client)[0]["Payments"] == "done"
+
+
 def test_ticking_a_milestone_stores_a_flag_and_deleting_a_project_takes_it(tmp_path):
     db.set_db_path(str(tmp_path / "achieved.db"))
     try:

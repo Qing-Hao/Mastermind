@@ -143,6 +143,23 @@ class DeliverablePatch(BaseModel):
     sort_order: int | None = None
 
 
+class MilestoneIn(BaseModel):
+    # A checkpoint the plan is aiming at. `target_date` is optional the way every
+    # date here is: name it now, date it when you commit.
+    name: str
+    description: str = ""
+    target_date: str = ""
+    achieved: bool = False
+
+
+class MilestonePatch(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    target_date: str | None = None
+    achieved: bool | None = None
+    sort_order: int | None = None
+
+
 class DependencyIn(BaseModel):
     # Project to project: which piece of work has to land before another starts.
     predecessor_project_id: int
@@ -1045,6 +1062,55 @@ def edit_deliverable(deliverable_id: int, body: DeliverablePatch):
 def remove_deliverable(deliverable_id: int):
     require_deliverable(deliverable_id)
     db.delete_deliverable(deliverable_id)
+
+
+# --- milestones -------------------------------------------------------------
+
+
+def require_milestone(milestone_id):
+    milestone = db.get_milestone(milestone_id)
+    if not milestone:
+        raise HTTPException(status_code=404, detail="Milestone not found")
+    return milestone
+
+
+@app.get("/api/projects/{project_id}/milestones")
+def read_milestones(project_id: int):
+    require_project(project_id)
+    return db.list_milestones(project_id)
+
+
+@app.post("/api/projects/{project_id}/milestones", status_code=201)
+def add_milestone(project_id: int, body: MilestoneIn):
+    require_project(project_id)
+    return db.create_milestone(
+        project_id=project_id,
+        name=body.name,
+        description=body.description,
+        target_date=clean_date(body.target_date),
+        achieved=body.achieved,
+    )
+
+
+@app.put("/api/milestones/{milestone_id}")
+def edit_milestone(milestone_id: int, body: MilestonePatch):
+    """Rename, re-date, tick or reorder one checkpoint.
+
+    Ticking here is what can finish a project, so this is the one deliverable-
+    shaped write in the app that a derived status reads. It still only stores
+    what it was told: the ladder does the reading, on the next GET.
+    """
+    require_milestone(milestone_id)
+    fields = body.model_dump(exclude_unset=True)
+    if "target_date" in fields:
+        fields["target_date"] = clean_date(fields["target_date"])
+    return db.update_milestone(milestone_id, fields)
+
+
+@app.delete("/api/milestones/{milestone_id}", status_code=204)
+def remove_milestone(milestone_id: int):
+    require_milestone(milestone_id)
+    db.delete_milestone(milestone_id)
 
 
 # --- dependencies -----------------------------------------------------------
