@@ -887,23 +887,35 @@ kbd {
 .map-hub circle { fill: #1a1a1a; }
 .map-hub text { fill: #fff; font-size: 12px; font-weight: 600; }
 
-.map-track circle { fill: var(--track-dot, #9e9e9e); }
-.map-track text { fill: var(--track-text, #555); font-size: 11px; font-weight: 600; }
-
-/* Lighter and smaller than its parent track, so the eye reads the hierarchy
-   from weight alone without needing a legend. Now lighter in the track's own
-   hue rather than in grey -- the dot takes the tone, the label keeps the full
-   hue, since 10px text is where the lightening would cost legibility. */
-.map-subtrack circle { fill: var(--track-dot, #c4c4c4); }
-.map-subtrack text { fill: var(--track-text, #808080); font-size: 10px; font-weight: 600; }
+/* One rule per level of the track hierarchy, which nests as deep as the slashes
+   go. Each level is lighter and smaller than the one above it, so the eye reads
+   the hierarchy from weight alone without needing a legend -- lighter in the
+   track's own hue rather than in grey, and only on the dot: the label keeps the
+   full hue at every depth, since 10px text is where lightening would cost
+   legibility and where the palette's contrast floor lives. */
+.map-group circle { fill: var(--track-dot, #9e9e9e); }
+.map-group text { fill: var(--track-text, #555); font-weight: 600; }
+.map-group.level-1 text { font-size: 11px; }
+.map-group.level-2 text { font-size: 10px; }
+.map-group.level-3 text { font-size: 10px; }
+.map-group.level-4 text { font-size: 10px; }
+/* The rings run out at four levels, so a deeper path folds its tail into this
+   node's name -- which then looks exactly like the bug this replaced, a name
+   with a slash in it. The dashed rim is what tells the two apart; the tooltip
+   spells out what was folded. */
+.map-group.folded circle {
+  stroke: var(--track-text, #555);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+  fill-opacity: .6;
+}
 
 /* Hover highlight. Tracks fade less than unrelated projects: losing the labels
    entirely would leave the lit circles floating with no sense of where on the
    map they sit. */
-.map-node, .map-track, .map-subtrack, .map-edge { transition: opacity .12s; }
+.map-node, .map-group, .map-edge { transition: opacity .12s; }
 .map-focused .map-edge { opacity: .12; }
-.map-focused .map-track,
-.map-focused .map-subtrack { opacity: .35; }
+.map-focused .map-group { opacity: .35; }
 .map-focused .map-node { opacity: .12; }
 .map-focused .map-node.focus-self,
 .map-focused .map-node.focus-linked { opacity: 1; }

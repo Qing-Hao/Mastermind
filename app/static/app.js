@@ -1827,18 +1827,38 @@ const MAX_NODE_R = 38;
 // Pulled in towards the hub to open up the track-to-subtrack gap, which is the
 // tightest one on the map: both rings carry a label and neither has a node big
 // enough to need the room elsewhere.
-const TRACK_RING = 0.36;
-// Not the midpoint of track and project, and closer to its track than to the
-// ring outside it: a subtrack with a single project sits at that project's own
-// angle, and a 38px node on the 0.74 ring reaches a long way back towards it.
-// Labels no longer reach radially -- they run along the arc -- but a circle
-// still does, so the clearance is set by the node rather than by the text.
-// Sitting nearer the track also reads correctly: a subtrack belongs to one.
-const SUBTRACK_RING = 0.48;
+// A track nests on the slash to any depth, so the rings between the hub and the
+// projects are a table rather than two constants. Every row starts at 0.36 and
+// the deeper ones fill the band out to 0.625 -- past that a 38px node on the
+// 0.74 ring reaches back into the label space.
+//
+// Depth 2 is exactly the 0.36/0.48 this used to hard-code, so a map with no
+// third level anywhere draws pixel-for-pixel as it did before. 0.48 is not the
+// midpoint of track and project and is deliberately nearer its parent: a group
+// with a single project sits at that project's own angle, and the clearance is
+// set by the node reaching back rather than by the text.
+//
+// The band runs out at four. Derived on the short vertical axis, which is the
+// binding one: at 1530px `rings.y` is 330, the node clearance eats 0.115, and a
+// level needs its dot plus LABEL_GAP plus LABEL_LINE -- about 25px. Four levels
+// leaves 29px between rings; five leaves 22px and adjacent labels touch, with
+// nothing at runtime able to detect it. So the model nests without limit and
+// the *renderer* stops here -- see foldPath, which makes the flattening say so
+// instead of silently dropping a level the way the first-slash split did.
+const RING_FRACTIONS = {
+  1: [0.36],
+  2: [0.36, 0.48],
+  3: [0.36, 0.49, 0.625],
+  4: [0.36, 0.448, 0.537, 0.625],
+};
+const MAX_DRAWN_DEPTH = 4;
 const PROJECT_RING = 0.74;
 const IDEA_RING = 1.0;
-const TRACK_DOT = 6;
-const SUBTRACK_DOT = 4;
+// Dot radius per level, shrinking with depth so the hierarchy reads off weight
+// as well as tone. The first two are the 6 and 4 the two rings used to carry.
+const LEVEL_DOTS = [6, 4, 3.5, 3];
+// How many characters a level's label keeps. Deeper rings sit in tighter arcs.
+const LEVEL_LIMITS = [22, 18, 16, 14];
 // The tier-1 pip. Deliberately not derived from the node radius -- see
 // projectNode. Big enough to hold a 10px numeral, small enough not to read as
 // a second node.
@@ -1850,9 +1870,9 @@ const LABEL_GAP = 8;
 // Which way a label leans off its node -- see labelPlace.
 const ALONG_RING = true;
 const ACROSS_RING = false;
-// A track splits into a subtrack on the first slash: "Source expansion /
-// Metrics". Convention, not schema -- project.track stays one free-text column
-// and a name without a slash is simply a track with no subtracks under it.
+// A track nests on the slash: "Source Expansion / New Metrics / Network".
+// Convention, not schema -- project.track stays one free-text column and a name
+// without a slash is simply a track with nothing under it.
 const SUBTRACK_SEPARATOR = "/";
 // Hues for the track and subtrack rings. Bounded at eight because
 // distinguishable colours are bounded and free-text tracks are not; a ninth
@@ -1872,10 +1892,23 @@ const TRACK_HUES = [
   "#CC79A7", "#D55E00", "#882255", "#EE6677",
   "#0072B2", "#009E73", "#332288", "#40607A",
 ];
-// How far a subtrack's tone sits from its track's hue, mixed towards white.
-// Far enough to read as lighter across the 40-55px ring gap, near enough to
-// still read as the same colour.
-const SUBTRACK_TONE = 0.45;
+// How far each level's dot sits from its track's hue, mixed towards white, so
+// depth reads as a tone of one colour rather than as a colour of its own. Level
+// 2 is the 0.45 the subtrack ring has always used.
+//
+// Fixed rather than spread over whatever depth a track happens to reach: an
+// allocated ramp would shift every tone above a node the moment somebody added
+// a child, which is the "adding data moves a colour" complaint `trackPalette`
+// is keyed off the whole dataset specifically to avoid. Running out at four
+// levels is a feature -- it makes the tone ceiling and the ring ceiling the
+// same number instead of two independent limits to explain.
+//
+// Only the *dot* takes a tone. Labels keep the full hue at every depth, which
+// is what keeps TRACK_HUES' 3:1-on-white floor -- picked because ring labels
+// are drawn in the hue -- untouched by nesting: measured, the ramp runs 3.06 ->
+// 1.78 -> 1.47 -> 1.33 on the palette's weakest entry, so a lightened *label*
+// would have walked straight through that floor by level two.
+const LEVEL_TONES = [0, 0.45, 0.62, 0.72];
 
 function svgElement(tag, attributes = {}, text) {
   const node = document.createElementNS(SVG_NS, tag);
@@ -2033,18 +2066,40 @@ function labelText(lines, place, className) {
   return text;
 }
 
-// "Source expansion / Metrics" -> track "Source expansion", sub "Metrics".
-// Only the first slash splits, so a subtrack may contain one. A name with
-// nothing before the slash is not half a hierarchy -- it is just a track.
-function splitTrack(raw) {
-  const text = (raw || "").trim();
-  const cut = text.indexOf(SUBTRACK_SEPARATOR);
-  if (cut === -1) return { track: text, sub: "" };
+// "Source Expansion / New Metrics / Network" -> the three names it nests
+// through. Every slash splits, to any depth.
+//
+// This replaced a `splitTrack` that cut on the *first* slash and returned
+// exactly {track, sub}, which meant a third level became part of the second
+// one's name: the value above drew a subtrack literally labelled "New Metrics /
+// Network", sitting as a *sibling* of the "New Metrics" it belongs inside. The
+// field is free text and nothing validates it, so the hierarchy was already
+// being typed and already being drawn wrongly.
+//
+// Empty segments are dropped, which is what keeps "/ Metrics" a track rather
+// than half a hierarchy, and absorbs the spacing already in the dataset
+// ("AI Agent /  Alerting", "Agent Memory ").
+const trackPath = (raw) => String(raw || "")
+  .split(SUBTRACK_SEPARATOR)
+  .map((part) => part.trim())
+  .filter(Boolean);
 
-  const track = text.slice(0, cut).trim();
-  const sub = text.slice(cut + 1).trim();
-  return track ? { track, sub } : { track: sub, sub: "" };
-}
+// The path as the map is willing to *draw* it. The model nests without limit;
+// the rings run out at four (see RING_FRACTIONS), so a deeper path is cut there
+// and the project hangs off the deepest level that fits.
+//
+// It **truncates rather than joining the tail into a name**, and that is the
+// whole correctness of this function. Joining looks like the obvious fold and
+// was tried first: "A/B/C/D/E" becomes a node called "D / E" which then sits
+// beside the "D" it belongs inside -- a node claiming to be a peer of its own
+// parent, which is exactly the bug the first-slash split caused and this item
+// exists to remove. Verified against a synthetic six-deep track, where the join
+// put three siblings on one ring that were really a chain.
+//
+// So a level past the ceiling is **omitted from the picture, never misstated**.
+// What is dropped is not lost: the node is marked (a dashed rim) and its
+// tooltip names every stored value folded into it.
+const foldPath = (path) => path.slice(0, MAX_DRAWN_DEPTH);
 
 // One hue per track name, keyed off **every** track in the dataset rather than
 // the tracks currently drawn. The tier filter runs before mapGroups, so a track
@@ -2055,9 +2110,13 @@ function splitTrack(raw) {
 // Sorted, so the assignment is deterministic: adding a project never moves a
 // colour, and adding a new track only moves the tracks after it alphabetically.
 // A track past the eighth gets no hue and falls back to the map's grey.
+// Keyed off the *root* of the path, so nesting spends nothing from the eight:
+// depth is a tone of the root's hue, never a hue of its own. That is what keeps
+// a dataset already holding eight top-level tracks from running out of colours
+// the moment somebody nests one a level deeper.
 function trackPalette(projects) {
   const names = [...new Set(
-    projects.map((project) => splitTrack(project.track).track))]
+    projects.map((project) => trackPath(project.track)[0]))]
     .filter(Boolean)
     .sort();
   return new Map(names.map((name, index) => [name, TRACK_HUES[index]]));
@@ -2087,46 +2146,82 @@ const tierRank = (project) => {
   return found === -1 ? TIER_ORDER.length : found;
 };
 
-// Tracks sorted by name, subtracks by name, projects by tier then id, so
-// nothing reshuffles between renders. Untracked projects come last and hang
-// straight off the hub; within a track, projects with no subtrack come first
-// and hang straight off the track.
+// The track hierarchy as a tree of any depth. Each node carries the projects
+// sitting on its exact value (`direct`), the nodes below it (`kids`), and the
+// total underneath it, which is what sizes its wedge.
 //
-// Tier orders each list rather than the whole wedge: a subtrack owns a
+// Levels sorted by name, projects by tier then id, so nothing reshuffles
+// between renders. Untracked projects come last and hang straight off the hub;
+// inside any level, projects on that exact value come before the levels below
+// it and hang straight off it -- the same rule the two-level version had, now
+// applied at every depth.
+//
+// Tier orders each `direct` list rather than the whole wedge: a node owns a
 // contiguous run of slots and sits at the middle of it, so sorting across the
-// wedge would interleave subtracks and leave their nodes pointing at nothing.
+// wedge would interleave subtrees and leave their nodes pointing at nothing.
 function mapGroups(projects) {
-  const byTrack = new Map();
+  const node = (name, path) => ({
+    name, path, direct: [], children: new Map(), kids: [], total: 0,
+    // Set when a path was deeper than the rings can draw. `folded` holds the
+    // stored values that landed here, so the tooltip can say what was folded
+    // rather than leaving the label to imply a level that is not there.
+    flattened: false, folded: new Set(),
+  });
+  const root = node(null, []);
+
   for (const project of projects) {
-    const { track, sub } = splitTrack(project.track);
-    if (!byTrack.has(track)) byTrack.set(track, new Map());
-    const bySub = byTrack.get(track);
-    if (!bySub.has(sub)) bySub.set(sub, []);
-    bySub.get(sub).push(project);
+    const full = trackPath(project.track);
+    const shown = foldPath(full);
+    let at = root;
+    shown.forEach((name, index) => {
+      if (!at.children.has(name)) {
+        at.children.set(name, node(name, shown.slice(0, index + 1)));
+      }
+      at = at.children.get(name);
+    });
+    if (shown.length < full.length) {
+      at.flattened = true;
+      at.folded.add(full.join(` ${SUBTRACK_SEPARATOR} `));
+    }
+    at.direct.push(project);
   }
 
-  const build = (track) => {
-    const bySub = byTrack.get(track);
-    const direct = bySub.get("") || [];
-    const subs = [...bySub.keys()]
-      .filter((name) => name !== "")
-      .sort()
-      .map((name) => ({ name, projects: bySub.get(name) }));
-
-    for (const list of [direct, ...subs.map((sub) => sub.projects)]) {
-      list.sort((a, b) => tierRank(a) - tierRank(b) || a.id - b.id);
-    }
-    const total = subs.reduce((count, sub) => count + sub.projects.length,
-      direct.length);
-    return { track: track || null, direct, subs, total };
+  const settle = (at) => {
+    at.direct.sort((a, b) => tierRank(a) - tierRank(b) || a.id - b.id);
+    at.kids = [...at.children.keys()].sort().map(
+      (name) => settle(at.children.get(name)));
+    at.total = at.direct.length
+      + at.kids.reduce((sum, kid) => sum + kid.total, 0);
+    return at;
   };
+  settle(root);
 
-  const groups = [...byTrack.keys()]
-    .filter((key) => key !== "")
-    .sort()
-    .map(build);
-  if (byTrack.has("")) groups.push(build(""));
+  // One wedge per top-level track, then the untracked projects last -- they
+  // draw no group node at all and hang straight off the hub.
+  const groups = [...root.kids];
+  if (root.direct.length) groups.push(root);
   return groups;
+}
+
+// How deep the tree actually goes, which picks the ring table. Measured across
+// the whole map rather than per track: different tracks placing their levels at
+// different radii would stop the rings being rings.
+function treeDepth(groups) {
+  const deepest = (at) => (at.name === null ? 0 : 1)
+    + Math.max(0, ...at.kids.map(deepest));
+  return Math.max(1, ...groups.map(deepest));
+}
+
+// Every slot in a wedge, in drawing order, each remembering the node it hangs
+// off. Building it flat is what lets a node sit at the middle of the run of
+// slots its subtree occupies -- the trick the subtrack ring already used, which
+// turns out to be exactly the recursive step an intermediate level needs.
+function collectSlots(at, out = []) {
+  at.slotFrom = out.length;
+  for (const project of at.direct) out.push({ project, owner: at });
+  for (const kid of at.kids) collectSlots(kid, out);
+  at.slotTo = out.length - 1;
+  return out;
 }
 
 // Two groups of chips, because they answer two different questions: how much
@@ -2244,66 +2339,59 @@ function renderMap() {
   // Unfiltered on purpose -- see trackPalette.
   const palette = trackPalette(state.graph.projects);
 
+  // Which ring each level sits on. The whole map shares one table, so a level
+  // is a ring rather than a per-track radius -- see RING_FRACTIONS.
+  const fractions = RING_FRACTIONS[Math.min(treeDepth(groups), MAX_DRAWN_DEPTH)];
+
   let travelled = 0;  // start at 12 o'clock and go clockwise
   for (const group of groups) {
     const span = (Math.max(group.total, 1) / weight) * ruler.total;
-    // Null for the untracked group, which draws no track node at all, and for
+    // Null for the untracked group, which draws no group node at all, and for
     // a track past the end of the palette. Both then fall back to the grey.
-    const hue = group.track ? palette.get(group.track) : null;
-    const tone = hue ? mixWhite(hue, SUBTRACK_TONE) : null;
+    const hue = group.name ? palette.get(group.name) : null;
 
-    let anchor = { x: cx, y: cy };
-    if (group.track) {
-      const trackAngle = ruler.angleAt(travelled + span / 2);
-      anchor = polar(cx, cy, rings, TRACK_RING, trackAngle);
-      edges.appendChild(paint(svgElement("line", {
-        class: "map-edge", x1: cx, y1: cy, x2: anchor.x, y2: anchor.y,
-      }), { "--track-edge": hue }));
-      nodes.appendChild(trackNode(group.track, anchor, labelPlace(
-        anchor, rings, trackAngle, TRACK_DOT + LABEL_GAP, ALONG_RING), hue));
-    }
-
-    // Every project still gets one angular slot, subtracked ones after the
-    // loose ones. A subtrack owns a contiguous run of those slots, which is
-    // what lets its node sit at the middle of the slice its projects occupy.
-    const slots = [
-      ...group.direct.map((project) => ({ project, sub: null })),
-      ...group.subs.flatMap(
-        (sub) => sub.projects.map((project) => ({ project, sub }))),
-    ];
+    // Every project gets one angular slot, and a level owns the contiguous run
+    // of slots its subtree occupies -- which is what lets it sit at the middle
+    // of the slice its projects take up, at any depth.
+    const slots = collectSlots(group);
     // Every slot owns an equal length of the group's ring, so two neighbours
     // are the same number of pixels apart wherever on the map they land.
     const step = span / (slots.length + 1);
     const distanceAt = (index) => travelled + step * (index + 1);
 
-    // Anchors and edges now, but the nodes themselves go on after the projects:
-    // a subtrack sits close enough to the ring outside it that a large circle
-    // would otherwise paint over its label.
-    const subAnchors = new Map();
-    const subNodes = [];
-    for (const sub of group.subs) {
-      const owned = slots.reduce((found, slot, index) =>
-        (slot.sub === sub ? [...found, index] : found), []);
-      // The middle of the run measured in ring length, not in angle: the two
-      // stopped being the same thing once the steps became unequal. Distances
-      // also climb steadily where angles wrap, so there is no seam to handle.
-      const middle = (distanceAt(owned[0])
-        + distanceAt(owned[owned.length - 1])) / 2;
-      const subAngle = ruler.angleAt(middle);
-      const point = polar(cx, cy, rings, SUBTRACK_RING, subAngle);
-      subAnchors.set(sub, point);
+    // Group nodes are collected rather than appended: they go on after the
+    // projects, because a level sits close enough to the ring outside it that a
+    // large circle would otherwise paint over its label.
+    const levelNodes = [];
+    const anchorOf = new Map([[group, { x: cx, y: cy }]]);
 
-      edges.appendChild(paint(svgElement("line", {
-        class: "map-edge", x1: anchor.x, y1: anchor.y, x2: point.x, y2: point.y,
-      }), { "--track-edge": hue }));
-      subNodes.push(subtrackNode(sub.name, point, labelPlace(
-        point, rings, subAngle, SUBTRACK_DOT + LABEL_GAP, ALONG_RING),
-        hue, tone));
-    }
+    // Depth-first from the top level down, so a node's parent always has an
+    // anchor by the time the edge to it is drawn.
+    const place = (at, depth, from) => {
+      let anchor = from;
+      if (at.name !== null) {
+        // The middle of the run measured in ring *length*, not in angle: the
+        // two stopped being the same thing once the steps became unequal.
+        // Distances also climb steadily where angles wrap, so there is no seam
+        // at 12 o'clock to handle.
+        const middle = (distanceAt(at.slotFrom) + distanceAt(at.slotTo)) / 2;
+        const angle = ruler.angleAt(middle);
+        anchor = polar(cx, cy, rings, fractions[depth - 1], angle);
+        anchorOf.set(at, anchor);
+
+        edges.appendChild(paint(svgElement("line", {
+          class: "map-edge", x1: from.x, y1: from.y, x2: anchor.x, y2: anchor.y,
+        }), { "--track-edge": hue }));
+        levelNodes.push(levelNode(at, depth, anchor, labelPlace(
+          anchor, rings, angle, dotFor(depth) + LABEL_GAP, ALONG_RING), hue));
+      }
+      for (const kid of at.kids) place(kid, depth + 1, anchor);
+    };
+    place(group, 1, { x: cx, y: cy });
 
     slots.forEach((slot, index) => {
       const isIdea = slot.project.stage === "idea";
-      const from = slot.sub ? subAnchors.get(slot.sub) : anchor;
+      const from = anchorOf.get(slot.owner);
       const angle = ruler.angleAt(distanceAt(index));
       const point = polar(cx, cy, rings, isIdea ? IDEA_RING : PROJECT_RING,
         angle);
@@ -2317,7 +2405,9 @@ function renderMap() {
         point, rings, angle, radius + LABEL_GAP, ACROSS_RING)));
     });
 
-    for (const node of subNodes) nodes.appendChild(node);
+    // Deepest first, so a shallower level's label draws over a deeper one's
+    // dot rather than under it where the two rings crowd.
+    for (const node of levelNodes.reverse()) nodes.appendChild(node);
     travelled += span;
   }
 
@@ -2431,26 +2521,52 @@ function hubNode(name, cx, cy) {
   return group;
 }
 
-const trackNode = (track, point, place, hue) =>
-  groupNode("map-track", track, point, TRACK_DOT, place, 22, hue, hue);
+// Per-level metrics, clamped so a level past the drawn ceiling still has
+// numbers rather than undefined ones.
+const atLevel = (table, depth) => table[Math.min(depth, table.length) - 1];
+const dotFor = (depth) => atLevel(LEVEL_DOTS, depth);
 
-// The dot takes the lighter tone and the label takes the full hue: at 10px,
-// text in the tone is the one place the lightening costs legibility, and the
-// hierarchy is already carried by the dot and the type size.
-const subtrackNode = (name, point, place, hue, tone) =>
-  groupNode("map-subtrack", name, point, SUBTRACK_DOT, place, 18, tone, hue);
-
-// Both are placed ALONG_RING by their caller, so a subtrack's name runs into
-// the empty arc beside it rather than onto the ring in front or behind.
+// One node for every level of the track hierarchy: the ring it lands on, the
+// tone it takes and the room its label gets are all the depth.
+//
+// Placed ALONG_RING by its caller, so the name runs into the empty arc beside
+// it rather than onto the ring in front or behind.
+//
+// The dot takes the level's tone and the label keeps the *full* hue at every
+// depth. At 10px, text in a tone is the one place the lightening would cost
+// legibility -- and it is what would walk the palette through its contrast
+// floor. The hierarchy is carried by the dot, the type size and the ring.
 //
 // Colour rides on the group: custom properties inherit, so the circle and the
 // text below pick them up from here.
-function groupNode(className, label, point, radius, place, limit, dot, text) {
-  const group = paint(svgElement("g", { class: className }),
-    { "--track-dot": dot, "--track-text": text });
-  group.appendChild(
-    svgElement("circle", { cx: point.x, cy: point.y, r: radius }));
-  group.appendChild(labelText([{ text: truncate(label, limit) }], place));
+function levelNode(at, depth, point, place, hue) {
+  const tone = hue ? mixWhite(hue, atLevel(LEVEL_TONES, depth)) : null;
+  // A folded node wears a dashed rim, because its *label* is indistinguishable
+  // from the bug this replaced -- a name with a slash in it. The rim is what
+  // says "there is more here than the rings can draw" rather than "somebody
+  // typed a slash into a name".
+  const group = paint(svgElement("g", {
+    class: `map-group level-${depth}${at.flattened ? " folded" : ""}`,
+  }), { "--track-dot": tone, "--track-text": hue });
+  group.appendChild(svgElement("circle", {
+    cx: point.x, cy: point.y, r: dotFor(depth),
+  }));
+  group.appendChild(labelText(
+    [{ text: truncate(at.name, atLevel(LEVEL_LIMITS, depth)) }], place));
+
+  // The label is truncated and, past the ring ceiling, is carrying more than
+  // one level of the path. Both are things the picture cannot say for itself,
+  // so the tooltip says them: the full path, what is underneath it, and -- when
+  // the rings ran out -- the stored values that were folded into this node.
+  const lines = [
+    at.path.join(` ${SUBTRACK_SEPARATOR} `),
+    `${at.total} project${at.total === 1 ? "" : "s"}`,
+  ];
+  if (at.flattened) {
+    lines.push(`flattened — the map draws ${MAX_DRAWN_DEPTH} levels:`,
+      ...[...at.folded].sort());
+  }
+  group.appendChild(svgElement("title", {}, lines.join("\n")));
   return group;
 }
 
@@ -2727,7 +2843,7 @@ function renderDirections() {
 // The Track field is the only door into the taxonomy the map draws, and the
 // grouping key is the raw string: "Source expansion" and "Source Expansion" are
 // two rings, not one. So the field offers back what has already been typed,
-// nested the way `splitTrack` reads it, and normalises spacing on the way in.
+// nested the way `trackPath` reads it, and normalises spacing on the way in.
 // It stays a text input -- a track nobody has used yet needs no ceremony, it is
 // simply typed, and it starts existing when the project is saved.
 //
@@ -2736,38 +2852,62 @@ function renderDirections() {
 // in this codebase, and it is here to stop bad data rather than to look nicer.
 const trackPickers = [];
 
-// Two levels, because that is what `splitTrack` reads and what the map draws.
-// Counts are projects sitting on that exact value, so a track's own count and
-// its subtracks' counts are separate numbers that sum to its weight.
+// Any depth, because that is what `trackPath` reads and what the map draws.
+// Counts are projects sitting on that exact value, so a level's own count and
+// its children's counts are separate numbers that sum to its weight.
+//
+// Unlike `mapGroups` this does *not* fold at MAX_DRAWN_DEPTH: the ceiling is
+// the renderer's, and a field that refused to offer back a value already in the
+// dataset would be the picker inventing a rule the data does not have.
 function trackTree(projects) {
-  const tracks = new Map();
+  const root = { name: null, path: [], count: 0, children: new Map() };
   for (const project of projects) {
-    const { track, sub } = splitTrack(project.track);
-    if (!track) continue;
-    if (!tracks.has(track)) tracks.set(track, { name: track, count: 0, subs: new Map() });
-    const node = tracks.get(track);
-    if (sub) node.subs.set(sub, (node.subs.get(sub) || 0) + 1);
-    else node.count += 1;
+    const path = trackPath(project.track);
+    if (!path.length) continue;
+    let at = root;
+    path.forEach((name, index) => {
+      if (!at.children.has(name)) {
+        at.children.set(name, {
+          name, path: path.slice(0, index + 1), count: 0, children: new Map(),
+        });
+      }
+      at = at.children.get(name);
+    });
+    at.count += 1;
   }
-  const byName = (a, b) => a.name.localeCompare(b.name);
-  return [...tracks.values()]
-    .map((node) => ({
-      name: node.name,
-      count: node.count,
-      subs: [...node.subs.entries()]
-        .map(([name, count]) => ({ name, count }))
-        .sort(byName),
-    }))
-    .sort(byName);
+
+  const settle = (at) => ({
+    ...at,
+    value: at.path.join(` ${SUBTRACK_SEPARATOR} `),
+    kids: [...at.children.values()]
+      .map(settle)
+      .sort((a, b) => a.name.localeCompare(b.name)),
+  });
+  return settle(root).kids;
 }
 
-// "Mobile /Offline" and "Mobile/ Offline" are one track. Everything the picker
-// commits goes through here, for the same reason the tree is built through
-// `splitTrack`: one spelling per ring.
-function canonicalTrack(raw) {
-  const { track, sub } = splitTrack(raw);
-  return sub ? `${track} ${SUBTRACK_SEPARATOR} ${sub}` : track;
+// Walk every level of the tree, parents before their children.
+function eachLevel(tree, visit, depth = 1) {
+  for (const node of tree) {
+    visit(node, depth);
+    eachLevel(node.kids, visit, depth + 1);
+  }
 }
+
+const findLevel = (tree, path) => {
+  let at = { kids: tree };
+  for (const name of path) {
+    at = at.kids.find((kid) => kid.name.toLowerCase() === name.toLowerCase());
+    if (!at) return null;
+  }
+  return at.kids ? at : null;
+};
+
+// "Mobile /Offline" and "Mobile/ Offline" are one track, at any depth.
+// Everything the picker commits goes through here, for the same reason the tree
+// is built through `trackPath`: one spelling per ring.
+const canonicalTrack = (raw) =>
+  trackPath(raw).join(` ${SUBTRACK_SEPARATOR} `);
 
 function trackPicker(input) {
   const root = input.parentElement;
@@ -2799,57 +2939,64 @@ function trackPicker(input) {
   const matches = (text, term) =>
     !term || text.toLowerCase().includes(term.toLowerCase());
 
-  const everyValue = () => tree.flatMap((track) =>
-    [track.name, ...track.subs.map((sub) => `${track.name} ${SUBTRACK_SEPARATOR} ${sub.name}`)]);
+  const everyValue = () => {
+    const out = [];
+    eachLevel(tree, (node) => out.push(node.value));
+    return out;
+  };
 
-  const findTrack = (name) =>
-    tree.find((track) => track.name.toLowerCase() === name.toLowerCase());
-
-  // What the field is asking for right now: a track, or a subtrack inside one.
-  // The split is the same first-slash rule as everywhere else, so a field
-  // holding a slash is already "inside" that track.
+  // What the field is asking for right now: the levels already committed --
+  // every complete segment -- and the partial name being typed after the last
+  // slash. Splitting on the *last* separator rather than the first is what lets
+  // the field be "inside" a path of any depth; the first-slash version could
+  // only ever be inside a top-level track.
   function parseQuery(value) {
-    const cut = value.indexOf(SUBTRACK_SEPARATOR);
+    const cut = value.lastIndexOf(SUBTRACK_SEPARATOR);
     if (cut === -1) return { scope: null, term: value.trim() };
-    return { scope: value.slice(0, cut).trim(), term: value.slice(cut + 1).trim() };
+    return {
+      scope: trackPath(value.slice(0, cut)),
+      term: value.slice(cut + 1).trim(),
+    };
   }
+
+  const rowFor = (node, depth, match) => ({
+    kind: depth === 1 ? "track" : "sub", depth, label: node.name, match,
+    value: node.value, count: node.count, kids: node.kids.length,
+  });
 
   function buildRows() {
     const raw = browsing ? "" : input.value;
     const { scope, term } = parseQuery(raw);
     const out = [];
 
-    if (scope === null) {
+    if (scope === null || scope.length === 0) {
       crumb.hidden = true;
-      // A track stays visible when only its subtracks match, so the parent you
-      // are aiming at never disappears from under the thing you typed.
-      for (const track of tree) {
-        const trackHit = matches(track.name, term);
-        const subHits = track.subs.filter((sub) => matches(sub.name, term));
-        if (!trackHit && subHits.length === 0) continue;
-        out.push({
-          kind: "track", label: track.name, match: term,
-          value: track.name, count: track.count,
-        });
-        for (const sub of trackHit ? track.subs : subHits) {
-          out.push({
-            kind: "sub", label: sub.name, match: trackHit ? "" : term,
-            value: `${track.name} ${SUBTRACK_SEPARATOR} ${sub.name}`, count: sub.count,
-          });
+      // A level stays visible when only something below it matches, so the
+      // parent you are aiming at never disappears from under the thing you
+      // typed. Recursive now, so that holds however deep the match is.
+      const deepHit = (node) =>
+        matches(node.name, term) || node.kids.some(deepHit);
+
+      const emit = (node, depth, all) => {
+        const hit = matches(node.name, term);
+        out.push(rowFor(node, depth, all && !hit ? "" : term));
+        for (const kid of node.kids) {
+          if (all || hit) emit(kid, depth + 1, true);
+          else if (deepHit(kid)) emit(kid, depth + 1, false);
         }
-      }
+      };
+      for (const node of tree) if (deepHit(node)) emit(node, 1, false);
     } else {
-      const track = findTrack(scope);
+      const parent = findLevel(tree, scope);
       crumb.hidden = false;
       crumb.textContent = "";
       crumb.append(element("span", null, "inside"),
-        element("em", null, track ? track.name : scope || "…"));
-      for (const sub of track ? track.subs : []) {
-        if (!matches(sub.name, term)) continue;
-        out.push({
-          kind: "sub", label: sub.name, match: term,
-          value: `${track.name} ${SUBTRACK_SEPARATOR} ${sub.name}`, count: sub.count,
-        });
+        element("em", null, parent
+          ? parent.value
+          : scope.join(` ${SUBTRACK_SEPARATOR} `) || "…"));
+      for (const kid of parent ? parent.kids : []) {
+        if (!matches(kid.name, term)) continue;
+        out.push(rowFor(kid, 2, term));
       }
     }
 
@@ -2863,7 +3010,7 @@ function trackPicker(input) {
       if (!existing) {
         out.push({
           kind: "create", label: typed, value: typed,
-          tag: splitTrack(typed).sub ? "new subtrack" : "new track",
+          tag: trackPath(typed).length > 1 ? "new subtrack" : "new track",
         });
       } else if (existing !== typed) {
         const row = out.find((candidate) => candidate.value === existing);
@@ -2904,6 +3051,10 @@ function trackPicker(input) {
     }
     rows.forEach((row, index) => {
       const option = element("div", `track-opt track-${row.kind}`);
+      // Indent by depth. Level 2 keeps the 25px `.track-sub` already carries,
+      // so a two-level tree looks exactly as it did; deeper levels step in from
+      // there rather than all sharing one indent and reading as siblings.
+      if (row.depth > 2) option.style.paddingLeft = `${25 + (row.depth - 2) * 14}px`;
       option.id = `${input.id}-opt-${index}`;
       option.setAttribute("role", "option");
       option.setAttribute("aria-selected", String(index === active));
@@ -2936,11 +3087,12 @@ function trackPicker(input) {
       input.removeAttribute("aria-activedescendant");
     }
 
-    // The hint offers the key the highlighted row can actually use: a track
-    // with subtracks can be opened, anything else can only be taken.
+    // The hint offers the key the highlighted row can actually use: a level
+    // with anything under it can be opened, anything else can only be taken.
+    // No longer restricted to the top level -- the tree nests as far as the
+    // slashes do, so a subtrack with children opens exactly like a track.
     foot.textContent = "";
-    const openable = current && current.kind === "track"
-      && findTrack(current.value).subs.length > 0;
+    const openable = Boolean(current && current.kids);
     if (openable) {
       foot.append(
         element("b", null, "/"), element("span", null, "opens this track"),
@@ -2992,10 +3144,12 @@ function trackPicker(input) {
     input.dispatchEvent(new Event("change"));
   }
 
-  // A slash on a highlighted track means "go inside it", the way a path field
-  // completes a directory. Anywhere else a slash is just a slash.
+  // A slash on a highlighted level means "go inside it", the way a path field
+  // completes a directory -- at any depth now, not just on a top-level track.
+  // Anywhere else a slash is just a slash, which is how a level nobody has
+  // typed yet gets created.
   function drillInto(row) {
-    if (!row || row.kind !== "track") return false;
+    if (!row || !row.kids) return false;
     input.value = `${row.value} ${SUBTRACK_SEPARATOR} `;
     active = 0;
     show(false);
@@ -3023,15 +3177,17 @@ function trackPicker(input) {
       commit(rows[active] ? rows[active].value : input.value);
       return;
     }
-    if (event.key === SUBTRACK_SEPARATOR && input.value.indexOf(SUBTRACK_SEPARATOR) === -1) {
+    // No longer gated on the field holding no slash: that guard was the two-
+    // level ceiling, and it is the one the request was actually about.
+    if (event.key === SUBTRACK_SEPARATOR) {
       if (root.dataset.open === "true" && drillInto(rows[active])) event.preventDefault();
       return;
     }
-    // One key to undo a wrong turn: backspacing off a trailing slash pops back
-    // out to the top level rather than nibbling the track's last letter.
+    // One key to undo a wrong turn: backspacing off a trailing slash pops out
+    // one level rather than nibbling the last letter of the name before it.
     if (event.key === "Backspace" && /\s*\/\s*$/.test(input.value)) {
       event.preventDefault();
-      input.value = splitTrack(input.value).track;
+      input.value = canonicalTrack(input.value);
       active = 0;
       open();
       return;
