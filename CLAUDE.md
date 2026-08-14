@@ -27,7 +27,7 @@ step: it is a prebuilt bundle served as a static file.
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000   # http://127.0.0.1:8000
-.\.venv\Scripts\python.exe -m pytest -q                                   # 291 tests, ~11s
+.\.venv\Scripts\python.exe -m pytest -q                                   # 297 tests, ~11s
 
 .\.venv\Scripts\python.exe -m pip install -r requirements-ai.txt          # optional, sprint review only
 .\.venv\Scripts\python.exe scripts\sprint_review.py --history 3
@@ -544,7 +544,7 @@ into one project link.
     from the lower number, and the editor prints the numbers `GET /api/sprints`
     handed it — it reads no dates itself. `.sprint-overlap` deliberately sets no
     `display`, so the element's `[hidden]` still wins.
-  - **A table is a grid of `<input>`s and has no reveal gesture at all.** Every
+  - **A table is a grid of `<textarea>`s and has no reveal gesture at all.** Every
     other block type swaps between rendered HTML and its markdown; a table swaps
     to cells, so raw pipes have nowhere to appear. `Tab`/`Shift+Tab` walk cells
     and `Tab` off the last one grows a row; `+ Row` `+ Column` sit under it on
@@ -552,6 +552,28 @@ into one project link.
     outwards**, growing the table to fit. That paste is the feature the editor
     was built for. Editing a table's alignment markers, or turning one back into
     prose, is the raw file view's job.
+  - **A cell holds more than one line, and the file holds `<br>`.** `Enter` in a
+    cell is a line break within it — which is why a cell is a textarea and not an
+    `<input>` — and the height follows the text. A real newline cannot reach the
+    file: a newline inside a pipe row **is** a new row, so it would split the
+    table silently, and GFM has no block content in a cell to put there instead.
+    `markdown.CELL_BREAK` is the whole contract, the same shape `MERMAID_CLASS`
+    has: `_escape_cell` writes it, `cellText` reads it back, and a cell already
+    holding one survives untouched so an unedited table stays byte-stable. Read
+    leniently — `<br/>`, `<br />`, any case, because a file you hand-edit holds
+    whichever you typed — and written in exactly one spelling. Pasting is
+    deliberately unchanged: a one-column range is still rows, and `Enter` is how a
+    second line goes into a single cell.
+    A consequence to expect: a `<br>` typed by hand into an older file now shows
+    as a line break in the grid. That was accepted as being what it says.
+    **A list or a checkbox inside a cell stays impossible**, and multi-line cells
+    are the answer rather than a step towards it: `- design<br>- build` reads as
+    two lines and stays plain text in the file, honest in Notepad and exact
+    through the round trip. Emitting `<li>` or an `<input type="checkbox">` into a
+    cell would render — `html=True` — and then a tick would have **no persistence
+    path at all**, since `toggleSprintTask` rewrites a `- [ ]` *line* and a cell
+    has none. A tickable list belongs in a task-list block under the table, where
+    the tick already works.
   - **Rows and columns are inserted, deleted and moved where they are**, from a
     `⠿` grip beside every row and above every column: drag it to move that one,
     click it for `Insert before` / `Insert after` / `Delete`. It replaced
@@ -618,6 +640,19 @@ into one project link.
     `Enter` at the end of a block opens an empty one below it and `Backspace` in
     an emptied block removes it — those two exist because without a way to *make*
     an empty block the menu has no path to it.
+  - **The foot of the document is always a place to start a block**, not only when
+    the file is empty. It used to appear at `blocks.length === 0` alone, which left
+    **a file ending in a table with no gesture anywhere that added a block after
+    it**: a table has no textarea, so the `Enter` above cannot happen, and `Tab`
+    off the last cell grows a row instead of leaving. Fixing the class rather than
+    the instance — the target knows nothing about tables, so it cannot rot.
+    The gaps are `removeSprintBlock`'s rule in reverse: **the last block owns the
+    file's trailing newline**, so an appended block inherits it and what used to be
+    last is given a blank line, which a single newline cannot substitute for — two
+    paragraphs joined by one re-read as one paragraph. An empty block committed
+    empty is taken back out and the newline handed back, so clicking the target and
+    changing your mind writes nothing. Only these gestures make an empty block; the
+    splitter never returns one.
   - **A gutter rail** carries what the block is and a `⠿` grip that reorders it.
     `draggable` is armed from the grip alone, so a press anywhere else still
     places a cursor — the same conclusion the deliverable list reached, by a
