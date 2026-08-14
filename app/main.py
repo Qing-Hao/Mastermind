@@ -932,6 +932,13 @@ def read_graph():
             "goal": project["goal"],
             "phases_done": progress["done"],
             "phases_total": progress["total"],
+            # The map's green splits `done` into delivered and merely closed, and
+            # since the ladder derives `done` from checkpoints, that is what the
+            # split has to read. The phase tally beside it stays on the label:
+            # it still says how much of the work is finished.
+            "milestones_reached": sum(
+                1 for m in milestones.get(project["id"], []) if m["achieved"]),
+            "milestones_total": len(milestones.get(project["id"], [])),
             "effort_points": project_effort_points(phases),
             "next_date": next_phase_boundary(phases, today),
         })

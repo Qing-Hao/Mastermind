@@ -2116,6 +2116,39 @@ def test_ticking_the_last_milestone_through_the_route_finishes_the_project(clien
     assert stages_of(client)[0]["Payments"] == "done"
 
 
+def test_the_graph_carries_the_milestone_tally_the_map_colours_from(client):
+    """The map's green splits `done` into delivered and merely closed. The ladder
+    derives `done` from checkpoints, so the split reads checkpoints too -- reading
+    the phase tally would be wrong in both directions."""
+    project = make_project(client, start="2026-01-05")
+    make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+    beta = client.post(f"/api/projects/{project['id']}/milestones",
+                       json={"name": "Private beta"}).json()
+
+    node = client.get("/api/graph").json()["projects"][0]
+    assert (node["milestones_reached"], node["milestones_total"]) == (0, 1)
+    assert node["derived_stage"] == "overdue"
+
+    client.put(f"/api/milestones/{beta['id']}", json={"achieved": True})
+    node = client.get("/api/graph").json()["projects"][0]
+    assert (node["milestones_reached"], node["milestones_total"]) == (1, 1)
+    assert node["derived_stage"] == "done"
+    # The phase is still open, and the node is still green -- reaching what the
+    # plan aimed at is the delivery, not the phase bookkeeping under it.
+    assert (node["phases_done"], node["phases_total"]) == (0, 1)
+
+
+def test_a_manual_close_carries_no_milestones_to_earn_the_green(client):
+    """The case the split exists for: closed without finishing stays grey."""
+    project = make_project(client, start="2026-01-05")
+    make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+    client.put(f"/api/projects/{project['id']}", json={"stage": "done"})
+
+    node = client.get("/api/graph").json()["projects"][0]
+    assert node["derived_stage"] == "done"
+    assert node["milestones_total"] == 0
+
+
 def test_promoting_an_idea_is_a_write_and_never_an_inference(client):
     """`idea` beats every derived rung, so a checkpoint alone must not promote:
     the portfolio and map filter on the stored stage and the two must agree.

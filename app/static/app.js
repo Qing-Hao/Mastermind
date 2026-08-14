@@ -2828,16 +2828,22 @@ function projectNode(project, point, radius, place) {
   // Styled off the derived stage, not the stored one. The map used to show a
   // project as committed-not-started until somebody remembered to change the
   // field by hand; now the picture ages by itself as dates pass.
-  // `done` is two different things wearing one name. Every phase finished is
-  // work delivered; a manual close with phases still open is work that stopped,
-  // which is as often cancelled or descoped as finished -- CLAUDE.md is
+  // `done` is two different things wearing one name. Every checkpoint reached is
+  // work delivered; a manual close with checkpoints outstanding is work that
+  // stopped, which is as often cancelled or descoped as finished -- CLAUDE.md is
   // explicit that the stored close is "not delivered but closed without
   // finishing". Only the first earns the green: painting a cancelled project as
-  // a success is worse than leaving it grey. Derived the same way the ladder
-  // derives the rung, off the tally the graph payload already carries.
+  // a success is worse than leaving it grey.
+  //
+  // This reads the milestone tally, not the phase one. It read phases until the
+  // ladder moved onto checkpoints, and leaving it there would have been wrong in
+  // both directions: a project that reached every checkpoint with phases still
+  // open would have been painted grey, and a cancelled one whose phases happened
+  // to be ticked would have been painted green -- exactly the case the split
+  // exists to prevent.
   const delivered = project.derived_stage === "done"
-    && project.phases_total > 0
-    && project.phases_done === project.phases_total;
+    && project.milestones_total > 0
+    && project.milestones_reached === project.milestones_total;
 
   const group = svgElement("g", {
     class: `map-node stage-${project.derived_stage} tier-${tier}`
@@ -2891,6 +2897,9 @@ function projectNode(project, point, radius, place) {
     tier === 0 ? "untiered" : `tier ${tier}`,
     `${project.effort_points} pts`,
     project.phases_total ? `${project.phases_done}/${project.phases_total} phases done` : null,
+    project.milestones_total
+      ? `${project.milestones_reached}/${project.milestones_total} milestones reached`
+      : null,
     project.next_date ? `next ${project.next_date}` : null,
     project.goal || null,
   ].filter(Boolean).join("\n")));
