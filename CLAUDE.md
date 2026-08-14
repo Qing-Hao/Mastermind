@@ -224,6 +224,12 @@ its phases and every dependency. V3 is in neither: it is checked at write time.
 `GET /api/projects/{id}` merges the V2 warnings naming that project into its own
 list, so both ends of a link see it.
 
+**Both directions of that merge now exist**: `main.plan_warnings` runs
+`validate_plan` over every project on the portfolio, so the four project rules
+are answerable for the whole dataset at once and not only one project at a time.
+Nothing moved into `validate_portfolio` to do it — the split above is about what
+a rule *reads*, and V1 still reads one phase. Assembly is `main.py`'s job.
+
 `validate_plan`'s `today` and `deliverables_by_phase` arguments both default to
 `None`, which **skips** V6 and V7 rather than inventing the input. The module is
 pure: reading the clock inside it would make every test of it depend on the day
@@ -330,13 +336,32 @@ to guess at), phases
 settings. Its
 `dependencies` are every link the project sits at **either** end of, each
 carrying `predecessor_name` and `successor_name` so the view needs no second
-fetch. `GET /api/portfolio` carries the same list for the whole dataset plus
-every V2 warning, and `GET /api/graph` carries it too — for the map's hover
-highlight, not for a permanent edge.
+fetch. `GET /api/portfolio` carries the same list for the whole dataset, and
+`GET /api/graph` carries it too — for the map's hover highlight, not for a
+permanent edge.
+
+**`GET /api/portfolio`'s `warnings` is every rule, not just V2**, and an earlier
+version of this file said otherwise. `main.plan_warnings` runs V1, V4, V6 and V7
+over every project the route draws and V2 is concatenated on top: one flat list,
+each warning naming the project it belongs to, so a reader groups it however it
+wants. **`validate_plan` stamps `project_id` onto everything it returns** — the
+four rules name a phase and stop there, which is enough on the project view and
+useless in a pile from ten projects at once. The plan rules run on the
+schedulable set only: an idea's estimate is the project view's business, and a
+warning about one would name a project with no bar on the chart.
+
+This is also what makes `validation.fortnight_slice`'s stated reason for bounding
+overdue lanes to the window true — it defers to *"V6 on the Project tab already
+does the latter, globally and better"*, and until now V6 was global in nothing.
 
 `GET /api/portfolio` also returns `unscheduled`: per project, the phases still
 waiting for a date, with `total_weeks`, `total_points` and `scheduled_count`.
-Built by `main.unplaced_work`; it is what the staging tray is drawn from.
+Built by `main.unplaced_work`; it is what the staging tray is drawn from. And
+each project in `projects` carries its own derived facts — `span_start`,
+`span_end`, `phase_count`, `total_points` (`main.with_project_span`) plus
+`derived_stage` — because the chart draws phases, so the project's own dates were
+the one thing on that tab readable nowhere. The span is derived from **every**
+phase, dated or not, never from the bars on screen.
 
 `GET /api/fortnight?start=` returns **one fortnight, flattened**: a `window`
 and a lane per phase touching it. `start` is optional and snaps back to its
@@ -496,6 +521,37 @@ into one project link.
   stage but `idea`; committed is committed, whatever rung the ladder then puts
   it on). Drag a bar to move **only** that phase; snaps to a
   week, `Alt` for single days. No resize.
+  **A lane's title carries the project's own span**, which its bars cannot say
+  between them — each bar is one phase, and the project's dates are the question
+  this tab exists to answer. `Name / 2026-09-01 → 2026-12-12 · 6 phases · 55 pts
+  / 🟢 active`, every number read off the payload. **Never measured from the bars
+  on screen**: a lane only draws the phases inside the current window, so
+  measuring those would make one project report different dates depending on
+  where the chart is scrolled. An undated project says `no dates yet` rather than
+  printing blanks.
+  **Above the chart, every rule for every project on the tab**, grouped by
+  project in swimlane order — the panel FR-2 asked for, because *"what is late
+  across everything"* is the first question of the week and a 26-week grid is a
+  long way to scroll past to reach it. **V2 is deliberately not on it**: it is a
+  fact about a *link*, and the dependency list at the foot of the tab marks the
+  link it is about, so printing it in both places would leave two counts of one
+  problem on one screen. That filter is load-bearing in the other direction too —
+  the dependency pill keys off the same `warnings` list, and an unrelated V6
+  keying on an undefined predecessor turned it amber.
+  **Rules are ordered `V6, V7, V4, V1` inside a group, and the reason is
+  measured**: on the real dataset V1 fires on **all 30 phases**, because those
+  estimates do not follow the default velocity at a 5% tolerance. The validator
+  emits per phase, so the two genuine V6 findings sat under a wall of V1. This
+  orders and never filters — every warning is drawn, and the count counts them
+  all.
+  **The date you are about to drop on follows the cursor** (`.drag-pill`), with
+  the weekday added while `Alt` is held, since coming off a Monday deliberately
+  is the only reason to hold it. Both drags already wrote that date into the
+  thing being dragged and that is where it failed: a bar is exactly as wide as
+  its phase, so at the 22px/week floor a two-week bar is 44px and the text
+  clipped to nothing — in precisely the case that needed it. `position: fixed`,
+  because the chart sits in a scroll container and `clientX/clientY` are viewport
+  coordinates; `pointer-events: none`, because it sits under the cursor mid-drag.
   Above the chart, a **staging tray**: one chip per project that still has
   undated phases. Drag a chip onto a week and the project is placed there —
   `PUT` its `start_date`, then the existing layout endpoint stacks its undated

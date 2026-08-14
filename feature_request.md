@@ -21,7 +21,7 @@ numbers are never reused, so a gap in the sequence means built — look for it i
 `git log` and `STATUS.md`. **Won't-build items stay**, because nothing was
 committed for them: the argument against building is the whole artefact, and
 deleting it invites the idea back in six months. Built so far and gone from
-here: FR-8, FR-9, FR-10, FR-14, FR-15, FR-17, FR-18.
+here: FR-2, FR-8, FR-9, FR-10, FR-12, FR-13, FR-14, FR-15, FR-17, FR-18.
 
 Every item below is written against the invariants in `CLAUDE.md`. Where a
 request has an obvious bad version that would break one, the bad version is
@@ -42,17 +42,15 @@ things and nothing else:
 not on effort · **Won't build**.
 
 Frequency does most of the ranking. A one-line tooltip on a control you hover
-forty times a week outranks a rule you would read once a sprint, and that is
-why FR-13 sits above FR-12.
+forty times a week outranks a rule you would read once a sprint — that is what
+put FR-13 above FR-12, and both are built and gone from this table.
 
 | # | Request | Complexity | Frequency | Impact | Priority |
 |---|---|---|---|---|---|
 | FR-16 | Phase status never updates itself | Medium | High | High | **P1** — one decision first |
-| FR-13 | Project span on the portfolio swimlane title | Tiny | High | Medium | **P1** |
 | FR-1 | Say that sprint task points and phase `effort_points` are one currency | Prose only | — | High | **P1** |
-| FR-2 | Portfolio-wide warnings, not just V2 | Small | High | High | **P1** |
+| FR-19 | V1 fires on all 30 phases, so it says nothing | Setting or prose | High | High | **P2** — one decision, no code |
 | FR-11 | Project picker belongs to the Project tab | Medium | High | Medium | **P2** |
-| FR-12 | Show the date you are dropping on, while dragging | Small | High | Medium | **P2** |
 | FR-3 | Overlap check across projects (**not** a points sum) | Small–medium | Low | Medium | **P3** — sprint 4 |
 | FR-4 | Capacity roster — people and their available days | Medium (new table) | Fortnightly | Medium | **P3** — paper until sprint 4 |
 | FR-5 | Velocity learns from delivered history | Medium | Rare | Medium | **P3** — needs 3 baselines |
@@ -77,41 +75,46 @@ to any of this work. FR-4's option B is the one exception, and it is deferred.
 
 ### What actually blocks what
 
-Only two real dependencies exist among the near-term items. Everything else is
+Only one real dependency is left among the near-term items. Everything else is
 independent.
 
 ```
-FR-13 ──> FR-2        both edit main.read_portfolio; do FR-13 first, it is smaller
 FR-11 ──> tab reorder same change, same files, one commit
 FR-16 ──> a decision  option A/B/C/D, not code
 ```
 
-- **FR-13 before FR-2.** `read_portfolio` returns `projects` straight from
-  `db.list_projects` with no span, so FR-13 has to attach one. FR-2's
-  portfolio-wide warnings assemble in the same function. Two branches editing
-  that return dict is the one merge conflict worth avoiding — keep them in one
-  worktree, in that order.
-- **FR-12 and FR-16 depend on nothing.** Both can start today, FR-16 once its
-  option is picked.
+- **FR-16 depends on nothing but its own option pick.**
 - **FR-11 depends on nothing either, but it moves DOM other branches render
   into** — see the merge order below.
-- **FR-17 and FR-18 are both built** — trees F and G, merged the same day — and
-  what is worth keeping here is only their merge-relevant footprint. FR-17 rewrote
-  the map block of `app.js` — roughly 1830–2330 — and replaced
-  `.map-track`/`.map-subtrack` with `.map-group.level-N` in `style.css`. FR-18
-  rewrote the grid in `editor.js`, `_escape_cell` in `markdown.py`, and the
-  `.sprint-cell` region of `style.css`. **Nothing left on this list touches any of
-  those**, which is why the two merged into one another with conflicts only in this
-  file and in `CLAUDE.md` — both of them prose, both in the tables above.
+- **FR-2, FR-12, FR-13, FR-17 and FR-18 are all built**, and what is worth
+  keeping here is only their merge-relevant footprint. FR-17 rewrote the map block
+  of `app.js` — roughly 1830–2330 — and replaced `.map-track`/`.map-subtrack` with
+  `.map-group.level-N` in `style.css`. FR-18 rewrote the grid in `editor.js`,
+  `_escape_cell` in `markdown.py`, and the `.sprint-cell` region of `style.css`.
+  Tree B (FR-13, FR-12, FR-2) rewrote `main.read_portfolio`, added
+  `main.plan_warnings` and `main.with_project_span`, added a `project_id` stamp to
+  the end of `validate_plan`, and added the portfolio warning panel plus the drag
+  pill to the portfolio block of `app.js` — roughly 1190–1600. **Nothing left on
+  this list touches any of those**, which is why F, G and B merged into one
+  another with conflicts only in this file and in `CLAUDE.md` — both of them
+  prose, both in the tables above.
+- **The B-before-E worry did not materialise.** The two were called near-disjoint
+  on the grounds that they touch the same payload through different functions;
+  B is now merged, so FR-16 rebases onto it rather than racing it. The one place
+  they meet is the end of `validate_plan`, which B changed — worth reading before
+  FR-16 adds a `derived_status` beside it.
 
 ### Where each one lands
 
 | FR | Python | `app.js` | `index.html` | `style.css` | Tests |
 |---|---|---|---|---|---|
 | FR-11 | — | 463–473, 2933–2947 | **header, 10–26** | header | — |
-| FR-12 | — | 1270–1470 (drags) | — | new pill class | — |
-| FR-13 | `main.read_portfolio` | 1202–1216 (lanes) | — | — | `test_api.py` |
 | FR-16 | `validation`, `main` | ~890–935 (phase row) | phase table head | phase status | both suites |
+
+The line numbers above are pre-tree-B. B added roughly 120 lines to the portfolio
+block of `app.js` and a section to the head of `#portfolio-view`, so anything
+below those in either file has moved down — re-grep rather than trusting the
+column.
 
 One property worth noticing: **`style.css` gets touched by most of these, in
 disjoint regions.** Git merges that fine as long as nobody reflows the file. Do
@@ -123,16 +126,24 @@ features; check it before adding any new hideable element.
 
 | Tree | Items, in order | Why they belong together |
 |---|---|---|
-| **B · portfolio** | FR-13, then FR-12, then FR-2 | All in the portfolio view; FR-13 and FR-2 share `read_portfolio`. The only tree that runs the test suite. |
-| **E · status** | FR-16 | `validation.py` + the phase row. Touches the same payload FR-13 does but a different function, and it is the only live item with a rule-shaped decision in it. |
+| **B · portfolio** | ~~FR-13, then FR-12, then FR-2~~ | **Built**, in that order, three commits. 307 tests. |
+| **E · status** | FR-16 | `validation.py` + the phase row. Touches the same payload FR-13 did but a different function, and it is the only live item with a rule-shaped decision in it. |
 | **F · map** | ~~FR-17~~ | **Built.** Left `scripts/map_sweep.js` behind — the map has no test suite, and that is now its verification. |
 | **G · editor** | ~~FR-18~~ | **Built**, plus a clickable checkbox and an inline menu inside a cell that the entry did not ask for. `test_markdown.py`'s round trip is the gate. |
 | **D · shell** | FR-11 + tab reorder | Held back — see below. |
 
-B and E are near-disjoint and can run at the same time. **F and G are done and
-merged**, and they are the evidence that the split above works: two trees, four
-days of edits between them, and the only conflicts were prose in this file and in
-`CLAUDE.md`.
+**B, F and G are done and merged**, and they are the evidence that the split above
+works: three trees, and the only conflicts were prose in this file and in
+`CLAUDE.md`. **E is the only live tree**, so the "several at once" traps below now
+matter only for whatever is opened next.
+
+One thing tree B is worth remembering for: it is where the **frontend got
+verified without a test suite**. Neither the drag pill nor the warning panel has
+a suite to belong to, and the browser extension was not connected, so both were
+driven headlessly out of the real `app.js` behind a stubbed DOM — the same trick
+`scripts/map_sweep.js` uses, kept in a scratchpad rather than committed, because
+30 lines of DOM plumbing is not a layout engine. **The visual check is still
+outstanding on both** (see `STATUS.md`).
 
 **A map tree needs the real database, and more than the others do.** Its whole
 verification is what the map looks like at this dataset's shape — 8 tracks, one
@@ -185,39 +196,6 @@ stated invariant, not a check.
 
 **Verdict: do it now.** It is the cheapest item on this list and it is the
 precondition for FR-3, FR-4 and FR-5 all meaning anything.
-
----
-
-## FR-2 · Portfolio-wide warnings — **P1**
-
-**What:** Surface V1/V4/V6/V7 across every project on the Portfolio tab.
-`GET /api/portfolio` currently carries only V2.
-
-**Why it matters.** `validate_plan` runs V1, V4, V6 and V7 for **one project**
-(`app/validation.py:524`); `validate_portfolio` runs **only V2**
-(`app/validation.py:567`). So V6 — described in its own docstring as the rule
-that finds late work early, the one that catches a phase a month past its end
-inside a project with months still to run (`app/validation.py:334-345`) — can
-only be seen by opening each project one at a time.
-
-"What is late across everything" is the first question of the week and the tool
-already computes the answer. It just never shows it in one place.
-
-**Cost:** small. The rules exist and are pure; this is an assembly loop in
-`main.read_portfolio` plus a list in the view. No schema change, no export bump.
-
-**Interaction with the fortnight drawer:** `validation.fortnight_slice`
-deliberately bounds overdue lanes to projects with work in that window, on the
-grounds that *"V6 on the Project tab already does the latter, globally and
-better."* That is only true once this item is built. Right now V6 is global in
-nothing.
-
-**Interaction with FR-16:** the two are the same complaint from opposite ends.
-FR-16 makes a phase say where it stands; this makes the whole portfolio say it
-at once. Neither needs the other, and doing FR-16 first would make this list
-read against a status people actually maintain.
-
-**Verdict: do it now.** Highest value per line on the list.
 
 ---
 
@@ -372,8 +350,12 @@ narrower than a feed.
 
 **Verdict: deferred, and named here so it is deferred deliberately.** This is
 the item that would move the tool from *recording a plan* to *telling you
-something you did not already know*. Worth revisiting once FR-2 makes late work
-visible at all — you may find that seeing it is enough.
+something you did not already know*. It was worth revisiting once FR-2 made late
+work visible at all, on the grounds that seeing it might be enough — **FR-2 is
+now built, so that is a live question rather than a future one.** The portfolio
+panel names every V6 across the dataset; use it for a few weeks before
+committing to a change-log table, and if "is this the third time?" stops being
+the thing you reach for, this stays deferred permanently.
 
 ---
 
@@ -430,72 +412,6 @@ a project selector is the first thing you see.
 
 **Cost:** medium-small. `index.html` markup, the tab-switch wiring in `app.js`
 (keyed off element ids, not order), and CSS for the relocated row.
-
----
-
-## FR-12 · Show the date you are dropping on, while dragging — **P2**
-
-*From `comments.md` #4 on 2026-08-13.*
-
-**What:** a date readout that is legible during the drag, not just present in
-the DOM.
-
-**The precise complaint, because the feature half-exists.** A dragged bar's own
-label becomes `Discovery → 2026-09-14` (`app/static/app.js:1451-1453`) and the
-tray ghost does the same (`app.js:1306`). But the readout lives *inside the bar*,
-and a bar is exactly as wide as its phase: at the 22px/week floor a two-week bar
-is 44px, so the text is clipped to nothing in precisely the case where you need
-it. Alt-drag then moves the thing by one day — a few pixels — so the visual
-feedback for the gesture that most needs a date is the smallest.
-
-**What to build:** a floating pill pinned to the cursor carrying the new start
-date, updated in the two `onMove` handlers that already compute it. Show the
-day-of-week too when `Alt` is held, since landing off a Monday is the entire
-reason to hold it.
-
-**The bad version:** widening or restyling the in-bar label — still clipped — or
-a `title` tooltip, which never fires during a drag.
-
-**A second option worth naming:** highlight the target column on the ruler and
-put the date there. The ruler already draws per-week cells with titles
-(`app.js:290`) and the fortnight slice already draws day columns (`app.js:1565`),
-so the idiom exists. It reads better for week snaps and worse for Alt days, where
-the column is one day wide. **Recommend the cursor pill**, optionally with the
-column highlight alongside it.
-
-**Cost:** small — one absolutely-positioned element and two existing handlers.
-
----
-
-## FR-13 · Project span on the portfolio swimlane title — **P1**
-
-*From `comments.md` #5 on 2026-08-13.*
-
-**What:** hovering a swimlane's project name says when that project starts and
-ends, the way hovering its bars already says when each phase does.
-
-**Why it matters.** `lane-title` is plain text (`app/static/app.js:1207`) sitting
-directly beside bars that each carry a full `title` (`app.js:1211`). So the
-per-phase dates are one hover away and the project's own dates — the question the
-Portfolio tab exists to answer — are not available anywhere on the chart.
-
-**The one trap:** a lane only draws the phases visible in the current window
-(`app.js:1195`). The tooltip must report the project's **real** span, not the
-window's slice, or the same lane will claim different dates depending on where
-the chart is scrolled.
-
-**The bad version:** deriving the span in the frontend from the visible bars —
-which is exactly how you would fall into that trap. `validation.project_span`
-already derives it, and derivation lives in `validation.py`.
-
-**Content:** `Name — 2026-09-01 → 2026-12-12 · 6 phases · 55 pts`, plus the
-derived stage, matching the tray chip's existing multi-line `title`
-(`app.js:1249`).
-
-**Cost:** tiny if `GET /api/portfolio` already carries enough per project; small
-if `read_portfolio` needs to attach a span from the existing pure function. No
-schema change, no export bump. **The cheapest item on this list with daily
-value**, which is what puts it in P1 ahead of FR-12.
 
 ---
 
@@ -595,6 +511,49 @@ keeps its column and its CHECK, and no stored value changes, so nothing in
 `status` (`validation.py:755`) and bands an overdue lane off `status == 'done'`
 (`validation.py:717-720`). Under A both keep reading the stored `done` and the
 drawer is untouched — verify that before writing the frontend, not after.
+
+---
+
+## FR-19 · V1 fires on every phase in the dataset — **P2**
+
+*Not a request. Found by building FR-2 on 2026-08-15, and recorded here because
+the portfolio panel is what made it visible.*
+
+**What:** on the real file, `GET /api/portfolio` returns **32 warnings: 30 V1 and
+2 V6.** There are 30 phases. V1 fires on **every single one of them.**
+
+**Why that matters more than it looks.** A rule that fires on everything carries
+no information. It is not wrong — V1 is doing exactly what it is specified to do
+— but it makes the one panel meant to answer *"what is late across everything"*
+into a wall of noise with the two real findings buried in it. FR-2 works around
+the symptom by ordering `V6, V7, V4, V1` within a project; that is a presentation
+fix for a data question and it should not be mistaken for an answer.
+
+**The arithmetic, because the cause is not a bug.** `implied_weeks =
+(effort_points / velocity) × (sprint_length_days / 7)`, so at the default
+velocity 20 and a 14-day sprint a phase's points imply `points / 10` weeks. The
+real dataset's phases carry **2 to 12 points against durations of 1 to 8 weeks** —
+a 2-week phase with 3 points implies 0.3 weeks. Nothing is within 5%.
+
+So one of three things is true, and **only the user can say which**:
+
+| If | Then |
+|---|---|
+| The points are on a different scale than velocity 20 assumes | `default_velocity_points_per_sprint` is wrong for this team, and FR-5 is the item that fixes it — from delivered history, never from headcount |
+| The points are right and the durations are calendar time, not effort time | V1 is comparing two things that were never the same thing, and the rule needs re-stating, not re-tuning |
+| Both are right and 5% is simply too tight | `v1_tolerance_pct` is a setting; it exists to be changed |
+
+**The bad version:** widening the tolerance until the warnings stop. That is
+tuning a rule to be silent, which is the same as deleting it while keeping the
+code. If V1 has nothing to say about this dataset, deleting it outright is the
+honest move — V5 is the precedent and `CLAUDE.md` rule 5 records how that was
+done.
+
+**Depends on nothing and blocks nothing.** It is a conversation with a number
+attached, and the number is now on screen. **Recommend looking at it before
+FR-1**, which writes down that sprint points and `effort_points` are one
+currency: that invariant is worth stating, and worth stating about numbers that
+mean something.
 
 ---
 
