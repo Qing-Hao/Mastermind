@@ -21,7 +21,7 @@ numbers are never reused, so a gap in the sequence means built — look for it i
 `git log` and `STATUS.md`. **Won't-build items stay**, because nothing was
 committed for them: the argument against building is the whole artefact, and
 deleting it invites the idea back in six months. Built so far and gone from
-here: FR-8, FR-9, FR-10, FR-14, FR-15.
+here: FR-8, FR-9, FR-10, FR-14, FR-15, FR-17.
 
 Every item below is written against the invariants in `CLAUDE.md`. Where a
 request has an obvious bad version that would break one, the bad version is
@@ -52,7 +52,6 @@ why FR-13 sits above FR-12.
 | FR-13 | Project span on the portfolio swimlane title | Tiny | High | Medium | **P1** |
 | FR-1 | Say that sprint task points and phase `effort_points` are one currency | Prose only | — | High | **P1** |
 | FR-2 | Portfolio-wide warnings, not just V2 | Small | High | High | **P1** |
-| FR-17 | Track nesting stops at two levels; the map flattens the rest | Medium–large | Low | Medium–high | **P2** — one decision first |
 | FR-11 | Project picker belongs to the Project tab | Medium | High | Medium | **P2** |
 | FR-12 | Show the date you are dropping on, while dragging | Small | High | Medium | **P2** |
 | FR-3 | Overlap check across projects (**not** a points sum) | Small–medium | Low | Medium | **P3** — sprint 4 |
@@ -65,16 +64,8 @@ FR-16 is **P1 with a block on it**, which the letters above would normally call
 P3. The difference is that its block is a single question put to the requester
 in the same pass that raised it, not a wait on evidence that does not exist yet
 — the shape FR-14 had, which went from blocked to built the day an option was
-picked. FR-17 carries the same kind of block: bounded depth or unbounded rings
-is a question, not a wait.
-
-**FR-17 is the one item here whose frequency is Low and whose priority is still
-P2**, which needs saying because frequency does most of the ranking. It earns
-the exception on a different fact: the map is not merely missing a level, it is
-**drawing stored data wrongly today** — `Source Expansion / New Metrics /
-Network` is already in `data/roadmap.db` and already renders as a subtrack
-called `New Metrics / Network`. A view that mis-draws what is stored is worse
-than a view that omits something, however rarely the field is typed.
+picked. FR-17 had the same kind of block and went the same way: bounded depth
+or unbounded rings was a question, it was answered, and it shipped the same day.
 
 ---
 
@@ -94,7 +85,6 @@ independent.
 FR-13 ──> FR-2        both edit main.read_portfolio; do FR-13 first, it is smaller
 FR-11 ──> tab reorder same change, same files, one commit
 FR-16 ──> a decision  option A/B/C/D, not code
-FR-17 ──> a decision  bounded depth or unbounded rings, not code
 ```
 
 - **FR-13 before FR-2.** `read_portfolio` returns `projects` straight from
@@ -106,16 +96,12 @@ FR-17 ──> a decision  bounded depth or unbounded rings, not code
   option is picked.
 - **FR-11 depends on nothing either, but it moves DOM other branches render
   into** — see the merge order below.
-- **FR-17 and FR-18 depend on nothing and on each other least of all.** They sit
-  in different halves of the app — the map's SVG and the sprint editor's grid —
-  and share not one function. FR-17 is the only item on this list that touches
-  the map at all, and FR-18 the only one that touches `markdown.py` or
-  `editor.js`. Both are safe to run alongside B and E.
-- **FR-17 is the one item that contradicts a documented invariant** rather than
-  extending one: `CLAUDE.md` currently states *"Two levels is the ceiling; a
-  third would want a real column or a track table."* Building it means editing
-  that sentence, not working around it — see the entry for why no column is
-  actually needed.
+- **FR-18 depends on nothing.** It is the only item left that touches
+  `markdown.py` or `editor.js`, so it is safe to run alongside B and E.
+- **FR-17 is built** (tree F), and its one merge-relevant leftover is that it
+  rewrote the map block of `app.js` — roughly 1830–2330 — and replaced
+  `.map-track`/`.map-subtrack` with `.map-group.level-N` in `style.css`. Nothing
+  else on this list touches either region.
 
 ### Where each one lands
 
@@ -125,7 +111,6 @@ FR-17 ──> a decision  bounded depth or unbounded rings, not code
 | FR-12 | — | 1270–1470 (drags) | — | new pill class | — |
 | FR-13 | `main.read_portfolio` | 1202–1216 (lanes) | — | — | `test_api.py` |
 | FR-16 | `validation`, `main` | ~890–935 (phase row) | phase table head | phase status | both suites |
-| FR-17 | — | 1830–1878 (rings, hues), 2039–2047 (`splitTrack`), 2058–2075 (palette, tone), 2098–2130 (`mapGroups`), 2244–2300 (render), 2730–2880 (`trackPicker`) | — | map rings | — |
 | FR-18 | `markdown.py:363–365` | — | — | `.sprint-cell` | `test_markdown.py` |
 
 FR-18's frontend is `editor.js`, not `app.js` — 940 (`cellText`), 992–1038
@@ -144,19 +129,18 @@ features; check it before adding any new hideable element.
 |---|---|---|
 | **B · portfolio** | FR-13, then FR-12, then FR-2 | All in the portfolio view; FR-13 and FR-2 share `read_portfolio`. The only tree that runs the test suite. |
 | **E · status** | FR-16 | `validation.py` + the phase row. Touches the same payload FR-13 does but a different function, and it is the only live item with a rule-shaped decision in it. |
-| **F · map** | FR-17 | The one tree that touches the radial SVG, and the only one whose verification is a collision sweep rather than a test run. |
+| **F · map** | ~~FR-17~~ | **Built.** Left `scripts/map_sweep.js` behind — the map has no test suite, and that is now its verification. |
 | **G · editor** | FR-18 | `markdown.py` + `editor.js`. Disjoint from everything: no other live item touches either file. Runs the `test_markdown.py` round trip. |
 | **D · shell** | FR-11 + tab reorder | Held back — see below. |
 
-B, E, F and G are near-disjoint and can all run at the same time. F and G share
-no file with any other tree; between them they touch nothing in `app.js` that B
-or E does — F's regions are the map block from 1830, and G is not in `app.js` at
-all.
+B, E and G are near-disjoint and can all run at the same time. G shares no file
+with any other tree — it is not in `app.js` at all.
 
-**F needs the real database, and more than the others do.** Its whole
+**A map tree needs the real database, and more than the others do.** Its whole
 verification is what the map looks like at this dataset's shape — 8 tracks, one
 already three deep — so a fresh worktree's empty `data/` makes the work
-unverifiable rather than merely dull. Copy the file in first.
+unverifiable rather than merely dull. Copy the file in first, then point
+`scripts/map_sweep.js` at the server in front of it.
 
 **D goes last, alone.** Not because it conflicts textually — the header is its
 own region — but because it moves the project picker out of the global header
@@ -613,153 +597,6 @@ keeps its column and its CHECK, and no stored value changes, so nothing in
 `status` (`validation.py:755`) and bands an overdue lane off `status == 'done'`
 (`validation.py:717-720`). Under A both keep reading the stored `done` and the
 drawer is untouched — verify that before writing the frontend, not after.
-
----
-
-## FR-17 · Track nesting is two levels deep, and the map flattens the rest — **P2, one decision first**
-
-*From `comments.md` #2 on 2026-08-14: "Map branch currently only can be be
-diverge 2 times, but not infinitely, I would prefer infinitely as long as i add
-/. For the colour tone, it just follow the colour but with similar colour tone."*
-
-**What:** let `project.track` nest to any depth on the slash, and give each level
-a lighter tone of its track's own hue rather than a colour of its own.
-
-### This is not a missing feature, it is data being mis-drawn
-
-`splitTrack` cuts on the **first** slash and returns exactly `{track, sub}`
-(`app/static/app.js:2039-2047`); everything after that slash is the subtrack's
-*name*, and its own comment says so — *"Only the first slash splits, so a
-subtrack may contain one."* The map has three rings between the hub and the
-projects, `mapGroups` builds a two-level `Map` of `Map`s
-(`app.js:2098-2130`), and the Track picker refuses to imply a third level
-because `splitTrack` cannot read one.
-
-The field took one anyway, because it is free text and the picker writes nothing.
-Measured against `data/roadmap.db` on 2026-08-14:
-
-| Stored `track` | Drawn as |
-|---|---|
-| `Source Expansion / New Metrics / Network` | track `Source Expansion`, subtrack **`New Metrics / Network`** |
-
-So a third level is already stored, already on screen, and **already wrong** —
-one subtrack node carrying a slash in its label. Nothing warns, because nothing
-validates `track` and nothing should. That is what puts this above its Low
-frequency: the map's whole claim is that it is a picture of the department, and
-it is currently drawing a hierarchy the requester typed as a name.
-
-**Related, and good news for the cost:** the dataset holds **8 top-level
-tracks** — `AI Agent`, `Deployment Script App`, `Expansion of Communication
-Channel`, `External Project`, `Mobile`, `Report Expansion`, `Source Expansion`,
-`UX` — which is `TRACK_HUES` exactly full (`app.js:1871-1874`). A ninth track
-takes the grey. Nesting **must not spend from that budget**, and under the
-requester's own instruction it does not: deeper levels are tones of their root's
-hue, so depth is free in hue terms. That is the right instinct and it is the
-part of the request to hold onto hardest.
-
-### "Infinitely" cannot mean one ring per level — the geometry runs out at four
-
-This is the finding that makes the request need a decision rather than just a
-branch. `CLAUDE.md` already calls ring gaps *"the tightest budget on the map"*,
-and a fourth ring for the `planned` rung was rejected on that budget alone.
-Derived from the constants, on the **short** axis, which is the binding one:
-
-At the map's widest (1530px) `ringX` is 595, `mapHeight` gives 845, so
-`rings.y` is **330** (`app.js:1807-1821`, `2214-2220`). A 38px node on the
-project ring at 0.74 reaches `38/330 ≈ 0.115` inward, so the band available to
-every intermediate level is about **0.36 → 0.625**, or 87px vertically. A level
-needs its dot plus `LABEL_GAP` (8) plus `LABEL_LINE` (13) — roughly 25px of
-radial clearance.
-
-| Deepest path | Intermediate rings, evenly spread | Gap on the short axis |
-|---|---|---|
-| 2 (today) | 0.36, 0.48 | **40px** — matches the 40–55px `CLAUDE.md` quotes |
-| 3 | 0.36, 0.49, 0.625 | 44px, but the last ring sits **exactly** on the node clearance, zero slack |
-| 4 | 0.36, 0.448, 0.537, 0.625 | **29px** — under today's floor, above the minimum |
-| 5 | 0.36, 0.426, 0.493, 0.559, 0.625 | **22px** — below the minimum; adjacent levels' labels touch |
-
-So ring-per-level delivers depth 4 and **fails silently at 5**. Worth saying
-plainly: the deepest path anyone has actually typed is 3.
-
-### Options
-
-| Option | Pro | Con |
-|---|---|---|
-| **A.** One ring per level, spread over the band, no cap | Literally the ask | Breaks at depth 5 with no warning — the failure is labels touching, which nothing detects at runtime |
-| **B.** One ring per level, capped at 4; deeper paths flatten into the deepest ring's name | Never breaks | Still a ceiling, just a higher one — and flattening is the bug this item exists to fix |
-| **C.** Unbounded depth, rings for the last two levels only, the levels above as a breadcrumb on the label and in the tooltip | Truly unbounded; **zero geometry change**, zero new collision risk | The picture stops showing the whole hierarchy, which is the map's job |
-| **D.** Drop ring-per-level for a radial tree — each node placed between its parent and the mean of its children, edges only | Unbounded and self-scaling | Rewrites the layout every map constant is fitted against; `arcRuler` samples one ring |
-
-**Recommendation: unbounded in the model, capped at 4 in the renderer, and it
-says when it flattens.** That is A and B combined, and the split is the point —
-`splitTrack` returns a path of any length, `mapGroups` builds a real tree, the
-Track picker drills and pops at any depth, canonicalisation handles every slash.
-Only the *drawing* caps: past four levels the tail folds into the deepest ring's
-label and the node's tooltip spells the full path out, so a flattened path is
-**visible** rather than silent, which is exactly what today gets wrong. The
-ceiling moves from the data model to the renderer, and the renderer admits to it.
-
-Most of what the requester means by "infinitely as long as I add /" is the model
-and the picker accepting it, and that half has no ceiling at all.
-
-**Take C instead if the collision sweep comes back bad at depth 3** — it is the
-only option that costs nothing geometrically, and it stays available after A+B
-is built.
-
-### The tone ramp, and the trap in it
-
-`SUBTRACK_TONE` is 0.45 mixed towards white, one step (`app.js:1878`,
-`mixWhite` at 2069). The obvious extension is to mix again per level — and it
-**breaks the contrast floor that picked the palette in the first place.** Level
-tones would run 0.45, 0.70, 0.83 and be white by level four, while `TRACK_HUES`
-was chosen with *"a floor of 3:1 on white because the ring labels are drawn in
-the hue as well as the dots"* (`app.js:1857-1870`). Compounding towards white
-walks straight through that floor, silently, on the labels.
-
-Two ways out:
-
-- **Allocate the ramp over the track's own deepest depth** — level *k* of *D*
-  gets `MAX_TONE × (k−1)/(D−1)`. Con: adding a deeper child **shifts every tone
-  above it**, which is the same "adding data moves a colour" complaint
-  `trackPalette` is keyed off the whole dataset to avoid.
-- **A fixed per-level ramp** — `0, 0.45, 0.62, 0.72`, hand-picked and each
-  checked against 3:1 on white. Never moves, and simply runs out at four levels.
-
-**Recommend the fixed ramp.** Its ceiling then *coincides* with the ring ceiling
-instead of being a second, independent limit — one number to explain, not two.
-
-**Bad versions, all tempting:** rotating the hue per level (destroys *"track is
-a hue"*); giving deeper levels their own `TRACK_HUES` entries (spends a budget
-the dataset has already filled); and compounding `mixWhite` per level (the
-contrast trap above). **No hue may reach a project node at any depth** —
-`derived_stage` owns the fill and stroke out there, and that invariant is
-untouched by this item.
-
-### What does not have to change
-
-- **`arcRuler` is already depth-agnostic.** It measures the project ring only and
-  the inner rings follow the angles it hands out (`app.js:1927-1975`), so slot
-  allocation needs nothing.
-- **The midpoint trick is already the recursive step.** A subtrack sits at the
-  middle of the contiguous run of slots its projects occupy, averaged in
-  *distance* rather than angle — which is exactly what an intermediate node at
-  any level needs, and it also sidesteps the wrap at 12 o'clock. So `mapGroups`
-  becoming a tree is the bulk of the work and the geometry mostly follows.
-- **No schema change, no export bump, no `migrate()` step.** Still one free-text
-  column, still a frontend convention, still nothing validating it. `CLAUDE.md`'s
-  *"a third would want a real column or a track table"* is about **managing** a
-  hierarchy — renaming a track is still per-project by hand — not about storing
-  one, and that sentence needs editing when this lands rather than obeying.
-
-**Cost:** medium–large, and unusually the verification is the expensive half.
-`splitTrack` → a path, `mapGroups` → a recursive tree, the render loop →
-recursion over levels, the tone ramp, the picker's drill depth (it already
-drills with `/` and pops with `Backspace`; the ceiling there is a constant, not a
-shape), and spacing canonicalisation at any depth. Then a **collision sweep from
-1000px to 1530px**, the same one that cleared the current map — `STATUS.md` item
-47 already records that the map is not collision-clean at this dataset size, and
-more rings make that worse, so the sweep is what decides whether the cap is 4 or
-3.
 
 ---
 

@@ -27,7 +27,10 @@ step: it is a prebuilt bundle served as a static file.
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000   # http://127.0.0.1:8000
-.\.venv\Scripts\python.exe -m pytest -q                                   # 291 tests, ~11s
+.\.venv\Scripts\python.exe -m pytest -q                                   # 293 tests, ~11s
+
+node scripts\map_sweep.js            # map: label/circle collisions, 1000-1530px
+node scripts\map_sweep.js --tree     # map: the track hierarchy as drawn
 
 .\.venv\Scripts\python.exe -m pip install -r requirements-ai.txt          # optional, sprint review only
 .\.venv\Scripts\python.exe scripts\sprint_review.py --history 3
@@ -61,6 +64,7 @@ Type checking is pyright, `basic` mode, config in `pyrightconfig.json`.
 | `tests/test_sprint_review.py` | Sprint script — pure helpers + one `TestModel` run. Offline. |
 | `templates/sprint.md` | The sprint template. Copied to `sprints/NN.md` (gitignored). |
 | `scripts/sprint_review.py` | Post-sprint LLM review. Optional dep, lazy import, CLI only. |
+| `scripts/map_sweep.js` | The map's collision sweep and tree dump. Node, no deps — loads the real `app.js` behind a stub DOM and measures the SVG `renderMap()` emits. **The map has no test suite; this is its verification.** |
 | `data/roadmap.db` | The dataset. Gitignored. `.bak` is the pre-migration copy. |
 
 Keep this shape. Extend an existing module rather than adding a file; propose a
@@ -108,12 +112,32 @@ work nobody ranked would be the tool having an opinion. Nothing derives from
 tier and no rule reads it. It exists so the Map can be thinned to what matters —
 that is its whole job, and the reason it is a small integer and not a table.
 
-`track` is one column and stays one column. The Map splits it on the **first
-slash** — `Source expansion / Metrics` — to draw a subtrack ring. That is a
-frontend convention (`splitTrack` in `app.js`), not schema: nothing validates it,
-a name with no slash is simply a track, and a name with nothing before the slash
-is treated as a plain track rather than half a hierarchy. Two levels is the
-ceiling; a third would want a real column or a track table.
+`track` is one column and stays one column. The Map splits it on **every
+slash** — `Source Expansion / New Metrics / Network` — and nests to any depth.
+That is a frontend convention (`trackPath` in `app.js`), not schema: nothing
+validates it, a name with no slash is simply a track, and empty segments are
+dropped, so a name with nothing before the slash is a plain track rather than
+half a hierarchy.
+
+**The ceiling is the renderer's, not the model's**, and it used to be the other
+way round. `splitTrack` cut on the *first* slash and returned `{track, sub}`, so
+a third level became part of the second one's *name*: the value above drew a
+subtrack labelled `New Metrics / Network` sitting as a **sibling of the
+`New Metrics` it belongs inside**. The field is free text and nothing validates
+it, so the hierarchy was already stored and already drawn wrongly. Now the model
+nests without limit and only the drawing stops — at `MAX_DRAWN_DEPTH` (4),
+because ring gaps are the tightest budget on the map and a fifth ring leaves
+22px between levels, where labels touch and nothing at runtime can detect it.
+
+A path past the ceiling is **truncated, never folded into a name**. Joining the
+tail is the obvious fold and it recreates the exact bug above — a node called
+`D / E` sitting beside the `D` it belongs inside, which is what the first
+attempt here did and what a synthetic six-deep track caught. So a level that
+will not fit is **omitted from the picture rather than misstated**: the node
+takes a dashed rim and its tooltip names every stored value folded into it.
+None of this needed a column or a track table, which is what the sentence that
+used to end this paragraph claimed. Managing a hierarchy still would — renaming
+a track is per-project by hand, STATUS item 42 — but storing one never did.
 
 Because the grouping key is the **raw string**, `Source expansion` and
 `Source Expansion` are two rings. Nothing normalises stored values — the Track
@@ -401,18 +425,20 @@ into one project link.
   Future directions row, share `trackPicker` in `app.js`. It is the **one
   hand-rolled control in the codebase**, and the exception is deliberate: a
   `<datalist>` cannot nest, count or offer a create row, and the nesting is the
-  point, since the map draws the same two levels. Built from `state.projects`
+  point, since the map draws the same tree. Built from `state.projects`
   and refilled by `refreshTrackPickers` inside `loadProjectList`, so a track
   invented in one field is offerable in the other — nothing is stored, and the
   list is exactly the tracks in use.
-  - Tracks as parents, subtracks indented under them, counts being projects on
-    that **exact** value. Typing filters both levels, and a track stays visible
-    when only its subtracks match.
-  - `/` on a highlighted track drills into it and the panel shows that track's
-    subtracks; `Backspace` off a trailing slash pops back out. Anywhere else a
-    slash is just a slash, and inside a track a further one is part of the
-    subtrack's name — the picker will not imply a third level `splitTrack`
-    cannot read.
+  - Levels indented under their parents to any depth, counts being projects on
+    that **exact** value. Typing filters every level, and a level stays visible
+    when only something below it matches.
+  - `/` on a highlighted level drills into it and the panel shows what is under
+    it; `Backspace` off a trailing slash pops out one level. Anywhere else a
+    slash is just a slash — which is now how a deeper level gets *created*,
+    since the model has no ceiling. **`trackTree` deliberately does not fold at
+    `MAX_DRAWN_DEPTH`**: the ceiling belongs to the renderer, and a field that
+    refused to offer back a value already in the dataset would be the picker
+    inventing a rule the data does not have.
   - Opening a field that already holds a track browses the **whole** tree with
     that row highlighted rather than filtering to the one value already in the
     box. Typing turns it back into a filter.
@@ -662,8 +688,14 @@ into one project link.
     come up. Clicking a diagram opens its fence like any other block; the rail
     reads `mmd`, because the server types every fence `code` and `mermaid`
     measures wider than the 46px gutter.
-- **Map** — hand-rolled radial SVG, deterministic layout. Department hub → track
-  ring → subtrack ring → project ring, ideas outermost and dashed. Nodes are
+- **Map** — hand-rolled radial SVG, deterministic layout. Department hub → one
+  ring per level of the track hierarchy → project ring, ideas outermost and
+  dashed. The levels are a table (`RING_FRACTIONS`) keyed on how deep the map
+  actually goes, shared by the whole picture rather than fitted per track —
+  different tracks placing their levels at different radii would stop the rings
+  being rings. Depth 2 is the 0.36/0.48 the two hard-coded constants used to
+  carry, so a map with no third level anywhere draws exactly as it did before.
+  Nodes are
   styled off **`derived_stage`**, so the picture ages by itself: a project that
   starts next week stops looking un-started on the day it starts, with nobody
   editing a field. Stage reads as one vocabulary on the node — **idea** hollow
@@ -710,9 +742,12 @@ into one project link.
   `text-anchor` `start`/`end` on the flanks and `middle` at top and bottom.
   Label geometry is the reason for the constants: `MAP_MARGIN_X` clears most of
   a sideways label rather than half a centred one, `MIN_MAP_HEIGHT` buys back
-  the ring gap that is thinnest on the short vertical axis, `TRACK_RING` sits at
-  0.36 to open the track→subtrack gap, and `SUBTRACK_RING` at 0.48 keeps the
-  subtrack clear of a 38px node on the ring outside it.
+  the ring gap that is thinnest on the short vertical axis, every row of
+  `RING_FRACTIONS` starts at 0.36 to open the first gap, and none reaches past
+  0.625, which is where a 38px node on the project ring starts reaching back.
+  That band is what runs out at five levels: it holds four with 29px between
+  them and five with 22px, and a level needs its dot plus `LABEL_GAP` plus
+  `LABEL_LINE` — about 25px.
   **The Map is the one view not capped at 1100px** — it is a single picture of
   the whole department, so it takes the window up to 1530px while Project and
   Portfolio keep the cap (the cap moved off `main` onto the views to allow it).
@@ -723,11 +758,27 @@ into one project link.
   nothing moves. Verified by collision sweep over the real dataset: clean from
   1000px to 1530px; below ~900px twelve projects genuinely do not fit and
   labels touch again.
-  **Track is a hue, and it stops at the two inner rings.** The track ring, the
-  subtrack ring, their labels and the spokes between them carry one colour per
-  track; the subtrack takes the same hue mixed 45% towards white, so the
-  hierarchy still reads off weight the way the two greys it replaced did. The
-  spokes out to the projects stay grey and **no hue reaches a project node** —
+  **Track is a hue, and it stops at the inner rings.** Every level of the
+  hierarchy, its label and the spokes between them carry one colour per track,
+  keyed off the **root** of the path — so nesting spends nothing from the eight,
+  and depth is a *tone* of the root's hue rather than a hue of its own. That is
+  what keeps a dataset already holding eight top-level tracks from running out
+  of colours the moment one nests deeper.
+  `LEVEL_TONES` is a **fixed** ramp — `0, 0.45, 0.62, 0.72` mixed towards white,
+  level 2 being the 0.45 the subtrack ring always used — rather than one spread
+  over whatever depth a track happens to reach. An allocated ramp would shift
+  every tone above a node the moment somebody added a child, which is the
+  "adding data moves a colour" complaint `trackPalette` is keyed off the whole
+  dataset specifically to avoid. Running out at four is a feature: the tone
+  ceiling and the ring ceiling become one number to explain instead of two.
+  **Only the dot takes a tone; labels keep the full hue at every depth.** That
+  is what leaves `TRACK_HUES`' 3:1-on-white floor untouched by nesting —
+  measured, the ramp runs 3.06 → 1.78 → 1.47 → 1.33 on the palette's weakest
+  entry, so a lightened *label* would have walked through the floor by level
+  two. A level-4 dot at 0.72 is faint (1.33:1) and accepted: dot radius and font
+  size carry the hierarchy alongside the tone, and nothing in the dataset is
+  four deep.
+  The spokes out to the projects stay grey and **no hue reaches a project node** —
   `derived_stage` owns the fill and stroke out there, and a second colour axis
   on the same circles would not add a vocabulary, it would destroy the one
   there is. Colour arrives as `--track-dot` / `--track-text` / `--track-edge`,
