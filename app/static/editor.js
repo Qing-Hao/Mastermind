@@ -357,6 +357,10 @@ function renderSprintDocument() {
     area.setSelectionRange(area.value.length, area.value.length);
     autosizeSprintArea(area);
   }
+
+  // Also after the append, and for the same reason: a diagram is measured text,
+  // and a detached node has no measurements.
+  drawSprintDiagrams(doc);
 }
 
 function sprintBlock(block, index) {
@@ -472,6 +476,117 @@ function removeSprintBlock(index) {
   scheduleSprintSave();
 }
 
+// --- mermaid ----------------------------------------------------------------
+
+// A mermaid fence arrives from the server as `<pre class="mermaid-source">`
+// holding its own source, because drawing one needs a DOM and text measurement.
+// It is the only rendering in the editor that does not happen in Python, and the
+// class name is the whole contract between the two files -- `app/markdown.py`
+// names the same string.
+//
+// The library is **vendored, not fetched**. This is a localhost tool that works
+// offline, and a diagram that needs the internet would be the first thing here
+// that does; 3.4MB in the repo is the price of that. It loads once per page life
+// and only when a diagram is actually on screen, so a sprint file without one
+// costs nothing at all.
+const MERMAID_SOURCE_CLASS = "mermaid-source";
+const MERMAID_SRC = "/static/vendor/mermaid.min.js";
+
+// Source text -> `{ svg }` or `{ error }`, so a re-render that changed nothing
+// draws nothing: reordering a block, ticking a task, a landed save and a tab
+// switch are all cache hits. A hit is applied **synchronously**, which is what
+// keeps the picture from flickering through its own source on every render.
+//
+// A failure is cached too, keyed by the same text. Fixing the diagram changes
+// the key, so nothing has to be invalidated -- and a broken diagram stops being
+// re-parsed on every render of the document it sits in.
+const mermaidDrawn = new Map();
+let mermaidLoad = null;
+let mermaidSeq = 0;
+
+function loadMermaid() {
+  if (mermaidLoad) return mermaidLoad;
+  mermaidLoad = new Promise((resolve, reject) => {
+    const script = element("script");
+    script.src = MERMAID_SRC;
+    script.onload = () => {
+      window.mermaid.initialize({
+        startOnLoad: false,     // the document says when, not the page load
+        securityLevel: "strict",
+        theme: "neutral",       // the app is plain and light; the default theme is not
+      });
+      resolve(window.mermaid);
+    };
+    // Missing or unservable: every diagram falls back to showing its source,
+    // which is exactly what the tab did before this existed.
+    script.onerror = () => reject(new Error("mermaid could not be loaded"));
+    document.head.appendChild(script);
+  });
+  return mermaidLoad;
+}
+
+function drawSprintDiagrams(doc) {
+  const sources = doc.querySelectorAll(`pre.${MERMAID_SOURCE_CLASS}`);
+  if (!sources.length) return;      // nothing on screen, so nothing is loaded
+
+  sources.forEach((pre) => {
+    // The DOM has already unescaped the fence's contents, so nothing here reads
+    // markdown or strips backticks.
+    const text = pre.textContent;
+    const drawn = mermaidDrawn.get(text);
+    if (drawn !== undefined) applyMermaidResult(pre, drawn);
+    else drawOneDiagram(pre, text);
+  });
+}
+
+async function drawOneDiagram(pre, text) {
+  const id = `mermaid-${mermaidSeq += 1}`;
+  let result;
+  try {
+    const mermaid = await loadMermaid();
+    result = { svg: (await mermaid.render(id, text)).svg };
+  } catch (failure) {
+    // Mermaid renders through a scratch element of its own and tidies it up,
+    // but a throw is the path least likely to have run that tidying, so the
+    // sweep is here rather than trusted.
+    document.getElementById(id)?.remove();
+    document.getElementById(`d${id}`)?.remove();
+    // Mermaid's messages run to several lines of parser detail. The first line
+    // is the part that says which line of the diagram is wrong.
+    const said = String(failure && failure.message ? failure.message : failure);
+    result = { error: said.split("\n")[0] };
+  }
+  mermaidDrawn.set(text, result);
+  // The document may have re-rendered while this was in flight -- the same check
+  // the save path makes against `sprint.number`, for the same reason.
+  if (pre.isConnected) applyMermaidResult(pre, result);
+}
+
+function applyMermaidResult(pre, result) {
+  // A diagram that will not parse keeps its source: the `<pre>` is already where
+  // the markdown is, so the failure state costs nothing to draw and stays one
+  // keystroke away from a picture.
+  if (result.error !== undefined) markMermaidFailure(pre, result.error);
+  else swapMermaidFigure(pre, result.svg);
+}
+
+// The `<pre>` is **replaced, never hidden**. A class that sets `display`
+// outranks `[hidden]`, which `.sprint-view`, `.fortnight-drawer`,
+// `.track-crumb` and `.direction-link-form` have each had to learn the hard way;
+// swapping nodes has no such trap. Nothing is lost by it either: the next render
+// rebuilds the block from `block.html`, so the source comes back on its own.
+function swapMermaidFigure(pre, svg) {
+  const figure = element("div", "mermaid-figure");
+  figure.innerHTML = svg;
+  pre.replaceWith(figure);
+}
+
+function markMermaidFailure(pre, said) {
+  const next = pre.nextElementSibling;
+  if (next && next.classList.contains("mermaid-error")) return;
+  pre.after(element("p", "mermaid-error", `Diagram not drawn — ${said}`));
+}
+
 // --- the gutter rail --------------------------------------------------------
 
 // What a block is, in the margin. Short because it sits in a 46px gutter, and
@@ -482,9 +597,23 @@ const SPRINT_TAG = {
   code: "code", quote: "quote", rule: "rule", html: "html",
 };
 
+// The server types every fence `code`, so a diagram would otherwise be labelled
+// by what it is written in rather than by what it is. Read off the class the
+// renderer already marked it with: the rail's job is to say what you are about
+// to drag.
+//
+// `mmd` rather than `mermaid` because the gutter is 46px and the full word
+// measures 41 of them -- at any window width the tag would start off the left
+// edge of the page. It is the extension mermaid files carry, and it sits in a
+// column of `list` and `table` where an abbreviation reads as one.
+function sprintTag(block) {
+  if (block.html && block.html.includes(MERMAID_SOURCE_CLASS)) return "mmd";
+  return SPRINT_TAG[block.type] || block.type;
+}
+
 function sprintRail(block, index, row) {
   const rail = element("div", "sprint-rail");
-  rail.appendChild(element("span", "sprint-tag", SPRINT_TAG[block.type] || block.type));
+  rail.appendChild(element("span", "sprint-tag", sprintTag(block)));
 
   const grip = element("button", "grip-handle", "⠿");
   grip.type = "button";
