@@ -21,7 +21,13 @@ numbers are never reused, so a gap in the sequence means built — look for it i
 `git log` and `STATUS.md`. **Won't-build items stay**, because nothing was
 committed for them: the argument against building is the whole artefact, and
 deleting it invites the idea back in six months. Built so far and gone from
-here: FR-8, FR-9, FR-10, FR-14, FR-15, FR-17, FR-18.
+here: FR-8, FR-9, FR-10, FR-14, FR-15, FR-16, FR-17, FR-18.
+
+**FR-16 is gone but was not built as written.** It asked what to do about
+`phase.status`, which nothing maintains; the answer turned out to be that the
+question was aimed one level too low. Milestones — a checkpoint entity the
+project ladder reads — made all four of its options unnecessary, and shipped in
+tree E. What FR-16 actually noticed is still true and is reopened as **FR-19**.
 
 Every item below is written against the invariants in `CLAUDE.md`. Where a
 request has an obvious bad version that would break one, the bad version is
@@ -47,7 +53,6 @@ why FR-13 sits above FR-12.
 
 | # | Request | Complexity | Frequency | Impact | Priority |
 |---|---|---|---|---|---|
-| FR-16 | Phase status never updates itself | Medium | High | High | **P1** — one decision first |
 | FR-13 | Project span on the portfolio swimlane title | Tiny | High | Medium | **P1** |
 | FR-1 | Say that sprint task points and phase `effort_points` are one currency | Prose only | — | High | **P1** |
 | FR-2 | Portfolio-wide warnings, not just V2 | Small | High | High | **P1** |
@@ -57,14 +62,13 @@ why FR-13 sits above FR-12.
 | FR-4 | Capacity roster — people and their available days | Medium (new table) | Fortnightly | Medium | **P3** — paper until sprint 4 |
 | FR-5 | Velocity learns from delivered history | Medium | Rare | Medium | **P3** — needs 3 baselines |
 | FR-6 | Slippage memory — has this date moved before? | Large | Low | High | **P3** — deferred deliberately |
+| FR-19 | `phase.status` is still maintained by nobody | Small | High | Medium | **P2** |
+| FR-20 | Milestone diamonds on the portfolio | Small | Medium | Medium | **P2** |
 | FR-7 | Owners at roadmap level | Small | — | Negative | **Won't build** |
 
-FR-16 is **P1 with a block on it**, which the letters above would normally call
-P3. The difference is that its block is a single question put to the requester
-in the same pass that raised it, not a wait on evidence that does not exist yet
-— the shape FR-14 had, which went from blocked to built the day an option was
-picked. FR-17 had the same kind of block and went the same way: bounded depth
-or unbounded rings was a question, it was answered, and it shipped the same day.
+FR-19 and FR-20 both came out of the milestone work in tree E: one is the half
+of FR-16 that milestones did not answer, the other is a half deliberately left
+out of the build. Neither is blocked on anything.
 
 ---
 
@@ -83,7 +87,7 @@ independent.
 ```
 FR-13 ──> FR-2        both edit main.read_portfolio; do FR-13 first, it is smaller
 FR-11 ──> tab reorder same change, same files, one commit
-FR-16 ──> a decision  option A/B/C/D, not code
+FR-20 ──> a decision  per-swimlane or one shared lane, not code
 ```
 
 - **FR-13 before FR-2.** `read_portfolio` returns `projects` straight from
@@ -91,8 +95,9 @@ FR-16 ──> a decision  option A/B/C/D, not code
   portfolio-wide warnings assemble in the same function. Two branches editing
   that return dict is the one merge conflict worth avoiding — keep them in one
   worktree, in that order.
-- **FR-12 and FR-16 depend on nothing.** Both can start today, FR-16 once its
-  option is picked.
+- **FR-12 and FR-19 depend on nothing.** Both can start today. **FR-20 wants
+  FR-13 and FR-2 landed first**, since all three edit the portfolio renderer and
+  it is the one file worth keeping to a single worktree at a time.
 - **FR-11 depends on nothing either, but it moves DOM other branches render
   into** — see the merge order below.
 - **FR-17 and FR-18 are both built** — trees F and G, merged the same day — and
@@ -111,7 +116,8 @@ FR-16 ──> a decision  option A/B/C/D, not code
 | FR-11 | — | 463–473, 2933–2947 | **header, 10–26** | header | — |
 | FR-12 | — | 1270–1470 (drags) | — | new pill class | — |
 | FR-13 | `main.read_portfolio` | 1202–1216 (lanes) | — | — | `test_api.py` |
-| FR-16 | `validation`, `main` | ~890–935 (phase row) | phase table head | phase status | both suites |
+| FR-19 | — | ~1050–1100 (phase row) | phase table head | phase status | `test_api.py` |
+| FR-20 | `main.read_portfolio` | portfolio lanes | — | reuses `.milestone-lane` | `test_api.py` |
 
 One property worth noticing: **`style.css` gets touched by most of these, in
 disjoint regions.** Git merges that fine as long as nobody reflows the file. Do
@@ -124,7 +130,7 @@ features; check it before adding any new hideable element.
 | Tree | Items, in order | Why they belong together |
 |---|---|---|
 | **B · portfolio** | FR-13, then FR-12, then FR-2 | All in the portfolio view; FR-13 and FR-2 share `read_portfolio`. The only tree that runs the test suite. |
-| **E · status** | FR-16 | `validation.py` + the phase row. Touches the same payload FR-13 does but a different function, and it is the only live item with a rule-shaped decision in it. |
+| **E · status** | ~~FR-16~~ | **Superseded, not built.** Milestones answered it instead: a checkpoint entity, the ladder rewired onto it, `draft_complete` dropped, export v10. Left FR-19 and FR-20 behind. |
 | **F · map** | ~~FR-17~~ | **Built.** Left `scripts/map_sweep.js` behind — the map has no test suite, and that is now its verification. |
 | **G · editor** | ~~FR-18~~ | **Built**, plus a clickable checkbox and an inline menu inside a cell that the entry did not ask for. `test_markdown.py`'s round trip is the gate. |
 | **D · shell** | FR-11 + tab reorder | Held back — see below. |
@@ -212,10 +218,12 @@ grounds that *"V6 on the Project tab already does the latter, globally and
 better."* That is only true once this item is built. Right now V6 is global in
 nothing.
 
-**Interaction with FR-16:** the two are the same complaint from opposite ends.
-FR-16 makes a phase say where it stands; this makes the whole portfolio say it
-at once. Neither needs the other, and doing FR-16 first would make this list
-read against a status people actually maintain.
+**Interaction with FR-19:** the two are the same complaint from opposite ends.
+FR-19 makes closing a phase cheap enough that people do it; this makes the whole
+portfolio say where things stand at once. Neither needs the other, and doing
+FR-19 first would make this list read against a status people actually maintain
+— which matters more since the milestone work, because `phase.status` now feeds
+V6 and V7 and nothing else.
 
 **Verdict: do it now.** Highest value per line on the list.
 
@@ -499,102 +507,79 @@ value**, which is what puts it in P1 ahead of FR-12.
 
 ---
 
-## FR-16 · Phase status never updates itself — **P1, one decision first**
+## FR-19 · `phase.status` is still maintained by nobody — **P2**
 
-*From `comments.md` #1 on 2026-08-14: "it seems like the current status of
-project is not automatic update yet. Previously i already give you how it should
-behave, there should be a gap to implement that."*
+*The half of FR-16 that milestones did not answer. FR-16 is deleted; this is
+what it actually noticed, reopened under its own number.*
 
-**What is already automatic, so that the gap can be stated precisely.**
-`validation.project_stage` derives the whole ladder on every read, and the picker
-badge, the map node styling and the portfolio ordering all follow it
-(`STATUS.md` item 54). A project that starts next Monday reads `dated` today and
-`active` on the day, with nobody editing a field. That half is built and it
-works.
-
-**What is not automatic is one rung below: `phase.status`.** It is a stored
-three-value enum (`planned | in_progress | done`) edited by hand from a `<select>`
-on the phase row (`app/static/app.js:921-931`), and **nothing anywhere derives,
-ages or prompts for it.** Measured against `data/roadmap.db` on 2026-08-14:
+Milestones took the completion question off `phase.status`, so the `done` rung is
+reachable again without it. What has not changed is the measurement that opened
+FR-16, against `data\roadmap.db` on 2026-08-14:
 
 | | |
 |---|---|
 | phases at `planned` | **29 of 30** |
-| phases at `done` | 1 |
-| phases at `in_progress` | **0** |
+| phases at `in_progress` | **0, ever** |
 | dated phases whose window contains today, still `planned` | 6 |
-| dated phases past their end and not `done` | 2 |
 
-`in_progress` has never been used once, on any phase, ever. Six phases are
-running right now and all six of them say `planned`.
+`phase.status` now has **exactly one job: feeding V6 and V7.** That is a narrower
+and more useful field than it was, and it makes the bookkeeping problem sharper
+rather than softer — V6 is the only rule that has ever found real late work, and
+it fires on `status != 'done'`, so an unmaintained field means V6 warns about
+phases that are actually finished. The signal degrades into noise you learn to
+scroll past.
 
-**Why that reads as "the project status does not update".** The ladder's `done`
-rung derives from `all(phase.status == 'done')` — chosen deliberately over
-deriving from deliverable ticks (`STATUS.md` item 54) precisely so that closing
-phases is what completes a project. With phase status unmaintained that rung is
-**unreachable**: no project can ever finish itself, and every dated project
-walks `dated → active → overdue` and stops there. **The only exit is the manual
-close**, which the data model defines as *"not delivered but closed without
-finishing"* — so the one way to finish a project today is through the hatch
-built for cancelled work. That is the gap, and it is a real one.
+**What is worth doing, roughly FR-16's option D without any of its derivation.**
+Make closing a phase cheap where you already are: a done tick on the phase row
+instead of a three-value `<select>` nobody opens, and an action on the V6 warning
+that already names the phase. `in_progress` has never been used once, so the
+select is offering a state the team does not have.
 
-### The trap that decides the shape
+**What is not worth doing, and the reason is unchanged.** Deriving `status` from
+dates kills V6 outright — a phase past its end would auto-read `done` and the
+rule could never fire again. FR-16's options A, B and C were all attempts to work
+around that, and all of them are now unnecessary rather than merely awkward: the
+thing they were trying to rescue (project completion) has its own object.
 
-**Deriving `done` from dates kills V6.** V6 fires when a phase's derived end has
-passed and `status != done`; `CLAUDE.md` calls it *the rule that actually finds
-late work*, and it is the only rule that found anything on the real file. If a
-phase past its end auto-reads `done`, V6 can never fire again and the roadmap
-becomes a document in which everything delivered on time. V7 goes the same way,
-and the `done` rung of the ladder stops meaning anything either.
+**Open question before building:** dropping `in_progress` narrows a CHECK, which
+means rebuilding the `project`-shaped table for `phase` — the `migrate_stage_check`
+path that cost a real dataset once. Leaving the value in the column while removing
+it from the UI costs nothing and risks nothing. Prefer that unless there is a
+reason not to.
 
-So **`done` stays a human fact.** What *can* be derived is where a phase sits
-against the calendar, which is a calendar fact — the same line the project
-ladder already draws between what you say and what is worked out.
+---
 
-### Options
+## FR-20 · Milestone diamonds on the portfolio — **P2**
 
-| Option | Pro | Con |
-|---|---|---|
-| **A.** Derive the phase's calendar position (`upcoming / running / overdue`), keep `done` stored and manual. The row's only editable status control becomes a done tick. | One vocabulary with the project ladder; nothing new stored; V6, V7 and the `done` rung untouched; `planned`/`in_progress` stop being fields nobody maintains | Loses "should have started, has not" — the calendar reads a dated phase as running whether or not anyone began it |
-| **B.** Keep the select, print the derived position beside it | Cheapest; no field changes meaning | Two axes disagreeing about one phase — exactly the `project_readiness` mistake item 54 removed. Do not repeat it |
-| **C.** Derive only when the stored value is the untouched default `planned`; a stored `in_progress` or `done` wins | No signal lost; a deliberate edit is honoured | `planned` silently comes to mean "unset", a hidden convention; and it becomes unsayable for a phase deliberately not started |
-| **D.** Derive nothing. Make closing a phase cheap where you already are — a done tick on the phase row, and an action on the V6 warning that already names it | No new derivation, no invariant anywhere near it; attacks the actual cause, which is that 29 of 30 at the default is a bookkeeping-cost problem | Still manual; a phase nobody visits still never closes |
+*Deliberately left out of the milestone build in tree E, logged so the deferred
+half stays visible rather than buried in a closed entry.*
 
-**Recommendation: A for the calendar half, with D alongside it.** A is a pure
-function next to `project_stage`, surfaced as `derived_status` on the phase
-payload the way `with_derived_stage` already tags projects — never stored, never
-written back. The phase row's editable control shrinks to a single `done` tick,
-which is the one fact only you hold and the fact V6, V7 and the `done` rung all
-read. D is what makes that tick actually get used.
+Milestones draw as diamonds on the **Project** timeline, in both Dates and Weeks
+modes. The **Portfolio** — every project's scheduled phases on one axis — draws
+none, so the whole-department view cannot show what any of it is aiming at.
 
-**Take C instead if `in_progress` is worth keeping as a deliberate signal** —
-that is the one thing A gives up, and it is your call, not mine. **B is the one
-to avoid**: it re-creates the two-axis disagreement this project already removed
-once, at the cost of a week of confusion.
+It was left out for a scheduling reason rather than a design one: tree B is
+actively editing the portfolio renderer (FR-13, FR-12, FR-2), and adding a lane
+to it from tree E would have put both trees in one file for the sake of a feature
+neither was blocked on. `feature_request.md`'s own worktree table says B and E
+are near-disjoint, and this is what kept them that way.
 
-### If the request is instead about the Stage field
+**What it needs.** `GET /api/portfolio` does not carry milestones; the graph
+payload does (`milestones_reached` / `milestones_total`, added for the map's
+green) but only as counts, not dates. So this is a payload addition plus a lane
+in the swimlane renderer — the marks themselves already exist as
+`milestoneLane`, which takes marks and knows nothing about which chart it is in.
 
-If what "not automatic" means is that the Project tab's **Stage** dropdown
-should change by itself — start saying `active`, then `overdue` — that is a
-deliberate refusal and stays one. `main.with_derived_stage` tags projects with
-`derived_stage` *alongside* the stored `stage` and never overwrites it, because
-the portfolio filters on the stored value and a form round trip echoes it back;
-writing a derived value into the column would let today's date silently edit your
-data. The derived rung is already on screen as the picker badge. What the Project
-tab does not do is say it **in words, in the view that owns the project** — that
-is four lines beside the Stage field and worth taking whichever option wins
-above.
+**The thing to decide first:** one lane per swimlane, or one shared lane above
+the whole chart. Per-swimlane keeps a checkpoint next to its own project's bars
+and costs a row of height per project; a shared lane is compact and makes it
+ambiguous whose checkpoint a diamond is. Per-swimlane is probably right, and the
+label overlap noted below gets worse either way at portfolio density.
 
-**Cost:** ~25 lines of pure function in `validation.py`, a tag on the phase
-payload in `main.py`, the phase row and the fortnight lane in the frontend, plus
-tests in both suites. **No schema change and no export bump** — `phase.status`
-keeps its column and its CHECK, and no stored value changes, so nothing in
-`data/roadmap.db` needs migrating.
-
-**One thing to check rather than assume:** the fortnight lane already carries
-`status` (`validation.py:755`) and bands an overdue lane off `status == 'done'`
-(`validation.py:717-720`). Under A both keep reading the stored `done` and the
-drawer is untouched — verify that before writing the frontend, not after.
+**Known cost, inherited:** two checkpoints a few days apart overlap their labels
+on the project timeline already. The `title` carries the full text and thinning
+them out would need text measurement the charts do not do — the map has the same
+problem and answers it with a collision sweep rather than at runtime.
 
 ---
 
