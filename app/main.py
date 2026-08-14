@@ -92,8 +92,6 @@ class ProjectIn(BaseModel):
     track: str = ""
     # 0 is untiered: a new project is unranked until someone ranks it.
     tier: int = 0
-    # A new plan is being drafted by definition -- nobody has written it yet.
-    draft_complete: int = 0
 
 
 class ProjectPatch(BaseModel):
@@ -105,7 +103,6 @@ class ProjectPatch(BaseModel):
     stage: str | None = None
     track: str | None = None
     tier: int | None = None
-    draft_complete: int | None = None
 
 
 class PhaseIn(BaseModel):
@@ -407,7 +404,6 @@ def add_project(body: ProjectIn):
         stage=clean_stage(body.stage),
         track=body.track,
         tier=clean_tier(body.tier),
-        draft_complete=1 if body.draft_complete else 0,
     )
 
 
@@ -981,8 +977,6 @@ def edit_project(project_id: int, body: ProjectPatch):
         fields["stage"] = clean_stage(fields["stage"])
     if "tier" in fields:
         fields["tier"] = clean_tier(fields["tier"])
-    if "draft_complete" in fields:
-        fields["draft_complete"] = 1 if fields["draft_complete"] else 0
     return db.update_project(project_id, fields)
 
 

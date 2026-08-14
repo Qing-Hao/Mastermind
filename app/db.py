@@ -52,13 +52,11 @@ CREATE TABLE IF NOT EXISTS {name} (
     -- nothing a reader of this comment does not already know.
     stage             TEXT NOT NULL DEFAULT 'active'
                       CHECK (stage IN ('idea', 'planned', 'active', 'done')),
-    -- "I am done drafting this plan" -- the one thing about a plan's shape that
-    -- cannot be derived, because only the user knows whether a phase with
-    -- nothing under it is an omission or a deliberately thin one. It decides
-    -- `planning` vs `planned` and nothing else; once the work has dates the
-    -- ladder ignores it entirely.
-    draft_complete    INTEGER NOT NULL DEFAULT 0
-                      CHECK (draft_complete IN (0, 1)),
+    -- `draft_complete` lived here between export versions 9 and 10. It said "I
+    -- am done drafting this plan" and decided `planning` vs `planned`; the
+    -- milestone table answers the same question with evidence instead of a
+    -- promise, so the switch went rather than sitting beside it disagreeing.
+    --
     -- Free-text grouping for the map view, e.g. 'Developer experience'.
     track             TEXT NOT NULL DEFAULT '',
     -- Priority, 1 highest. 0 is untiered and is a state of its own, not a
@@ -158,7 +156,7 @@ SCHEMA = SETTINGS_TABLE + PROJECT_TABLE.format(name="project") + REST_OF_SCHEMA
 # retired in some earlier release is left behind rather than failing the copy.
 PROJECT_COLUMNS = (
     "id", "name", "description", "goal", "start_date", "velocity_override",
-    "stage", "track", "tier", "draft_complete", "created_at", "updated_at",
+    "stage", "track", "tier", "created_at", "updated_at",
 )
 
 # Phase-level dependency rows, translated up to the projects they belonged to.
@@ -205,6 +203,15 @@ DROPPED_COLUMNS = [
     ("deliverable", "duration_weeks"),
     ("deliverable", "effort_points"),
     ("settings", "v5_tolerance_pct"),
+    # The drafting switch, replaced by the milestone table at export version 10.
+    # It asked whether a plan was shaped; a checkpoint answers that with
+    # evidence rather than a promise, and could not go stale the way the flag
+    # could. Dropping discards whatever was set -- back the file up first.
+    #
+    # ADDED_COLUMNS still carries its `ALTER TABLE ADD`, deliberately: additions
+    # run before removals, so a file that skipped version 9 entirely gains the
+    # column and loses it again in one pass rather than diverging.
+    ("project", "draft_complete"),
 ]
 
 STAGES = ("idea", "planned", "active", "done")
@@ -421,16 +428,16 @@ def get_project(project_id):
 
 
 def create_project(name, start_date, description="", goal="", velocity_override=None,
-                   stage="active", track="", tier=0, draft_complete=0):
+                   stage="active", track="", tier=0):
     timestamp = now_iso()
     with connect() as connection:
         cursor = connection.execute(
             """INSERT INTO project (name, description, goal, start_date,
                                     velocity_override, stage, track, tier,
-                                    draft_complete, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                    created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (name, description, goal, start_date, velocity_override, stage, track,
-             tier, draft_complete, timestamp, timestamp),
+             tier, timestamp, timestamp),
         )
         project_id = cursor.lastrowid
     return get_project(project_id)
@@ -438,7 +445,7 @@ def create_project(name, start_date, description="", goal="", velocity_override=
 
 def update_project(project_id, fields):
     allowed = {"name", "description", "goal", "start_date", "velocity_override",
-               "stage", "track", "tier", "draft_complete"}
+               "stage", "track", "tier"}
     updates = {key: value for key, value in fields.items() if key in allowed}
     if updates:
         updates["updated_at"] = now_iso()
@@ -769,24 +776,29 @@ def export_all():
         dependencies = rows_to_dicts(
             connection.execute("SELECT * FROM project_dependency").fetchall()
         )
+        milestones = rows_to_dicts(connection.execute("SELECT * FROM milestone").fetchall())
     return {
         # 3 added project.stage/track and settings.department_name; 4 dropped
         # the deliverable estimate and the V5 tolerance; 5 added deliverable.done;
         # 6 moved dependencies from phases up to projects; 7 added project.tier;
-        # 8 added the 'planned' stage; 9 added project.draft_complete.
-        # Reads stay tolerant of older files, so a version-2 through -8 export
+        # 8 added the 'planned' stage; 9 added project.draft_complete; 10 added
+        # the milestone table and dropped draft_complete again.
+        # Reads stay tolerant of older files, so a version-2 through -9 export
         # still imports -- fields that no longer exist are ignored, ones that did
         # not exist yet fall back to their default, and phase-level dependencies
         # are translated on the way in. Nothing in an older file is ever
-        # 'planned', so no translation is needed for version 8, and nothing in
-        # one is drafted, which reads as still-drafting for version 9.
-        "version": 9,
+        # 'planned', so no translation is needed for version 8. A pre-10 file has
+        # no milestones, which reads as a plan still being drafted -- the same
+        # quiet default `draft_complete` arrived with, and the honest one: a file
+        # written before checkpoints existed cannot say what it was aiming at.
+        "version": 10,
         "exported_at": now_iso(),
         "settings": get_settings(),
         "projects": projects,
         "phases": phases,
         "deliverables": deliverables,
         "dependencies": dependencies,
+        "milestones": milestones,
     }
 
 
@@ -840,6 +852,7 @@ def import_all(payload):
     with connect() as connection:
         connection.execute("PRAGMA foreign_keys = OFF")
         connection.execute("DELETE FROM project_dependency")
+        connection.execute("DELETE FROM milestone")
         connection.execute("DELETE FROM deliverable")
         connection.execute("DELETE FROM phase")
         connection.execute("DELETE FROM project")
@@ -863,8 +876,8 @@ def import_all(payload):
             connection.execute(
                 """INSERT INTO project (id, name, description, goal, start_date,
                                         velocity_override, stage, track, tier,
-                                        draft_complete, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                        created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     project["id"], project["name"], project.get("description", ""),
                     project.get("goal", ""),
@@ -876,10 +889,11 @@ def import_all(payload):
                     # Anything before 7 predates tiers: untiered is the honest
                     # read, since nothing in the file ranked it.
                     project.get("tier") or 0,
-                    # Anything before 9 predates the drafting flag. Still-drafting
-                    # is the quieter read: it understates a finished plan rather
-                    # than declaring every half-written one done.
-                    1 if project.get("draft_complete") else 0,
+                    # A version-9 file carries `draft_complete`. It is read and
+                    # discarded rather than translated: the milestone list is
+                    # what answers that question now, and inventing a checkpoint
+                    # to carry a flag across would be making up a target the
+                    # file never named.
                     project.get("created_at") or now_iso(),
                     project.get("updated_at") or now_iso(),
                 ),
@@ -911,6 +925,23 @@ def import_all(payload):
                     deliverable.get("description", ""),
                     as_flag(deliverable.get("done", 0)),
                     deliverable.get("sort_order", 0),
+                ),
+            )
+
+        # Absent from anything before version 10, where `.get` returning an empty
+        # list is the whole compatibility story -- a file written before
+        # checkpoints existed simply has none.
+        for milestone in payload.get("milestones", []):
+            connection.execute(
+                """INSERT INTO milestone (id, project_id, name, description,
+                                          target_date, achieved, sort_order)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    milestone["id"], milestone["project_id"], milestone["name"],
+                    milestone.get("description", ""),
+                    milestone.get("target_date", ""),
+                    as_flag(milestone.get("achieved", 0)),
+                    milestone.get("sort_order", 0),
                 ),
             )
 

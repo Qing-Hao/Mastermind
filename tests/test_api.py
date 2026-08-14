@@ -1097,7 +1097,7 @@ def test_stage_track_and_department_survive_a_round_trip(client):
     make_direction(client, "Build caching", track="Developer experience")
 
     exported = client.get("/api/export").json()
-    assert exported["version"] == 9
+    assert exported["version"] == 10
 
     for existing in client.get("/api/projects").json():
         client.delete(f"/api/projects/{existing['id']}")
@@ -1106,6 +1106,54 @@ def test_stage_track_and_department_survive_a_round_trip(client):
     reimported = client.get("/api/export").json()
     assert reimported["projects"] == exported["projects"]
     assert reimported["settings"]["department_name"] == "Platform Engineering"
+
+
+def test_milestones_survive_the_round_trip_with_their_ids(client):
+    """Ids are preserved so a milestone stays attached to its project."""
+    project = make_project(client, start="2026-01-05")
+    client.post(f"/api/projects/{project['id']}/milestones",
+                json={"name": "Private beta", "target_date": "2026-03-02"})
+    client.post(f"/api/projects/{project['id']}/milestones", json={"name": "Launch"})
+
+    exported = client.get("/api/export").json()
+    assert [m["name"] for m in exported["milestones"]] == ["Private beta", "Launch"]
+
+    assert client.post("/api/import", json=exported).status_code == 200
+    assert client.get("/api/export").json()["milestones"] == exported["milestones"]
+
+
+def test_a_version_9_export_imports_and_drops_its_drafting_flag(client):
+    """v9 is the one version that carried `draft_complete`. It is read and
+    discarded rather than translated: inventing a checkpoint to carry the flag
+    across would be making up a target the file never named."""
+    legacy = {
+        "version": 9,
+        "settings": {"default_velocity_points_per_sprint": 20,
+                     "sprint_length_days": 14, "v1_tolerance_pct": 5.0,
+                     "department_name": "Platform"},
+        "projects": [{"id": 1, "name": "Payments", "description": "", "goal": "",
+                      "start_date": "", "velocity_override": None,
+                      "stage": "planned", "track": "", "tier": 2,
+                      "draft_complete": 1,
+                      "created_at": "2026-01-01T00:00:00+00:00",
+                      "updated_at": "2026-01-01T00:00:00+00:00"}],
+        "phases": [{"id": 1, "project_id": 1, "name": "Design", "description": "",
+                    "start_date": "", "duration_weeks": 4, "effort_points": 40,
+                    "status": "planned", "sort_order": 0}],
+        "deliverables": [{"id": 1, "phase_id": 1, "name": "Wireframes",
+                          "description": "", "done": 0, "sort_order": 0}],
+        "dependencies": [],
+    }
+    assert client.post("/api/import", json=legacy).status_code == 200
+
+    exported = client.get("/api/export").json()
+    assert exported["version"] == 10
+    assert "draft_complete" not in exported["projects"][0]
+    assert exported["milestones"] == []
+    # A plan that was flagged drafted arrives with nothing to aim at, so the
+    # ladder reads it as still drafting. Understating a finished plan is the
+    # quieter of the two errors, the same trade the flag itself arrived with.
+    assert stages_of(client)[0]["Payments"] == "planning"
 
 
 def test_a_version_2_export_still_imports(client):
@@ -1182,12 +1230,14 @@ def test_a_version_4_export_imports_with_every_deliverable_ongoing(client):
     assert client.post("/api/import", json=legacy).status_code == 200
 
     exported = client.get("/api/export").json()
-    assert exported["version"] == 9
+    assert exported["version"] == 10
     # Even under a phase marked done -- the tick is the user's to set, and a
     # phase status is not evidence about any particular deliverable.
     assert exported["deliverables"][0]["done"] == 0
-    # A version-4 file predates the drafting flag, which reads as still drafting.
-    assert exported["projects"][0]["draft_complete"] == 0
+    # A version-4 file predates checkpoints, so it names nothing to aim at and
+    # the project reads as still being drafted.
+    assert exported["milestones"] == []
+    assert "draft_complete" not in exported["projects"][0]
 
 
 def version_5_file(dependencies):
