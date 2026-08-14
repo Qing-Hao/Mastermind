@@ -33,10 +33,18 @@ const vm = require("vm");
 const FONT_PX = {
   "map-name": 12,
   "map-meta": 10,
-  "map-track": 11,
-  "map-subtrack": 10,
+  "level-1": 11,
+  "level-2": 10,
+  "level-3": 10,
+  "level-4": 10,
   "map-hub": 12,
   "map-pip-text": 10,
+  // The class names the two ring levels carried before the hierarchy nested.
+  // Kept deliberately: running this against an older checkout is how a baseline
+  // is taken, and without them every group label there would fall through to
+  // DEFAULT_FONT_PX and the two runs would not be measuring the same picture.
+  "map-track": 11,
+  "map-subtrack": 10,
 };
 const DEFAULT_FONT_PX = 11;
 const CHAR_EM = 0.55;
