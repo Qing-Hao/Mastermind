@@ -285,6 +285,17 @@ def test_serialise_table_leaves_a_break_alone_on_the_way_back():
     assert serialise_table(grid(once)) == once
 
 
+def test_a_ticked_cell_line_is_ordinary_text_to_this_module():
+    # The grid draws `☐`/`☑` and a hand-typed `- [ ]` as checkboxes, and that is
+    # entirely a frontend affair: nothing here recognises a marker, counts one or
+    # rewrites one. A multi-line checklist in a cell is one cell of text.
+    written = serialise_table(
+        {"head": ["Steps"], "align": [""], "rows": [["☑ schema\n- [ ] backfill"]]}
+    )
+    assert grid(written)["rows"] == [["☑ schema<br>- [ ] backfill"]]
+    assert serialise_table(grid(written)) == written
+
+
 def test_a_cell_holding_a_break_survives_the_round_trip():
     # The gate, on the construct this feature writes: a `<br>` in a cell is
     # ordinary text to the splitter, so the file comes back byte for byte.

@@ -397,10 +397,10 @@ function renderSprintDocument() {
     autosizeSprintArea(area);
   }
 
-  // Same reason, for every grid cell: a cell's height is its wrapped text, and
-  // `scrollHeight` outside the document is zero. `rows` already got it close, so
-  // this is the wrapped-line correction rather than the whole measurement.
-  doc.querySelectorAll(".sprint-cell").forEach(autosizeSprintArea);
+  // Cells need no measuring pass: a fresh render draws every one of them as a
+  // view, which is an ordinary block element that sizes itself. Only the cell you
+  // are actually in is a textarea, and `editSprintCell` measures it once it is in
+  // the document.
 
   // Also after the append, and for the same reason: a diagram is measured text,
   // and a detached node has no measurements.
@@ -771,6 +771,46 @@ function reorderSprintBlocks(from, to) {
   scheduleSprintSave();
 }
 
+// --- a tickable line inside a cell ------------------------------------------
+
+// **The one place the grid shows something other than the cell's own source.**
+// It lives up here, above the table code that uses it most, because the cell
+// menu below offers the marker and a `const` is not readable before it is
+// initialised -- which cost one silent blank Sprint tab to find.
+//
+// Two spellings are recognised and neither is converted into the other:
+//
+//   ☐ / ☑   what the editor writes. A glyph means the same thing in every
+//           renderer, so nothing here pretends to be portable GFM.
+//   - [ ]   what a person types, because it is what works everywhere else in a
+//           markdown file. In a table cell it is **literal text to GFM** — a cell
+//           is inline content and the tasklists plugin only rewrites list items —
+//           so no other renderer will draw a box for it. Recognised anyway: it is
+//           the spelling the request was written in, and refusing it would be the
+//           editor being right at the reader's expense.
+//
+// A tick is a rewrite of the cell's own text and nothing else. It cannot live in
+// `block.raw`, the way `toggleSprintTask` writes a task list: `raw` is
+// regenerated from the grid by `serialise_table` on every save, so a tick written
+// there would be overwritten by the next debounce.
+const TODO_OFF = "☐";
+const TODO_ON = "☑";
+const CELL_TODO = /^(\s*)(☐|☑|-[ \t]+\[[ xX]\])([ \t]+|$)/;
+
+// Flip the marker on one line, in whichever spelling that line already uses. A
+// line with no marker gains one, which is what makes the keyboard toggle able to
+// *start* a checklist rather than only maintain one.
+function flipCellTodo(line) {
+  const found = CELL_TODO.exec(line);
+  if (!found) return `${TODO_OFF} ${line}`;
+  const [, indent, marker, trailing] = found;
+  const ticked = marker === TODO_ON || /\[[xX]\]/.test(marker);
+  const flipped = marker === TODO_OFF || marker === TODO_ON
+    ? (ticked ? TODO_OFF : TODO_ON)
+    : marker.replace(/\[[ xX]\]/, ticked ? "[ ]" : "[x]");
+  return `${indent}${flipped}${trailing || " "}${line.slice(found[0].length)}`;
+}
+
 // --- the insert menu --------------------------------------------------------
 
 // `/` on an otherwise empty block. Nine ways in, and **not one of them is a
@@ -794,22 +834,62 @@ const SPRINT_MENU = [
   { key: "rule", label: "Divider", markdown: "---" },
 ];
 
-const sprintMenu = { open: false, node: null, items: [], selected: 0, area: null, index: 0 };
+// Inside a cell the same gesture cannot mean the same thing. Six of the nine
+// entries above are **block** constructs, and `pickSprintMenuItem` inserts one by
+// replacing the whole block and re-splitting it -- fired from a cell that would
+// replace the table itself with `- [ ] `. So a cell gets its own inventory, and
+// every entry is **inline**, which is all a GFM cell can hold.
+//
+// `break` is the odd one out and it is the whole reason this exists in a cell: a
+// line break in a cell is `CELL_BREAK` in the file, so "put the next thing on its
+// own line" is a real construct here rather than a keystroke. `caret` is where the
+// cursor lands, counted from the start of the snippet.
+const CELL_MENU = [
+  { key: "todo", label: "Checkbox", markdown: `${TODO_OFF} ` },
+  { key: "break", label: "Line break", markdown: "\n" },
+  { key: "bold", label: "Bold", markdown: "****", caret: 2 },
+  { key: "italic", label: "Italic", markdown: "**", caret: 1 },
+  { key: "code", label: "Code", markdown: "``", caret: 1 },
+  { key: "link", label: "Link", markdown: "[](url)", caret: 1 },
+];
+
+// `pick` is what the chosen entry does, set by whichever surface opened the menu:
+// a block replaces itself and re-splits, a cell inserts text at the caret. The
+// rendering, the filtering and the keyboard are the same either way, which is the
+// only reason a second menu is cheap.
+const sprintMenu = {
+  open: false, node: null, items: [], selected: 0, area: null, index: 0, pick: null,
+};
 
 function maybeOpenSprintMenu(area, index) {
   const text = area.value;
   // A slash first and nothing but the filter after it. Any whitespace closes the
   // menu, so a line that genuinely starts with a slash is only a menu until you
   // type the next character.
-  if (text.startsWith("/") && !/\s/.test(text)) openSprintMenu(area, index, text.slice(1));
-  else closeSprintMenu();
+  if (text.startsWith("/") && !/\s/.test(text)) {
+    openSprintMenu(area, index, text.slice(1), SPRINT_MENU, insertSprintMenuBlock);
+  } else closeSprintMenu();
 }
 
-function openSprintMenu(area, index, filter) {
+// The same rule read **per line**, because a cell is one box holding several
+// lines: `/` at the start of the caret's line, nothing but the filter after it. A
+// slash anywhere else is just a slash, which matters more here than in a block —
+// `1/2`, `n/a` and `Source expansion / Metrics` are all ordinary cell values.
+function maybeOpenCellMenu(cell, block, index, r, column) {
+  const line = cell.value.slice(0, cell.selectionStart).split("\n").pop();
+  const after = cell.value.slice(cell.selectionStart).split("\n")[0];
+  if (line.startsWith("/") && !/\s/.test(line) && !after) {
+    openSprintMenu(cell, index, line.slice(1), CELL_MENU,
+      (item) => insertIntoCell(item, cell, block, index, r, column));
+  } else closeSprintMenu();
+}
+
+function openSprintMenu(area, index, filter, entries, pick) {
   const wanted = filter.toLowerCase();
   sprintMenu.area = area;
   sprintMenu.index = index;
-  sprintMenu.items = SPRINT_MENU.filter((item) => !wanted
+  sprintMenu.pick = pick;
+  sprintMenu.items = entries.filter((item) => !wanted
     || item.label.toLowerCase().startsWith(wanted)
     || item.key.startsWith(wanted));
   sprintMenu.selected = 0;
@@ -882,12 +962,32 @@ function closeSprintMenu() {
   if (sprintMenu.node) sprintMenu.node.hidden = true;
 }
 
-async function pickSprintMenuItem(position) {
+function pickSprintMenuItem(position) {
   const item = sprintMenu.items[position];
+  const pick = sprintMenu.pick;
   const index = sprintMenu.index;
   closeSprintMenu();
-  if (!item) return;
+  if (item && pick) pick(item, index);
+}
 
+// One line of the cell had `/filter` typed into it; the snippet takes its place
+// and the caret lands where the entry says. The grid is written from the textarea
+// as usual, so a save writes `CELL_BREAK` for the line break like any other.
+function insertIntoCell(item, cell, block, index, r, column) {
+  const upto = cell.value.slice(0, cell.selectionStart);
+  const start = upto.length - upto.split("\n").pop().length;
+
+  cell.value = cell.value.slice(0, start) + item.markdown + cell.value.slice(cell.selectionStart);
+  const caret = start + (item.caret ?? item.markdown.length);
+  cell.setSelectionRange(caret, caret);
+  cell.focus();
+
+  writeCell(block.table, r, column, cell.value);
+  autosizeSprintArea(cell);
+  tableEdited(block);
+}
+
+async function insertSprintMenuBlock(item, index) {
   await commitSprintBlock(index, item.markdown);
 
   // Land where the typing goes next. A table has no markdown editor at all, so
@@ -1006,6 +1106,13 @@ const cellText = (value) => String(value ?? "")
   .replace(/\\\|/g, "|")
   .replace(/<br\s*\/?>/gi, "\n");
 
+const cellValue = (grid, r, column) => (r === -1 ? grid.head[column] : grid.rows[r][column]);
+
+function writeCell(grid, r, column, value) {
+  if (r === -1) grid.head[column] = value;
+  else grid.rows[r][column] = value;
+}
+
 function sprintTable(block, index) {
   const node = element("div", "sprint-block sprint-table-block");
   const scroller = element("div", "sprint-grid");
@@ -1030,10 +1137,8 @@ function sprintTable(block, index) {
   // The header row gets no grip: GFM has no table without a header row, so it can
   // neither be moved nor removed. Its cells are reordered by moving the columns.
   head.appendChild(element("th", "sprint-gutter"));
-  grid.head.forEach((cell, column) => {
-    const th = element("th");
-    th.appendChild(sprintCell(block, index, -1, column, cell));
-    head.appendChild(th);
+  grid.head.forEach((_, column) => {
+    head.appendChild(sprintCellHost(block, index, -1, column));
   });
   thead.appendChild(head);
   table.appendChild(thead);
@@ -1044,8 +1149,8 @@ function sprintTable(block, index) {
     const gutter = element("td", "sprint-gutter");
     gutter.appendChild(gridGrip(block, index, "row", r, tr));
     tr.appendChild(gutter);
-    row.forEach((cell, column) => {
-      tr.appendChild(element("td")).appendChild(sprintCell(block, index, r, column, cell));
+    row.forEach((_, column) => {
+      tr.appendChild(sprintCellHost(block, index, r, column));
     });
     body.appendChild(tr);
   });
@@ -1056,16 +1161,136 @@ function sprintTable(block, index) {
   return node;
 }
 
+// **A cell has two states, and this is the one reveal gesture the grid has.**
+// Everywhere else in the editor a block swaps between rendered HTML and its
+// markdown; a table swapped to cells instead, and for a long time that was the
+// whole story — "the cells are the editor". A checkbox broke it, because a
+// `<textarea>` has no insides to click: its content is plain text with no child
+// elements, so a box drawn in one cannot be hit. So an unfocused cell is a view
+// that can hold real controls, and focusing it swaps in the textarea.
+//
+// What the view does **not** do is render the cell's markdown. `**Total**` still
+// reads as `**Total**` in the grid, exactly as before: the checkbox is the single
+// deliberate exception, because it is the one construct you need to *operate*
+// rather than read. Rendering the rest would make the grid a markdown renderer
+// and the file's inline source unreachable without the raw view.
+//
+// The swap is local — the `<td>` exchanges its one child — and never a document
+// re-render: `Tab` walks cells, and rebuilding every block per keypress in a file
+// with 200-odd cells is not affordable.
+function sprintCellHost(block, index, r, column) {
+  const host = element(r === -1 ? "th" : "td");
+  showSprintCell(host, block, index, r, column);
+  return host;
+}
+
+function showSprintCell(host, block, index, r, column) {
+  host.innerHTML = "";
+  host.appendChild(sprintCellView(block, index, r, column));
+}
+
+// The resting state. One `<div>` per line so a line can carry a checkbox beside
+// its text, and `textContent` for the text itself -- never `innerHTML`, because
+// the cell holds file content and nothing here is entitled to run it as markup.
+function sprintCellView(block, index, r, column) {
+  const grid = block.table;
+  const view = element("div", "sprint-cell-view");
+  view.dataset.r = r;
+  view.dataset.c = column;
+  view.style.textAlign = CELL_ALIGN[grid.align[column]] || "";
+  view.title = "Click to edit";
+
+  const lines = cellText(cellValue(grid, r, column)).split("\n");
+  lines.forEach((line, position) => {
+    const row = element("div", "sprint-cell-line");
+    const found = CELL_TODO.exec(line);
+    if (found) {
+      const box = element("input", "sprint-cell-todo");
+      box.type = "checkbox";
+      box.checked = found[2] === TODO_ON || /\[[xX]\]/.test(found[2]);
+      box.title = "Tick this line";
+      // The box is the only thing in a cell that is not "click here to type", so
+      // it stops the click that would otherwise open the editor over it.
+      box.onclick = (event) => {
+        event.stopPropagation();
+        toggleCellTodo(cellHost(view), block, index, r, column, position);
+      };
+      row.append(box, element("span", "sprint-cell-label", line.slice(found[0].length)));
+    } else {
+      row.textContent = line;
+    }
+    view.appendChild(row);
+  });
+
+  view.onclick = (event) => {
+    event.stopPropagation();
+    editSprintCell(cellHost(view), block, index, r, column);
+  };
+  return view;
+}
+
+// The `<td>` a view or an editor is sitting in. The swap is always "replace the
+// host's one child", so the host is the only thing either state needs to know.
+const cellHost = (node) => node.parentElement;
+
+// Swap the view for the editor and put the caret in it. In the document already,
+// so `scrollHeight` is real and the autosize is exact -- which is why the cells no
+// longer need a measuring pass after the render.
+function editSprintCell(host, block, index, r, column, select) {
+  if (!host) return null;
+  const area = sprintCell(block, index, r, column);
+  host.innerHTML = "";
+  host.appendChild(area);
+  autosizeSprintArea(area);
+  area.focus();
+  if (select) area.select();
+  return area;
+}
+
+// The same flip, from the keyboard, on the line the caret is in. Stays in the
+// textarea rather than swapping back to the view: you are mid-edit, and a toggle
+// should not also mean "done here". The caret keeps its offset within the line,
+// clamped, because the marker it just gained or lost changed the line's length.
+function toggleCellTodoAtCaret(cell, block, index, r, column) {
+  const grid = block.table;
+  const before = cell.value.slice(0, cell.selectionStart);
+  const position = before.split("\n").length - 1;
+  const offset = before.length - (before.lastIndexOf("\n") + 1);
+
+  const lines = cell.value.split("\n");
+  const was = lines[position].length;
+  lines[position] = flipCellTodo(lines[position]);
+  const moved = lines[position].length - was;
+
+  cell.value = lines.join("\n");
+  const start = before.length - offset + Math.max(0, Math.min(offset + moved, lines[position].length));
+  cell.setSelectionRange(start, start);
+
+  writeCell(grid, r, column, cell.value);
+  autosizeSprintArea(cell);
+  tableEdited(block);
+}
+
+function toggleCellTodo(host, block, index, r, column, position) {
+  const grid = block.table;
+  const lines = cellText(cellValue(grid, r, column)).split("\n");
+  if (position >= lines.length) return;
+
+  lines[position] = flipCellTodo(lines[position]);
+  // Written back with real newlines, the same shape typing produces -- the server
+  // turns either spelling into `CELL_BREAK` on the way to the file.
+  writeCell(grid, r, column, lines.join("\n"));
+  tableEdited(block);
+  showSprintCell(host, block, index, r, column);
+}
+
 // A `<textarea>` and not an `<input>`, because an input has no second line to
 // give: `Enter` in a cell is a line break within it, and the height follows the
-// text. `Tab` still walks the grid rather than typing a tab, and `rows` is set
-// from the line count so a cell is the right size before it is ever measured --
-// `scrollHeight` on a node outside the document is zero, so the exact autosize
-// waits until after the append, beside the focus and the diagrams.
-function sprintCell(block, index, r, column, value) {
+// text. `Tab` still walks the grid rather than typing a tab.
+function sprintCell(block, index, r, column) {
   const grid = block.table;
   const cell = element("textarea", "sprint-cell");
-  cell.value = cellText(value);
+  cell.value = cellText(cellValue(grid, r, column));
   cell.rows = Math.max(1, cell.value.split("\n").length);
   cell.dataset.r = r;
   cell.dataset.c = column;
@@ -1074,13 +1299,37 @@ function sprintCell(block, index, r, column, value) {
   cell.style.textAlign = CELL_ALIGN[grid.align[column]] || "";
 
   cell.oninput = () => {
-    if (r === -1) grid.head[column] = cell.value;
-    else grid.rows[r][column] = cell.value;
+    writeCell(grid, r, column, cell.value);
     autosizeSprintArea(cell);
+    maybeOpenCellMenu(cell, block, index, r, column);
     tableEdited(block);
   };
 
+  // Back to the view, so the checkboxes in this cell become clickable again. The
+  // grid already holds every keystroke, so there is nothing to commit here --
+  // unlike a block, where the blur *is* the save.
+  cell.onblur = () => {
+    closeSprintMenu();
+    const host = cellHost(cell);
+    // A document re-render can pull a focused cell out from under itself, and
+    // Chrome fires blur when it does. Painting into a detached `<td>` is harmless
+    // but pointless, and the render has already drawn the view.
+    if (host && host.isConnected) showSprintCell(host, block, index, r, column);
+  };
+
   cell.onkeydown = (event) => {
+    // While the menu is up it owns the arrows, Enter and Esc.
+    if (sprintMenu.open && sprintMenuKey(event)) return;
+
+    // The keyboard equivalent of clicking a box, and the reason the feature is not
+    // mouse-only. On a line with no marker it adds one, so this also starts a
+    // checklist rather than only maintaining one.
+    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      toggleCellTodoAtCaret(cell, block, index, r, column);
+      return;
+    }
+
     if (event.key !== "Tab") return;
     event.preventDefault();
     const columns = grid.head.length;
@@ -1462,14 +1711,23 @@ function gridButton(label, onclick, disabled = false) {
   return button;
 }
 
+// Put the caret in one cell, whichever state it is currently in -- so `Tab`, a
+// paste and a structural edit all reach it the same way. The coordinates are on
+// both the view and the editor, and nothing else in a table block carries them,
+// which is why the selector asks for the pair rather than for a class.
 function focusSprintCell(index, r, column) {
   const doc = $("sprint-document");
   const block = doc.children[index];
-  const cell = block && block.querySelector(`.sprint-cell[data-r="${r}"][data-c="${column}"]`);
-  if (cell) {
+  const cell = block && block.querySelector(`[data-r="${r}"][data-c="${column}"]`);
+  if (!cell) return;
+
+  if (cell.classList.contains("sprint-cell")) {
     cell.focus();
     cell.select();
+    return;
   }
+  const grid = state.sprint.blocks[index];
+  if (grid) editSprintCell(cellHost(cell), grid, index, r, column, true);
 }
 
 // A grid edit leaves `raw` stale until the save regenerates it, so the block is

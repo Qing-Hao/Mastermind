@@ -749,10 +749,11 @@ kbd {
 .sprint-table th, .sprint-table td { border: 1px solid #e0e0e0; padding: 0; }
 .sprint-table th { background: #f6f6f6; }
 
-/* A textarea, so a cell can hold a second line — sized by its text rather than
-   resizable, and `display: block` because a textarea's baseline would otherwise
-   leave a gap under every row. */
-.sprint-cell {
+/* The two states of one cell, sharing every metric that decides the row's height
+   so the swap on focus does not move the grid. A textarea, so a cell can hold a
+   second line — sized by its text rather than resizable, and `display: block`
+   because a textarea's baseline would otherwise leave a gap under every row. */
+.sprint-cell, .sprint-cell-view {
   font: inherit;
   font-variant-numeric: tabular-nums;
   width: 100%;
@@ -762,10 +763,32 @@ kbd {
   background: transparent;
   box-sizing: border-box;
   display: block;
-  resize: none;
-  overflow: hidden;
 }
-.sprint-table th .sprint-cell { font-weight: 600; }
+.sprint-cell { resize: none; overflow: hidden; }
+
+/* The resting state. `cursor: text` because clicking it is how you type here, and
+   `min-height` so an empty cell is still a target rather than a 0px line. */
+.sprint-cell-view { cursor: text; }
+.sprint-cell-line { min-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* The one control a cell can hold. Sized and nudged to sit on the text's baseline
+   rather than above it, since the line beside it is the label. `min-width` and
+   `padding` are reset because `td input { width: 100%; min-width: 80px }` and the
+   global `input { padding: 4px 6px }` both reach it — an 80px checkbox, which is
+   exactly the trap `table.deliverables td.tick input` already solves for the
+   deliverable tick. A class does not outrank a `min-width` nobody else sets. */
+.sprint-cell-todo {
+  width: 12px;
+  min-width: 0;
+  height: 12px;
+  padding: 0;
+  margin: 0 5px 0 0;
+  vertical-align: -1px;
+  cursor: pointer;
+}
+.sprint-cell-todo:hover { outline: 1px solid #5c6bc0; }
+.sprint-table th .sprint-cell,
+.sprint-table th .sprint-cell-view { font-weight: 600; }
 .sprint-cell:focus {
   outline: none;
   background: #eef1ff;
