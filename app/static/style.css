@@ -336,6 +336,25 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   pointer-events: none;
 }
 
+/* The date readout that follows the cursor during either drag. `fixed` rather
+   than absolute: the chart sits inside a scroll container, and reading clientX
+   straight off the event is only correct against the viewport. Dark rather than
+   the pale language above, because this one is text to read and not a shape to
+   line up. */
+.drag-pill {
+  position: fixed;
+  z-index: 20;
+  padding: 3px 7px;
+  border-radius: 3px;
+  background: #37474f;
+  color: #fff;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  /* It sits under the cursor, so it must never eat the drag's own events. */
+  pointer-events: none;
+}
+
 /* --- fortnight slice --- */
 /* A day-resolution strip: the fortnight, then a greyed lead-out week. Every
    row runs on the same column track, which is what keeps a bar under the day

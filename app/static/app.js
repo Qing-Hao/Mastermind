@@ -1282,6 +1282,47 @@ function renderTray(body, view) {
   }
 }
 
+// --- the drag readout -------------------------------------------------------
+
+// The date you are about to drop on, pinned to the cursor.
+//
+// Both drags already wrote it into the thing being dragged, and that is where it
+// failed: a bar is exactly as wide as its phase, so at the 22px/week floor a
+// two-week bar is 44px and the text is clipped to nothing -- in precisely the
+// case where the readout matters. Alt then moves it by a few pixels, so the
+// gesture that most needs a date had the least room to print one.
+//
+// `position: fixed`, so clientX/clientY land it without any scroll arithmetic;
+// the portfolio chart sits in a scroll container and the pill deliberately does
+// not live in it.
+const DRAG_PILL_OFFSET = 14;
+
+let dragPill = null;
+
+function showDragPill(event, text) {
+  if (!dragPill) {
+    dragPill = element("div", "drag-pill");
+    document.body.appendChild(dragPill);
+  }
+  dragPill.textContent = text;
+  dragPill.style.left = `${event.clientX + DRAG_PILL_OFFSET}px`;
+  dragPill.style.top = `${event.clientY + DRAG_PILL_OFFSET}px`;
+}
+
+function hideDragPill() {
+  if (dragPill) dragPill.remove();
+  dragPill = null;
+}
+
+// Alt is what drops the snap from a week to a single day, and coming off a
+// Monday deliberately is the only reason to hold it -- so that is exactly when
+// the weekday is worth printing.
+function dropLabel(iso, altKey) {
+  if (!altKey) return iso;
+  return `${iso} · ${parseDate(iso).toLocaleDateString(
+    undefined, { weekday: "short" })}`;
+}
+
 // How far the pointer has to travel before a press on a chip counts as a drag.
 // A placement dates every undated phase in a project, so it has to come from a
 // deliberate gesture: without this, a few pixels of hand shake during a click
@@ -1330,12 +1371,15 @@ function makeTrayDraggable(chip, entry, body, view) {
       const snapped = moveEvent.altKey ? Math.round(raw) : Math.round(raw / 7) * 7;
       dropDay = Math.min(Math.max(snapped, 0), view.totalDays - 1);
       placeBar(ghost, dropDay, dropDay + span, view);
-      ghost.textContent = `${entry.project_name} → ${formatDate(addDays(view.origin, dropDay))}`;
+      const landing = formatDate(addDays(view.origin, dropDay));
+      ghost.textContent = `${entry.project_name} → ${landing}`;
+      showDragPill(moveEvent, dropLabel(landing, moveEvent.altKey));
     };
 
     const onUp = async () => {
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
+      hideDragPill();
       chip.classList.remove("dragging");
       if (lane) lane.remove();
       // A press that never armed is a click, and a click must not schedule
@@ -1475,14 +1519,15 @@ function makeDraggable(bar, phase, view) {
       // Re-clip as it moves, so dragging a bar off the edge of the window
       // shortens it against the boundary instead of overflowing the chart.
       placeBar(bar, from + dayDelta, to + dayDelta, view);
-      bar.textContent = dayDelta === 0
-        ? label
-        : `${label} → ${shiftDate(phase.start_date, dayDelta)}`;
+      const landing = shiftDate(phase.start_date, dayDelta);
+      bar.textContent = dayDelta === 0 ? label : `${label} → ${landing}`;
+      showDragPill(moveEvent, dropLabel(landing, moveEvent.altKey));
     };
 
     const onUp = async () => {
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
+      hideDragPill();
       bar.classList.remove("dragging");
       bar.textContent = label;
       if (dayDelta === 0) return;
