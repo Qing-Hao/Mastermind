@@ -778,16 +778,19 @@ function reorderSprintBlocks(from, to) {
 // menu below offers the marker and a `const` is not readable before it is
 // initialised -- which cost one silent blank Sprint tab to find.
 //
-// Two spellings are recognised and neither is converted into the other:
+// Two spellings are recognised, and **`- [ ]` is the one that gets written** --
+// the requester's call, on the ground that both draw the same box so the file may
+// as well hold one thing. The glyphs are still read, because files already contain
+// them and rewriting a line nobody touched is not this editor's business.
 //
-//   ☐ / ☑   what the editor writes. A glyph means the same thing in every
-//           renderer, so nothing here pretends to be portable GFM.
-//   - [ ]   what a person types, because it is what works everywhere else in a
-//           markdown file. In a table cell it is **literal text to GFM** — a cell
-//           is inline content and the tasklists plugin only rewrites list items —
-//           so no other renderer will draw a box for it. Recognised anyway: it is
-//           the spelling the request was written in, and refusing it would be the
-//           editor being right at the reader's expense.
+//   - [ ]   written and read. What a person types, and what works everywhere else
+//           in a markdown file. Worth knowing rather than arguing with: **inside a
+//           cell GFM treats it as literal text** — a cell is inline content and the
+//           tasklists plugin only rewrites list items — so GitHub, an IDE preview
+//           and `sprint_review.py`'s model all see the characters, not a box. The
+//           box is this grid's affordance over ordinary text.
+//   ☐ / ☑   read only. A tick on one of these keeps it a glyph: the spelling is
+//           the line's, not the editor's.
 //
 // A tick is a rewrite of the cell's own text and nothing else. It cannot live in
 // `block.raw`, the way `toggleSprintTask` writes a task list: `raw` is
@@ -795,14 +798,109 @@ function reorderSprintBlocks(from, to) {
 // there would be overwritten by the next debounce.
 const TODO_OFF = "☐";
 const TODO_ON = "☑";
+const TODO_WRITE = "- [ ] ";
 const CELL_TODO = /^(\s*)(☐|☑|-[ \t]+\[[ xX]\])([ \t]+|$)/;
+
+// --- inline markdown inside a cell ------------------------------------------
+
+// **The second thing rendered in the browser rather than in Python**, and the
+// reason is the same shape as mermaid's without being the same reason: the grid is
+// a *live* client-side surface. `block.table` is the client's copy and a keystroke
+// changes it, so anything drawn from it has to be drawn locally or it is stale the
+// moment you type. Asking the server to render a cell would be a request per blur
+// to redraw text the client already holds.
+//
+// It exists because the cell menu offers bold, italic, code and a link. A menu
+// that inserts `**bold**` into a surface that then shows `**bold**` is a menu that
+// does nothing you can see. So the view renders exactly what the menu can insert
+// and **nothing else**, which is the whole discipline here: this is not a markdown
+// renderer and must not grow into one. `app/markdown.py` renders the file.
+//
+// Deliberately not handled, and each one is a decision rather than an omission:
+//
+//   `_x_`      no underscore emphasis. `sprint_length_days` and
+//              `default_velocity_points_per_sprint` are words this project's own
+//              files are full of, and CommonMark's intraword rule is subtle enough
+//              that getting it slightly wrong mangles them. Under-rendering is the
+//              safe direction; markdown-it will still italicise it in the file.
+//   `<u>x</u>` raw HTML stays text. The file is rendered with `html=True`, so this
+//              *is* a divergence -- accepted, because a grid that executes markup
+//              from a cell is a different and worse thing.
+//   bare URLs  linkify is deliberately off in this app; nothing here adds it.
+//
+// Where the two renderings disagree, **the file is right and the raw view is how
+// you see it.** That is the cost of the feature and it is worth stating out loud.
+const CELL_INLINE = [
+  // Code first: whatever is inside backticks is literal, so it must win before
+  // anything else claims a `*` in it.
+  { mark: /`([^`\n]+)`/, render: (m) => cellCode(m[1]) },
+  { mark: /\*\*([^\s*](?:[^*]*[^\s*])?)\*\*/, render: (m) => cellSpan("strong", m[1]) },
+  { mark: /\*([^\s*](?:[^*]*[^\s*])?)\*/, render: (m) => cellSpan("em", m[1]) },
+  { mark: /\[([^\]\n]*)\]\(([^()\s]+)\)/, render: (m) => cellLinkNode(m[1], m[2]) },
+];
+
+// Anything with a scheme that is not one of these is left as text rather than
+// turned into a link -- `javascript:` being the reason to have the rule at all.
+const CELL_URL_SCHEME = /^([a-z][a-z0-9+.-]*):/i;
+const CELL_URL_ALLOWED = ["http", "https", "mailto"];
+
+function cellCode(text) {
+  const node = element("code");
+  node.textContent = text;
+  return node;
+}
+
+function cellSpan(tag, text) {
+  const node = element(tag);
+  renderCellInline(node, text);
+  return node;
+}
+
+function cellLinkNode(label, url) {
+  const scheme = CELL_URL_SCHEME.exec(url);
+  if (scheme && !CELL_URL_ALLOWED.includes(scheme[1].toLowerCase())) return null;
+  const node = element("a");
+  node.href = url;
+  renderCellInline(node, label || url);
+  return node;
+}
+
+// Text in, nodes out. `textContent` for every run that is not a construct, and a
+// real element for every one that is -- never `innerHTML`, so a cell holding
+// `<script>` is a cell holding the characters `<script>`.
+function renderCellInline(parent, text) {
+  let rest = String(text ?? "");
+  while (rest) {
+    const found = firstCellInline(rest);
+    if (!found) break;
+    if (found.at) parent.appendChild(document.createTextNode(rest.slice(0, found.at)));
+    parent.appendChild(found.node);
+    rest = rest.slice(found.at + found.length);
+  }
+  if (rest) parent.appendChild(document.createTextNode(rest));
+}
+
+// The earliest construct in the string, ties going to the earlier rule -- which is
+// what puts code ahead of emphasis when both start at the same character. A rule
+// that matches but declines to build a node (an unsafe URL) is skipped and the
+// text it matched is left alone.
+function firstCellInline(text) {
+  let best = null;
+  for (const rule of CELL_INLINE) {
+    const found = rule.mark.exec(text);
+    if (!found || (best && found.index >= best.at)) continue;
+    const node = rule.render(found);
+    if (node) best = { at: found.index, length: found[0].length, node };
+  }
+  return best;
+}
 
 // Flip the marker on one line, in whichever spelling that line already uses. A
 // line with no marker gains one, which is what makes the keyboard toggle able to
 // *start* a checklist rather than only maintain one.
 function flipCellTodo(line) {
   const found = CELL_TODO.exec(line);
-  if (!found) return `${TODO_OFF} ${line}`;
+  if (!found) return `${TODO_WRITE}${line}`;
   const [, indent, marker, trailing] = found;
   const ticked = marker === TODO_ON || /\[[xX]\]/.test(marker);
   const flipped = marker === TODO_OFF || marker === TODO_ON
@@ -845,7 +943,7 @@ const SPRINT_MENU = [
 // own line" is a real construct here rather than a keystroke. `caret` is where the
 // cursor lands, counted from the start of the snippet.
 const CELL_MENU = [
-  { key: "todo", label: "Checkbox", markdown: `${TODO_OFF} ` },
+  { key: "todo", label: "Checkbox", markdown: TODO_WRITE },
   { key: "break", label: "Line break", markdown: "\n" },
   { key: "bold", label: "Bold", markdown: "****", caret: 2 },
   { key: "italic", label: "Italic", markdown: "**", caret: 1 },
@@ -1215,15 +1313,20 @@ function sprintCellView(block, index, r, column) {
         event.stopPropagation();
         toggleCellTodo(cellHost(view), block, index, r, column, position);
       };
-      row.append(box, element("span", "sprint-cell-label", line.slice(found[0].length)));
+      const label = element("span", "sprint-cell-label");
+      renderCellInline(label, line.slice(found[0].length));
+      row.append(box, label);
     } else {
-      row.textContent = line;
+      renderCellInline(row, line);
     }
     view.appendChild(row);
   });
 
   view.onclick = (event) => {
     event.stopPropagation();
+    // A link in a cell is there to be followed, the same conclusion `sprintBlock`
+    // reached for a link in a paragraph.
+    if (event.target.closest("a")) return;
     editSprintCell(cellHost(view), block, index, r, column);
   };
   return view;

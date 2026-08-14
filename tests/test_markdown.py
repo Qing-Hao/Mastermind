@@ -296,6 +296,15 @@ def test_a_ticked_cell_line_is_ordinary_text_to_this_module():
     assert serialise_table(grid(written)) == written
 
 
+def test_inline_markup_in_a_cell_is_written_exactly_as_typed():
+    # The grid draws bold, italic, code and a link in a cell; that is a frontend
+    # affair and nothing here escapes, normalises or rewrites a marker. If this
+    # ever fails, the grid and the file have stopped agreeing about the source.
+    cell = "**bold** *it* `code` [docs](https://example.test)"
+    written = serialise_table({"head": ["a"], "align": [""], "rows": [[cell]]})
+    assert grid(written)["rows"] == [[cell]]
+
+
 def test_a_cell_holding_a_break_survives_the_round_trip():
     # The gate, on the construct this feature writes: a `<br>` in a cell is
     # ordinary text to the splitter, so the file comes back byte for byte.

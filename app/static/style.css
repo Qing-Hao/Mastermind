@@ -771,6 +771,17 @@ kbd {
 .sprint-cell-view { cursor: text; }
 .sprint-cell-line { min-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; }
 
+/* The four constructs the cell menu can insert, drawn so a rendered row is the
+   same height as the raw one it swaps to — no padded `code`, no larger link. */
+.sprint-cell-line code {
+  font: inherit;
+  background: #f0f0f3;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+.sprint-cell-line a { color: #3949ab; }
+.sprint-cell-line a:hover { text-decoration: none; }
+
 /* The one control a cell can hold. Sized and nudged to sit on the text's baseline
    rather than above it, since the line beside it is the label. `min-width` and
    `padding` are reset because `td input { width: 100%; min-width: 80px }` and the

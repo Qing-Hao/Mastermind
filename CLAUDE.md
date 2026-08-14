@@ -27,7 +27,7 @@ step: it is a prebuilt bundle served as a static file.
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000   # http://127.0.0.1:8000
-.\.venv\Scripts\python.exe -m pytest -q                                   # 298 tests, ~11s
+.\.venv\Scripts\python.exe -m pytest -q                                   # 299 tests, ~11s
 
 .\.venv\Scripts\python.exe -m pip install -r requirements-ai.txt          # optional, sprint review only
 .\.venv\Scripts\python.exe scripts\sprint_review.py --history 3
@@ -560,12 +560,15 @@ into one project link.
     no insides to click**, its content being plain text with no child elements, so
     a control drawn in one cannot be hit. A cell that can hold a control has to be
     something other than a textarea while you are not typing in it.
-    Two properties keep the cost contained. The swap is **local** — the `<td>`
+    One property keeps the cost contained: the swap is **local** — the `<td>`
     exchanges its one child, never a document re-render, because `Tab` walks cells
-    and rebuilding 200-odd of them per keypress is not affordable. And the view
-    **does not render the cell's markdown**: `**Total**` still reads as
-    `**Total**` in the grid exactly as before, so the grid still shows source and
-    the file's inline markup stays reachable without the raw view.
+    and rebuilding 200-odd of them per keypress is not affordable.
+    The two states now mean what they mean everywhere else in the editor —
+    **rendered when you are not in it, source when you are** — which is what makes
+    the reveal earn itself rather than merely cost something. An earlier draft of
+    this feature drew the view as plain source; that was inconsistent the moment
+    the cell menu could insert `**bold**` into a surface that then showed
+    `**bold**`, and it was replaced rather than defended.
   - **A cell holds more than one line, and the file holds `<br>`.** `Enter` in a
     cell is a line break within it — which is why a cell is a textarea and not an
     `<input>` — and the height follows the text. A real newline cannot reach the
@@ -581,13 +584,15 @@ into one project link.
     A consequence to expect: a `<br>` typed by hand into an older file now shows
     as a line break in the grid. That was accepted as being what it says.
   - **A cell line can be ticked, and the tick lives in the cell's text.** Two
-    spellings are drawn as a checkbox and **neither is converted into the other**:
-    `☐`/`☑`, which is what the editor writes, and `- [ ]`/`- [x]`, which is what a
-    person types. The glyph is the written form deliberately — it means the same
-    thing in every renderer, where `- [ ]` **inside a cell is literal text to
-    GFM** (a cell is inline content and the tasklists plugin only rewrites list
-    items), so no other tool will draw a box for it. It is recognised anyway,
-    because it is the spelling the request was written in.
+    spellings are drawn as a checkbox and **`- [ ]` is the one that gets written**;
+    `☐`/`☑` are read only, and a tick on one keeps it a glyph — the spelling
+    belongs to the line, not to the editor. One written spelling was the
+    requester's call, on the ground that both draw the same box. Worth knowing
+    rather than arguing with: `- [ ]` **inside a cell is literal text to GFM** (a
+    cell is inline content and the tasklists plugin only rewrites list items), so
+    GitHub, an IDE preview and `sprint_review.py`'s model all see the characters
+    rather than a box. The box is this grid's affordance over ordinary text, which
+    is exactly why it costs the file nothing: `- [x] schema` is a string.
     Ticking rewrites that line of the **cell**, never `block.raw`: `raw` is
     regenerated from the grid by `serialise_table` on every save, so a tick
     written there would be gone by the next debounce. `toggleSprintTask`, which
@@ -600,9 +605,29 @@ into one project link.
     **What stays refused is emitting `<li>` or `<input type="checkbox">` into the
     file.** It would render, because `html=True`, and then the tick would have no
     persistence path at all, the grid would have to parse HTML back out to stay
-    editable, and the file would stop being markdown a person can hand-edit. The
-    checkbox above is a *grid* affordance over ordinary cell text, which is why it
-    costs the file nothing: `☑ schema` is a string.
+    editable, and the file would stop being markdown a person can hand-edit.
+  - **The view renders four inline constructs, and it is the second thing drawn in
+    the browser rather than in Python.** Bold, italic, code and a link — *exactly*
+    what `CELL_MENU` can insert, and nothing else. The discipline is the point:
+    this is not a markdown renderer and must not grow into one. `markdown.py`
+    renders the file.
+    The reason it is client-side has the same shape as mermaid's without being the
+    same reason: **the grid is live.** `block.table` is the client's copy and a
+    keystroke changes it, so anything drawn from it must be drawn locally or it is
+    stale the moment you type; asking the server would be a request per cell blur
+    to redraw text the client already holds. Nodes are built with `textContent`,
+    never `innerHTML`, so a cell holding `<script>` holds the characters.
+    Three deliberate omissions, each a decision rather than a gap: **no underscore
+    emphasis**, because `sprint_length_days` and
+    `default_velocity_points_per_sprint` are words this project's own files are
+    full of and CommonMark's intraword rule is subtle enough that getting it
+    slightly wrong mangles them; **raw HTML stays text**, so `<u>` in a cell shows
+    as `<u>` even though the file renders it, because a grid that executes markup
+    out of a cell is a worse thing than one that under-renders; and **no
+    linkify**, which the app turns off everywhere. A URL scheme other than
+    `http`/`https`/`mailto` is left as text rather than made a link.
+    Where the grid and the file disagree, **the file is right and `Raw file` is
+    how you see it.** That is this feature's cost, stated rather than buried.
   - **`/` in a cell opens a second, inline-only menu.** It cannot be the block
     menu: six of those nine entries are block constructs, and `pickSprintMenuItem`
     inserts one by replacing the whole block and re-splitting it — fired from a
@@ -720,8 +745,10 @@ into one project link.
     saves. It needed `enabled=True` on the tasklists plugin, whose default is a
     `disabled` checkbox. Nothing derives from a tick — a sprint file's ticks are
     not roadmap state, and no rule reads them.
-  - **A ` ```mermaid ` fence is drawn as a diagram**, and it is the **one thing
-    the app renders in the browser rather than in Python** — drawing needs a DOM
+  - **A ` ```mermaid ` fence is drawn as a diagram**, one of the **two things the
+    app renders in the browser rather than in Python** (a table cell's inline
+    markup is the other, for a different reason — see the grid above) — drawing
+    needs a DOM
     and text measurement, so `markdown.py` stops at
     `<pre class="mermaid-source">` holding the escaped source and `editor.js`
     turns it into an SVG. The class name is the whole contract between them.
