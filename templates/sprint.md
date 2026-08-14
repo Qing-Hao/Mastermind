@@ -4,17 +4,37 @@
 Copy to sprints/NN.md, one per sprint. Two weeks, always — the cadence is fixed
 so the only dates you enter are the sprint's own.
 
+The shape below is the Docmost sprint format (Main tasks / Sub tasks, a row per
+title carrying PIC · storypoints · status · priority) with the capacity and
+at-close sections kept around it. The wiki's glossary is the vocabulary here
+too: **Title** is a row, **Stories** are its top-level bullets, **Tasks** are the
+nested ones.
+
+Two places per title, deliberately: the table is the scoreboard you re-read and
+re-status during the sprint, the checklist under it is what you tick. Adding a
+title means adding a row and a block.
+
 Nothing here writes back to the roadmap. A sprint that overruns is reported in
 Reflection; phase dates in the planner are changed by hand, deliberately, or not
 at all.
 
-Fill Capacity and Planned work at planning. Fill Unplanned work as it happens.
-Fill "At close" on the last day, before the retro — that section is what makes
-the next sprint's planning better than this one's.
+Fill Goal, Capacity, Main tasks and Sub tasks at planning. Fill Unplanned work
+as it happens. Fill Day 5 on day 5. Fill "At close" on the last day, before the
+retro — that section is what makes the next sprint's planning better than this
+one's.
 -->
 
+## Goal
+
 **Goal:** _one sentence — what this sprint is for. Not a task list; the thing the
-sprint should be judged against._
+sprint should be judged against, and the thing "At close" gives a verdict on._
+
+- **What is the focus?**
+- **Why is this focus prioritised?**
+- **Is it aligned with the product direction?**
+
+_Start here, before any title is written down. A sprint whose goal is a bullet
+list of "work on X" has no way to come out either met or missed._
 
 ## Capacity
 
@@ -23,24 +43,32 @@ one bottom-up from who is actually available, one top-down from what this team
 has actually delivered. **Neither corrects the other.** The gap between them is
 the thing worth reading._
 
+**Holidays & leave this window:** _name them — public holidays, leave, training.
+This is what the person-days row below is counted from._
+
 **Bottom-up — declared**
 
-| Person | Days available | Of which coding | Declared pts | The rest goes to |
-|---|---|---|---|---|
-| @you | 10 | | | |
-| @them | 10 | | | |
-| **Total** | | | | |
+| Person | Days available | Of which coding | Declared pts | Last sprint declared → actual | The rest goes to |
+|---|---|---|---|---|---|
+| @you | 10 | | | | |
+| @them | 10 | | | | |
+| **Total** | | | | | |
 
 _Declared points are a **judgement**, not days × a rate. The coding-days column is
 the evidence for the judgement, not a multiplier — inventing a points-per-day
 constant is the guess this whole block exists to avoid._
+
+_The "last sprint" column is copied from the previous file's At close table. It
+is **evidence, not arithmetic**: nobody divides by it. It exists because the one
+thing worth knowing at planning is which way you are reliably wrong, and that
+number was being written down and then thrown away._
 
 **Top-down — baseline**
 
 | | |
 |---|---|
 | Last 3 sprints — **roadmap** points delivered | a · b · c → avg |
-| Person-days normal / this sprint | 20 / N  _(name the holidays and the leave)_ |
+| Person-days normal / this sprint | 20 / N  _(from the holidays line above)_ |
 | **Baseline** (avg × this ÷ normal) | |
 
 _**Roadmap** points, not total: the "At close" table below separates the two, and
@@ -57,19 +85,68 @@ sprint 4 this row is arithmetic._
 | | Points |
 |---|---|
 | **Capacity taken** — the lower of declared and baseline, unless you write why not | |
-| Carried in from Sprint N−1 | |
+| Carried in from Sprint N−1 | _its "Carried out" row_ |
 | **Committed** | |
 
-## Planned work
+## Main tasks
 
-_From the roadmap: one block per deliverable. Points sit on the task lines only,
-never on the heading, so the sprint total is a single sum._
+_The work the Goal is about. One row per title; the checklist under it is the
+same title's Stories and Tasks._
 
-**<u>Project — Deliverable</u>**
-- [ ] 0 · task — @owner / rev @reviewer
+Status is one of: `not started` · `ongoing` · `on PR` · `blocked` · `done`.
+Priority is `HIGH` · `MEDIUM` · `LOW` and should match the project's tier in the
+planner (T1 → HIGH, T2 → MEDIUM, T3 → LOW). Keep to both lists — a status
+invented once counts for nothing when you tally the quarter.
 
-**<u>Project — Deliverable</u>**
-- [ ] 0 · task — @owner / rev @reviewer
+| Title | PIC | Pts | Status | Priority |
+|---|---|---|---|---|
+| | | | | |
+| | | | | |
+
+**<u>Project — Title</u>**
+- [ ] Story
+  - [ ] Task
+  - [ ] Task
+- [ ] Story
+
+**<u>Project — Title</u>**
+- [ ] Story
+  - [ ] Task
+
+_**Points sit on the table row, not on the story lines** — a title is the unit
+you estimate and the unit the roadmap knows about. The cost is that a title is
+all-or-nothing at close: its points count as completed only when every story
+under it is ticked, and anything else is carried out whole. If that is losing
+you real progress, split the title into two rows at planning rather than
+inventing part-marks at close._
+
+## Sub tasks
+
+_Everything else committed this sprint: work that is on the roadmap but not what
+the Goal is about — smaller items, follow-ups, research. Same columns, same
+rules. If this table is bigger than Main tasks, the Goal is not the sprint._
+
+| Title | PIC | Pts | Status | Priority |
+|---|---|---|---|---|
+| | | | | |
+
+**<u>Project — Title</u>**
+- [ ] Story
+  - [ ] Task
+
+## Totals
+
+| | Points |
+|---|---|
+| Planned — main | |
+| Planned — sub | |
+| **Total planned** | _must equal Committed, or say why below_ |
+| **Completed** | _filled at close_ |
+| **Carried out** to Sprint N+1 | _filled at close; this is next sprint's carry-in_ |
+
+_**Total planned is the sum of the rows above it, and Completed is the sum of the
+rows marked `done`.** Both are worth re-adding at close: a total that does not
+reconcile with its own table is the one number in the file nobody can check._
 
 ## Unplanned work
 
@@ -82,15 +159,31 @@ Category is one of: `customer request` · `ops/support` · `deployment` · `infr
 `internal tooling` · `review` · `planning & mgmt` · `admin`. Keep to this list;
 a category invented once counts for nothing when you tally the quarter.
 
+_Reviewing **this sprint's own planned work** is not unplanned — it is known at
+planning and belongs in the reviewer's "The rest goes to" column. Putting it here
+buries the genuine interruptions this table exists to find._
+
 | Task | Category | Owner | Pts | Done |
 |---|---|---|---|---|
 | | | | | |
+
+## Day 5 check
+
+_One line, on the middle Friday. Cheap, and the only thing here that can still
+change the outcome._
+
+- **Goal still reachable?** yes / at risk / no —
+- **What changed since planning:**
+- **Anything to hand back now** _(better than discovering it on day 10)_:
 
 ## At close
 
 _Fill this on the last day. It is the only part that teaches: you predicted, now
 check. Nothing here is a score — a declared number that was wrong is information,
 and the point is to find out **which way** you are reliably wrong._
+
+**Goal met?** yes / partly / no — _one sentence. Points delivered and goal met are
+different questions, and you can hit one while missing the other._
 
 | | Declared | Actual |
 |---|---|---|
@@ -100,6 +193,12 @@ and the point is to find out **which way** you are reliably wrong._
 | Non-roadmap points | — | |
 
 **Where the gap went:**
+
+**Roadmap edits to make** — _the sprint file never writes back, so anything the
+sprint changed about the plan has to be done by hand, in the planner, now.
+Deliberately cut work whose phase will go overdue lives here._
+
+- [ ] 
 
 ## Reflection
 
@@ -113,77 +212,157 @@ and the point is to find out **which way** you are reliably wrong._
 <!-- Reference — not part of the sprint. Delete from a copy, or leave it. -->
 
 <details>
-<summary>Filled example</summary>
+<summary>Filled example — the real 17 Jun → 01 Jul sprint, in this format</summary>
 
-# Sprint 14 · 2026-08-24 → 2026-09-04
+# Sprint N · 2026-06-17 → 2026-07-01
 
-**Goal:** Ship the v2 connector so client onboarding stops needing a manual import.
+## Goal
+
+**Goal:** Get multi-data-source onto a shared environment/tenant structure so a
+second provider can be added without another schema change.
+
+- **What is the focus?** The backend split — table structure, migration, and the
+  query paths that read tenant ids.
+- **Why is this focus prioritised?** Everything else queued behind it; the poller
+  and the reporting APIs cannot be finished twice.
+- **Is it aligned with the product direction?** Yes — it is the continuation of
+  the 03 Jun kickoff.
 
 ## Capacity
 
+**Holidays & leave this window:** 17/6 Awal Muharram.
+
 **Bottom-up — declared**
 
-| Person | Days available | Of which coding | Declared pts | The rest goes to |
-|---|---|---|---|---|
-| @qh | 9 | 3 | 4 | planning, management, review |
-| @a | 7 | 6 | 10 | review |
-| **Total** | **16** | **9** | **14** | |
+| Person | Days available | Of which coding | Declared pts | Last sprint declared → actual | The rest goes to |
+|---|---|---|---|---|---|
+| @songle | 10 | 9 | 11 | 12 → 9 | review |
+| @boojing | 9 | 7 | 5 | 6 → 5 | mobile support |
+| @shahirul | 9 | 7 | 3 | 3 → 3 | |
+| @bernard | 9 | 6 | 3 | 4 → 2 | research write-up |
+| **Total** | **37** | **29** | **22** | | |
 
 **Top-down — baseline**
 
 | | |
 |---|---|
-| Last 3 sprints delivered | 14 · 11 · 16 → 14 |
-| Person-days normal / this sprint | 20 / 16 _(Merdeka Mon 31/8; @a on leave 2d)_ |
-| **Baseline** (14 × 16 ÷ 20) | **11** |
+| Last 3 sprints — **roadmap** points delivered | 19 · 21 · 18 → 19 |
+| Person-days normal / this sprint | 40 / 37 _(Awal Muharram 17/6)_ |
+| **Baseline** (19 × 37 ÷ 40) | **18** |
 
 | | Points |
 |---|---|
-| **Capacity taken** — lower of 14 and 11 | **11** |
-| Carried in from Sprint 13 | 3 |
-| **Committed** | **11** |
+| **Capacity taken** — lower of 22 and 18 | **18** |
+| Carried in from Sprint N−1 | 0 |
+| **Committed** | **18** |
 
-## Planned work
+## Main tasks
 
-**<u>Source expansion — Connector rewrite</u>**
-- [x] 3 · Parse v2 payloads *(carried)* — @qh / rev @a
-- [x] 2 · Backfill script — @a / rev @qh
+| Title | PIC | Pts | Status | Priority |
+|---|---|---|---|---|
+| Multi Data Source Integration — Backend | @songle | 8 | ongoing | HIGH |
+| Data Poller Enhancement + CI/CD | @songle | 3 | on PR | MEDIUM |
+| Automated Performance Report Research | @boojing | 3 | ongoing | MEDIUM |
 
-**<u>Metrics — Dashboard v2</u>**
-- [ ] 5 · Aggregation query — @qh / rev @a
-- [ ] 1 · Wire the date filter — @qh / rev @a
+**<u>Multi Data Source Integration — Backend</u>**
+- [ ] Database table structure update — new env level above tenant (Environment)
+  - [x] Migration script
+- [ ] Backend changes
+  - [x] router tenant id
+  - [ ] reporting
+  - [ ] data query api/function
+- [ ] Data ingestion
+  - [ ] Remove python poller *(breaking change)*
+
+**<u>Data Poller Enhancement + CI/CD</u>**
+- [x] Data validation
+- [x] Queue traffic — do not drop jobs
+- [ ] Test run
+- [ ] CI/CD
+  - [ ] Docker compose file update
+
+**<u>Automated Performance Report Research</u>**
+- [ ] Performance Report V2 *(prototype)*
+  - [x] Auto-format
+  - [ ] Word styling
+  - [ ] Correlation visualization
+- [ ] Rearrange workflow
+- [ ] Report evaluation
+
+## Sub tasks
+
+| Title | PIC | Pts | Status | Priority |
+|---|---|---|---|---|
+| Mobile Bug Fix | @shahirul, @boojing | 3 | ongoing | MEDIUM |
+| AI Agent Enhancement Research | @bernard | 3 | ongoing | MEDIUM |
+
+**<u>Mobile Bug Fix</u>**
+- [x] Milestone 2 — @boojing
+- [ ] Milestone 3 — @shahirul
+- [ ] Milestone 4 — @shahirul: change theme, fix charts
+
+**<u>AI Agent Enhancement Research</u>**
+- [ ] Agent skills
+  - [ ] One API that returns every existing Dynatrace API, so the agent stops
+        querying the wrong metrics
+- [ ] Evals
+
+## Totals
+
+| | Points |
+|---|---|
+| Planned — main | 14 |
+| Planned — sub | 6 |
+| **Total planned** | **20** — 2 over Committed (18); taken knowingly, see below |
+| **Completed** | **3** — only *Data Poller + CI/CD* closed |
+| **Carried out** to Sprint N+1 | **17** |
 
 ## Unplanned work
 
 | Task | Category | Owner | Pts | Done |
 |---|---|---|---|---|
-| Client X CSV import failing | customer request | @a | 2 | ✅ |
-| PR review backlog, two days of it | review | @qh | 2 | ✅ |
-| Prod deploy + rollback | deployment | @qh | 1 | ✅ |
-| Staging disk full | ops/support | @qh | 1 | ✅ |
+| Dynatrace Managed cert renewal | ops/support | @songle | 1 | ✅ |
+| Prod deploy for the mobile hotfix | deployment | @boojing | 1 | ✅ |
+
+## Day 5 check
+
+- **Goal still reachable?** at risk — the migration script landed but the
+  reporting and query paths had not started.
+- **What changed since planning:** the Environment table needed an Alembic step
+  nobody costed.
+- **Anything to hand back now:** the report *evaluation* half; kept it, and it
+  did not get done.
 
 ## At close
 
+**Goal met?** partly — the structure exists and the migration runs, but nothing
+reads through the new level yet, so a second provider still cannot be added.
+
 | | Declared | Actual |
 |---|---|---|
-| @qh coding days | 3 | 1.5 |
-| @a coding days | 6 | 5 |
-| **Roadmap points delivered** | 11 | 5 |
-| Non-roadmap points | — | 6 |
+| @songle coding days | 9 | 8 |
+| @boojing coding days | 7 | 5 |
+| **Roadmap points delivered** | 18 | 3 |
+| Non-roadmap points | — | 2 |
 
-**Where the gap went:** the commitment was not the problem — baseline said 11 and
-11 was taken. Six points of non-roadmap work landed on top of it, four of them
-mine (review + deploy), and the Metrics block never got started. Declaring 3
-coding days for myself was optimistic by half.
+**Where the gap went:** not interruptions — 2 points of unplanned work is the
+quietest fortnight in months. The 8-point title was one title, and it is 80%
+done and worth zero. Committing 20 against a baseline of 18 was not the error;
+estimating the backend split as a single all-or-nothing row was.
+
+**Roadmap edits to make**
+
+- [ ] Push the *Multi Data Source → Backend* phase end out by one fortnight; it
+      will read overdue (V6) on 01/07 otherwise.
+- [ ] Split that phase in two in the planner, matching the split below.
 
 ## Reflection
 
-- **What surprised us:** the backfill needed a schema change nobody costed.
-- **What got interrupted, and by what:** two days on the CSV import for client X,
-  two more on review backlog.
-- **What should be automated:** third sprint running with a manual prod deploy —
-  1–2 pts each time. Worth half a sprint to script it. Review load is the bigger
-  number but it is not automatable; it is a reason to declare fewer coding days,
-  not a reason to buy a tool.
+- **What surprised us:** the Alembic step; and that a near-finished 8-pointer
+  reports identically to one never started.
+- **What got interrupted, and by what:** almost nothing. This sprint was quiet.
+- **What should be automated:** nothing new — but *deployment* has now appeared
+  three sprints running at 1 pt each. Next time it shows up, script it.
+- **For next planning:** no title above 5 points. The 8 was the whole story.
 
 </details>
