@@ -53,14 +53,20 @@ h2 {
    whole width, so the readout has to sit inside the same box rather than
    beside it -- hence the wrapper and the negative pull, not a flex h2. */
 .section-head { position: relative; }
-.section-head > .muted {
+.section-head > .section-aside {
   position: absolute;
   right: 0;
-  top: -2px;
+  top: -4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 12px;
   text-transform: none;
   letter-spacing: normal;
 }
+/* Disabled rather than absent while an idea has no checkpoint: the gate is the
+   thing worth teaching, and a button that is not there teaches nothing. */
+.section-aside button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .row {
   display: flex;

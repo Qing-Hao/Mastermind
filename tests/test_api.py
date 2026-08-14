@@ -2066,6 +2066,27 @@ def test_ticking_the_last_milestone_through_the_route_finishes_the_project(clien
     assert stages_of(client)[0]["Payments"] == "done"
 
 
+def test_promoting_an_idea_is_a_write_and_never_an_inference(client):
+    """`idea` beats every derived rung, so a checkpoint alone must not promote:
+    the portfolio and map filter on the stored stage and the two must agree.
+    The frontend gates the button on >=1 milestone; the server refuses nothing,
+    because setting your own project's stage is not malformed data."""
+    idea = client.post("/api/projects", json={
+        "name": "Caching", "start_date": "", "stage": "idea",
+    }).json()
+    phase = make_phase(client, idea["id"], "Design", "", 2, 20)
+    client.post(f"/api/phases/{phase['id']}/deliverables", json={"name": "Wireframes"})
+    db.create_milestone(idea["id"], "Private beta")
+
+    # Everything a plan needs, and it is still an idea until you say otherwise.
+    assert stages_of(client)[0]["Caching"] == "idea"
+
+    promoted = client.put(f"/api/projects/{idea['id']}", json={"stage": "planned"})
+    assert promoted.status_code == 200
+    assert promoted.json()["stage"] == "planned"
+    assert stages_of(client)[0]["Caching"] == "planned"
+
+
 def test_ticking_a_milestone_stores_a_flag_and_deleting_a_project_takes_it(tmp_path):
     db.set_db_path(str(tmp_path / "achieved.db"))
     try:

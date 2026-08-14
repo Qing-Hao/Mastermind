@@ -583,6 +583,7 @@ function renderMilestones() {
   $("milestone-tally").textContent = milestones.length === 0
     ? "none yet"
     : `${reached}/${milestones.length} reached`;
+  renderPromote(milestones.length);
 
   const lines = [];
   for (const milestone of milestones) {
@@ -639,6 +640,39 @@ function renderMilestones() {
     state.focusMilestoneAdder = false;
     $("new-milestone-name").focus();
   }
+}
+
+// Turning an idea into a plan, which is the one transition the ladder will not
+// make for you. `idea` beats every derived rung on purpose -- the portfolio and
+// the map filter on the *stored* stage, so a derived promotion would show a
+// planned badge on a project that is still absent from both.
+//
+// The gate is at least one checkpoint, and it is enforced by disabling the
+// button rather than by the server refusing the write. The two write-time
+// refusals this app has both guard malformed data; refusing to let you set your
+// own project's stage would be a scheduling opinion, which rule 1 forbids. The
+// cost, stated: a hand-rolled PUT still promotes an idea with nothing to aim at.
+function renderPromote(count) {
+  const button = $("promote-project");
+  const isIdea = state.plan.project.stage === "idea";
+
+  button.hidden = !isIdea;
+  if (!isIdea) return;
+
+  button.disabled = count === 0;
+  button.title = count === 0
+    ? "Add a milestone first. A plan is a direction with something to aim at — "
+      + "that is what separates it from an idea."
+    : "Commit this idea as a plan. It joins the portfolio and the map; "
+      + "the ladder works out the rest.";
+}
+
+async function promoteProject() {
+  await api(`/api/projects/${state.currentProjectId}`, {
+    method: "PUT",
+    body: JSON.stringify({ stage: "planned" }),
+  });
+  await loadPlan();
 }
 
 // Writes `sort_order` and nothing else: not the tick, not a date. The twin of
@@ -3616,6 +3650,7 @@ function bindEvents() {
     $(id).onchange = saveSettings;
   }
 
+  $("promote-project").onclick = promoteProject;
   $("add-milestone").onclick = addMilestone;
   $("new-milestone-name").onkeydown = (event) => {
     if (event.key === "Enter") addMilestone();

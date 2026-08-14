@@ -129,7 +129,13 @@
       <section>
         <div class="section-head">
           <h2>Milestones</h2>
-          <span id="milestone-tally" class="muted"></span>
+          <span class="section-aside">
+            <span id="milestone-tally" class="muted"></span>
+            <!-- No `display` on this button anywhere in the CSS, deliberately:
+                 a class setting one would outrank the UA sheet's `[hidden]`,
+                 which is the trap `.track-crumb[hidden]` documents. -->
+            <button id="promote-project" hidden>Promote to plan</button>
+          </span>
         </div>
         <p class="hint">
           Checkpoints the plan is aiming at, between the phases. Reaching every
