@@ -1,0 +1,4 @@
+# The vendored mermaid bundle is upstream's bytes and is recorded in STATUS.md by
+# its SHA-256. `core.autocrlf` is on here, so without this a checkout would
+# rewrite every line ending in it and the recorded hash would stop verifying.
+app/static/vendor/** -text

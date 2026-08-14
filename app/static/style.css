@@ -576,6 +576,25 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   border-radius: 3px;
   overflow-x: auto;
 }
+/* A diagram before it draws, and after it fails to. The source **is** the
+   fallback -- the library may be missing and the syntax may be half-typed -- so
+   it is styled to read as source rather than as breakage: quieter than a code
+   block, and dashed to say it is waiting to become something. */
+.sprint-block pre.mermaid-source {
+  background: #fafafa;
+  border: 1px dashed #e4e4e4;
+  color: #666;
+  font-size: 12px;
+}
+/* The drawing. Centred because a diagram is a figure, and scaled to the column
+   rather than allowed to widen it -- mermaid sizes an SVG to its content, which
+   for a wide flowchart is wider than the document. */
+.mermaid-figure { margin: 8px 0; text-align: center; overflow-x: auto; }
+.mermaid-figure svg { max-width: 100%; height: auto; }
+/* One quiet line under the source, not a banner: the diagram is one keystroke
+   from drawing and the source above it is what you fix. */
+.mermaid-error { margin: 4px 0 8px; font-size: 12px; color: #b26a00; }
+
 .sprint-block blockquote {
   margin: 4px 0;
   padding-left: 10px;

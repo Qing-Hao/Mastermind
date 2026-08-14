@@ -1,6 +1,7 @@
 """End-to-end API tests mapped to the acceptance criteria in PROMPT.md."""
 
 import os
+import re
 from datetime import date, timedelta
 
 import pytest
@@ -1860,6 +1861,21 @@ def test_the_stage_rebuild_runs_once_and_then_leaves_the_file_alone(tmp_path):
             assert not db.table_exists(connection, "project_rebuilt")
     finally:
         db.set_db_path(db.DEFAULT_DB_PATH)
+
+
+def test_the_frontend_loads_nothing_from_off_this_machine(client):
+    """Localhost-only, and it works offline: mermaid is vendored, never fetched.
+
+    The failure this guards is a missing `vendor/mermaid.min.js` being "fixed"
+    with a CDN tag, which would quietly make the app need the internet to draw.
+    """
+    page = client.get("/static/index.html")
+    assert page.status_code == 200
+    assert not re.search(r'(?:src|href)\s*=\s*"[^"]*//', page.text)
+
+    editor = client.get("/static/editor.js")
+    assert editor.status_code == 200
+    assert 'MERMAID_SRC = "/static/vendor/mermaid.min.js"' in editor.text
 
 
 def test_migrate_is_a_no_op_once_the_old_table_is_gone(tmp_path):

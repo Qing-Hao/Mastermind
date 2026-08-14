@@ -18,10 +18,16 @@ pure Python, so there is still no build step. linkify is deliberately **off**:
 the `gfm-like` preset enables it and it needs a *third* package (`linkify-it-py`)
 that raises at render time when absent.
 
+The frontend has **one dependency and it is vendored, not installed**:
+`app/static/vendor/mermaid.min.js` (11.16.1), which draws a ` ```mermaid ` fence
+in a sprint file. Committed rather than fetched because the app works offline,
+and lazy-loaded because it is 3.4MB — see the Sprint view below. Still no build
+step: it is a prebuilt bundle served as a static file.
+
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000   # http://127.0.0.1:8000
-.\.venv\Scripts\python.exe -m pytest -q                                   # 273 tests, ~5s
+.\.venv\Scripts\python.exe -m pytest -q                                   # 284 tests, ~16s
 
 .\.venv\Scripts\python.exe -m pip install -r requirements-ai.txt          # optional, sprint review only
 .\.venv\Scripts\python.exe scripts\sprint_review.py --history 3
@@ -47,6 +53,7 @@ Type checking is pyright, `basic` mode, config in `pyrightconfig.json`.
 | `app/markdown.py` | Splits a markdown file into blocks, renders one to HTML, serialises a table back. **Pure functions, no I/O** — the `validation.py` genre. Knows nothing about sprints. |
 | `app/main.py` | FastAPI routes. Thin — no business logic beyond the V3 block. |
 | `app/static/{index.html,app.js,style.css}` | Frontend. Four tabs: Project / Portfolio / Map / Sprint. |
+| `app/static/vendor/mermaid.min.js` | The one vendored file. Pinned 11.16.1, loaded on demand by the Sprint tab. Nothing else in the repo is third-party JS. |
 | `app/static/editor.js` | The Sprint tab's block editor. Its own file because `app.js` is already 2,800 lines; it reads `state`, `api`, `$` and `element` from there. |
 | `tests/test_validation.py` | Rules, pure. |
 | `tests/test_markdown.py` | The block model, mirroring `app/markdown.py`. The round trip is the gate. |
@@ -624,6 +631,26 @@ into one project link.
     saves. It needed `enabled=True` on the tasklists plugin, whose default is a
     `disabled` checkbox. Nothing derives from a tick — a sprint file's ticks are
     not roadmap state, and no rule reads them.
+  - **A ` ```mermaid ` fence is drawn as a diagram**, and it is the **one thing
+    the app renders in the browser rather than in Python** — drawing needs a DOM
+    and text measurement, so `markdown.py` stops at
+    `<pre class="mermaid-source">` holding the escaped source and `editor.js`
+    turns it into an SVG. The class name is the whole contract between them.
+    The library is **vendored, not fetched**: `app/static/vendor/mermaid.min.js`,
+    pinned, 3.4MB, the first vendored file in the repo. A localhost tool that
+    works offline is the premise, and a CDN tag would quietly end it — hence the
+    test that no frontend file names an external origin. It is injected **once
+    per page life and only when a diagram is on screen**, so a sprint file
+    without one costs nothing.
+    **A diagram that will not parse keeps its source**, dashed, with one amber
+    line under it — the same state the tab was in before this existed, which is
+    also where a missing bundle lands. Results are cached by the fence's own
+    text, successes and failures alike, so re-rendering the document redraws
+    nothing: a fixed diagram is a different key, and nothing needs invalidating.
+    The `<pre>` is **replaced, never `[hidden]`** — the sixth time that trap has
+    come up. Clicking a diagram opens its fence like any other block; the rail
+    reads `mmd`, because the server types every fence `code` and `mermaid`
+    measures wider than the 46px gutter.
 - **Map** — hand-rolled radial SVG, deterministic layout. Department hub → track
   ring → subtrack ring → project ring, ideas outermost and dashed. Nodes are
   styled off **`derived_stage`**, so the picture ages by itself: a project that
