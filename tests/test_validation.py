@@ -13,7 +13,7 @@ from app.validation import (
     fortnight_window,
     phase_band,
     implied_weeks,
-    next_milestone,
+    next_phase_boundary,
     phase_end_date,
     check_phase_done_without_deliverables,
     check_phase_overdue,
@@ -393,28 +393,28 @@ def test_effort_points_of_a_project_with_no_phases_is_zero():
     assert project_effort_points([]) == 0
 
 
-def test_next_milestone_picks_the_soonest_boundary_ahead():
+def test_next_phase_boundary_picks_the_soonest_boundary_ahead():
     phases = [
         make_phase(1, "Design", start="2026-01-05", weeks=4),   # ends 2026-02-02
         make_phase(2, "Build", start="2026-03-02", weeks=2),
     ]
     # The Design end date beats the Build start date.
-    assert next_milestone(phases, date(2026, 1, 10)) == "2026-02-02"
+    assert next_phase_boundary(phases, date(2026, 1, 10)) == "2026-02-02"
 
 
-def test_next_milestone_ignores_boundaries_already_passed():
+def test_next_phase_boundary_ignores_boundaries_already_passed():
     phases = [make_phase(1, "Design", start="2026-01-05", weeks=4)]
-    assert next_milestone(phases, date(2026, 3, 1)) is None
+    assert next_phase_boundary(phases, date(2026, 3, 1)) is None
 
 
-def test_next_milestone_counts_a_boundary_falling_today():
+def test_next_phase_boundary_counts_a_boundary_falling_today():
     phases = [make_phase(1, "Design", start="2026-01-05", weeks=4)]
-    assert next_milestone(phases, date(2026, 1, 5)) == "2026-01-05"
+    assert next_phase_boundary(phases, date(2026, 1, 5)) == "2026-01-05"
 
 
-def test_next_milestone_is_none_while_everything_is_unscheduled():
+def test_next_phase_boundary_is_none_while_everything_is_unscheduled():
     phases = [make_phase(1, "Design", start=""), make_phase(2, "Build", start="")]
-    assert next_milestone(phases, date(2026, 1, 5)) is None
+    assert next_phase_boundary(phases, date(2026, 1, 5)) is None
 
 
 # --- the derived stage ladder -----------------------------------------------

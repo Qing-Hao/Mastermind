@@ -29,7 +29,7 @@ from app.validation import (
     fortnight_slice,
     fortnight_window,
     is_scheduled,
-    next_milestone,
+    next_phase_boundary,
     phase_end_date,
     project_effort_points,
     project_progress,
@@ -914,7 +914,7 @@ def read_graph():
             "phases_done": progress["done"],
             "phases_total": progress["total"],
             "effort_points": project_effort_points(phases),
-            "next_date": next_milestone(phases, today),
+            "next_date": next_phase_boundary(phases, today),
         })
 
     return {

@@ -506,12 +506,16 @@ def project_stage(project, phases, deliverables, today):
     return STAGE_PLANNED
 
 
-def next_milestone(phases, today):
+def next_phase_boundary(phases, today):
     """The next phase boundary falling on or after `today`, or None.
 
     Starts and ends both count: the next thing to happen to a project is either
     work beginning or work landing. Unscheduled phases have no boundary at all
     and are skipped, so a fully unscheduled project returns None.
+
+    Named `next_milestone` until milestones became a real entity with a table of
+    their own. This never was one: it derives a date off the phases and nothing
+    stores it, where a milestone is a checkpoint you write down and tick.
     """
     today = as_date(today)
     upcoming = []
@@ -543,7 +547,7 @@ def validate_plan(project, phases, settings=None, deliverables_by_phase=None,
     and both default to None, which **skips that rule** rather than inventing the
     input. This module stays pure: reading the clock here would make every test
     of it depend on the day it runs, so the caller supplies the date the same way
-    `next_milestone` has always required it.
+    `next_phase_boundary` has always required it.
     """
     settings = {**DEFAULT_SETTINGS, **(settings or {})}
     velocity = effective_velocity(project, settings)

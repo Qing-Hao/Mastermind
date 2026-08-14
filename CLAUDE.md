@@ -227,8 +227,8 @@ list, so both ends of a link see it.
 `validate_plan`'s `today` and `deliverables_by_phase` arguments both default to
 `None`, which **skips** V6 and V7 rather than inventing the input. The module is
 pure: reading the clock inside it would make every test of it depend on the day
-it runs, so the caller passes the date — the same contract `next_milestone` has
-always had.
+it runs, so the caller passes the date — the same contract `next_phase_boundary`
+has always had.
 
 ## Unscheduled is a first-class state
 
