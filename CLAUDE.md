@@ -27,7 +27,7 @@ step: it is a prebuilt bundle served as a static file.
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000   # http://127.0.0.1:8000
-.\.venv\Scripts\python.exe -m pytest -q                                   # 293 tests, ~11s
+.\.venv\Scripts\python.exe -m pytest -q                                   # 299 tests, ~11s
 
 node scripts\map_sweep.js            # map: label/circle collisions, 1000-1530px
 node scripts\map_sweep.js --tree     # map: the track hierarchy as drawn
@@ -570,14 +570,102 @@ into one project link.
     from the lower number, and the editor prints the numbers `GET /api/sprints`
     handed it — it reads no dates itself. `.sprint-overlap` deliberately sets no
     `display`, so the element's `[hidden]` still wins.
-  - **A table is a grid of `<input>`s and has no reveal gesture at all.** Every
-    other block type swaps between rendered HTML and its markdown; a table swaps
-    to cells, so raw pipes have nowhere to appear. `Tab`/`Shift+Tab` walk cells
+  - **A table is a grid of cells, and a cell has two states.** Every other block
+    type swaps between rendered HTML and its markdown; a table swaps to cells, so
+    raw pipes have nowhere to appear. `Tab`/`Shift+Tab` walk cells
     and `Tab` off the last one grows a row; `+ Row` `+ Column` sit under it on
     hover; and **pasting a spreadsheet range fills from the anchor cell
     outwards**, growing the table to fit. That paste is the feature the editor
     was built for. Editing a table's alignment markers, or turning one back into
     prose, is the raw file view's job.
+    Until the checkbox below, this section said a table **"has no reveal gesture
+    at all"** — the cells *were* the editor, in one state. That is no longer true
+    and the sentence is replaced rather than qualified: an unfocused cell is a
+    `.sprint-cell-view`, focusing it swaps in the `.sprint-cell` textarea, and
+    blurring swaps back. The forcing reason is mechanical — **a `<textarea>` has
+    no insides to click**, its content being plain text with no child elements, so
+    a control drawn in one cannot be hit. A cell that can hold a control has to be
+    something other than a textarea while you are not typing in it.
+    One property keeps the cost contained: the swap is **local** — the `<td>`
+    exchanges its one child, never a document re-render, because `Tab` walks cells
+    and rebuilding 200-odd of them per keypress is not affordable.
+    The two states now mean what they mean everywhere else in the editor —
+    **rendered when you are not in it, source when you are** — which is what makes
+    the reveal earn itself rather than merely cost something. An earlier draft of
+    this feature drew the view as plain source; that was inconsistent the moment
+    the cell menu could insert `**bold**` into a surface that then showed
+    `**bold**`, and it was replaced rather than defended.
+  - **A cell holds more than one line, and the file holds `<br>`.** `Enter` in a
+    cell is a line break within it — which is why a cell is a textarea and not an
+    `<input>` — and the height follows the text. A real newline cannot reach the
+    file: a newline inside a pipe row **is** a new row, so it would split the
+    table silently, and GFM has no block content in a cell to put there instead.
+    `markdown.CELL_BREAK` is the whole contract, the same shape `MERMAID_CLASS`
+    has: `_escape_cell` writes it, `cellText` reads it back, and a cell already
+    holding one survives untouched so an unedited table stays byte-stable. Read
+    leniently — `<br/>`, `<br />`, any case, because a file you hand-edit holds
+    whichever you typed — and written in exactly one spelling. Pasting is
+    deliberately unchanged: a one-column range is still rows, and `Enter` is how a
+    second line goes into a single cell.
+    A consequence to expect: a `<br>` typed by hand into an older file now shows
+    as a line break in the grid. That was accepted as being what it says.
+  - **A cell line can be ticked, and the tick lives in the cell's text.** Two
+    spellings are drawn as a checkbox and **`- [ ]` is the one that gets written**;
+    `☐`/`☑` are read only, and a tick on one keeps it a glyph — the spelling
+    belongs to the line, not to the editor. One written spelling was the
+    requester's call, on the ground that both draw the same box. Worth knowing
+    rather than arguing with: `- [ ]` **inside a cell is literal text to GFM** (a
+    cell is inline content and the tasklists plugin only rewrites list items), so
+    GitHub, an IDE preview and `sprint_review.py`'s model all see the characters
+    rather than a box. The box is this grid's affordance over ordinary text, which
+    is exactly why it costs the file nothing: `- [x] schema` is a string.
+    Ticking rewrites that line of the **cell**, never `block.raw`: `raw` is
+    regenerated from the grid by `serialise_table` on every save, so a tick
+    written there would be gone by the next debounce. `toggleSprintTask`, which
+    does write a line of `raw`, is therefore for task-list *blocks* only and the
+    two do not share a path. Nothing derives from either — a sprint file's ticks
+    are not roadmap state.
+    `Ctrl+Enter` in a cell is the same flip from the keyboard, and on a line with
+    no marker it **adds** one, so it starts a checklist as well as maintaining
+    one. A mouse-only control in a surface you type into would be the gap.
+    **What stays refused is emitting `<li>` or `<input type="checkbox">` into the
+    file.** It would render, because `html=True`, and then the tick would have no
+    persistence path at all, the grid would have to parse HTML back out to stay
+    editable, and the file would stop being markdown a person can hand-edit.
+  - **The view renders four inline constructs, and it is the second thing drawn in
+    the browser rather than in Python.** Bold, italic, code and a link — *exactly*
+    what `CELL_MENU` can insert, and nothing else. The discipline is the point:
+    this is not a markdown renderer and must not grow into one. `markdown.py`
+    renders the file.
+    The reason it is client-side has the same shape as mermaid's without being the
+    same reason: **the grid is live.** `block.table` is the client's copy and a
+    keystroke changes it, so anything drawn from it must be drawn locally or it is
+    stale the moment you type; asking the server would be a request per cell blur
+    to redraw text the client already holds. Nodes are built with `textContent`,
+    never `innerHTML`, so a cell holding `<script>` holds the characters.
+    Three deliberate omissions, each a decision rather than a gap: **no underscore
+    emphasis**, because `sprint_length_days` and
+    `default_velocity_points_per_sprint` are words this project's own files are
+    full of and CommonMark's intraword rule is subtle enough that getting it
+    slightly wrong mangles them; **raw HTML stays text**, so `<u>` in a cell shows
+    as `<u>` even though the file renders it, because a grid that executes markup
+    out of a cell is a worse thing than one that under-renders; and **no
+    linkify**, which the app turns off everywhere. A URL scheme other than
+    `http`/`https`/`mailto` is left as text rather than made a link.
+    Where the grid and the file disagree, **the file is right and `Raw file` is
+    how you see it.** That is this feature's cost, stated rather than buried.
+  - **`/` in a cell opens a second, inline-only menu.** It cannot be the block
+    menu: six of those nine entries are block constructs, and `pickSprintMenuItem`
+    inserts one by replacing the whole block and re-splitting it — fired from a
+    cell, that replaces the table itself with `- [ ] `. So `CELL_MENU` carries only
+    what a GFM cell can hold — checkbox, line break, bold, italic, code, link —
+    and its pick inserts text at the caret. `sprintMenu.pick` is what makes one
+    menu serve both: same rendering, same filtering, same keyboard, two meanings
+    of "insert".
+    The trigger is read **per line**, not per box, because a cell holds several
+    lines: `/` at the start of the caret's line with nothing but the filter after
+    it. That matters more here than in a block — `1/2`, `n/a` and
+    `Source expansion / Metrics` are all ordinary cell values.
   - **Rows and columns are inserted, deleted and moved where they are**, from a
     `⠿` grip beside every row and above every column: drag it to move that one,
     click it for `Insert before` / `Insert after` / `Delete`. It replaced
@@ -638,12 +726,27 @@ into one project link.
     — so there is one way out of a block, not two.
   - **`/` on an empty block opens an insert menu** — nine block types, filtered
     as you type, arrows and `Enter` to pick, `Esc` to close without inserting.
+    (Inside a table cell the same key opens the inline menu described above
+    instead, because none of these nine can live in a cell.)
     Every entry is a **markdown snippet** put through the same `/split` any other
     edit uses, so nothing builds a block by hand, and **not one of the nine is a
     sprint concept**: the table is an empty two-by-two, not a capacity table.
     `Enter` at the end of a block opens an empty one below it and `Backspace` in
     an emptied block removes it — those two exist because without a way to *make*
     an empty block the menu has no path to it.
+  - **The foot of the document is always a place to start a block**, not only when
+    the file is empty. It used to appear at `blocks.length === 0` alone, which left
+    **a file ending in a table with no gesture anywhere that added a block after
+    it**: a table has no textarea, so the `Enter` above cannot happen, and `Tab`
+    off the last cell grows a row instead of leaving. Fixing the class rather than
+    the instance — the target knows nothing about tables, so it cannot rot.
+    The gaps are `removeSprintBlock`'s rule in reverse: **the last block owns the
+    file's trailing newline**, so an appended block inherits it and what used to be
+    last is given a blank line, which a single newline cannot substitute for — two
+    paragraphs joined by one re-read as one paragraph. An empty block committed
+    empty is taken back out and the newline handed back, so clicking the target and
+    changing your mind writes nothing. Only these gestures make an empty block; the
+    splitter never returns one.
   - **A gutter rail** carries what the block is and a `⠿` grip that reorders it.
     `draggable` is armed from the grip alone, so a press anywhere else still
     places a cursor — the same conclusion the deliverable list reached, by a
@@ -668,8 +771,10 @@ into one project link.
     saves. It needed `enabled=True` on the tasklists plugin, whose default is a
     `disabled` checkbox. Nothing derives from a tick — a sprint file's ticks are
     not roadmap state, and no rule reads them.
-  - **A ` ```mermaid ` fence is drawn as a diagram**, and it is the **one thing
-    the app renders in the browser rather than in Python** — drawing needs a DOM
+  - **A ` ```mermaid ` fence is drawn as a diagram**, one of the **two things the
+    app renders in the browser rather than in Python** (a table cell's inline
+    markup is the other, for a different reason — see the grid above) — drawing
+    needs a DOM
     and text measurement, so `markdown.py` stops at
     `<pre class="mermaid-source">` holding the escaped source and `editor.js`
     turns it into an SVG. The class name is the whole contract between them.

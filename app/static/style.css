@@ -749,7 +749,11 @@ kbd {
 .sprint-table th, .sprint-table td { border: 1px solid #e0e0e0; padding: 0; }
 .sprint-table th { background: #f6f6f6; }
 
-.sprint-cell {
+/* The two states of one cell, sharing every metric that decides the row's height
+   so the swap on focus does not move the grid. A textarea, so a cell can hold a
+   second line — sized by its text rather than resizable, and `display: block`
+   because a textarea's baseline would otherwise leave a gap under every row. */
+.sprint-cell, .sprint-cell-view {
   font: inherit;
   font-variant-numeric: tabular-nums;
   width: 100%;
@@ -758,8 +762,44 @@ kbd {
   border: 0;
   background: transparent;
   box-sizing: border-box;
+  display: block;
 }
-.sprint-table th .sprint-cell { font-weight: 600; }
+.sprint-cell { resize: none; overflow: hidden; }
+
+/* The resting state. `cursor: text` because clicking it is how you type here, and
+   `min-height` so an empty cell is still a target rather than a 0px line. */
+.sprint-cell-view { cursor: text; }
+.sprint-cell-line { min-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* The four constructs the cell menu can insert, drawn so a rendered row is the
+   same height as the raw one it swaps to — no padded `code`, no larger link. */
+.sprint-cell-line code {
+  font: inherit;
+  background: #f0f0f3;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+.sprint-cell-line a { color: #3949ab; }
+.sprint-cell-line a:hover { text-decoration: none; }
+
+/* The one control a cell can hold. Sized and nudged to sit on the text's baseline
+   rather than above it, since the line beside it is the label. `min-width` and
+   `padding` are reset because `td input { width: 100%; min-width: 80px }` and the
+   global `input { padding: 4px 6px }` both reach it — an 80px checkbox, which is
+   exactly the trap `table.deliverables td.tick input` already solves for the
+   deliverable tick. A class does not outrank a `min-width` nobody else sets. */
+.sprint-cell-todo {
+  width: 12px;
+  min-width: 0;
+  height: 12px;
+  padding: 0;
+  margin: 0 5px 0 0;
+  vertical-align: -1px;
+  cursor: pointer;
+}
+.sprint-cell-todo:hover { outline: 1px solid #5c6bc0; }
+.sprint-table th .sprint-cell,
+.sprint-table th .sprint-cell-view { font-weight: 600; }
 .sprint-cell:focus {
   outline: none;
   background: #eef1ff;
@@ -846,6 +886,23 @@ kbd {
 }
 
 .sprint-placeholder { color: #888; cursor: text; padding: 8px; }
+
+/* The foot of a file that already has content. Quiet until it is wanted: a
+   permanent click target under every document should read as room to type, not as
+   a button. Dashed, so it is visibly a place rather than a block. */
+.sprint-foot {
+  margin: 2px 0 0;
+  border: 1px dashed transparent;
+  border-radius: 3px;
+  font-size: 12.5px;
+  color: #bbb;
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+.sprint-foot:hover, .sprint-foot:focus {
+  color: #5c6bc0;
+  border-color: #c5cae9;
+  outline: none;
+}
 
 /* Whether the file on disk matches what is on screen. Never silent: a failed
    autosave that says nothing is how a retro gets lost. */

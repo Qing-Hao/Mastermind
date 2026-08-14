@@ -21,7 +21,7 @@ numbers are never reused, so a gap in the sequence means built — look for it i
 `git log` and `STATUS.md`. **Won't-build items stay**, because nothing was
 committed for them: the argument against building is the whole artefact, and
 deleting it invites the idea back in six months. Built so far and gone from
-here: FR-8, FR-9, FR-10, FR-14, FR-15, FR-17.
+here: FR-8, FR-9, FR-10, FR-14, FR-15, FR-17, FR-18.
 
 Every item below is written against the invariants in `CLAUDE.md`. Where a
 request has an obvious bad version that would break one, the bad version is
@@ -48,7 +48,6 @@ why FR-13 sits above FR-12.
 | # | Request | Complexity | Frequency | Impact | Priority |
 |---|---|---|---|---|---|
 | FR-16 | Phase status never updates itself | Medium | High | High | **P1** — one decision first |
-| FR-18 | A table cell is one line, and a trailing table is a dead end | Small | High | High | **P1** |
 | FR-13 | Project span on the portfolio swimlane title | Tiny | High | Medium | **P1** |
 | FR-1 | Say that sprint task points and phase `effort_points` are one currency | Prose only | — | High | **P1** |
 | FR-2 | Portfolio-wide warnings, not just V2 | Small | High | High | **P1** |
@@ -96,12 +95,14 @@ FR-16 ──> a decision  option A/B/C/D, not code
   option is picked.
 - **FR-11 depends on nothing either, but it moves DOM other branches render
   into** — see the merge order below.
-- **FR-18 depends on nothing.** It is the only item left that touches
-  `markdown.py` or `editor.js`, so it is safe to run alongside B and E.
-- **FR-17 is built** (tree F), and its one merge-relevant leftover is that it
-  rewrote the map block of `app.js` — roughly 1830–2330 — and replaced
-  `.map-track`/`.map-subtrack` with `.map-group.level-N` in `style.css`. Nothing
-  else on this list touches either region.
+- **FR-17 and FR-18 are both built** — trees F and G, merged the same day — and
+  what is worth keeping here is only their merge-relevant footprint. FR-17 rewrote
+  the map block of `app.js` — roughly 1830–2330 — and replaced
+  `.map-track`/`.map-subtrack` with `.map-group.level-N` in `style.css`. FR-18
+  rewrote the grid in `editor.js`, `_escape_cell` in `markdown.py`, and the
+  `.sprint-cell` region of `style.css`. **Nothing left on this list touches any of
+  those**, which is why the two merged into one another with conflicts only in this
+  file and in `CLAUDE.md` — both of them prose, both in the tables above.
 
 ### Where each one lands
 
@@ -111,11 +112,6 @@ FR-16 ──> a decision  option A/B/C/D, not code
 | FR-12 | — | 1270–1470 (drags) | — | new pill class | — |
 | FR-13 | `main.read_portfolio` | 1202–1216 (lanes) | — | — | `test_api.py` |
 | FR-16 | `validation`, `main` | ~890–935 (phase row) | phase table head | phase status | both suites |
-| FR-18 | `markdown.py:363–365` | — | — | `.sprint-cell` | `test_markdown.py` |
-
-FR-18's frontend is `editor.js`, not `app.js` — 940 (`cellText`), 992–1038
-(`sprintCell`), 442–452 (the `Enter` that opens the next block). It is the only
-item on this list that lands there, which is why the column above says nothing.
 
 One property worth noticing: **`style.css` gets touched by most of these, in
 disjoint regions.** Git merges that fine as long as nobody reflows the file. Do
@@ -130,11 +126,13 @@ features; check it before adding any new hideable element.
 | **B · portfolio** | FR-13, then FR-12, then FR-2 | All in the portfolio view; FR-13 and FR-2 share `read_portfolio`. The only tree that runs the test suite. |
 | **E · status** | FR-16 | `validation.py` + the phase row. Touches the same payload FR-13 does but a different function, and it is the only live item with a rule-shaped decision in it. |
 | **F · map** | ~~FR-17~~ | **Built.** Left `scripts/map_sweep.js` behind — the map has no test suite, and that is now its verification. |
-| **G · editor** | FR-18 | `markdown.py` + `editor.js`. Disjoint from everything: no other live item touches either file. Runs the `test_markdown.py` round trip. |
+| **G · editor** | ~~FR-18~~ | **Built**, plus a clickable checkbox and an inline menu inside a cell that the entry did not ask for. `test_markdown.py`'s round trip is the gate. |
 | **D · shell** | FR-11 + tab reorder | Held back — see below. |
 
-B, E and G are near-disjoint and can all run at the same time. G shares no file
-with any other tree — it is not in `app.js` at all.
+B and E are near-disjoint and can run at the same time. **F and G are done and
+merged**, and they are the evidence that the split above works: two trees, four
+days of edits between them, and the only conflicts were prose in this file and in
+`CLAUDE.md`.
 
 **A map tree needs the real database, and more than the others do.** Its whole
 verification is what the map looks like at this dataset's shape — 8 tracks, one
@@ -597,103 +595,6 @@ keeps its column and its CHECK, and no stored value changes, so nothing in
 `status` (`validation.py:755`) and bands an overdue lane off `status == 'done'`
 (`validation.py:717-720`). Under A both keep reading the stored `done` and the
 drawer is untouched — verify that before writing the frontend, not after.
-
----
-
-## FR-18 · A table cell is one line, and a trailing table is a dead end — **P1**
-
-*From `comments.md` #3 on 2026-08-14: "Table cannot go next line, and i cant
-implement list or todo list renderer (- or []). It will be helpful to have that."*
-
-Three separate things, and separating them is most of the value here: one is a
-**dead end**, one is a **limitation**, and one is **forbidden by GFM itself**.
-
-### 1 · A cell cannot hold a second line — a limitation
-
-`sprintCell` builds an `<input type="text">` (`app/static/editor.js:992-996`),
-which has no newline to give. And `_escape_cell` **replaces `\n` and `\r` with a
-space** on the way to the file (`app/markdown.py:363-365`, docstring: *"One
-line"*), so even a pasted multi-line value flattens rather than erroring.
-
-### 2 · A table cannot open the block after it — a dead end
-
-`insertSprintBlockAfter` is reachable from exactly one place: the raw textarea's
-`Enter` handler (`editor.js:442-452`), whose own comment says *"this is what
-makes the insert menu reachable at all — nothing else in the editor makes one."*
-A table has no textarea — *"the cells are the editor"* (`editor.js:355-357`) — so
-`Enter` in a cell does nothing at all and `Tab` off the last cell **grows a row**
-rather than leaving the table. The empty-file placeholder only appears at
-`blocks.length === 0` (`editor.js:369`).
-
-**So a sprint file that ends with a table has no gesture anywhere that adds a
-block after it.** The only way out is `Raw file` and typing below it. This is the
-most literal reading of "cannot go next line", it affects the block type the
-editor was built for, and it is a dead end rather than a rough edge — which is
-what puts this item in P1 next to FR-16.
-
-### 3 · A list or a checkbox inside a cell is not markdown
-
-GFM has no block content in a table cell — a cell is inline only — so `- item`
-and `- [ ]` inside a cell are literal text in **every** renderer, not just this
-one; markdown-it's tasklists plugin only ever rewrites list items.
-
-Worth being precise, because the request reads as if the editor lacks lists and
-it does not: the insert menu carries both `Task list` and `Bullet list`
-(`editor.js:752-753`), and ticking a `- [ ]` is wired through
-`toggleSprintTask`. What cannot be done is putting either **inside a table**.
-
-### Options for 1
-
-| Option | Pro | Con |
-|---|---|---|
-| **A.** `\n` ↔ `<br>`, symmetric with the pipe: `_escape_cell` writes `<br>`, `cellText` reads it back; cell becomes a `<textarea>` | One line changed in each direction, in the two places that already do exactly this for `\|`; `html=True` is on and the template already leans on `<u>` and `<details>`, so `<br>` is in keeping; `autosizeSprintArea` already exists | A hand-typed `<br>` in an existing file starts showing as a line break in the grid — arguably correct, but it does change how existing files read |
-| **B.** Keep one line, wrap or widen the cell visually | Trivial | Does not answer it — the file still holds one line, and the next save flattens what you typed |
-| **C.** Put real newlines in the cell value | Obvious | **Corrupts the file.** The grid is posted to `/api/sprints/table` and a newline inside a pipe row *is* a new row. Named because it is the implementation you reach for first and it destroys a table silently |
-
-**Recommend A.** It is the standard GFM idiom for this and it lands in the two
-functions that already own the cell↔file translation.
-
-### Options for 2
-
-| Option | Pro | Con |
-|---|---|---|
-| **A.** `Enter` in the last cell of the last row inserts a block after the table | No new furniture | Undiscoverable — nothing indicates it, which is why nobody found the gap either |
-| **B.** A `+ Block` control beside `+ Row` / `+ Column` in `sprintTableTools` | Visible, and sits where the table's other structural gestures already live | One more hover control, and it is table-specific machinery for a general problem |
-| **D.** Make the foot-of-document click target always present, not only when the file is empty | Fixes the **class** rather than the instance; generalises a placeholder that already exists; needs no table knowledge at all | A permanent click target under the document, which is a visual change to every file |
-
-**Recommend D**, optionally with A alongside. The bug is that a trailing table
-has no successor; the cause is that "start a block at the end" only exists for an
-empty file. Extending that one affordance is smaller than B and it cannot rot,
-because it never learns what a table is.
-
-### For 3, the answer is A and a decline
-
-With multi-line cells, a cell holding `- design<br>- build` renders as two lines
-reading `- design` / `- build`: **visually a list, semantically text**, honest
-when you open the file in Notepad, and the round trip stays exact. That is the
-version worth shipping.
-
-**The bad version is emitting `<ul><li>` or `<input type="checkbox">` into
-cells.** It would render, because `html=True` — and then: the grid has to parse
-HTML back out to stay editable, a tick has **no persistence path** at all
-(`toggleSprintTask` rewrites a `- [ ]` *line*, and there is no line), and the
-file stops being markdown a human would hand-edit, which `sprint_review.py` and
-you both do. If a genuinely tickable list is the need, it belongs in a task-list
-block **under** the table — which the editor already does, and where the tick
-already works.
-
-**Cost:** small. One line in `_escape_cell`, one in `cellText`, `sprintCell`'s
-input → textarea plus autosize, the `Tab` handler unchanged, one foot-of-document
-click target, `.sprint-cell` CSS. Tests in `test_markdown.py`, where **the round
-trip is the gate**: a `<br>` cell has to survive `join_blocks(split_blocks(t)) ==
-t`, and that test already runs against `templates/sprint.md` and every
-`sprints/*.md` on disk.
-
-No schema change, no export bump, nothing near `migrate()`. **The sprint-4 gate
-is untouched** — the condition is that no string from `templates/sprint.md`
-appears in `app/markdown.py` or `editor.js`, and multi-line cells add no string
-at all: any pipe table in any markdown file gets the same grid it does today,
-one line taller.
 
 ---
 
