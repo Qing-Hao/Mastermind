@@ -33,6 +33,7 @@ from app.validation import (
     phase_end_date,
     project_effort_points,
     project_progress,
+    project_span,
     project_stage,
     relative_layout,
     sequential_layout,
@@ -318,6 +319,28 @@ def unplaced_work(projects, phases):
     return tray
 
 
+def with_project_span(projects, phases_by_project):
+    """Attach each project's own dates, phase count and points. Never stored.
+
+    The span comes from `validation.project_span` over **every** phase the
+    project has, not the ones a chart happens to be drawing. A swimlane that
+    reported the visible slice would claim different dates for the same project
+    depending on where the window sits, which is worse than saying nothing.
+
+    Both dates come back as "" while that half is unscheduled, the same
+    convention `with_end_date` follows, so a half-dated project still reports
+    the half it has.
+    """
+    for project in projects:
+        own = phases_by_project.get(project["id"], [])
+        start, end = project_span(project, own)
+        project["span_start"] = start.isoformat() if start else UNSCHEDULED
+        project["span_end"] = end.isoformat() if end else UNSCHEDULED
+        project["phase_count"] = len(own)
+        project["total_points"] = project_effort_points(own)
+    return projects
+
+
 # --- settings ---------------------------------------------------------------
 
 
@@ -455,12 +478,23 @@ def read_portfolio():
     Dependencies and their V2 warnings come along in full, ideas included: a
     project waiting on something uncommitted is worth seeing here even though the
     idea itself has no bar to draw.
+
+    Each project also carries its derived span, counts and stage. The chart draws
+    phases, so the project's own dates -- the question this tab exists to answer
+    -- were the one thing on it that could not be read anywhere.
     """
     projects = db.list_projects(stages=SCHEDULABLE_STAGES)
     committed = {project["id"] for project in projects}
     phases = [phase for phase in db.list_all_phases()
               if phase["project_id"] in committed]
     scheduled = [with_end_date(phase) for phase in phases if is_scheduled(phase)]
+
+    owned = {}
+    for phase in phases:
+        owned.setdefault(phase["project_id"], []).append(phase)
+    with_project_span(projects, owned)
+    with_derived_stage(projects, owned, db.deliverables_by_project(), date.today())
+
     return {
         "projects": projects,
         "phases": scheduled,

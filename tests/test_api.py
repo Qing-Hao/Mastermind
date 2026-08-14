@@ -662,6 +662,70 @@ def test_portfolio_returns_every_project_and_phase(client):
     assert {p["project_id"] for p in portfolio["phases"]} == {first["id"], second["id"]}
 
 
+def test_portfolio_carries_each_project_span_and_totals(client):
+    """The swimlane title's content: the project's own dates, counts and stage."""
+    project = make_project(client, "Payments", "2026-01-05")
+    make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+    make_phase(client, project["id"], "Build", "2026-02-02", 6, 55)
+
+    lane = client.get("/api/portfolio").json()["projects"][0]
+    assert lane["span_start"] == "2026-01-05"
+    assert lane["span_end"] == "2026-03-16"
+    assert lane["phase_count"] == 2
+    assert lane["total_points"] == 95
+
+
+def test_a_swimlane_carries_the_derived_stage_too(client):
+    """Dated around today, so the rung is the clock's answer and not the file's."""
+    started = (date.today() - timedelta(days=7)).isoformat()
+    project = make_project(client, "Payments", started)
+    make_phase(client, project["id"], "Build", started, 6, 55)
+
+    lane = client.get("/api/portfolio").json()["projects"][0]
+    assert lane["derived_stage"] == "active"
+    # The stored commitment travels untouched beside it, the same contract
+    # /api/projects has: `active` is what this route's default writes, and it
+    # reads identically to `planned` -- both simply mean committed.
+    assert lane["stage"] == "active"
+
+
+def test_a_project_span_ignores_the_chart_window(client):
+    """The span is every phase, so a lane cannot report the visible slice.
+
+    A lane only draws the phases inside the window it is scrolled to. Measuring
+    those would make the same project claim different dates depending on where
+    the chart sits, which is the one trap in this feature.
+    """
+    project = make_project(client, "Payments", "2026-01-05")
+    make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+    # Years away: no window shows both of these at once.
+    make_phase(client, project["id"], "Rollout", "2029-06-04", 2, 20)
+
+    lane = client.get("/api/portfolio").json()["projects"][0]
+    assert lane["span_start"] == "2026-01-05"
+    assert lane["span_end"] == "2029-06-18"
+
+
+def test_an_undated_project_reports_no_span_rather_than_a_guess(client):
+    project = make_project(client, "Payments", start="")
+    make_phase(client, project["id"], "Design", "", 4, 40)
+
+    lane = client.get("/api/portfolio").json()["projects"][0]
+    assert lane["span_start"] == ""
+    assert lane["span_end"] == ""
+    assert lane["phase_count"] == 1
+    assert lane["total_points"] == 40
+
+
+def test_a_span_covers_a_phase_dated_before_its_project(client):
+    """V4 warns about this separately; the span still reports where work starts."""
+    project = make_project(client, "Payments", "2026-03-01")
+    make_phase(client, project["id"], "Discovery", "2026-01-05", 2, 20)
+
+    lane = client.get("/api/portfolio").json()["projects"][0]
+    assert lane["span_start"] == "2026-01-05"
+
+
 def test_portfolio_is_empty_when_nothing_is_planned(client):
     assert client.get("/api/portfolio").json() == {
         "projects": [], "phases": [], "unscheduled": [], "unscheduled_count": 0,

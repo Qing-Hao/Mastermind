@@ -1213,7 +1213,9 @@ function renderPortfolio() {
     if (own.length === 0) continue;
 
     const lane = element("div", "lane");
-    lane.appendChild(element("div", "lane-title", project.name));
+    const title = element("div", "lane-title", project.name);
+    title.title = laneSummary(project);
+    lane.appendChild(title);
     for (const phase of own) {
       const bar = phaseBar(phase, view, false);
       bar.classList.add("draggable");
@@ -1229,6 +1231,22 @@ function renderPortfolio() {
   // Redrawn from the slice already in hand: the chart moving underneath it
   // does not change which fortnight you opened.
   renderFortnightDrawer();
+}
+
+// The lane's own dates, which its bars cannot say between them: each bar carries
+// one phase, and the span is the question the Portfolio tab exists to answer.
+//
+// Every number here is read off the payload, never derived from the bars on
+// screen -- a lane only draws the phases inside the current window, so measuring
+// those would make the same project report different dates as you page the
+// chart. `validation.project_span` owns the arithmetic.
+function laneSummary(project) {
+  const dates = project.span_start && project.span_end
+    ? `${project.span_start} → ${project.span_end}`
+    : "no dates yet";
+  return `${project.name}\n${dates} · ${project.phase_count} phase(s) · `
+    + `${project.total_points} pts\n${STAGE_BADGE[project.derived_stage] || ""} `
+    + `${project.derived_stage}`;
 }
 
 // Work that is estimated but undated, waiting to be dropped onto the grid. The
