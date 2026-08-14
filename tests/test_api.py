@@ -1444,6 +1444,11 @@ def test_a_garbage_sprint_start_is_rejected(client, sprints):
 # that is refused and existing files that manage it anyway are reported. The dates
 # are read back out of the heading `sprint_heading` writes; a heading that cannot
 # be read has no window and takes part in nothing.
+#
+# The **handover day is the exception**: one sprint may end on the day the next
+# begins, which is how the sprints are written down. A window this app generates
+# never lands there -- a fortnight ends the day before the next Monday -- so the
+# cases below write those headings by hand, which is also the only way they occur.
 
 
 def test_a_heading_window_is_read_back_out_of_the_line_it_was_written_on():
@@ -1490,6 +1495,38 @@ def test_back_to_back_fortnights_are_not_an_overlap(client, sprints):
     assert (sprints / "02.md").exists()
 
 
+def test_a_shared_handover_day_is_not_an_overlap(client, sprints):
+    """`... -> 10 Aug` then `10 Aug -> ...` is one day of planning, not two sprints.
+
+    Written by hand because a generated fortnight ends on a Sunday and the next
+    one snaps to the Monday after -- this convention only ever arrives by editing
+    the heading, which is exactly what the app is not entitled to refuse.
+    """
+    write_sprint(sprints, "01.md", "# Sprint 1 · 2026-07-27 → 2026-08-10\n")
+    created = start_sprint(client, "2026-08-10")           # snaps to its own Monday
+    assert created["window"]["start"] == "2026-08-10"       # the day 01.md ends
+    assert created["window"]["end"] == "2026-08-23"
+    assert created["name"] == "02.md"
+    assert (sprints / "02.md").exists()
+
+
+def test_one_day_past_the_handover_is_still_an_overlap(client, sprints):
+    """The allowance is the touching endpoint alone, not a day of slack."""
+    write_sprint(sprints, "01.md", "# Sprint 1 · 2026-07-27 → 2026-08-11\n")
+    response = client.post("/api/sprints", json={"start": "2026-08-10"})
+    assert response.status_code == 409
+    assert "one sprint at a time" in response.json()["detail"]
+    assert sorted(path.name for path in sprints.iterdir()) == ["01.md"]
+
+
+def test_a_one_day_sprint_inside_another_is_an_overlap():
+    """A single shared day is only forgiven at an endpoint -- nested is not that."""
+    outer = {"start": "2026-08-03", "end": "2026-08-16"}
+    inner = {"start": "2026-08-10", "end": "2026-08-10"}
+    assert main.windows_overlap(outer, inner)
+    assert main.windows_overlap(inner, outer)
+
+
 def test_a_file_whose_heading_cannot_be_read_blocks_nothing(client, sprints):
     """It might cover those days. Guessing that it does would refuse a real sprint
     on the strength of an invented window."""
@@ -1510,6 +1547,15 @@ def test_the_list_reports_the_window_and_who_it_overlaps(client, sprints):
     assert listed[2]["overlaps"] == [1]
     # Back to back with 2, and nowhere near 1.
     assert listed[3]["overlaps"] == []
+
+
+def test_the_list_does_not_report_a_shared_handover_day(client, sprints):
+    """The convention the sprints are actually written in must read as clean."""
+    write_sprint(sprints, "01.md", "# Sprint 1 · 2026-06-17 → 2026-07-01\n")
+    write_sprint(sprints, "02.md", "# Sprint 2 · 2026-07-01 → 2026-07-15\n")
+    listed = {file["number"]: file for file in client.get("/api/sprints").json()}
+    assert listed[1]["overlaps"] == []
+    assert listed[2]["overlaps"] == []
 
 
 def test_a_file_with_no_readable_window_overlaps_nothing(client, sprints):

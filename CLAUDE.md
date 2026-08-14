@@ -136,7 +136,8 @@ project occupies, its end being the latest phase end inside it.
    data, not a scheduling opinion. `POST /api/dependencies` returns **409**
    naming the cycle and writes nothing.
    There is now a **second write-time refusal, and it is not a rule**:
-   `POST /api/sprints` 409s on a fortnight overlapping a sprint already on disk.
+   `POST /api/sprints` 409s on a fortnight overlapping a sprint already on disk
+   (**a shared handover day is not an overlap** — see the sprint section for why).
    Same reasoning — one team cannot run two sprints at once, so an overlap is
    malformed rather than an opinion — but it guards a *file*, not the plan, so it
    gets no V number and `validate_*` never sees it. Refusing to write a bad file
@@ -275,7 +276,8 @@ DELETE · `/api/projects/{id}/layout` POST · `/api/projects/{id}/phases` POST �
 The five sprint routes are the sprint editor; see "Sprint planning lives in
 markdown files" below for what they may and may not do. `GET /api/sprints` lists
 the files for the picker (number, name, mtime, first line, plus the `window` read
-back off that line and the `overlaps` it shares a day with); `GET`/`PUT
+back off that line and the `overlaps` it genuinely runs alongside — a shared
+handover day is not one); `GET`/`PUT
 /api/sprints/{number}` read and write one whole file, the `PUT` mtime-guarded;
 `/split` re-splits one edited block, which may have become several or changed
 type; `/table` turns an edited grid back into aligned markdown, which is why the
@@ -819,8 +821,17 @@ reach the real `sprints/`**, which holds work actually done.
 
 - **One team runs one sprint at a time, so overlapping windows are refused.**
   `POST /api/sprints` reads each file's window back off its first line and 409s,
-  writing nothing, if the requested fortnight shares a day with one. Back to back
-  is fine — one ends the day before the next begins. `GET /api/sprints` also
+  writing nothing, if the requested fortnight shares **more than a boundary day**
+  with one. Back to back is fine both ways: one ending the day before the next
+  begins, and one ending **on** the day the next begins. The shared handover day
+  is the convention the sprints are actually written in (`17 Jun → 01 Jul`, then
+  `01 Jul → 15 Jul`) and it is a planning-and-retro day, not two sprints running
+  at once. `windows_overlap` is therefore `<` on both sides rather than `<=` —
+  comparing an inclusive end strictly is the same test as a half-open interval,
+  so a single touching endpoint falls through while a nested one-day window does
+  not. A window this app *generates* never lands on the boundary anyway (a
+  fortnight ends the day before the next Monday), so the allowance only ever
+  matters for headings edited by hand. `GET /api/sprints` also
   reports `overlaps` per file, because refusing creation leaves exactly one way
   in: dates edited by hand afterwards, which the app does not own and will not
   rewrite. `sprint_window_from_heading` is **the only thing in the app that reads

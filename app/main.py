@@ -629,16 +629,27 @@ def sprint_window_from_heading(first_line):
 
 
 def windows_overlap(one, other):
-    """True when two inclusive windows share a day. ISO strings sort as dates."""
-    return one["start"] <= other["end"] and other["start"] <= one["end"]
+    """True when two inclusive windows share more than a boundary day.
+
+    **The handover day is allowed to be shared**: a sprint may end on the day the
+    next one starts. That is how the sprints are written down -- `17 Jun → 01 Jul`
+    followed by `01 Jul → 15 Jul` -- and the day is a planning and a retro, not two
+    sprints running at once. Sharing any second day is still an overlap.
+
+    Hence `<` rather than `<=` on both sides: an inclusive end compared strictly
+    is the same test as a half-open interval, so a single touching endpoint falls
+    through. ISO strings sort as dates.
+    """
+    return one["start"] < other["end"] and other["start"] < one["end"]
 
 
 def overlapping_sprints(window):
     """The sprints on disk sharing a day with `window`, as `(number, window)`.
 
     **One team runs one sprint at a time**, so an overlap is a mistake rather than
-    a plan. Two of them are back to back when one ends the day before the next
-    begins; a shared day means two sprints are live at once.
+    a plan. Two of them are back to back either when one ends the day before the
+    next begins or when they meet on a shared handover day; a second shared day
+    means two sprints are live at once.
     """
     clashes = []
     for number, name in sprint_files(SPRINTS_DIR):
@@ -701,6 +712,11 @@ def add_sprint(body: SprintIn):
     overlap is malformed rather than a scheduling opinion. Refusing to write a bad
     file is not the same as repairing a good one -- rule 1 still holds, and the
     dates in a file that exists are never touched.
+
+    Meeting on a single handover day is **not** an overlap -- see
+    `windows_overlap`. A window this route generates never lands there anyway,
+    since a fortnight ends the day before the next Monday; it is the headings
+    edited by hand that use the shared-day convention.
     """
     window = fortnight_window(clean_date(body.start) or date.today())
 
@@ -759,11 +775,11 @@ def add_sprint(body: SprintIn):
 def list_sprints():
     """Every sprint file on disk, for the picker. Lowest number first.
 
-    Each row carries the days it covers and `overlaps`, the other sprints it shares
-    a day with. Creating an overlap is refused outright, so what this catches is the
-    other way in: dates edited by hand afterwards, in a file the app does not own.
-    Reported at both ends of the pair, and repaired at neither -- the heading is
-    yours to fix.
+    Each row carries the days it covers and `overlaps`, the other sprints it runs
+    alongside -- a shared handover day does not count, see `windows_overlap`.
+    Creating an overlap is refused outright, so what this catches is the other way
+    in: dates edited by hand afterwards, in a file the app does not own. Reported at
+    both ends of the pair, and repaired at neither -- the heading is yours to fix.
     """
     files = [sprint_summary(number, name) for number, name in sprint_files(SPRINTS_DIR)]
     for one in files:
