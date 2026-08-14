@@ -1926,3 +1926,88 @@ def test_migrate_is_a_no_op_once_the_old_table_is_gone(tmp_path):
         assert len(db.list_all_dependencies()) == 1
     finally:
         db.set_db_path(db.DEFAULT_DB_PATH)
+
+
+# --- milestones -------------------------------------------------------------
+
+
+def test_a_file_predating_milestones_gains_the_table_on_open(tmp_path):
+    """The whole milestone migration: CREATE TABLE IF NOT EXISTS, nothing else.
+
+    No `migrate` step, no table rebuild, no foreign-key pragma -- the additive
+    path, nowhere near `migrate_stage_check`. Built the way a real old file
+    arrives: create the schema, drop the table back off, reopen.
+    """
+    db.set_db_path(str(tmp_path / "old.db"))
+    try:
+        db.init_db()
+        payments = created(db.create_project("Payments", "2026-01-05"))
+        with db.connect() as connection:
+            connection.execute("DROP TABLE milestone")
+            assert not db.table_exists(connection, "milestone")
+
+        db.init_db()
+
+        with db.connect() as connection:
+            assert db.table_exists(connection, "milestone")
+        # And the project it belongs to came through untouched.
+        assert created(db.get_project(payments["id"]))["name"] == "Payments"
+        assert db.list_milestones(payments["id"]) == []
+    finally:
+        db.set_db_path(db.DEFAULT_DB_PATH)
+
+
+def test_milestones_are_created_in_order_and_default_to_unachieved(tmp_path):
+    db.set_db_path(str(tmp_path / "milestones.db"))
+    try:
+        db.init_db()
+        payments = created(db.create_project("Payments", "2026-01-05"))
+        beta = created(db.create_milestone(payments["id"], "Private beta",
+                                           target_date="2026-03-02"))
+        launch = created(db.create_milestone(payments["id"], "Launch"))
+
+        assert [beta["sort_order"], launch["sort_order"]] == [0, 1]
+        assert beta["achieved"] == 0 and launch["achieved"] == 0
+        # Unscheduled is '' and not NULL, so it round-trips a date input.
+        assert launch["target_date"] == ""
+        assert [m["name"] for m in db.list_milestones(payments["id"])] == [
+            "Private beta", "Launch"]
+    finally:
+        db.set_db_path(db.DEFAULT_DB_PATH)
+
+
+def test_milestones_by_project_groups_every_project_in_one_query(tmp_path):
+    db.set_db_path(str(tmp_path / "grouped.db"))
+    try:
+        db.init_db()
+        payments = created(db.create_project("Payments", "2026-01-05"))
+        ledger = created(db.create_project("Ledger", "2026-03-02"))
+        db.create_milestone(payments["id"], "Private beta")
+        db.create_milestone(payments["id"], "Launch")
+        db.create_milestone(ledger["id"], "Books balance")
+
+        grouped = db.milestones_by_project()
+        assert [m["name"] for m in grouped[payments["id"]]] == [
+            "Private beta", "Launch"]
+        assert [m["name"] for m in grouped[ledger["id"]]] == ["Books balance"]
+    finally:
+        db.set_db_path(db.DEFAULT_DB_PATH)
+
+
+def test_ticking_a_milestone_stores_a_flag_and_deleting_a_project_takes_it(tmp_path):
+    db.set_db_path(str(tmp_path / "achieved.db"))
+    try:
+        db.init_db()
+        payments = created(db.create_project("Payments", "2026-01-05"))
+        beta = created(db.create_milestone(payments["id"], "Private beta"))
+
+        ticked = created(db.update_milestone(beta["id"], {"achieved": True}))
+        assert ticked["achieved"] == 1
+        # project_id is not writable -- a milestone cannot move house.
+        moved = created(db.update_milestone(beta["id"], {"project_id": 999}))
+        assert moved["project_id"] == payments["id"]
+
+        db.delete_project(payments["id"])
+        assert db.get_milestone(beta["id"]) is None
+    finally:
+        db.set_db_path(db.DEFAULT_DB_PATH)

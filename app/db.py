@@ -118,8 +118,35 @@ CREATE TABLE IF NOT EXISTS deliverable (
     sort_order  INTEGER NOT NULL DEFAULT 0
 );
 
+-- A milestone is a checkpoint between phases: the thing the plan is aiming at,
+-- rather than a piece of work someone does. It belongs to the project and not to
+-- a phase, because a checkpoint routinely sits between two of them or spans
+-- several, and hanging it off one phase would make that unsayable.
+--
+-- `achieved` is the only stored state in the model that a derived project status
+-- reads. That is deliberate and it is why milestones exist: `done` used to derive
+-- from every phase being closed, which nobody maintained, and the alternatives
+-- were deriving it from dates (which silences V6, the rule that finds late work)
+-- or from deliverable ticks (which rule 4 keeps casual on purpose). A milestone
+-- is the one object here designed to carry the decision.
+--
+-- `target_date` follows the unscheduled convention: '' rather than NULL, so it
+-- round-trips an <input type="date"> untouched. An undated milestone is a real
+-- state -- name the checkpoint now, date it when you commit -- and simply draws
+-- no diamond on the timeline.
+CREATE TABLE IF NOT EXISTS milestone (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id  INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    target_date TEXT NOT NULL DEFAULT '',
+    achieved    INTEGER NOT NULL DEFAULT 0 CHECK (achieved IN (0, 1)),
+    sort_order  INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE INDEX IF NOT EXISTS idx_phase_project ON phase(project_id);
 CREATE INDEX IF NOT EXISTS idx_deliverable_phase ON deliverable(phase_id);
+CREATE INDEX IF NOT EXISTS idx_milestone_project ON milestone(project_id);
 """
 
 # What `init_db` runs. Assembled rather than written out so the project table
@@ -588,6 +615,86 @@ def update_deliverable(deliverable_id, fields):
 def delete_deliverable(deliverable_id):
     with connect() as connection:
         connection.execute("DELETE FROM deliverable WHERE id = ?", (deliverable_id,))
+
+
+# --- milestones -------------------------------------------------------------
+
+
+def list_milestones(project_id):
+    """A project's checkpoints, in the order they were arranged.
+
+    Sorted by `sort_order` and not by date, like phases and deliverables: order
+    is the user's arrangement, and an undated milestone has no date to sort on.
+    """
+    with connect() as connection:
+        rows = connection.execute(
+            "SELECT * FROM milestone WHERE project_id = ? ORDER BY sort_order, id",
+            (project_id,),
+        ).fetchall()
+    return rows_to_dicts(rows)
+
+
+def milestones_by_project():
+    """Every milestone grouped by project id.
+
+    The project list and the map need milestone coverage for every project at
+    once -- the stage ladder now reads it -- and `list_milestones` would be one
+    query each. The twin of `deliverables_by_project`.
+    """
+    with connect() as connection:
+        rows = connection.execute(
+            "SELECT * FROM milestone ORDER BY sort_order, id"
+        ).fetchall()
+    grouped = {}
+    for row in rows_to_dicts(rows):
+        grouped.setdefault(row["project_id"], []).append(row)
+    return grouped
+
+
+def get_milestone(milestone_id):
+    with connect() as connection:
+        row = connection.execute(
+            "SELECT * FROM milestone WHERE id = ?", (milestone_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def create_milestone(project_id, name, description="", target_date="",
+                     achieved=False):
+    with connect() as connection:
+        next_order = connection.execute(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM milestone WHERE project_id = ?",
+            (project_id,),
+        ).fetchone()[0]
+        cursor = connection.execute(
+            """INSERT INTO milestone (project_id, name, description, target_date,
+                                      achieved, sort_order)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (project_id, name, description, target_date, as_flag(achieved),
+             next_order),
+        )
+        milestone_id = cursor.lastrowid
+    return get_milestone(milestone_id)
+
+
+def update_milestone(milestone_id, fields):
+    allowed = {"name", "description", "target_date", "achieved", "sort_order"}
+    updates = {key: value for key, value in fields.items() if key in allowed}
+    if "achieved" in updates:
+        updates["achieved"] = as_flag(updates["achieved"])
+    if updates:
+        assignments = ", ".join(f"{key} = ?" for key in updates)
+        with connect() as connection:
+            connection.execute(
+                f"UPDATE milestone SET {assignments} WHERE id = ?",
+                list(updates.values()) + [milestone_id],
+            )
+    return get_milestone(milestone_id)
+
+
+def delete_milestone(milestone_id):
+    with connect() as connection:
+        connection.execute("DELETE FROM milestone WHERE id = ?", (milestone_id,))
 
 
 # --- dependencies -----------------------------------------------------------
