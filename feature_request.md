@@ -111,38 +111,21 @@ FR-20 ──> a decision  per-swimlane or one shared lane, not code
   for, now that the ladder no longer reads it. The code either way is small.
 - **FR-20 wants the portfolio renderer to itself, and now has it.** It is the
   third feature to edit that block, after FR-13 and the reverted FR-2, and it is
-  the one file worth keeping to a single worktree at a time — tree B is merged,
-  so nothing else is in there and it can start whenever.
+  the one file worth keeping to a single worktree at a time — the branch that had
+  it is merged, so nothing else is in there and it can start whenever.
 - **FR-11 depends on nothing either, but it moves DOM other branches render
   into** — see the merge order below.
-- **FR-12, FR-13, FR-17 and FR-18 are built**, and what is worth keeping here is
-  only their merge-relevant footprint. FR-17 rewrote the map block of `app.js`
-  and replaced `.map-track`/`.map-subtrack` with `.map-group.level-N` in
-  `style.css`. FR-18 rewrote the grid in `editor.js`, `_escape_cell` in
-  `markdown.py`, and the `.sprint-cell` region of `style.css`. Tree B added
-  `main.with_project_span` and the lane tooltip, plus the drag pill in the
-  portfolio block of `app.js`. **Nothing left on this list touches any of
-  those**, which is why F, G, B and E merged into one another with conflicts only
-  in this file and in `CLAUDE.md` — both of them prose, both in the tables above.
-- **Tree E is the newest footprint and the one the two open items sit next to.**
-  It added the `milestone` table and its four routes, `milestones[]` on the plan
-  and export payloads (v10), the milestone list in `#project-view`, the diamond
-  lane on both timeline modes, the Promote button, and `scripts/wire_check.js`;
-  it dropped `draft_complete` and the drafting toggle, and rewired
-  `validation.project_stage` off `phase.status` entirely. **FR-20 inherits the
-  useful half of that** — `milestoneLane` already takes marks and knows nothing
-  about which chart it is in — and **FR-21 inherits the sharper problem**, since
-  `phase.status` now feeds V6 and V7 and nothing else.
-- **FR-2 was built in tree B and reverted the same day**, so its footprint is
-  back to nothing: `validate_plan` ends exactly as it did before, and
-  `read_portfolio`'s `warnings` is V2-only. Worth knowing only because the revert
-  is in the history and a `git log` reading will find code that is no longer
-  there.
-- **The B-before-E worry never materialised, and both are now history.** The two
-  were called near-disjoint on the grounds that they touch the same payload
-  through different functions; B merged first, E rebased onto it rather than
-  racing it, and the only conflicts were prose. `main` at `2e446f4` carries all
-  four trees.
+- **Everything built is on `main` and nothing left here touches it.** FR-12,
+  FR-13, FR-17 and FR-18 rewrote the map block of `app.js`, the grid in
+  `editor.js`, `_escape_cell` in `markdown.py` and their `style.css` regions;
+  none of the three items above goes near any of them. The one inheritance worth
+  naming is milestones: **FR-20 gets `milestoneLane` for free**, and **FR-21 gets
+  a `phase.status` that now feeds V6 and V7 and nothing else** — narrower than
+  the field FR-16 complained about, and the reason its complaint survived.
+- **FR-2 was built and reverted the same day**, so its footprint is back to
+  nothing: `validate_plan` ends exactly as it did before, and `read_portfolio`'s
+  `warnings` is V2-only. Worth knowing only because the revert is in the history
+  and a `git log` reading will find code that is no longer there.
 
 ### Where each one lands
 
@@ -152,10 +135,11 @@ FR-20 ──> a decision  per-swimlane or one shared lane, not code
 | FR-20 | `main.read_portfolio` | `renderPortfolio` 1441–1725; reuses `milestoneLane` 904 | — | reuses `.milestone-lane` | `test_api.py` |
 | FR-21 | — | `renderPhases` 1138; the status cell 1174–1183 | phase table head, 167–172 | phase status | `test_api.py` |
 
-The line numbers above were re-read against `main` at `2e446f4`, with B, E, F and
-G all merged — `app.js` is 3,823 lines and `editor.js` 2,036. They are a starting
-point, not a contract: **re-grep rather than trusting the column**, since tree E
-moved everything below `#project-view`'s milestone section down.
+The line numbers above were re-read against `main` at `2e446f4`, with everything
+built merged in — `app.js` is 3,823 lines and `editor.js` 2,036. They are a
+starting point, not a contract: **re-grep rather than trusting the column**. The
+milestone section pushed everything below it in `#project-view` down, and the
+next item to land will do the same to these.
 
 One property worth noticing: **`style.css` gets touched by most of these, in
 disjoint regions.** Git merges that fine as long as nobody reflows the file. Do
@@ -167,35 +151,32 @@ features; check it before adding any new hideable element.
 
 | Tree | Items, in order | Why they belong together |
 |---|---|---|
-| **B · portfolio** | ~~FR-13~~, ~~FR-12~~, FR-2 | FR-13 and FR-12 **built**. FR-2 built and then **reverted** on the requester's call — now a won't-build entry below. 304 tests. |
-| **E · status** | ~~FR-16~~ | **Merged, but superseded rather than built.** Milestones answered it instead: a checkpoint entity, the ladder rewired onto it, `draft_complete` dropped, export v10. Left FR-20 and FR-21 behind, plus `scripts/wire_check.js`. |
-| **F · map** | ~~FR-17~~ | **Built.** Left `scripts/map_sweep.js` behind — the map has no test suite, and that is now its verification. |
-| **G · editor** | ~~FR-18~~ | **Built**, plus a clickable checkbox and an inline menu inside a cell that the entry did not ask for. `test_markdown.py`'s round trip is the gate. |
-| **D · shell** | FR-11 + tab reorder | Held back — see below. |
+| **D · shell** | FR-11 + tab reorder | Both edit the header, both are small, and the reorder is what makes the picker's placement obviously wrong. Goes last and alone — see below. |
+| **FR-20** | portfolio milestone lane | Wants `renderPortfolio` to itself. One decision (per-swimlane or shared) then a payload field. |
+| **FR-21** | phase close | Its own decision first — what `phase.status` is for. Touches the phase row and nothing else. |
 
-**B, E, F and G are all done and merged**, and they are the evidence that the
-split above works: four trees, and the only conflicts were prose in this file and
-in `CLAUDE.md`. **No tree is live**, so the "several at once" traps below matter
-only for whatever is opened next — and D, the one item left with a tree of its
-own, is the one that goes alone anyway.
+**The four trees that ran are deleted from this table, not struck through**, the
+same rule the entries themselves follow: B (portfolio), E (status), F (map) and
+G (editor) are merged, and `git log` plus `STATUS.md` are the record. What
+carries forward is the one live claim they support — **the split works.** Four
+trees open at once, and the only conflicts were prose in this file and in
+`CLAUDE.md`. **Nothing is live now**, so the traps below apply from whenever the
+next one is opened.
 
-One thing tree B is worth remembering for: it is where the **frontend got
-verified without a test suite**. Neither the drag pill nor the warning panel has
-a suite to belong to, and the browser extension was not connected, so both were
-driven headlessly out of the real `app.js` behind a stubbed DOM — the same trick
-`scripts/map_sweep.js` uses, kept in a scratchpad rather than committed, because
-30 lines of DOM plumbing is not a layout engine. **The visual check is still
-outstanding on both** (see `STATUS.md`). Tree E then committed that trick as
-`scripts/wire_check.js`, which runs `bindEvents()` behind a stub DOM and names
-every id the JS asks for that `index.html` does not define — the check FR-11
-below needs, since moving an element out of the header is exactly the frontend
-migration nothing else fails loudly on.
+Two things they left behind that the next tree uses, and one that is still open:
 
-**A map tree needs the real database, and more than the others do.** Its whole
-verification is what the map looks like at this dataset's shape — 8 tracks, one
-already three deep — so a fresh worktree's empty `data/` makes the work
-unverifiable rather than merely dull. Copy the file in first, then point
-`scripts/map_sweep.js` at the server in front of it.
+- **`scripts/wire_check.js`** runs `bindEvents()` behind a stub DOM and names
+  every id the JS asks for that `index.html` does not define. FR-11 is the item
+  that needs it — moving an element out of the header is exactly the frontend
+  migration nothing else fails loudly on.
+- **`scripts/map_sweep.js`** is the map's only verification, and it wants the
+  real dataset: what the map looks like at this shape — 8 tracks, one already
+  three deep — *is* the check, so a fresh worktree's empty `data/` makes map
+  work unverifiable rather than merely dull.
+- **Still outstanding: an eyeball on the drag pill and the lane tooltip.** Both
+  were verified headlessly out of the real `app.js` behind a stubbed DOM because
+  the browser extension would not connect; neither has a suite to belong to. See
+  `STATUS.md`.
 
 **D goes last, alone.** Not because it conflicts textually — the header is its
 own region — but because it moves the project picker out of the global header
@@ -571,12 +552,12 @@ Milestones draw as diamonds on the **Project** timeline, in both Dates and Weeks
 modes. The **Portfolio** — every project's scheduled phases on one axis — draws
 none, so the whole-department view cannot show what any of it is aiming at.
 
-It was left out for a scheduling reason rather than a design one: tree B was at
-the time actively editing the portfolio renderer (FR-13, FR-12, FR-2), and adding
-a lane to it from tree E would have put both trees in one file for the sake of a
-feature neither was blocked on. `feature_request.md`'s own worktree table said B
-and E were near-disjoint, and this is what kept them that way. **Both are merged
-now, so that reason is spent and nothing blocks this.**
+It was left out for a scheduling reason rather than a design one: another tree
+was editing the portfolio renderer at the time (FR-13, FR-12, FR-2), and adding a
+lane to it from the milestone tree would have put both in one file for the sake
+of a feature neither was blocked on. Keeping them disjoint is what let them merge
+on prose conflicts alone. **Both are merged now, so that reason is spent and
+nothing blocks this.**
 
 **What it needs.** `GET /api/portfolio` does not carry milestones; the graph
 payload does (`milestones_reached` / `milestones_total`, added for the map's
