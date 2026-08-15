@@ -21,7 +21,11 @@ numbers are never reused, so a gap in the sequence means built — look for it i
 `git log` and `STATUS.md`. **Won't-build items stay**, because nothing was
 committed for them: the argument against building is the whole artefact, and
 deleting it invites the idea back in six months. Built so far and gone from
-here: FR-2, FR-8, FR-9, FR-10, FR-12, FR-13, FR-14, FR-15, FR-17, FR-18.
+here: FR-8, FR-9, FR-10, FR-12, FR-13, FR-14, FR-15, FR-17, FR-18.
+
+**FR-2 is the one entry that was built and then un-built**, so it sits below as a
+won't-build rather than being deleted. The rule holds either way: the file keeps
+the argument, because nothing else records a decision *against* something.
 
 Every item below is written against the invariants in `CLAUDE.md`. Where a
 request has an obvious bad version that would break one, the bad version is
@@ -52,6 +56,7 @@ put FR-13 above FR-12, and both are built and gone from this table.
 | FR-19 | V1 fires on all 30 phases, so it says nothing | Setting or prose | High | High | **P2** — one decision, no code |
 | FR-11 | Project picker belongs to the Project tab | Medium | High | Medium | **P2** |
 | FR-3 | Overlap check across projects (**not** a points sum) | Small–medium | Low | Medium | **P3** — sprint 4 |
+| FR-2 | Portfolio-wide warnings, not just V2 | Small | High | — | **Won't build** — built, then removed |
 | FR-4 | Capacity roster — people and their available days | Medium (new table) | Fortnightly | Medium | **P3** — paper until sprint 4 |
 | FR-5 | Velocity learns from delivered history | Medium | Rare | Medium | **P3** — needs 3 baselines |
 | FR-6 | Slippage memory — has this date moved before? | Large | Low | High | **P3** — deferred deliberately |
@@ -86,23 +91,25 @@ FR-16 ──> a decision  option A/B/C/D, not code
 - **FR-16 depends on nothing but its own option pick.**
 - **FR-11 depends on nothing either, but it moves DOM other branches render
   into** — see the merge order below.
-- **FR-2, FR-12, FR-13, FR-17 and FR-18 are all built**, and what is worth
-  keeping here is only their merge-relevant footprint. FR-17 rewrote the map block
-  of `app.js` — roughly 1830–2330 — and replaced `.map-track`/`.map-subtrack` with
+- **FR-12, FR-13, FR-17 and FR-18 are built**, and what is worth keeping here is
+  only their merge-relevant footprint. FR-17 rewrote the map block of `app.js` —
+  roughly 1830–2330 — and replaced `.map-track`/`.map-subtrack` with
   `.map-group.level-N` in `style.css`. FR-18 rewrote the grid in `editor.js`,
   `_escape_cell` in `markdown.py`, and the `.sprint-cell` region of `style.css`.
-  Tree B (FR-13, FR-12, FR-2) rewrote `main.read_portfolio`, added
-  `main.plan_warnings` and `main.with_project_span`, added a `project_id` stamp to
-  the end of `validate_plan`, and added the portfolio warning panel plus the drag
-  pill to the portfolio block of `app.js` — roughly 1190–1600. **Nothing left on
-  this list touches any of those**, which is why F, G and B merged into one
-  another with conflicts only in this file and in `CLAUDE.md` — both of them
-  prose, both in the tables above.
+  Tree B added `main.with_project_span` and the lane tooltip, plus the drag pill
+  in the portfolio block of `app.js` — roughly 1190–1400. **Nothing left on this
+  list touches any of those**, which is why F, G and B merged into one another
+  with conflicts only in this file and in `CLAUDE.md` — both of them prose, both
+  in the tables above.
+- **FR-2 was built in tree B and reverted the same day**, so its footprint is
+  back to nothing: `validate_plan` ends exactly as it did before, and
+  `read_portfolio`'s `warnings` is V2-only. Worth knowing only because the revert
+  is in the history and a `git log` reading will find code that is no longer
+  there.
 - **The B-before-E worry did not materialise.** The two were called near-disjoint
   on the grounds that they touch the same payload through different functions;
-  B is now merged, so FR-16 rebases onto it rather than racing it. The one place
-  they meet is the end of `validate_plan`, which B changed — worth reading before
-  FR-16 adds a `derived_status` beside it.
+  B is now merged, so FR-16 rebases onto it rather than racing it. Nothing B left
+  behind is inside `validate_plan`, so FR-16 has that function to itself.
 
 ### Where each one lands
 
@@ -126,7 +133,7 @@ features; check it before adding any new hideable element.
 
 | Tree | Items, in order | Why they belong together |
 |---|---|---|
-| **B · portfolio** | ~~FR-13, then FR-12, then FR-2~~ | **Built**, in that order, three commits. 307 tests. |
+| **B · portfolio** | ~~FR-13~~, ~~FR-12~~, FR-2 | FR-13 and FR-12 **built**. FR-2 built and then **reverted** on the requester's call — now a won't-build entry below. 304 tests. |
 | **E · status** | FR-16 | `validation.py` + the phase row. Touches the same payload FR-13 did but a different function, and it is the only live item with a rule-shaped decision in it. |
 | **F · map** | ~~FR-17~~ | **Built.** Left `scripts/map_sweep.js` behind — the map has no test suite, and that is now its verification. |
 | **G · editor** | ~~FR-18~~ | **Built**, plus a clickable checkbox and an inline menu inside a cell that the entry did not ask for. `test_markdown.py`'s round trip is the gate. |
@@ -196,6 +203,53 @@ stated invariant, not a check.
 
 **Verdict: do it now.** It is the cheapest item on this list and it is the
 precondition for FR-3, FR-4 and FR-5 all meaning anything.
+
+---
+
+## FR-2 · Portfolio-wide warnings — **Won't build**
+
+*Built on 2026-08-15 in tree B, then removed the same day at the requester's
+instruction: **"warning just keep within the project is good enough"**, and
+**"remove it, i dont want it to show on portfolio page"**. Reverted in full —
+`main.plan_warnings`, the `project_id` stamp on `validate_plan`, the panel, its
+CSS and its three tests. `GET /api/portfolio`'s `warnings` is V2-only again.*
+
+**This entry stays because deleting it would lose the only record of the
+decision.** The code is gone from `main`; a backlog entry saying "built" would be
+wrong and no entry at all invites someone to build it again in six months. The
+original argument for it is preserved below, because it was not a bad argument —
+it was overruled, which is a different thing.
+
+**What it was.** V1/V4/V6/V7 across every project on the Portfolio tab, grouped
+by project above the chart. `validate_plan` answers for one project and
+`validate_portfolio` runs only V2, so *"what is late across everything"* — framed
+here as the first question of the week — could only be assembled by opening each
+project in turn.
+
+**The argument for, which still stands on its own terms.** V6 is the rule that
+finds late work: it catches a phase a month past its end inside a project with
+months still to run, which the `overdue` rung cannot see. On the real dataset it
+found exactly two, and both were real.
+
+**The argument against, which won.** The Portfolio tab answers *when things
+happen*; a rule about whether one project's estimate hangs together is read while
+you are looking at that project, with the phase table in front of you and
+somewhere to act on it. A panel listing every project's problems above a chart
+about scheduling is a second front door to the project view, and the requester
+did not want one. Frequency argues for it and locality argues against — locality
+won, and it is the user's tool.
+
+**What building it turned up, and the reason it was not wasted.** V1 fires on
+**all 30 phases** of the real dataset, which is now FR-19 and is the more
+valuable finding of the two. It is only visible when you ask every rule at once,
+which is a thing this feature did and nothing else does.
+
+**If it ever comes back**, three things are already known: V2 must be filtered
+out of any such list (the dependency list below the chart marks the link it is
+about, and the count pill there keys off the same array, so an unrelated V6 turns
+it amber); the rules must carry `project_id`, which they do not — `validate_plan`
+is the one place that knows it; and FR-19 has to be settled first, or the panel is
+thirty V1s with the real findings buried in them.
 
 ---
 
@@ -350,12 +404,12 @@ narrower than a feed.
 
 **Verdict: deferred, and named here so it is deferred deliberately.** This is
 the item that would move the tool from *recording a plan* to *telling you
-something you did not already know*. It was worth revisiting once FR-2 made late
-work visible at all, on the grounds that seeing it might be enough — **FR-2 is
-now built, so that is a live question rather than a future one.** The portfolio
-panel names every V6 across the dataset; use it for a few weeks before
-committing to a change-log table, and if "is this the third time?" stops being
-the thing you reach for, this stays deferred permanently.
+something you did not already know*. It used to say "revisit once FR-2 makes late
+work visible at all" — **FR-2 is won't-build, so that precondition is gone and
+this one is deferred on its own merits.** V6 is still visible per project, which
+is where the requester wants warnings to live; whether "has this slipped before?"
+is worth a change-log table is a question you answer by missing the answer often
+enough to notice.
 
 ---
 
@@ -516,18 +570,23 @@ drawer is untouched — verify that before writing the frontend, not after.
 
 ## FR-19 · V1 fires on every phase in the dataset — **P2**
 
-*Not a request. Found by building FR-2 on 2026-08-15, and recorded here because
-the portfolio panel is what made it visible.*
+*Not a request. Found while building FR-2 on 2026-08-15 — the one thing that
+survives it, since FR-2 itself is won't-build. **This finding is independent of
+that panel**: the rule fires the same whether or not anything lists it in one
+place. Asking every rule at once is simply what made it countable.*
 
-**What:** on the real file, `GET /api/portfolio` returns **32 warnings: 30 V1 and
-2 V6.** There are 30 phases. V1 fires on **every single one of them.**
+**What:** across the real file, every project running V1/V4/V6/V7 produces **32
+warnings: 30 V1 and 2 V6.** There are 30 phases. V1 fires on **every single one
+of them** — 2 to 5 per project, which is what the Project tab has been showing all
+along, one project at a time, without it ever adding up to a number anyone looked
+at.
 
 **Why that matters more than it looks.** A rule that fires on everything carries
 no information. It is not wrong — V1 is doing exactly what it is specified to do
-— but it makes the one panel meant to answer *"what is late across everything"*
-into a wall of noise with the two real findings buried in it. FR-2 works around
-the symptom by ordering `V6, V7, V4, V1` within a project; that is a presentation
-fix for a data question and it should not be mistaken for an answer.
+— but a warning list that is always full is a warning list nobody reads, and the
+two V6 findings that *are* real sit in the same list. Ordering them within a
+project was FR-2's workaround; with FR-2 gone there is no workaround, only the
+underlying question.
 
 **The arithmetic, because the cause is not a bug.** `implied_weeks =
 (effort_points / velocity) × (sprint_length_days / 7)`, so at the default
@@ -550,10 +609,16 @@ honest move — V5 is the precedent and `CLAUDE.md` rule 5 records how that was
 done.
 
 **Depends on nothing and blocks nothing.** It is a conversation with a number
-attached, and the number is now on screen. **Recommend looking at it before
-FR-1**, which writes down that sprint points and `effort_points` are one
-currency: that invariant is worth stating, and worth stating about numbers that
-mean something.
+attached, and the number is `30 of 30`. **Recommend looking at it before FR-1**,
+which writes down that sprint points and `effort_points` are one currency: that
+invariant is worth stating, and worth stating about numbers that mean something.
+It also gates any future attempt at FR-2 — a list of every rule at once is
+unreadable until this is settled.
+
+**To re-measure it** without the panel FR-2 would have given you, since nothing
+in the app now asks every rule at once: open two or three projects and count the
+V1s on each, or run `validate_plan` over `db.list_projects()` in a scratch
+script. It was 30 of 30 on 2026-08-15.
 
 ---
 
