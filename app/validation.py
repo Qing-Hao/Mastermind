@@ -429,7 +429,20 @@ STAGE_LADDER = (
 )
 
 
-def project_stage(project, phases, deliverables, today):
+def milestones_all_achieved(milestones):
+    """True when a project has checkpoints and every one of them is ticked.
+
+    The `and milestones` is the whole guard: `all()` over an empty list is True,
+    so a project with no checkpoints would otherwise be vacuously complete -- the
+    same 0-of-0 trap that ruled out deriving `done` from deliverable ticks.
+
+    Nothing else in the module reads `achieved`, and nothing repairs it.
+    """
+    return bool(milestones) and all(
+        milestone.get("achieved") for milestone in milestones)
+
+
+def project_stage(project, phases, deliverables, milestones, today):
     """Where a project stands, derived from its own plan and the calendar.
 
     This replaced `project_readiness` and the four-step ladder behind it. That
@@ -451,29 +464,42 @@ def project_stage(project, phases, deliverables, today):
 
     Everything else is derived here, first match wins:
 
-    - `done`     -- every phase is `status='done'`. This is the honest route, and
-                    the reason phases carry the burden: closing a project means
-                    closing the work inside it, not ticking one box at the top.
+    - `done`     -- every milestone achieved, and there is at least one. See
+                    `milestones_all_achieved` for why the count matters.
     - `overdue`  -- fully dated, the last phase end has passed, phases still
                     open. The one alarm in the vocabulary. `check_phase_overdue`
                     finds the same problem a level down and much earlier.
     - `active`   -- fully dated and today falls inside the span.
     - `dated`    -- fully dated, not started yet.
-    - `planning` -- no phases, nothing named under any of them, or the plan is
-                    still being drafted (`draft_complete` unset).
-    - `planned`  -- named and drafted, waiting only for dates.
+    - `planning` -- no phases, nothing named under any of them, or no checkpoint
+                    to aim at.
+    - `planned`  -- work named and at least one checkpoint set, waiting only for
+                    dates.
 
-    **Dates outrank the drafting flag deliberately.** Checking `draft_complete`
+    **`done` derives from milestones, and it used to derive from every phase
+    carrying `status='done'`.** That route was unreachable in practice: on the
+    real file `in_progress` had never been used once and 29 of 30 phases sat at
+    the untouched default, so no project could finish itself and the only exit
+    was the manual close -- a hatch built for *cancelled* work. Deriving from
+    dates instead would have silenced V6, the only rule that has found real late
+    work, and deriving from deliverable ticks would have broken rule 4, which
+    keeps those casual on purpose. A milestone is the one object here designed to
+    carry the decision, so it is the one that carries it.
+
+    `phase.status` is therefore no longer read here at all. It keeps exactly one
+    job -- feeding V6 and V7 -- which is worth knowing before changing either.
+
+    **Dates outrank the planning gate deliberately.** Checking for checkpoints
     first reads a project that is dated and running as `planning` merely because
-    nobody flipped a switch, which is the exact inversion this replaced. Once
-    work is on the calendar the calendar speaks for it; the flag only ever
-    decides between `planning` and `planned`, where the distinction is the whole
-    question.
+    nobody wrote one down, which is the exact inversion the `draft_complete`
+    ordering existed to prevent. Once work is on the calendar the calendar speaks
+    for it; checkpoint presence only ever decides between `planning` and
+    `planned`, where the distinction is the whole question.
 
     A deliverable's `done` tick is not read here, only its presence -- see rule 4
     and `check_phase_done_without_deliverables`. `deliverables` is a flat list of
-    the project's own; only `phase_id` is used. Nothing is stored, nothing is
-    repaired.
+    the project's own; only `phase_id` is used. `milestones` is a flat list too.
+    Nothing is stored, nothing is repaired.
     """
     stored = project.get("stage")
     if stored == "done":
@@ -481,7 +507,7 @@ def project_stage(project, phases, deliverables, today):
     if stored == "idea":
         return STAGE_IDEA
 
-    if phases and all(phase.get("status") == "done" for phase in phases):
+    if milestones_all_achieved(milestones):
         return STAGE_DONE
 
     if phases and is_scheduled(project) and all(is_scheduled(p) for p in phases):
@@ -501,17 +527,25 @@ def project_stage(project, phases, deliverables, today):
     if not any(phase["id"] in covered for phase in phases):
         return STAGE_PLANNING
 
-    if not project.get("draft_complete"):
+    # A plan with nothing to aim at is still being drafted. This replaced the
+    # `draft_complete` switch, which asked the same question and had to be
+    # answered twice: once by shaping the plan and again by flipping a toggle
+    # that could then go stale. A checkpoint is evidence rather than a promise.
+    if not milestones:
         return STAGE_PLANNING
     return STAGE_PLANNED
 
 
-def next_milestone(phases, today):
+def next_phase_boundary(phases, today):
     """The next phase boundary falling on or after `today`, or None.
 
     Starts and ends both count: the next thing to happen to a project is either
     work beginning or work landing. Unscheduled phases have no boundary at all
     and are skipped, so a fully unscheduled project returns None.
+
+    Named `next_milestone` until milestones became a real entity with a table of
+    their own. This never was one: it derives a date off the phases and nothing
+    stores it, where a milestone is a checkpoint you write down and tick.
     """
     today = as_date(today)
     upcoming = []
@@ -543,7 +577,7 @@ def validate_plan(project, phases, settings=None, deliverables_by_phase=None,
     and both default to None, which **skips that rule** rather than inventing the
     input. This module stays pure: reading the clock here would make every test
     of it depend on the day it runs, so the caller supplies the date the same way
-    `next_milestone` has always required it.
+    `next_phase_boundary` has always required it.
     """
     settings = {**DEFAULT_SETTINGS, **(settings or {})}
     velocity = effective_velocity(project, settings)

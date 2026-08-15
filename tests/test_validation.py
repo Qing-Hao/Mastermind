@@ -13,7 +13,7 @@ from app.validation import (
     fortnight_window,
     phase_band,
     implied_weeks,
-    next_milestone,
+    next_phase_boundary,
     phase_end_date,
     check_phase_done_without_deliverables,
     check_phase_overdue,
@@ -393,28 +393,28 @@ def test_effort_points_of_a_project_with_no_phases_is_zero():
     assert project_effort_points([]) == 0
 
 
-def test_next_milestone_picks_the_soonest_boundary_ahead():
+def test_next_phase_boundary_picks_the_soonest_boundary_ahead():
     phases = [
         make_phase(1, "Design", start="2026-01-05", weeks=4),   # ends 2026-02-02
         make_phase(2, "Build", start="2026-03-02", weeks=2),
     ]
     # The Design end date beats the Build start date.
-    assert next_milestone(phases, date(2026, 1, 10)) == "2026-02-02"
+    assert next_phase_boundary(phases, date(2026, 1, 10)) == "2026-02-02"
 
 
-def test_next_milestone_ignores_boundaries_already_passed():
+def test_next_phase_boundary_ignores_boundaries_already_passed():
     phases = [make_phase(1, "Design", start="2026-01-05", weeks=4)]
-    assert next_milestone(phases, date(2026, 3, 1)) is None
+    assert next_phase_boundary(phases, date(2026, 3, 1)) is None
 
 
-def test_next_milestone_counts_a_boundary_falling_today():
+def test_next_phase_boundary_counts_a_boundary_falling_today():
     phases = [make_phase(1, "Design", start="2026-01-05", weeks=4)]
-    assert next_milestone(phases, date(2026, 1, 5)) == "2026-01-05"
+    assert next_phase_boundary(phases, date(2026, 1, 5)) == "2026-01-05"
 
 
-def test_next_milestone_is_none_while_everything_is_unscheduled():
+def test_next_phase_boundary_is_none_while_everything_is_unscheduled():
     phases = [make_phase(1, "Design", start=""), make_phase(2, "Build", start="")]
-    assert next_milestone(phases, date(2026, 1, 5)) is None
+    assert next_phase_boundary(phases, date(2026, 1, 5)) is None
 
 
 # --- the derived stage ladder -----------------------------------------------
@@ -424,11 +424,19 @@ def deliverable(deliverable_id, phase_id, name="Wireframes"):
     return {"id": deliverable_id, "phase_id": phase_id, "name": name, "sort_order": 0}
 
 
+def milestone(milestone_id, name="Private beta", achieved=0, target_date=""):
+    return {"id": milestone_id, "name": name, "achieved": achieved,
+            "target_date": target_date, "sort_order": 0}
+
+
 # Committed work. 'planned' and 'active' are the same thing to the ladder, so
 # these two fixtures differ only in their dates.
 COMMITTED = {**PROJECT, "stage": "planned"}
 UNDATED = {**PROJECT, "start_date": "", "stage": "planned"}
-DRAFTED = {**UNDATED, "draft_complete": 1}
+
+# One checkpoint, not yet reached: what a shaped-but-undelivered plan looks like.
+OPEN = [milestone(1)]
+REACHED = [milestone(1, achieved=1)]
 
 # The fixture phase runs 2026-01-05 for six weeks, so it ends 2026-02-16.
 DURING = date(2026, 1, 20)
@@ -437,59 +445,62 @@ AFTER = date(2026, 6, 1)
 
 
 def test_a_project_with_no_phases_is_planning():
-    assert project_stage(COMMITTED, [], [], DURING) == "planning"
+    assert project_stage(COMMITTED, [], [], OPEN, DURING) == "planning"
 
 
 def test_a_project_whose_phases_name_nothing_is_planning():
     phases = [make_phase(1, "Design", start=""), make_phase(2, "Build", start="")]
-    assert project_stage(UNDATED, phases, [], DURING) == "planning"
+    assert project_stage(UNDATED, phases, [], OPEN, DURING) == "planning"
 
 
 def test_one_named_phase_is_enough_to_leave_planning():
     """Coverage is not all-or-nothing any more: the old rule read `planning`
     for six of seven real projects because one thin phase outranked everything."""
     phases = [make_phase(1, "Design", start=""), make_phase(2, "Build", start="")]
-    drafted = {**DRAFTED}
-    assert project_stage(drafted, phases, [deliverable(1, 1)], DURING) == "planned"
+    assert project_stage(UNDATED, phases, [deliverable(1, 1)], OPEN,
+                         DURING) == "planned"
 
 
-def test_a_drafted_plan_with_no_dates_is_planned():
+def test_a_shaped_plan_with_no_dates_is_planned():
     phases = [make_phase(1, "Design", start="")]
-    assert project_stage(DRAFTED, phases, [deliverable(1, 1)], DURING) == "planned"
+    assert project_stage(UNDATED, phases, [deliverable(1, 1)], OPEN,
+                         DURING) == "planned"
 
 
-def test_the_same_plan_still_drafting_is_planning():
+def test_the_same_plan_with_nothing_to_aim_at_is_planning():
+    """Checkpoint presence replaced the `draft_complete` switch as this gate."""
     phases = [make_phase(1, "Design", start="")]
-    assert project_stage(UNDATED, phases, [deliverable(1, 1)], DURING) == "planning"
+    assert project_stage(UNDATED, phases, [deliverable(1, 1)], [],
+                         DURING) == "planning"
 
 
 def test_a_fully_dated_project_reads_from_the_calendar():
     phases = [make_phase(1, "Design")]
     deliverables = [deliverable(1, 1)]
-    assert project_stage(COMMITTED, phases, deliverables, BEFORE) == "dated"
-    assert project_stage(COMMITTED, phases, deliverables, DURING) == "active"
-    assert project_stage(COMMITTED, phases, deliverables, AFTER) == "overdue"
+    assert project_stage(COMMITTED, phases, deliverables, OPEN, BEFORE) == "dated"
+    assert project_stage(COMMITTED, phases, deliverables, OPEN, DURING) == "active"
+    assert project_stage(COMMITTED, phases, deliverables, OPEN, AFTER) == "overdue"
 
 
-def test_dates_outrank_the_drafting_flag():
-    """The inversion this ladder replaced: a project that is dated and running
-    must never read `planning` merely because nobody flipped a switch."""
+def test_dates_outrank_the_planning_gate():
+    """The inversion this ladder guards against: a project that is dated and
+    running must never read `planning` merely because nobody wrote a checkpoint."""
     phases = [make_phase(1, "Design"), make_phase(2, "Build")]
-    running = {**COMMITTED, "draft_complete": 0}
-    assert project_stage(running, phases, [deliverable(1, 1)], DURING) == "active"
+    assert project_stage(COMMITTED, phases, [deliverable(1, 1)], [],
+                         DURING) == "active"
 
 
 def test_a_half_placed_project_is_not_on_the_calendar_yet():
     """One undated phase means the span is incomplete, so it stays in the tray."""
     phases = [make_phase(1, "Design"), make_phase(2, "Build", start="")]
     deliverables = [deliverable(1, 1), deliverable(2, 2)]
-    assert project_stage(DRAFTED, phases, deliverables, DURING) == "planned"
+    assert project_stage(UNDATED, phases, deliverables, OPEN, DURING) == "planned"
 
 
 def test_dated_phases_under_an_undated_project_are_not_scheduled_yet():
     phases = [make_phase(1, "Design"), make_phase(2, "Build")]
     deliverables = [deliverable(1, 1), deliverable(2, 2)]
-    assert project_stage(DRAFTED, phases, deliverables, DURING) == "planned"
+    assert project_stage(UNDATED, phases, deliverables, OPEN, DURING) == "planned"
 
 
 def test_the_ladder_ignores_whether_a_deliverable_is_ticked():
@@ -497,36 +508,58 @@ def test_the_ladder_ignores_whether_a_deliverable_is_ticked():
     phases = [make_phase(1, "Design")]
     ticked = [{**deliverable(1, 1), "done": 1}]
     unticked = [{**deliverable(1, 1), "done": 0}]
-    assert project_stage(COMMITTED, phases, ticked, DURING) == "active"
-    assert project_stage(COMMITTED, phases, unticked, DURING) == "active"
+    assert project_stage(COMMITTED, phases, ticked, OPEN, DURING) == "active"
+    assert project_stage(COMMITTED, phases, unticked, OPEN, DURING) == "active"
 
 
-def test_done_is_derived_once_every_phase_is_done():
-    """Closing a project means closing the work inside it."""
+def test_done_is_derived_once_every_milestone_is_achieved():
+    """What the plan was aiming at has been reached, so the plan is finished."""
+    phases = [make_phase(1), make_phase(2)]
+    reached = [milestone(1, "Private beta", achieved=1),
+               milestone(2, "Launch", achieved=1)]
+    assert project_stage(COMMITTED, phases, [deliverable(1, 1)], reached,
+                         AFTER) == "done"
+
+
+def test_one_unreached_milestone_keeps_a_project_off_done():
+    phases = [make_phase(1), make_phase(2)]
+    mixed = [milestone(1, "Private beta", achieved=1), milestone(2, "Launch")]
+    assert project_stage(COMMITTED, phases, [deliverable(1, 1)], mixed,
+                         AFTER) == "overdue"
+
+
+def test_a_project_with_no_milestones_is_never_vacuously_done():
+    """`all([])` is True, which is the 0-of-0 trap. A plan aiming at nothing
+    cannot have arrived, so the count is checked before the ticks."""
+    phases = [make_phase(1), make_phase(2)]
+    assert project_stage(COMMITTED, phases, [deliverable(1, 1)], [],
+                         AFTER) == "overdue"
+
+
+def test_closing_every_phase_no_longer_derives_done():
+    """`phase.status` fell out of the ladder: on the real file nothing
+    maintained it, so this route was unreachable. It still feeds V6 and V7."""
     phases = [{**make_phase(1), "status": "done"},
               {**make_phase(2), "status": "done"}]
-    assert project_stage(COMMITTED, phases, [deliverable(1, 1)], AFTER) == "done"
-
-
-def test_one_open_phase_keeps_a_project_off_done():
-    phases = [{**make_phase(1), "status": "done"},
-              {**make_phase(2), "status": "planned"}]
-    assert project_stage(COMMITTED, phases, [deliverable(1, 1)], AFTER) == "overdue"
+    assert project_stage(COMMITTED, phases, [deliverable(1, 1)], OPEN,
+                         AFTER) == "overdue"
 
 
 def test_the_manual_close_beats_the_ladder():
-    """Cancelled work never reaches every-phase-done and must not nag forever."""
+    """Cancelled work never reaches every checkpoint and must not nag forever."""
     closed = {**PROJECT, "stage": "done"}
     phases = [{**make_phase(1), "status": "planned"}]
-    assert project_stage(closed, phases, [], AFTER) == "done"
+    assert project_stage(closed, phases, [], OPEN, AFTER) == "done"
 
 
 def test_an_idea_stays_an_idea_whatever_its_plan_says():
-    """The portfolio filters on the stored stage, so the two must not disagree."""
+    """The portfolio filters on the stored stage, so the two must not disagree.
+    Promoting an idea is a deliberate action, never an inference."""
     idea = {**PROJECT, "stage": "idea"}
-    assert project_stage(idea, [], [], DURING) == "idea"
+    assert project_stage(idea, [], [], [], DURING) == "idea"
     phases = [make_phase(1, "Design")]
-    assert project_stage(idea, phases, [deliverable(1, 1)], DURING) == "idea"
+    assert project_stage(idea, phases, [deliverable(1, 1)], REACHED,
+                         DURING) == "idea"
 
 
 # --- V6 / V7 ----------------------------------------------------------------

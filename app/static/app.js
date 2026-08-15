@@ -42,12 +42,12 @@ const WINDOW_PRESETS = [
 // badge at all.
 const STAGE_BADGE = {
   idea: "💡",     // nobody has committed to it
-  planning: "⚪",  // no phases, nothing named, or still being drafted
-  planned: "🟡",  // written and drafted, waiting only for dates
+  planning: "⚪",  // no phases, nothing named, or no checkpoint to aim at
+  planned: "🟡",  // named and aimed at a checkpoint, waiting only for dates
   dated: "🔵",    // on the calendar, not started
   active: "🟢",   // today falls inside the span
   overdue: "🔴",  // the last phase end has passed, phases still open
-  done: "✅",     // every phase done, or closed by hand
+  done: "✅",     // every checkpoint reached, or closed by hand
 };
 
 // Still used on its own by the dependency and Future directions pickers, which
@@ -84,6 +84,9 @@ let state = {
   // A phase id here puts the cursor back, which is what makes a list typeable
   // straight through. Consumed by `renderPhases` and cleared as it is read.
   focusAdder: null,
+  // The same idea for the milestone adder, which needs no id: there is one list
+  // per project rather than one per phase.
+  focusMilestoneAdder: false,
   // Which timeline the project view draws. null means "decide from the data":
   // a project with nothing scheduled opens on weeks, anything else on dates.
   // Clicking the switch pins it until you change project.
@@ -490,7 +493,7 @@ async function loadPlan() {
   state.plan = await api(`/api/projects/${state.currentProjectId}`);
   state.settings = state.plan.settings;
   renderProjectView();
-  // Naming a deliverable, setting a date or flipping the drafting switch all
+  // Naming a deliverable, setting a date or ticking the last milestone all
   // change the badge on the project you are looking at, and every edit lands
   // here. Re-reading the list is one localhost query, and it keeps the ladder
   // in `project_stage` instead of growing a second copy of it in JS.
@@ -527,6 +530,7 @@ function renderProjectView() {
   renderWarnings();
   renderUnscheduled();
   renderTimeline();
+  renderMilestones();
   renderPhases();
   renderDependencies();
 }
@@ -560,35 +564,201 @@ function renderProjectFields() {
   $("project-tier").value = String(project.tier ?? 0);
   $("project-track").value = project.track || "";
   $("project-velocity").value = project.velocity_override ?? "";
-  renderDraftToggle();
 }
 
-// The drafting switch, beside the heading it describes. It is the one thing
-// about a plan's shape that cannot be derived: only the user knows whether a
-// phase with nothing under it is an omission or a deliberately thin one.
+// The checkpoint list. It replaced the drafting switch, which asked the same
+// question twice -- shape the plan, then flip a toggle saying you had -- and
+// could go stale. A checkpoint is evidence rather than a promise, and unlike
+// the switch it is worth writing down for its own sake.
 //
-// Hidden wherever it would decide nothing -- on an idea, on a closed project,
-// and once the work is dated, because from there the calendar speaks for the
-// project and the flag is ignored. A switch that visibly does nothing is worse
-// than no switch, and this is where its own effect is legible.
-function renderDraftToggle() {
-  const project = state.plan.project;
-  const derived = project.derived_stage;
-  const decides = derived === "planning" || derived === "planned";
-  const drafted = Boolean(project.draft_complete);
+// Ticking every one is what finishes the project, so the tally says how far off
+// that is. Nothing here is hidden: the list decides the stage on a plan being
+// drafted, and it is the record of what the project is for once it is running.
+function renderMilestones() {
+  const milestones = state.plan.milestones || [];
+  const body = $("milestone-table").querySelector("tbody");
+  const reached = milestones.filter((milestone) => milestone.achieved).length;
+  body.innerHTML = "";
 
-  // Set before the early return, not after: `saveProject` reads this checkbox
-  // on every project edit, so leaving it holding the last project's value would
-  // quietly write that value onto this one the next time any field changed.
-  $("project-draft-complete").checked = drafted;
-  $("draft-toggle").hidden = !decides;
-  if (!decides) return;
+  $("milestone-tally").textContent = milestones.length === 0
+    ? "none yet"
+    : `${reached}/${milestones.length} reached`;
+  renderPromote(milestones.length);
 
-  $("draft-toggle-text").textContent = drafted ? "Drafted" : "Still drafting";
-  $("draft-toggle").title = drafted
-    ? "This plan is written. It is waiting on dates, not on you."
-    : "Marks the plan written, so it reads as planned rather than planning. "
-      + "Nothing else changes — no date is set and no rule fires.";
+  const lines = [];
+  for (const milestone of milestones) {
+    const line = element("tr", milestone.achieved ? "done" : null);
+
+    // Its own column, the same conclusion the deliverable list reached: a drag
+    // surface over the name would cost click-to-place-cursor inside it.
+    const gripCell = element("td", "grip");
+    const grip = element("span", "grip-handle", "⠿");
+    grip.title = "Drag to reorder";
+    gripCell.appendChild(grip);
+    line.appendChild(gripCell);
+
+    const tickCell = element("td", "tick");
+    const tick = element("input");
+    tick.type = "checkbox";
+    tick.checked = Boolean(milestone.achieved);
+    tick.title = milestone.achieved ? "Reached" : "Not reached yet";
+    tick.onchange = () => saveMilestone(milestone.id, { achieved: tick.checked });
+    tickCell.appendChild(tick);
+    line.appendChild(tickCell);
+
+    const nameCell = fieldCell(milestone, "name", "text", saveMilestone);
+    const nameInput = nameCell.querySelector("input");
+    nameInput.onkeydown = (event) => {
+      if (event.key !== "Enter") return;
+      state.focusMilestoneAdder = true;
+      if (nameInput.value === milestone.name) renderMilestones();
+    };
+    line.appendChild(nameCell);
+
+    line.appendChild(fieldCell(milestone, "target_date", "date", saveMilestone));
+
+    const actionCell = element("td");
+    const remove = element("button", null, "✕");
+    remove.title = "Delete milestone";
+    remove.onclick = async () => {
+      await api(`/api/milestones/${milestone.id}`, { method: "DELETE" });
+      await loadPlan();
+    };
+    actionCell.appendChild(remove);
+    line.appendChild(actionCell);
+
+    body.appendChild(line);
+    lines.push({ line, grip, milestone });
+  }
+
+  lines.forEach((entry, index) =>
+    makeMilestoneDraggable(entry, lines, index, milestones));
+
+  // An input can only take focus once it is in the document -- the same reason
+  // `renderPhases` does this at the end rather than where the adder is built.
+  if (state.focusMilestoneAdder) {
+    state.focusMilestoneAdder = false;
+    $("new-milestone-name").focus();
+  }
+}
+
+// Turning an idea into a plan, which is the one transition the ladder will not
+// make for you. `idea` beats every derived rung on purpose -- the portfolio and
+// the map filter on the *stored* stage, so a derived promotion would show a
+// planned badge on a project that is still absent from both.
+//
+// The gate is at least one checkpoint, and it is enforced by disabling the
+// button rather than by the server refusing the write. The two write-time
+// refusals this app has both guard malformed data; refusing to let you set your
+// own project's stage would be a scheduling opinion, which rule 1 forbids. The
+// cost, stated: a hand-rolled PUT still promotes an idea with nothing to aim at.
+function renderPromote(count) {
+  const button = $("promote-project");
+  const isIdea = state.plan.project.stage === "idea";
+
+  button.hidden = !isIdea;
+  if (!isIdea) return;
+
+  button.disabled = count === 0;
+  button.title = count === 0
+    ? "Add a milestone first. A plan is a direction with something to aim at — "
+      + "that is what separates it from an idea."
+    : "Commit this idea as a plan. It joins the portfolio and the map; "
+      + "the ladder works out the rest.";
+}
+
+async function promoteProject() {
+  await api(`/api/projects/${state.currentProjectId}`, {
+    method: "PUT",
+    body: JSON.stringify({ stage: "planned" }),
+  });
+  await loadPlan();
+}
+
+// Writes `sort_order` and nothing else: not the tick, not a date. The twin of
+// `makeDeliverableDraggable`, and arrangement rather than state -- no rule reads
+// the order, so nothing fires. There is no adder row inside this table, so a
+// drop past the last line anchors on nothing and appends.
+function makeMilestoneDraggable(entry, lines, index, milestones) {
+  entry.grip.onmousedown = (event) => {
+    event.preventDefault();
+    const from = { x: event.clientX, y: event.clientY };
+    const row = entry.line;
+    const table = row.parentElement;
+    const others = lines.filter((other) => other !== entry).map((other) => other.line);
+    const step = row.getBoundingClientRect().height;
+    let targetIndex = index;
+    let armed = false;
+
+    const onMove = (moveEvent) => {
+      if (!armed) {
+        const travelled = Math.hypot(moveEvent.clientX - from.x, moveEvent.clientY - from.y);
+        if (travelled < DRAG_ARM_PX) return;
+        armed = true;
+        row.classList.add("dragging");
+      }
+      const moved = Math.round((moveEvent.clientY - from.y) / step);
+      const next = Math.min(Math.max(index + moved, 0), lines.length - 1);
+      if (next === targetIndex) return;
+      targetIndex = next;
+      table.insertBefore(row, others[targetIndex] || null);
+    };
+
+    const onUp = async () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      row.classList.remove("dragging");
+      if (!armed) return;
+      if (targetIndex === index) {
+        renderMilestones();  // put the previewed list back where it was
+        return;
+      }
+      const reordered = milestones.filter((item) => item.id !== entry.milestone.id);
+      reordered.splice(targetIndex, 0, entry.milestone);
+      await saveMilestoneOrder(reordered);
+    };
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+}
+
+// Renumbered from zero, only the rows that moved written. `saveDeliverableOrder`
+// is the twin.
+async function saveMilestoneOrder(milestones) {
+  for (let index = 0; index < milestones.length; index += 1) {
+    if (milestones[index].sort_order === index) continue;
+    await api(`/api/milestones/${milestones[index].id}`, {
+      method: "PUT",
+      body: JSON.stringify({ sort_order: index }),
+    });
+  }
+  await loadPlan();
+}
+
+async function saveMilestone(milestoneId, fields) {
+  await api(`/api/milestones/${milestoneId}`, {
+    method: "PUT",
+    body: JSON.stringify(fields),
+  });
+  // Ticking the last one changes the project's stage, so the whole plan and the
+  // picker badge are re-read -- the same trade every other edit here makes.
+  await loadPlan();
+}
+
+async function addMilestone() {
+  const nameInput = $("new-milestone-name");
+  const dateInput = $("new-milestone-date");
+  const name = nameInput.value.trim();
+  if (!name) return;
+  await api(`/api/projects/${state.currentProjectId}/milestones`, {
+    method: "POST",
+    body: JSON.stringify({ name, target_date: dateInput.value }),
+  });
+  nameInput.value = "";
+  dateInput.value = "";
+  state.focusMilestoneAdder = true;
+  await loadPlan();
 }
 
 function renderSettingsFields() {
@@ -670,10 +840,14 @@ function renderTimeline() {
   offWindowNote(timeline, phases.length - visible.length);
 
   const body = weekGrid(timeline, view);
+  const { marks, undated, offWindow } = datedMilestoneMarks(view);
+  if (marks.length > 0) body.appendChild(milestoneLane(marks));
+
   const warned = warnedPhaseIds();
   for (const phase of visible) {
     body.appendChild(phaseBar(phase, view, warned.has(phase.id)));
   }
+  milestoneNotes(timeline, undated, offWindow);
 }
 
 // Half-open against the window: a phase touching the last day is still in.
@@ -715,6 +889,81 @@ function phaseBar(phase, view, isWarned) {
     + `(${phase.duration_weeks}w, ${phase.effort_points} pts)`;
   bar.textContent = phase.name;
   return bar;
+}
+
+// --- milestone diamonds ------------------------------------------------------
+
+// A milestone is a point rather than a span, so it draws as a diamond and needs
+// a lane of its own: a zero-width bar among the phases would be invisible and
+// impossible to hover. The lane sits above the bars because that is what the
+// phases are aiming at.
+//
+// Diamonds are absolutely positioned inside the lane so several share one line.
+// Every other bar in this app is a block element owning its own row, which is
+// exactly what a point marker must not be.
+function milestoneLane(marks) {
+  const lane = element("div", "milestone-lane");
+  for (const { milestone, x } of marks) {
+    const mark = element("div",
+      `milestone-mark${milestone.achieved ? " reached" : ""}`);
+    mark.style.left = `${x}px`;
+    mark.title = `${milestone.name}${milestone.target_date ? ` — ${milestone.target_date}` : ""}`
+      + (milestone.achieved ? " (reached)" : "");
+    mark.appendChild(element("span", "milestone-diamond"));
+    mark.appendChild(element("span", "milestone-label", milestone.name));
+    lane.appendChild(mark);
+  }
+  return lane;
+}
+
+// Undated and off-window are counted apart because they are different problems:
+// one is a checkpoint nobody has committed to a date, the other is one you have
+// simply scrolled away from.
+function milestoneNotes(chart, undated, offWindow) {
+  if (undated > 0) {
+    chart.appendChild(element("p", "muted",
+      `${undated} milestone(s) with no target date.`));
+  }
+  if (offWindow > 0) {
+    chart.appendChild(element("p", "muted",
+      `${offWindow} milestone(s) outside this window.`));
+  }
+}
+
+// Placed on the calendar, the same arithmetic `phaseSpan` uses.
+function datedMilestoneMarks(view) {
+  const marks = [];
+  let undated = 0;
+  let offWindow = 0;
+
+  for (const milestone of state.plan.milestones || []) {
+    if (!milestone.target_date) { undated += 1; continue; }
+    const day = daysBetween(view.origin, parseDate(milestone.target_date));
+    if (day < 0 || day > view.totalDays) { offWindow += 1; continue; }
+    marks.push({ milestone, x: day * view.pxPerDay });
+  }
+  return { marks, undated, offWindow };
+}
+
+// Weeks mode has no calendar, so a milestone's stored date has to be measured
+// against something: the project's own start. Without that there is no origin to
+// count from and nothing can be placed -- which is the common case here, since
+// this mode is what an undated project opens on. Counting them as undated says
+// so rather than dropping them silently.
+function relativeMilestoneMarks(view) {
+  const marks = [];
+  let undated = 0;
+  let offWindow = 0;
+  // Tested as a string: `parseDate("")` is an Invalid Date, which is truthy.
+  const start = state.plan.project.start_date;
+
+  for (const milestone of state.plan.milestones || []) {
+    if (!milestone.target_date || !start) { undated += 1; continue; }
+    const weeks = daysBetween(parseDate(start), parseDate(milestone.target_date)) / 7;
+    if (weeks < 0 || weeks > view.weeks) { offWindow += 1; continue; }
+    marks.push({ milestone, x: weeks * view.pxPerWeek });
+  }
+  return { marks, undated, offWindow };
 }
 
 // --- relative timeline (W1, W2, ...) ----------------------------------------
@@ -760,11 +1009,15 @@ function renderRelativeTimeline() {
   view.totalDays = view.weeks * 7;
 
   const body = weekGrid(timeline, view, relativeRuler);
+  const { marks, undated, offWindow } = relativeMilestoneMarks(view);
+  if (marks.length > 0) body.appendChild(milestoneLane(marks));
+
   const warned = warnedPhaseIds();
 
   phases.forEach((phase, index) => {
     body.appendChild(relativeBar(phase, index, phase.offset_weeks, view, warned));
   });
+  milestoneNotes(timeline, undated, offWindow);
 }
 
 function relativeRuler({ weeks }) {
@@ -2638,16 +2891,22 @@ function projectNode(project, point, radius, place) {
   // Styled off the derived stage, not the stored one. The map used to show a
   // project as committed-not-started until somebody remembered to change the
   // field by hand; now the picture ages by itself as dates pass.
-  // `done` is two different things wearing one name. Every phase finished is
-  // work delivered; a manual close with phases still open is work that stopped,
-  // which is as often cancelled or descoped as finished -- CLAUDE.md is
+  // `done` is two different things wearing one name. Every checkpoint reached is
+  // work delivered; a manual close with checkpoints outstanding is work that
+  // stopped, which is as often cancelled or descoped as finished -- CLAUDE.md is
   // explicit that the stored close is "not delivered but closed without
   // finishing". Only the first earns the green: painting a cancelled project as
-  // a success is worse than leaving it grey. Derived the same way the ladder
-  // derives the rung, off the tally the graph payload already carries.
+  // a success is worse than leaving it grey.
+  //
+  // This reads the milestone tally, not the phase one. It read phases until the
+  // ladder moved onto checkpoints, and leaving it there would have been wrong in
+  // both directions: a project that reached every checkpoint with phases still
+  // open would have been painted grey, and a cancelled one whose phases happened
+  // to be ticked would have been painted green -- exactly the case the split
+  // exists to prevent.
   const delivered = project.derived_stage === "done"
-    && project.phases_total > 0
-    && project.phases_done === project.phases_total;
+    && project.milestones_total > 0
+    && project.milestones_reached === project.milestones_total;
 
   const group = svgElement("g", {
     class: `map-node stage-${project.derived_stage} tier-${tier}`
@@ -2701,6 +2960,9 @@ function projectNode(project, point, radius, place) {
     tier === 0 ? "untiered" : `tier ${tier}`,
     `${project.effort_points} pts`,
     project.phases_total ? `${project.phases_done}/${project.phases_total} phases done` : null,
+    project.milestones_total
+      ? `${project.milestones_reached}/${project.milestones_total} milestones reached`
+      : null,
     project.next_date ? `next ${project.next_date}` : null,
     project.goal || null,
   ].filter(Boolean).join("\n")));
@@ -3376,7 +3638,6 @@ function bindEvents() {
         stage: $("project-stage").value,
         tier: Number($("project-tier").value),
         track: $("project-track").value,
-        draft_complete: $("project-draft-complete").checked ? 1 : 0,
         velocity_override: velocity === "" ? null : Number(velocity),
       }),
     });
@@ -3384,7 +3645,7 @@ function bindEvents() {
   };
   for (const id of ["project-name", "project-goal", "project-start",
                     "project-stage", "project-tier", "project-track",
-                    "project-draft-complete", "project-velocity"]) {
+                    "project-velocity"]) {
     $(id).onchange = saveProject;
   }
 
@@ -3460,6 +3721,12 @@ function bindEvents() {
   for (const id of ["setting-velocity", "setting-sprint-days", "setting-tolerance"]) {
     $(id).onchange = saveSettings;
   }
+
+  $("promote-project").onclick = promoteProject;
+  $("add-milestone").onclick = addMilestone;
+  $("new-milestone-name").onkeydown = (event) => {
+    if (event.key === "Enter") addMilestone();
+  };
 
   $("add-phase").onclick = async () => {
     const name = $("new-phase-name").value.trim();

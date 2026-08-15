@@ -763,10 +763,10 @@ def test_the_project_list_carries_the_ladder_through_the_whole_lifecycle(client)
     assert stages_of(client)[0] == {"Payments": "planning"}
 
     client.post(f"/api/phases/{phase['id']}/deliverables", json={"name": "Wireframes"})
-    # Named, but a plan is being drafted until the user says otherwise.
+    # Named, but a plan with nothing to aim at is still being drafted.
     assert stages_of(client)[0] == {"Payments": "planning"}
 
-    client.put(f"/api/projects/{project['id']}", json={"draft_complete": 1})
+    db.create_milestone(project["id"], "Private beta")
     assert stages_of(client)[0] == {"Payments": "planned"}
 
     client.put(f"/api/projects/{project['id']}", json={"start_date": "2099-01-05"})
@@ -819,17 +819,28 @@ def test_finished_work_sorts_below_ideas_and_ideas_below_live_work(client):
     assert stages_of(client)[1] == ["Payments", "Caching", "Ledger"]
 
 
-def test_a_project_finished_by_its_phases_sorts_last_too(client):
+def test_a_project_finished_by_its_milestones_sorts_last_too(client):
     """`db.list_projects` can only sort on the stored stage, which now says done
     for a manual close alone. The list re-sorts on the ladder for this reason."""
     make_project(client, "Payments", start="2099-01-05")
     finished = make_project(client, "Ledger", start="2026-01-05")
-    phase = make_phase(client, finished["id"], "Design", "2026-01-05", 4, 40)
-    client.put(f"/api/phases/{phase['id']}", json={"status": "done"})
+    make_phase(client, finished["id"], "Design", "2026-01-05", 4, 40)
+    reached = created(db.create_milestone(finished["id"], "Launch"))
+    db.update_milestone(reached["id"], {"achieved": True})
 
     listed, order = stages_of(client)
     assert listed["Ledger"] == "done"
     assert order == ["Payments", "Ledger"]
+
+
+def test_closing_every_phase_does_not_finish_a_project(client):
+    """`phase.status` left the ladder: nothing maintained it, so the route was
+    unreachable. Milestones carry the decision now; V6 and V7 still read status."""
+    project = make_project(client, "Ledger", start="2026-01-05")
+    phase = make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+    client.put(f"/api/phases/{phase['id']}", json={"status": "done"})
+
+    assert stages_of(client)[0]["Ledger"] == "overdue"
 
 
 # --- future directions ------------------------------------------------------
@@ -1037,7 +1048,7 @@ def test_the_stored_stage_and_the_derived_one_both_travel(client):
     project = make_planned(client)
     phase = make_phase(client, project["id"], "Design", "", 2, 20)
     client.post(f"/api/phases/{phase['id']}/deliverables", json={"name": "Wireframes"})
-    client.put(f"/api/projects/{project['id']}", json={"draft_complete": 1})
+    db.create_milestone(project["id"], "Private beta")
 
     listed = client.get("/api/projects").json()[0]
     assert listed["stage"] == "planned"
@@ -1150,7 +1161,7 @@ def test_stage_track_and_department_survive_a_round_trip(client):
     make_direction(client, "Build caching", track="Developer experience")
 
     exported = client.get("/api/export").json()
-    assert exported["version"] == 9
+    assert exported["version"] == 10
 
     for existing in client.get("/api/projects").json():
         client.delete(f"/api/projects/{existing['id']}")
@@ -1159,6 +1170,54 @@ def test_stage_track_and_department_survive_a_round_trip(client):
     reimported = client.get("/api/export").json()
     assert reimported["projects"] == exported["projects"]
     assert reimported["settings"]["department_name"] == "Platform Engineering"
+
+
+def test_milestones_survive_the_round_trip_with_their_ids(client):
+    """Ids are preserved so a milestone stays attached to its project."""
+    project = make_project(client, start="2026-01-05")
+    client.post(f"/api/projects/{project['id']}/milestones",
+                json={"name": "Private beta", "target_date": "2026-03-02"})
+    client.post(f"/api/projects/{project['id']}/milestones", json={"name": "Launch"})
+
+    exported = client.get("/api/export").json()
+    assert [m["name"] for m in exported["milestones"]] == ["Private beta", "Launch"]
+
+    assert client.post("/api/import", json=exported).status_code == 200
+    assert client.get("/api/export").json()["milestones"] == exported["milestones"]
+
+
+def test_a_version_9_export_imports_and_drops_its_drafting_flag(client):
+    """v9 is the one version that carried `draft_complete`. It is read and
+    discarded rather than translated: inventing a checkpoint to carry the flag
+    across would be making up a target the file never named."""
+    legacy = {
+        "version": 9,
+        "settings": {"default_velocity_points_per_sprint": 20,
+                     "sprint_length_days": 14, "v1_tolerance_pct": 5.0,
+                     "department_name": "Platform"},
+        "projects": [{"id": 1, "name": "Payments", "description": "", "goal": "",
+                      "start_date": "", "velocity_override": None,
+                      "stage": "planned", "track": "", "tier": 2,
+                      "draft_complete": 1,
+                      "created_at": "2026-01-01T00:00:00+00:00",
+                      "updated_at": "2026-01-01T00:00:00+00:00"}],
+        "phases": [{"id": 1, "project_id": 1, "name": "Design", "description": "",
+                    "start_date": "", "duration_weeks": 4, "effort_points": 40,
+                    "status": "planned", "sort_order": 0}],
+        "deliverables": [{"id": 1, "phase_id": 1, "name": "Wireframes",
+                          "description": "", "done": 0, "sort_order": 0}],
+        "dependencies": [],
+    }
+    assert client.post("/api/import", json=legacy).status_code == 200
+
+    exported = client.get("/api/export").json()
+    assert exported["version"] == 10
+    assert "draft_complete" not in exported["projects"][0]
+    assert exported["milestones"] == []
+    # A plan that was flagged drafted arrives with nothing to aim at, so the
+    # ladder reads it as still drafting. Understating a finished plan is the
+    # quieter of the two errors, the same trade the flag itself arrived with.
+    assert stages_of(client)[0]["Payments"] == "planning"
 
 
 def test_a_version_2_export_still_imports(client):
@@ -1235,12 +1294,14 @@ def test_a_version_4_export_imports_with_every_deliverable_ongoing(client):
     assert client.post("/api/import", json=legacy).status_code == 200
 
     exported = client.get("/api/export").json()
-    assert exported["version"] == 9
+    assert exported["version"] == 10
     # Even under a phase marked done -- the tick is the user's to set, and a
     # phase status is not evidence about any particular deliverable.
     assert exported["deliverables"][0]["done"] == 0
-    # A version-4 file predates the drafting flag, which reads as still drafting.
-    assert exported["projects"][0]["draft_complete"] == 0
+    # A version-4 file predates checkpoints, so it names nothing to aim at and
+    # the project reads as still being drafted.
+    assert exported["milestones"] == []
+    assert "draft_complete" not in exported["projects"][0]
 
 
 def version_5_file(dependencies):
@@ -1988,5 +2049,205 @@ def test_migrate_is_a_no_op_once_the_old_table_is_gone(tmp_path):
         db.create_dependency(payments["id"], ledger["id"])
         db.init_db()   # migrate runs again on every open
         assert len(db.list_all_dependencies()) == 1
+    finally:
+        db.set_db_path(db.DEFAULT_DB_PATH)
+
+
+# --- milestones -------------------------------------------------------------
+
+
+def test_a_file_predating_milestones_gains_the_table_on_open(tmp_path):
+    """The whole milestone migration: CREATE TABLE IF NOT EXISTS, nothing else.
+
+    No `migrate` step, no table rebuild, no foreign-key pragma -- the additive
+    path, nowhere near `migrate_stage_check`. Built the way a real old file
+    arrives: create the schema, drop the table back off, reopen.
+    """
+    db.set_db_path(str(tmp_path / "old.db"))
+    try:
+        db.init_db()
+        payments = created(db.create_project("Payments", "2026-01-05"))
+        with db.connect() as connection:
+            connection.execute("DROP TABLE milestone")
+            assert not db.table_exists(connection, "milestone")
+
+        db.init_db()
+
+        with db.connect() as connection:
+            assert db.table_exists(connection, "milestone")
+        # And the project it belongs to came through untouched.
+        assert created(db.get_project(payments["id"]))["name"] == "Payments"
+        assert db.list_milestones(payments["id"]) == []
+    finally:
+        db.set_db_path(db.DEFAULT_DB_PATH)
+
+
+def test_milestones_are_created_in_order_and_default_to_unachieved(tmp_path):
+    db.set_db_path(str(tmp_path / "milestones.db"))
+    try:
+        db.init_db()
+        payments = created(db.create_project("Payments", "2026-01-05"))
+        beta = created(db.create_milestone(payments["id"], "Private beta",
+                                           target_date="2026-03-02"))
+        launch = created(db.create_milestone(payments["id"], "Launch"))
+
+        assert [beta["sort_order"], launch["sort_order"]] == [0, 1]
+        assert beta["achieved"] == 0 and launch["achieved"] == 0
+        # Unscheduled is '' and not NULL, so it round-trips a date input.
+        assert launch["target_date"] == ""
+        assert [m["name"] for m in db.list_milestones(payments["id"])] == [
+            "Private beta", "Launch"]
+    finally:
+        db.set_db_path(db.DEFAULT_DB_PATH)
+
+
+def test_milestones_by_project_groups_every_project_in_one_query(tmp_path):
+    db.set_db_path(str(tmp_path / "grouped.db"))
+    try:
+        db.init_db()
+        payments = created(db.create_project("Payments", "2026-01-05"))
+        ledger = created(db.create_project("Ledger", "2026-03-02"))
+        db.create_milestone(payments["id"], "Private beta")
+        db.create_milestone(payments["id"], "Launch")
+        db.create_milestone(ledger["id"], "Books balance")
+
+        grouped = db.milestones_by_project()
+        assert [m["name"] for m in grouped[payments["id"]]] == [
+            "Private beta", "Launch"]
+        assert [m["name"] for m in grouped[ledger["id"]]] == ["Books balance"]
+    finally:
+        db.set_db_path(db.DEFAULT_DB_PATH)
+
+
+def test_milestones_round_trip_through_their_routes(client):
+    project = make_project(client, start="")
+    created_at = client.post(f"/api/projects/{project['id']}/milestones", json={
+        "name": "Private beta", "target_date": "2026-03-02",
+    })
+    assert created_at.status_code == 201
+    assert created_at.json()["achieved"] == 0
+
+    listed = client.get(f"/api/projects/{project['id']}/milestones").json()
+    assert [m["name"] for m in listed] == ["Private beta"]
+
+    # They ride on the plan payload too, so the view needs no second fetch.
+    plan = client.get(f"/api/projects/{project['id']}").json()
+    assert [m["name"] for m in plan["milestones"]] == ["Private beta"]
+
+
+def test_a_milestone_date_is_strict_on_the_way_in(client):
+    """Writes are strict so a bad value never gets stored; empty stays empty."""
+    project = make_project(client, start="")
+    bad = client.post(f"/api/projects/{project['id']}/milestones", json={
+        "name": "Private beta", "target_date": "next tuesday",
+    })
+    assert bad.status_code == 422
+
+    undated = client.post(f"/api/projects/{project['id']}/milestones",
+                          json={"name": "Launch"})
+    assert undated.json()["target_date"] == ""
+
+
+def test_missing_projects_and_milestones_are_404(client):
+    assert client.get("/api/projects/999/milestones").status_code == 404
+    assert client.post("/api/projects/999/milestones",
+                       json={"name": "Launch"}).status_code == 404
+    assert client.put("/api/milestones/999", json={"achieved": True}).status_code == 404
+    assert client.delete("/api/milestones/999").status_code == 404
+
+
+def test_ticking_the_last_milestone_through_the_route_finishes_the_project(client):
+    project = make_project(client, start="2026-01-05")
+    make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+    beta = client.post(f"/api/projects/{project['id']}/milestones",
+                       json={"name": "Private beta"}).json()
+    launch = client.post(f"/api/projects/{project['id']}/milestones",
+                         json={"name": "Launch"}).json()
+
+    client.put(f"/api/milestones/{beta['id']}", json={"achieved": True})
+    assert stages_of(client)[0]["Payments"] == "overdue"
+
+    client.put(f"/api/milestones/{launch['id']}", json={"achieved": True})
+    assert stages_of(client)[0]["Payments"] == "done"
+
+    # Untick one and the project is unfinished again -- nothing latches.
+    client.put(f"/api/milestones/{launch['id']}", json={"achieved": False})
+    assert stages_of(client)[0]["Payments"] == "overdue"
+
+    # And deleting the only unreached one finishes it, which is the same rule
+    # read the other way: what is left to aim at is all that counts.
+    client.delete(f"/api/milestones/{launch['id']}")
+    assert stages_of(client)[0]["Payments"] == "done"
+
+
+def test_the_graph_carries_the_milestone_tally_the_map_colours_from(client):
+    """The map's green splits `done` into delivered and merely closed. The ladder
+    derives `done` from checkpoints, so the split reads checkpoints too -- reading
+    the phase tally would be wrong in both directions."""
+    project = make_project(client, start="2026-01-05")
+    make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+    beta = client.post(f"/api/projects/{project['id']}/milestones",
+                       json={"name": "Private beta"}).json()
+
+    node = client.get("/api/graph").json()["projects"][0]
+    assert (node["milestones_reached"], node["milestones_total"]) == (0, 1)
+    assert node["derived_stage"] == "overdue"
+
+    client.put(f"/api/milestones/{beta['id']}", json={"achieved": True})
+    node = client.get("/api/graph").json()["projects"][0]
+    assert (node["milestones_reached"], node["milestones_total"]) == (1, 1)
+    assert node["derived_stage"] == "done"
+    # The phase is still open, and the node is still green -- reaching what the
+    # plan aimed at is the delivery, not the phase bookkeeping under it.
+    assert (node["phases_done"], node["phases_total"]) == (0, 1)
+
+
+def test_a_manual_close_carries_no_milestones_to_earn_the_green(client):
+    """The case the split exists for: closed without finishing stays grey."""
+    project = make_project(client, start="2026-01-05")
+    make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+    client.put(f"/api/projects/{project['id']}", json={"stage": "done"})
+
+    node = client.get("/api/graph").json()["projects"][0]
+    assert node["derived_stage"] == "done"
+    assert node["milestones_total"] == 0
+
+
+def test_promoting_an_idea_is_a_write_and_never_an_inference(client):
+    """`idea` beats every derived rung, so a checkpoint alone must not promote:
+    the portfolio and map filter on the stored stage and the two must agree.
+    The frontend gates the button on >=1 milestone; the server refuses nothing,
+    because setting your own project's stage is not malformed data."""
+    idea = client.post("/api/projects", json={
+        "name": "Caching", "start_date": "", "stage": "idea",
+    }).json()
+    phase = make_phase(client, idea["id"], "Design", "", 2, 20)
+    client.post(f"/api/phases/{phase['id']}/deliverables", json={"name": "Wireframes"})
+    db.create_milestone(idea["id"], "Private beta")
+
+    # Everything a plan needs, and it is still an idea until you say otherwise.
+    assert stages_of(client)[0]["Caching"] == "idea"
+
+    promoted = client.put(f"/api/projects/{idea['id']}", json={"stage": "planned"})
+    assert promoted.status_code == 200
+    assert promoted.json()["stage"] == "planned"
+    assert stages_of(client)[0]["Caching"] == "planned"
+
+
+def test_ticking_a_milestone_stores_a_flag_and_deleting_a_project_takes_it(tmp_path):
+    db.set_db_path(str(tmp_path / "achieved.db"))
+    try:
+        db.init_db()
+        payments = created(db.create_project("Payments", "2026-01-05"))
+        beta = created(db.create_milestone(payments["id"], "Private beta"))
+
+        ticked = created(db.update_milestone(beta["id"], {"achieved": True}))
+        assert ticked["achieved"] == 1
+        # project_id is not writable -- a milestone cannot move house.
+        moved = created(db.update_milestone(beta["id"], {"project_id": 999}))
+        assert moved["project_id"] == payments["id"]
+
+        db.delete_project(payments["id"])
+        assert db.get_milestone(beta["id"]) is None
     finally:
         db.set_db_path(db.DEFAULT_DB_PATH)

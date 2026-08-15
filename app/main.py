@@ -29,7 +29,7 @@ from app.validation import (
     fortnight_slice,
     fortnight_window,
     is_scheduled,
-    next_milestone,
+    next_phase_boundary,
     phase_end_date,
     project_effort_points,
     project_progress,
@@ -93,8 +93,6 @@ class ProjectIn(BaseModel):
     track: str = ""
     # 0 is untiered: a new project is unranked until someone ranks it.
     tier: int = 0
-    # A new plan is being drafted by definition -- nobody has written it yet.
-    draft_complete: int = 0
 
 
 class ProjectPatch(BaseModel):
@@ -106,7 +104,6 @@ class ProjectPatch(BaseModel):
     stage: str | None = None
     track: str | None = None
     tier: int | None = None
-    draft_complete: int | None = None
 
 
 class PhaseIn(BaseModel):
@@ -141,6 +138,23 @@ class DeliverablePatch(BaseModel):
     name: str | None = None
     description: str | None = None
     done: bool | None = None
+    sort_order: int | None = None
+
+
+class MilestoneIn(BaseModel):
+    # A checkpoint the plan is aiming at. `target_date` is optional the way every
+    # date here is: name it now, date it when you commit.
+    name: str
+    description: str = ""
+    target_date: str = ""
+    achieved: bool = False
+
+
+class MilestonePatch(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    target_date: str | None = None
+    achieved: bool | None = None
     sort_order: int | None = None
 
 
@@ -357,7 +371,7 @@ def write_settings(body: SettingsIn):
 # --- projects ---------------------------------------------------------------
 
 
-def with_derived_stage(projects, phases, deliverables, today):
+def with_derived_stage(projects, phases, deliverables, milestones, today):
     """Tag each project with `derived_stage`, leaving the stored one alone.
 
     Both travel: `stage` stays the commitment the user recorded, which is what
@@ -371,6 +385,7 @@ def with_derived_stage(projects, phases, deliverables, today):
             project,
             phases.get(project["id"], []),
             deliverables.get(project["id"], []),
+            milestones.get(project["id"], []),
             today,
         )
     return projects
@@ -391,9 +406,10 @@ def read_projects():
     """
     phases = db.phases_by_project()
     deliverables = db.deliverables_by_project()
+    milestones = db.milestones_by_project()
     today = date.today()
     projects = with_derived_stage(
-        db.list_projects(), phases, deliverables, today)
+        db.list_projects(), phases, deliverables, milestones, today)
     # Stable, so the db ordering survives inside each of the three groups.
     rank = {STAGE_DONE: 2, STAGE_IDEA: 1}
     projects.sort(key=lambda project: rank.get(project["derived_stage"], 0))
@@ -411,7 +427,6 @@ def add_project(body: ProjectIn):
         stage=clean_stage(body.stage),
         track=body.track,
         tier=clean_tier(body.tier),
-        draft_complete=1 if body.draft_complete else 0,
     )
 
 
@@ -432,17 +447,19 @@ def read_project_plan(project_id: int):
     phases = db.list_phases(project_id)
     dependencies = db.list_dependencies(project_id)
     grouped = db.deliverables_by_phase(project_id)
+    milestones = db.list_milestones(project_id)
     settings = db.get_settings()
     today = date.today()
     warnings = validate_plan(project, phases, settings, grouped, today)
     warnings += warnings_touching(project_id, portfolio_warnings())
     offsets = relative_layout(phases)
     # The ladder does ride on this payload, unlike the readiness it replaced:
-    # the drafting toggle lives in this view, and a switch you cannot see the
-    # effect of is a switch you have to guess at.
+    # the milestone list lives in this view, and a checkpoint whose effect on
+    # the stage you cannot see is a checkpoint you have to guess at.
     project["derived_stage"] = project_stage(
         project, phases,
         [item for items in grouped.values() for item in items],
+        milestones,
         today,
     )
 
@@ -457,6 +474,7 @@ def read_project_plan(project_id: int):
     return {
         "project": project,
         "phases": enriched,
+        "milestones": milestones,
         "dependencies": dependencies,
         "warnings": [warning.as_dict() for warning in warnings],
         "settings": settings,
@@ -493,7 +511,11 @@ def read_portfolio():
     for phase in phases:
         owned.setdefault(phase["project_id"], []).append(phase)
     with_project_span(projects, owned)
-    with_derived_stage(projects, owned, db.deliverables_by_project(), date.today())
+    # The ladder reads checkpoints since the milestone work, so the swimlane
+    # stage has to be derived from them as well -- a lane claiming `planning`
+    # while the picker says `done` would be two answers to one question.
+    with_derived_stage(projects, owned, db.deliverables_by_project(),
+                       db.milestones_by_project(), date.today())
 
     return {
         "projects": projects,
@@ -926,11 +948,12 @@ def read_graph():
     settings = db.get_settings()
     grouped = db.phases_by_project()
     deliverables = db.deliverables_by_project()
+    milestones = db.milestones_by_project()
     today = date.today()
 
     nodes = []
     for project in with_derived_stage(
-            db.list_projects(), grouped, deliverables, today):
+            db.list_projects(), grouped, deliverables, milestones, today):
         phases = grouped.get(project["id"], [])
         progress = project_progress(phases)
         nodes.append({
@@ -947,8 +970,15 @@ def read_graph():
             "goal": project["goal"],
             "phases_done": progress["done"],
             "phases_total": progress["total"],
+            # The map's green splits `done` into delivered and merely closed, and
+            # since the ladder derives `done` from checkpoints, that is what the
+            # split has to read. The phase tally beside it stays on the label:
+            # it still says how much of the work is finished.
+            "milestones_reached": sum(
+                1 for m in milestones.get(project["id"], []) if m["achieved"]),
+            "milestones_total": len(milestones.get(project["id"], [])),
             "effort_points": project_effort_points(phases),
-            "next_date": next_milestone(phases, today),
+            "next_date": next_phase_boundary(phases, today),
         })
 
     return {
@@ -992,8 +1022,6 @@ def edit_project(project_id: int, body: ProjectPatch):
         fields["stage"] = clean_stage(fields["stage"])
     if "tier" in fields:
         fields["tier"] = clean_tier(fields["tier"])
-    if "draft_complete" in fields:
-        fields["draft_complete"] = 1 if fields["draft_complete"] else 0
     return db.update_project(project_id, fields)
 
 
@@ -1073,6 +1101,55 @@ def edit_deliverable(deliverable_id: int, body: DeliverablePatch):
 def remove_deliverable(deliverable_id: int):
     require_deliverable(deliverable_id)
     db.delete_deliverable(deliverable_id)
+
+
+# --- milestones -------------------------------------------------------------
+
+
+def require_milestone(milestone_id):
+    milestone = db.get_milestone(milestone_id)
+    if not milestone:
+        raise HTTPException(status_code=404, detail="Milestone not found")
+    return milestone
+
+
+@app.get("/api/projects/{project_id}/milestones")
+def read_milestones(project_id: int):
+    require_project(project_id)
+    return db.list_milestones(project_id)
+
+
+@app.post("/api/projects/{project_id}/milestones", status_code=201)
+def add_milestone(project_id: int, body: MilestoneIn):
+    require_project(project_id)
+    return db.create_milestone(
+        project_id=project_id,
+        name=body.name,
+        description=body.description,
+        target_date=clean_date(body.target_date),
+        achieved=body.achieved,
+    )
+
+
+@app.put("/api/milestones/{milestone_id}")
+def edit_milestone(milestone_id: int, body: MilestonePatch):
+    """Rename, re-date, tick or reorder one checkpoint.
+
+    Ticking here is what can finish a project, so this is the one deliverable-
+    shaped write in the app that a derived status reads. It still only stores
+    what it was told: the ladder does the reading, on the next GET.
+    """
+    require_milestone(milestone_id)
+    fields = body.model_dump(exclude_unset=True)
+    if "target_date" in fields:
+        fields["target_date"] = clean_date(fields["target_date"])
+    return db.update_milestone(milestone_id, fields)
+
+
+@app.delete("/api/milestones/{milestone_id}", status_code=204)
+def remove_milestone(milestone_id: int):
+    require_milestone(milestone_id)
+    db.delete_milestone(milestone_id)
 
 
 # --- dependencies -----------------------------------------------------------
