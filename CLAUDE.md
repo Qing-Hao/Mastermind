@@ -32,6 +32,8 @@ step: it is a prebuilt bundle served as a static file.
 node scripts\map_sweep.js            # map: label/circle collisions, 1000-1530px
 node scripts\map_sweep.js --tree     # map: the track hierarchy as drawn
 
+node scripts\wire_check.js           # frontend: ids the JS asks for, index.html lacks
+
 .\.venv\Scripts\python.exe -m pip install -r requirements-ai.txt          # optional, sprint review only
 .\.venv\Scripts\python.exe scripts\sprint_review.py --history 3
 ```
@@ -65,6 +67,7 @@ Type checking is pyright, `basic` mode, config in `pyrightconfig.json`.
 | `templates/sprint.md` | The sprint template. Copied to `sprints/NN.md` (gitignored). |
 | `scripts/sprint_review.py` | Post-sprint LLM review. Optional dep, lazy import, CLI only. |
 | `scripts/map_sweep.js` | The map's collision sweep and tree dump. Node, no deps — loads the real `app.js` behind a stub DOM and measures the SVG `renderMap()` emits. **The map has no test suite; this is its verification.** |
+| `scripts/wire_check.js` | Runs `bindEvents()` behind a stub DOM and names every id the frontend asks for that `index.html` does not define. Node, no deps. **The frontend has no test suite either; this is the part of it a machine can check.** |
 | `data/roadmap.db` | The dataset. Gitignored. `.bak` is the pre-migration copy. |
 
 Keep this shape. Extend an existing module rather than adding a file; propose a
@@ -1286,6 +1289,13 @@ mobile layouts.
   drops, renames or rebuilds a table in a scratch database first — an in-memory
   SQLite script is thirty seconds — then write it. Being right two minutes late
   is indistinguishable from being wrong.
+- **Deleting an element from `index.html` is a frontend migration**, and nothing
+  fails loudly when you get it wrong. `bindEvents()` addresses about a hundred
+  ids; a `$()` that finds nothing returns **null**, the next property access
+  throws, and every handler wired after that line silently never happens —
+  including the boot call, which is the last statement in `app.js`. Run
+  `node scripts\wire_check.js`. The tests are API-level and never load the page,
+  and `map_sweep.js` cannot see a null by construction.
 - **Back the data file up before schema work**, under a name that does not
   overwrite an existing backup. `data/roadmap.db.bak` is an old one and is not
   a scratch slot.
