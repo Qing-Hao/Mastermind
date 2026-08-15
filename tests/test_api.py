@@ -108,10 +108,7 @@ def test_v2_also_surfaces_on_the_portfolio(client):
     link(client, payments, ledger)
 
     portfolio = client.get("/api/portfolio").json()
-    v2 = [w for w in portfolio["warnings"] if w["rule"] == "V2"]
-    assert len(v2) == 1
-    assert v2[0]["project_id"] == ledger["id"]
-    assert v2[0]["related_project_id"] == payments["id"]
+    assert [w["rule"] for w in portfolio["warnings"]] == ["V2"]
     assert len(portfolio["dependencies"]) == 1
     assert portfolio["dependencies"][0]["predecessor_name"] == "Payments"
 
@@ -663,58 +660,6 @@ def test_portfolio_returns_every_project_and_phase(client):
     assert len(portfolio["phases"]) == 2
     assert all("end_date" in phase for phase in portfolio["phases"])
     assert {p["project_id"] for p in portfolio["phases"]} == {first["id"], second["id"]}
-
-
-def test_portfolio_reports_v6_across_every_project(client):
-    """The rule that finds late work, finally asked globally.
-
-    V6 was reachable only by opening each project one at a time, and it is the
-    rule that catches a phase a month past its end inside a project with weeks
-    still to run -- which is exactly what this sets up.
-    """
-    ended = (date.today() - timedelta(days=30)).isoformat()
-    running = (date.today() - timedelta(days=7)).isoformat()
-    late = make_project(client, "Payments", ended)
-    make_phase(client, late["id"], "Discovery", ended, 1, 20)
-    make_phase(client, late["id"], "Build", running, 8, 160)
-
-    healthy = make_project(client, "Search", running)
-    make_phase(client, healthy["id"], "Spike", running, 8, 160)
-
-    warnings = client.get("/api/portfolio").json()["warnings"]
-    v6 = [w for w in warnings if w["rule"] == "V6"]
-    assert len(v6) == 1
-    assert "Discovery" in v6[0]["message"]
-    # And it says whose it is: a flat pile from every project is unreadable
-    # otherwise, and the rules themselves only name a phase.
-    assert v6[0]["project_id"] == late["id"]
-
-
-def test_portfolio_reports_v1_v4_and_v7_too(client):
-    """All four project-level rules, not just the one that finds late work."""
-    project = make_project(client, "Payments", "2026-03-01")
-    # 55 pts at velocity 20 over a 14-day sprint implies 5.5 weeks, not 6.
-    make_phase(client, project["id"], "Build", "2026-03-01", 6, 55)
-    # Dated before its project, and closed with nothing named under it.
-    early = make_phase(client, project["id"], "Discovery", "2026-01-05", 2, 20)
-    client.put(f"/api/phases/{early['id']}", json={"status": "done"})
-
-    rules = {w["rule"] for w in client.get("/api/portfolio").json()["warnings"]}
-    assert {"V1", "V4", "V7"} <= rules
-
-
-def test_an_idea_is_not_checked_on_the_portfolio(client):
-    """The tab draws committed work, so it reports on committed work.
-
-    An idea's estimate is the project view's business. Nothing on this timeline
-    represents it, so a warning about it would name a project with no bar.
-    """
-    idea = make_direction(client)
-    make_phase(client, idea["id"], "Sketch", "2026-03-01", 6, 55)
-
-    portfolio = client.get("/api/portfolio").json()
-    assert portfolio["projects"] == []
-    assert portfolio["warnings"] == []
 
 
 def test_portfolio_carries_each_project_span_and_totals(client):

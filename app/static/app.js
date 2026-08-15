@@ -1187,7 +1187,6 @@ function renderDependencies() {
 
 function renderPortfolio() {
   renderWindowBar($("portfolio-window"));
-  renderPortfolioWarnings();
   renderPortfolioDependencies();
   const chart = $("portfolio-chart");
   chart.innerHTML = "";
@@ -1468,76 +1467,6 @@ async function undoPlacement() {
   await loadPortfolio();
 }
 
-// V1, V4, V6 and V7 for every project on the tab, grouped by project.
-//
-// The rules were all here already and all pure; what was missing was anyone
-// asking them across the whole dataset. V6 is the point of this panel: it fires
-// on a phase past its end while the project around it still has months to run,
-// which the `overdue` rung cannot see and which used to be readable only by
-// opening each project in turn.
-//
-// V2 is filtered out rather than merged in. It is a fact about a *link*, and the
-// dependency list at the foot of this tab marks the link it is about; printing it
-// in both places would leave two counts of the same problem on one screen. That
-// filter is also what keeps the dependency pill honest -- it keys off this same
-// list, and an unrelated V6 would otherwise turn it amber.
-//
-// Inside a group the rules are ordered rather than left as the validator emitted
-// them, and the reason is measured: on the real dataset V1 fires on **every one
-// of the 30 phases**, because the estimates there do not follow the default
-// velocity at a 5% tolerance. Emission order is per phase, so the two V6
-// findings -- the ones this panel was built for -- sat under a wall of V1. This
-// orders, it does not filter: every warning is still drawn and the count still
-// counts them all.
-const RULE_ORDER = ["V6", "V7", "V4", "V1"];
-
-const ruleRank = (warning) => {
-  const at = RULE_ORDER.indexOf(warning.rule);
-  return at === -1 ? RULE_ORDER.length : at;
-};
-
-function renderPortfolioWarnings() {
-  const list = $("portfolio-warning-list");
-  const count = $("portfolio-warning-count");
-  const { projects, warnings } = state.portfolio;
-  const own = warnings.filter((warning) => warning.rule !== "V2");
-  list.innerHTML = "";
-
-  count.textContent = own.length;
-  count.className = own.length ? "pill pill-warn" : "pill";
-
-  if (own.length === 0) {
-    list.appendChild(element("li", "ok", "No problems detected."));
-    return;
-  }
-
-  const grouped = new Map();
-  for (const warning of own) {
-    if (!grouped.has(warning.project_id)) grouped.set(warning.project_id, []);
-    grouped.get(warning.project_id).push(warning);
-  }
-
-  // Walked in `projects` order rather than the map's, so the panel and the
-  // swimlanes below it read top to bottom in the same order.
-  for (const project of projects) {
-    const mine = grouped.get(project.id);
-    if (!mine) continue;
-    const item = element("li");
-    item.appendChild(element("span", "warn-project", project.name));
-    const inner = element("ul", "warnings warn-nested");
-    // Stable, so phases keep their plan order within one rule.
-    mine.sort((a, b) => ruleRank(a) - ruleRank(b));
-    for (const warning of mine) {
-      const line = element("li");
-      line.appendChild(element("span", "rule", warning.rule));
-      line.appendChild(document.createTextNode(` ${warning.message}`));
-      inner.appendChild(line);
-    }
-    item.appendChild(inner);
-    list.appendChild(item);
-  }
-}
-
 // Dependencies are drawn as a list rather than arrows between swimlanes: a link
 // can point at an idea, which has no bar to draw an arrow to. Ordered as linked,
 // which is the order the server returns.
@@ -1547,12 +1476,8 @@ function renderPortfolioDependencies() {
   const count = $("portfolio-dep-count");
   list.innerHTML = "";
 
-  // V2 only. `warnings` carries every rule now, and a V6 naming one project has
-  // no link to mark -- it would key on an undefined predecessor, match no
-  // dependency, and still turn the count pill amber on the strength of a problem
-  // this list is not about.
   const violated = new Map();
-  for (const warning of warnings.filter((w) => w.rule === "V2")) {
+  for (const warning of warnings) {
     violated.set(`${warning.related_project_id}->${warning.project_id}`, warning);
   }
   count.textContent = dependencies.length;

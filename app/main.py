@@ -268,29 +268,6 @@ def portfolio_warnings():
     )
 
 
-def plan_warnings(projects, phases_by_project, deliverables_by_phase, settings, today):
-    """V1, V4, V6 and V7 across every project handed in, as one flat list.
-
-    `validate_plan` answers for one project, so "what is late across everything"
-    -- the first question of the week -- could only be assembled by opening each
-    project in turn. V6 especially: it is the rule that actually finds late work,
-    and until now it was global in nothing.
-
-    V2 is deliberately absent. It compares two projects rather than reading one,
-    so `portfolio_warnings` owns it and the caller concatenates the two.
-    """
-    warnings = []
-    for project in projects:
-        warnings += validate_plan(
-            project,
-            phases_by_project.get(project["id"], []),
-            settings,
-            deliverables_by_phase,
-            today,
-        )
-    return warnings
-
-
 def warnings_touching(project_id, cross_project):
     """The subset of `cross_project` warnings with this project at either end."""
     return [warning for warning in cross_project
@@ -505,37 +482,18 @@ def read_portfolio():
     Each project also carries its derived span, counts and stage. The chart draws
     phases, so the project's own dates -- the question this tab exists to answer
     -- were the one thing on it that could not be read anywhere.
-
-    `warnings` is every rule, not just V2: V1, V4, V6 and V7 for each project on
-    the tab, then the V2 pairs on top. One flat list, each warning naming the
-    project it belongs to, so a reader groups it however the view wants to. The
-    plan rules run over the projects this route draws, which is every committed
-    one -- an idea's estimate is the project view's business, not the timeline's.
     """
     projects = db.list_projects(stages=SCHEDULABLE_STAGES)
     committed = {project["id"] for project in projects}
     phases = [phase for phase in db.list_all_phases()
               if phase["project_id"] in committed]
     scheduled = [with_end_date(phase) for phase in phases if is_scheduled(phase)]
-    settings = db.get_settings()
-    today = date.today()
 
     owned = {}
     for phase in phases:
         owned.setdefault(phase["project_id"], []).append(phase)
-
-    # One query, regrouped twice: the ladder wants a project's deliverables and
-    # V7 wants a phase's. Same rows either way.
-    deliverables = db.deliverables_by_project()
-    by_phase = {}
-    for rows in deliverables.values():
-        for row in rows:
-            by_phase.setdefault(row["phase_id"], []).append(row)
-
     with_project_span(projects, owned)
-    with_derived_stage(projects, owned, deliverables, today)
-    warnings = plan_warnings(projects, owned, by_phase, settings, today)
-    warnings += portfolio_warnings()
+    with_derived_stage(projects, owned, db.deliverables_by_project(), date.today())
 
     return {
         "projects": projects,
@@ -543,7 +501,7 @@ def read_portfolio():
         "unscheduled": unplaced_work(projects, phases),
         "unscheduled_count": len(phases) - len(scheduled),
         "dependencies": db.list_all_dependencies(with_names=True),
-        "warnings": [warning.as_dict() for warning in warnings],
+        "warnings": [warning.as_dict() for warning in portfolio_warnings()],
     }
 
 
