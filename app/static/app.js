@@ -42,12 +42,12 @@ const WINDOW_PRESETS = [
 // badge at all.
 const STAGE_BADGE = {
   idea: "💡",     // nobody has committed to it
-  planning: "⚪",  // no phases, nothing named, or still being drafted
-  planned: "🟡",  // written and drafted, waiting only for dates
+  planning: "⚪",  // no phases, nothing named, or no checkpoint to aim at
+  planned: "🟡",  // named and aimed at a checkpoint, waiting only for dates
   dated: "🔵",    // on the calendar, not started
   active: "🟢",   // today falls inside the span
   overdue: "🔴",  // the last phase end has passed, phases still open
-  done: "✅",     // every phase done, or closed by hand
+  done: "✅",     // every checkpoint reached, or closed by hand
 };
 
 // Still used on its own by the dependency and Future directions pickers, which
@@ -3582,7 +3582,7 @@ function bindEvents() {
   };
   for (const id of ["project-name", "project-goal", "project-start",
                     "project-stage", "project-tier", "project-track",
-                    "project-draft-complete", "project-velocity"]) {
+                    "project-velocity"]) {
     $(id).onchange = saveProject;
   }
 
