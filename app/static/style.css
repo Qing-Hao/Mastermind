@@ -10,6 +10,13 @@ body {
   background: #fff;
 }
 
+/* The navbar's own height, published so anything else that sticks can park
+   below it rather than under it. A control's height is the browser's, not
+   ours -- 14px/1.5 text plus 4px padding and a border either side -- so this
+   is measured rather than derived, and erring high only widens the gap under
+   the bar. `.sprint-scope` is the one thing reading it. */
+:root { --topbar-h: 52px; }
+
 header {
   display: flex;
   gap: 8px;
@@ -750,11 +757,16 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 
 /* Sticky, so the deliverables stay beside whichever part of the file you have
    scrolled to -- which is the whole point of it being a panel rather than a
-   section under the document. */
+   section under the document.
+   It sticks below the navbar, not at the top of the viewport: the header is
+   sticky too and sits at `z-index: 10`, so a panel parked at 12px scrolled in
+   behind it and lost its heading. `--topbar-h` is what the two agree on, and
+   the same subtraction comes off the height or the panel's own scrollbar runs
+   off the bottom of the window. */
 .sprint-scope {
   position: sticky;
-  top: 12px;
-  max-height: calc(100vh - 24px);
+  top: calc(var(--topbar-h) + 12px);
+  max-height: calc(100vh - var(--topbar-h) - 24px);
   overflow-y: auto;
   padding: 10px 12px;
   border: 1px solid #e4e4e8;
