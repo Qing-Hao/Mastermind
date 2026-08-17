@@ -372,6 +372,29 @@ def as_flag(value):
     return 1 if value else 0
 
 
+def next_plan_sort_order(connection, project_id):
+    """Where a new phase or checkpoint goes: last in one shared sequence.
+
+    `phase.sort_order` and `milestone.sort_order` are one number line, because the
+    project view draws the two interleaved and a checkpoint's place between two
+    phases is the thing worth arranging. Taking each table's own MAX would put a
+    new phase and a new checkpoint on the same number, which reads as a tie until
+    the first drag renumbers the sequence -- so the MAX is read across both.
+
+    Only *creation* shares this. Reordering renumbers the whole sequence from
+    zero client-side, and nothing here validates the line: no rule reads the
+    order, so a file with ties or gaps is still a well-formed file.
+    """
+    return connection.execute(
+        """SELECT COALESCE(MAX(sort_order), -1) + 1 FROM (
+               SELECT sort_order FROM phase WHERE project_id = ?
+               UNION ALL
+               SELECT sort_order FROM milestone WHERE project_id = ?
+           )""",
+        (project_id, project_id),
+    ).fetchone()[0]
+
+
 # --- settings ---------------------------------------------------------------
 
 
@@ -484,10 +507,7 @@ def get_phase(phase_id):
 def create_phase(project_id, name, start_date, duration_weeks, effort_points,
                  description="", status="planned"):
     with connect() as connection:
-        next_order = connection.execute(
-            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM phase WHERE project_id = ?",
-            (project_id,),
-        ).fetchone()[0]
+        next_order = next_plan_sort_order(connection, project_id)
         cursor = connection.execute(
             """INSERT INTO phase (project_id, name, description, start_date,
                                   duration_weeks, effort_points, status, sort_order)
@@ -669,10 +689,7 @@ def get_milestone(milestone_id):
 def create_milestone(project_id, name, description="", target_date="",
                      achieved=False):
     with connect() as connection:
-        next_order = connection.execute(
-            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM milestone WHERE project_id = ?",
-            (project_id,),
-        ).fetchone()[0]
+        next_order = next_plan_sort_order(connection, project_id)
         cursor = connection.execute(
             """INSERT INTO milestone (project_id, name, description, target_date,
                                       achieved, sort_order)

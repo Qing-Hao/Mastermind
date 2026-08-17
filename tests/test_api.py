@@ -2173,6 +2173,31 @@ def test_milestones_round_trip_through_their_routes(client):
     assert [m["name"] for m in plan["milestones"]] == ["Private beta"]
 
 
+def test_phases_and_milestones_are_created_on_one_sort_order_sequence(client):
+    """One number line, so a new row of either kind lands last in the sequence.
+
+    The project view draws the two interleaved, and where a checkpoint falls
+    between two phases is what you arrange. Taking each table's own MAX would put
+    a new phase and a new checkpoint on the same number.
+    """
+    project = make_project(client, start="")
+    first = make_phase(client, project["id"], "Discovery", "", 2, 20)
+    beta = client.post(f"/api/projects/{project['id']}/milestones",
+                       json={"name": "Private beta"}).json()
+    second = make_phase(client, project["id"], "Build", "", 4, 40)
+    launch = client.post(f"/api/projects/{project['id']}/milestones",
+                         json={"name": "Launch"}).json()
+
+    assert [first["sort_order"], beta["sort_order"],
+            second["sort_order"], launch["sort_order"]] == [0, 1, 2, 3]
+
+    # And a second project counts from zero again: the sequence is per project.
+    other = make_project(client, name="Ledger", start="")
+    fresh = client.post(f"/api/projects/{other['id']}/milestones",
+                        json={"name": "Books balance"}).json()
+    assert fresh["sort_order"] == 0
+
+
 def test_a_milestone_date_is_strict_on_the_way_in(client):
     """Writes are strict so a bad value never gets stored; empty stays empty."""
     project = make_project(client, start="")

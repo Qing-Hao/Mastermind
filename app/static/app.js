@@ -879,11 +879,12 @@ async function promoteProject() {
 // order by `sort_order` and only ever use it relatively, so gaps in either
 // table's numbers are harmless.
 //
-// The cost, stated: nothing enforces the shared line. `create_phase` and
-// `create_milestone` each take their own table's MAX+1, so a new row of each
-// kind can land on the same number until the first drag renumbers the sequence.
-// Ties break phases-first, and the sort is stable, so rows of one kind keep the
-// order the server sent them in.
+// A new row of either kind is appended to the shared sequence server-side, by
+// `db.next_plan_sort_order` reading the MAX across both tables. Ties are still
+// possible and still handled: a file written before the sequence merged has its
+// phases at 0..n-1 and its checkpoints at 0..m-1, so almost every row collides
+// until the first drag renumbers them. Ties break phases-first, and the sort is
+// stable, so rows of one kind keep the order the server sent them in.
 function orderedPlanRows() {
   const rows = [];
   for (const phase of state.plan.phases) rows.push({ kind: "phase", item: phase });

@@ -174,10 +174,12 @@ arrangement, and an undated milestone has no date to sort on.
 
 **That `sort_order` is now shared with `phase.sort_order`** — one number line, so
 the project view can draw the two interleaved and you can put a checkpoint where
-it belongs between two phases. It stays a *frontend* convention: nothing
-validates it, no rule reads it, and there is still no `phase_id` on a milestone,
-which is the whole reason a checkpoint spanning several phases is sayable. See
-the Project view under "Views".
+it belongs between two phases. `db.next_plan_sort_order` is the only thing here
+that knows: it reads the `MAX` across both tables so a created row of either kind
+lands last in the sequence. Nothing **validates** the line — no rule reads the
+order, so ties and gaps are well-formed — and there is still no `phase_id` on a
+milestone, which is the whole reason a checkpoint spanning several phases is
+sayable. See the Project view under "Views".
 
 **`achieved` is the only stored tick a derived status reads, and that is the
 entire reason milestones exist.** The `done` rung used to derive from every phase
@@ -584,11 +586,18 @@ into one project link.
   number line.** `orderedPlanRows` reads them as one list and `savePlanOrder`
   renumbers it from zero across both kinds, each row written to its own endpoint.
   `list_phases` and `list_milestones` only ever use `sort_order` relatively, so
-  gaps in either table's numbers are harmless. Two consequences worth knowing.
-  Nothing enforces the shared line — `create_phase` and `create_milestone` each
-  take their own table's `MAX+1`, so a new row of each kind can land on the same
-  number until the first drag; ties break phases-first and the sort is stable, so
-  rows of one kind keep the order the server sent. And **`saveOrder`, the
+  gaps in either table's numbers are harmless.
+  **Creation appends to the shared sequence**, which is the one place the server
+  knows about it: `db.next_plan_sort_order` reads the `MAX` across both tables for
+  the project, and `create_phase` and `create_milestone` share it. Each table's
+  own `MAX+1` would put a new phase and a new checkpoint on the same number.
+  Ties are still possible and still handled — **a file written before the merge
+  has its phases at 0..n-1 and its checkpoints at 0..m-1, so almost every row
+  collides until the first drag renumbers them.** Ties break phases-first and the
+  sort is stable, so rows of one kind keep the order the server sent. Nothing
+  *validates* the line and nothing repairs it: no rule reads the order, so a file
+  with ties or gaps is a well-formed file.
+  Two more consequences worth knowing. **`saveOrder`, the
   Weeks-timeline bar drag, had to learn about it**: renumbering the phases 0..n-1
   on their own would walk them straight through the checkpoints between them, so
   the new phase order is written back into the merged sequence with the
