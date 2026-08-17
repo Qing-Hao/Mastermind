@@ -683,7 +683,11 @@ into one project link.
   It draws `renderSprintSlice`, the **shared** component: a day-resolution
   strip of 21 columns (the fortnight, then the lead-out week greyed behind a
   divider), weekends shaded, a today line that is simply **absent** when today
-  is off the strip, over a list of the deliverables the phases name. Divs on a
+  is off the strip, over a list of the deliverables the phases name — **each with
+  its `done` tick as a disabled checkbox**, struck through when it is set, the
+  deliverable list's own vocabulary. `fortnight_lane` has always carried `done`
+  "so it can be shown, never so anything can be derived from it"; this is the
+  showing. Both surfaces get it because they are one component. Divs on a
   CSS grid, not SVG — the charts either side of it are divs on a week grid, and
   the map is the one hand-rolled SVG here. `compact` is the drawer's density:
   same DOM, tighter metrics, so the drawer and the Sprint tab cannot drift into
@@ -757,7 +761,11 @@ into one project link.
     **It writes nothing and offers no insert**, which was offered and declined:
     a click that puts a deliverable into the file is one step from allocating
     deliverables into sprints, which `PROMPT.md` lists as do-not-build. You read
-    it and type what you decide.
+    it and type what you decide. **The `done` tick is drawn as a disabled
+    checkbox and is the one thing this rule now has to say twice**: showing which
+    deliverables are already finished is the first question asked of a
+    fortnight's scope, so it is shown — but ticking one is roadmap state and the
+    project view keeps that gesture. A read-only box in a panel that reads.
     Two honest details. The heading's dates are the sprint's own and are **never
     snapped**, while the chart window is Monday-based and is — so when they
     differ the panel names the week it read from rather than quietly showing two

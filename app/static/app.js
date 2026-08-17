@@ -2218,8 +2218,16 @@ function sliceBar(lane, window, days) {
   return bar;
 }
 
-// Names only. A deliverable is a planning unit -- no estimate, no owner, no
-// date -- and the tick is progress, which is not what this view is asking.
+// Names and their tick. A deliverable is still a planning unit -- no estimate,
+// no owner, no date -- but "which of these is already done" is the first thing
+// asked of a fortnight's scope, and the tick is the only answer the roadmap has.
+// `fortnight_lane` has always carried `done` for exactly this: shown, never
+// derived from. An earlier version of this drew names alone.
+//
+// **Read-only, in a panel that reads.** The boxes are disabled: ticking one is
+// roadmap state and the project view owns that gesture, the same line this panel
+// is on the safe side of everywhere else. The strike-through is the deliverable
+// list's own vocabulary, so a done row reads the same in both places.
 function sliceDeliverables(lanes, colours) {
   const wrap = element("div", "slice-deliverables");
   wrap.appendChild(element("div", "slice-deliv-head", "Deliverables in scope"));
@@ -2235,9 +2243,20 @@ function sliceDeliverables(lanes, colours) {
     if (colour) group.style.setProperty("--lane-hue", colour);
     group.appendChild(element("div", "slice-deliv-title",
       `${lane.project_name} · ${lane.phase_name}`));
-    const list = element("ul", null);
+    const list = element("ul", "slice-deliv-list");
     for (const deliverable of lane.deliverables) {
-      list.appendChild(element("li", null, deliverable.name));
+      const done = Boolean(deliverable.done);
+      const row = element("li", done ? "done" : null);
+      const tick = element("input", null);
+      tick.type = "checkbox";
+      tick.checked = done;
+      tick.disabled = true;
+      // The box says what it is rather than looking broken: a disabled control
+      // takes no pointer events, so the title rides on the row.
+      row.title = done ? "Done -- tick it in the project view" : "Not done yet";
+      row.appendChild(tick);
+      row.appendChild(element("span", null, deliverable.name));
+      list.appendChild(row);
     }
     group.appendChild(list);
     wrap.appendChild(group);
