@@ -18,6 +18,7 @@ from app.validation import (
     check_phase_done_without_deliverables,
     check_phase_overdue,
     project_effort_points,
+    completion_fraction,
     deliverable_progress,
     project_progress,
     project_span,
@@ -397,6 +398,60 @@ def test_deliverable_progress_of_a_project_naming_none_is_zero_of_zero():
     these ticks. Every caller decides what to draw for it; none may divide.
     """
     assert deliverable_progress([]) == {"done": 0, "total": 0}
+
+
+# --- completion: phases are the frame, deliverables fill their own share -----
+
+
+def tick(done):
+    return {"done": 1 if done else 0}
+
+
+def test_completion_gives_every_phase_an_equal_share():
+    """Three phases, one delivered: a third, however many rows were written.
+
+    The flat models this replaced would have read 100% here -- every deliverable
+    in the project is ticked, but they all sit under one of the three phases.
+    """
+    phases = [make_phase(1), make_phase(2), make_phase(3)]
+    assert completion_fraction(phases, {1: [tick(True), tick(True)]}) == 1 / 3
+
+
+def test_a_phases_share_is_filled_by_the_deliverables_under_it():
+    phases = [make_phase(1), make_phase(2)]
+    named = {1: [tick(True), tick(True), tick(True), tick(False)], 2: [tick(False)]}
+    # 3/4 of one phase and none of the other, halved.
+    assert completion_fraction(phases, named) == 0.375
+
+
+def test_granularity_does_not_become_weight():
+    """One phase with 20 deliverables cannot outvote one with 2."""
+    long_list = [tick(False)] * 20
+    phases = [make_phase(1), make_phase(2)]
+    assert completion_fraction(
+        phases, {1: long_list, 2: [tick(True), tick(True)]}) == 0.5
+
+
+def test_a_closed_phase_counts_whole_whatever_its_ticks_say():
+    """Closing a phase is a decision, and the only exit for stale deliverables."""
+    phases = [{**make_phase(1), "status": "done"}]
+    assert completion_fraction(phases, {1: [tick(True), tick(False)]}) == 1.0
+
+
+def test_a_phase_naming_nothing_falls_back_to_its_status():
+    phases = [{**make_phase(1), "status": "done"}, make_phase(2)]
+    assert completion_fraction(phases, {}) == 0.5
+
+
+def test_in_progress_counts_as_nothing_finished():
+    """It says work started, not how much is done. A half would be invented."""
+    phases = [{**make_phase(1), "status": "in_progress"}]
+    assert completion_fraction(phases, {}) == 0.0
+
+
+def test_a_project_with_no_phases_has_no_completion_at_all():
+    """No frame, no fraction -- and `None` is not zero. Callers draw nothing."""
+    assert completion_fraction([], {}) is None
 
 
 def test_effort_points_sum_the_phases_own_estimates():

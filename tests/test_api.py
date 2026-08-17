@@ -698,6 +698,16 @@ def test_a_swimlane_carries_its_deliverable_tally(client):
             lanes["Payments"]["deliverables_total"]) == (1, 2)
     assert (lanes["Search"]["deliverables_done"],
             lanes["Search"]["deliverables_total"]) == (0, 0)
+    # Design is half ticked and Build names nothing, so the bar fills a quarter.
+    assert lanes["Payments"]["completion"] == 0.25
+    assert lanes["Search"]["completion"] == 0.0
+
+
+def test_a_swimlane_with_no_phases_reports_no_completion(client):
+    """`None`, never 0 -- with no phases there is no frame to measure against."""
+    make_project(client, "Payments", "2026-01-05")
+    lane = client.get("/api/portfolio").json()["projects"][0]
+    assert lane["completion"] is None
 
 
 def test_a_swimlane_carries_the_derived_stage_too(client):
@@ -1193,6 +1203,34 @@ def test_graph_carries_the_deliverable_tally_the_node_fills_from(client):
     # Nothing was closed, so the phase tally disagrees -- which is the point of
     # carrying both.
     assert (node["phases_done"], node["phases_total"]) == (0, 2)
+    # Half of Design's two, none of Build's one, over two phases.
+    assert node["completion"] == 0.25
+
+
+def test_the_two_charts_read_one_completion_field(client):
+    """The map node and the swimlane must not be able to disagree."""
+    project = make_project(client, "Payments", "2026-01-05")
+    design = make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+    make_phase(client, project["id"], "Build", "2026-02-02", 6, 55)
+    ticked = add_deliverable(client, design["id"], "Wireframes")
+    client.put(f"/api/deliverables/{ticked['id']}", json={"done": True})
+
+    lane = client.get("/api/portfolio").json()["projects"][0]
+    node = client.get("/api/graph").json()["projects"][0]
+    assert lane["completion"] == node["completion"] == 0.5
+
+
+def test_a_closed_phase_completes_its_share_on_the_map(client):
+    """The one place `phase.status` still moves the number: a hand-closed phase."""
+    project = make_project(client, "Payments", "2026-01-05")
+    first = make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+    make_phase(client, project["id"], "Build", "2026-02-02", 6, 55)
+    add_deliverable(client, first["id"], "Wireframes")
+
+    assert client.get("/api/graph").json()["projects"][0]["completion"] == 0.0
+    client.put(f"/api/phases/{first['id']}", json={"status": "done"})
+    # Its deliverable is still unticked; closing the phase counts it whole.
+    assert client.get("/api/graph").json()["projects"][0]["completion"] == 0.5
 
 
 def test_graph_tally_of_a_project_naming_no_deliverables_is_zero_of_zero(client):

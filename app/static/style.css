@@ -1569,6 +1569,25 @@ body.resizing-column { cursor: col-resize; user-select: none; }
   pointer-events: none;
 }
 
+/* The number in the middle of the node. `dominant-baseline` rather than a
+   hand-computed y offset, so it stays centred as the font scales with the
+   radius -- which it must, since the radius clamp is 16-38px and one size
+   cannot serve both ends.
+
+   `paint-order: stroke` puts a white halo *behind* the glyphs instead of over
+   them, which is what keeps the number legible where it crosses the top edge of
+   the fill: at 50% that boundary runs straight through the text. */
+.map-percent {
+  fill: #1a1a1a;
+  font-weight: 700;
+  dominant-baseline: central;
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: #fff;
+  stroke-width: 2.5px;
+  stroke-linejoin: round;
+}
+
 /* Two captioned groups of chips. The gap between groups is wider than the gap
    inside one, which is the whole of what makes them read as two things. */
 .map-filters { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }

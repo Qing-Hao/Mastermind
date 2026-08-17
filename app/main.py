@@ -25,6 +25,7 @@ from app.validation import (
     UNSCHEDULED,
     as_date,
     as_optional_date,
+    completion_fraction,
     deliverable_progress,
     find_dependency_cycle,
     fortnight_slice,
@@ -351,6 +352,22 @@ def unplaced_work(projects, phases):
     return tray
 
 
+def deliverables_by_phase_id(by_project):
+    """Regroup the project-keyed deliverable read by phase instead. No query.
+
+    `completion_fraction` needs to know which deliverables sit under which phase,
+    and both routes already hold `db.deliverables_by_project()` for the ladder.
+    Its rows are `deliverable.*` off a join, so each one carries its `phase_id`
+    and the regroup is free -- a second `db` call would be a second query for
+    rows already in memory.
+    """
+    grouped = {}
+    for rows in by_project.values():
+        for row in rows:
+            grouped.setdefault(row["phase_id"], []).append(row)
+    return grouped
+
+
 def with_project_span(projects, phases_by_project, deliverables_by_project):
     """Attach each project's own dates, counts, points and progress. Never stored.
 
@@ -363,14 +380,17 @@ def with_project_span(projects, phases_by_project, deliverables_by_project):
     convention `with_end_date` follows, so a half-dated project still reports
     the half it has.
 
-    `deliverables_done` / `deliverables_total` are how far through the work a
-    project is, for the swimlane's collapsed summary bar. Deliberately the
-    deliverable tick rather than `phase.status`: 34 of 39 phases on the real file
-    sit at the untouched default and `in_progress` has never been used once, so a
-    phase tally draws an empty bar for ten of the thirteen projects that hold
-    work. This is a **read for display** and rule 4 is intact -- see
-    `validation.deliverable_progress`.
+    `completion` is how far through the work a project is, for the swimlane's
+    collapsed summary bar -- phases as the frame, each one's share filled by the
+    deliverables named under it (`validation.completion_fraction`). `None` for a
+    project with no phases, which draws no bar rather than an empty one. The two
+    tallies travel beside it because the bar prints them: the fraction says how
+    far, the tallies say what it was read off.
+
+    All of it is a **read for display** and rule 4 is intact -- nothing here
+    derives a stage, fires a rule or writes anything back.
     """
+    by_phase = deliverables_by_phase_id(deliverables_by_project)
     for project in projects:
         own = phases_by_project.get(project["id"], [])
         start, end = project_span(project, own)
@@ -378,10 +398,12 @@ def with_project_span(projects, phases_by_project, deliverables_by_project):
         project["span_end"] = end.isoformat() if end else UNSCHEDULED
         project["phase_count"] = len(own)
         project["total_points"] = project_effort_points(own)
+        project["phases_done"] = project_progress(own)["done"]
         progress = deliverable_progress(
             deliverables_by_project.get(project["id"], []))
         project["deliverables_done"] = progress["done"]
         project["deliverables_total"] = progress["total"]
+        project["completion"] = completion_fraction(own, by_phase)
     return projects
 
 
@@ -989,6 +1011,7 @@ def read_graph():
     settings = db.get_settings()
     grouped = db.phases_by_project()
     deliverables = db.deliverables_by_project()
+    by_phase = deliverables_by_phase_id(deliverables)
     milestones = db.milestones_by_project()
     today = date.today()
 
@@ -1012,15 +1035,17 @@ def read_graph():
             "goal": project["goal"],
             "phases_done": progress["done"],
             "phases_total": progress["total"],
-            # How full the node draws, and a different question from the phase
-            # tally beside it: the phase count is how much of the *plan* is
-            # closed, this is how much of the *work* is ticked off. The node
-            # fill reads this one because `phase.status` is maintained by
-            # nobody -- 34 of 39 phases sit at the untouched default -- so a
-            # phase-driven fill would draw every circle empty. Display only;
-            # see `validation.deliverable_progress` and rule 4.
             "deliverables_done": delivered["done"],
             "deliverables_total": delivered["total"],
+            # How full the node draws and what the percentage in it says. Phases
+            # are the 100% and each one's share is filled by the deliverables
+            # named under it, so neither tally alone is the answer -- see
+            # `validation.completion_fraction` for why the two flatter models
+            # were rejected. `None` where there are no phases: no frame, no
+            # fraction, and the node draws neither a wedge nor a number.
+            # The same field rides on `/api/portfolio`, so the two charts cannot
+            # disagree about how far along a project is. Display only, rule 4.
+            "completion": completion_fraction(phases, by_phase),
             # The map's green splits `done` into delivered and merely closed, and
             # since the ladder derives `done` from checkpoints, that is what the
             # split has to read. The phase tally beside it stays on the label:

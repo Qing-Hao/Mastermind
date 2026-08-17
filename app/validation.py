@@ -429,6 +429,62 @@ def deliverable_progress(deliverables):
     }
 
 
+def completion_fraction(phases, deliverables_by_phase):
+    """How far through a project is: phases are the 100%, deliverables split their own.
+
+    **The plan is the frame and the ticks are the detail inside it.** Every phase
+    owns an equal share of the project, and a phase's share is filled by the
+    deliverables named *under that phase*. So a project is 1/3 done when one of
+    its three phases is delivered, however many deliverables anybody wrote.
+
+    Two flatter models were measured against the real file first and both were
+    worse. Averaging the two ratios, or pooling every phase and deliverable into
+    one bucket, let **granularity become weight**: a phase carrying 11
+    deliverables outvoted a phase carrying 2, which is a fact about who wrote a
+    longer checklist rather than about the project. Worse, on `Transaction Graph
+    Fix` -- 2 of 2 deliverables ticked, but they sat under 1 of its 3 phases --
+    both read about 60-67%, because "everything written down is ticked" was being
+    read as "the project is nearly done". This reads 33%, which is what is true.
+
+    Three rules, each a decision rather than an accident:
+
+    - **A phase marked `done` counts as complete, whatever its ticks say.**
+      Closing a phase is an explicit act, and it is the only way a phase whose
+      deliverables went stale can ever finish. Checked first for that reason.
+    - **A phase naming no deliverables falls back to its status**, so it is
+      0 or 1 and nothing in between. 17 of the real file's 39 phases are in this
+      state, which is the honest cost of the model: those phases carry no
+      evidence, so a project made of them cannot climb until somebody either
+      names work under them or closes them.
+    - **`in_progress` counts 0**, like `planned`. It says work has started, not
+      how much is finished, and turning "started" into a half would be the tool
+      inventing a number. (It is no longer the unused value the notes once
+      recorded -- one phase on the real file carries it.)
+
+    Returns `None` for a project with no phases: with no frame there is no
+    fraction, the same 0-of-0 refusal `deliverable_progress` makes. Every caller
+    decides what to draw for that; nothing may treat it as zero.
+
+    Shares are equal per phase rather than weighted by `effort_points`. V1 fires
+    on every phase in the real file (FR-19), so the points and the durations
+    already disagree everywhere -- weighting the one number read at a glance by
+    the field the rules distrust would import that argument into it.
+    """
+    if not phases:
+        return None
+
+    shares = []
+    for phase in phases:
+        if phase.get("status") == "done":
+            shares.append(1.0)
+            continue
+        named = deliverables_by_phase.get(phase["id"], [])
+        shares.append(
+            sum(1 for item in named if item.get("done")) / len(named)
+            if named else 0.0)
+    return sum(shares) / len(shares)
+
+
 def project_effort_points(phases):
     """Top-down points across a project. The phase estimate is the only estimate
     there is -- deliverables carry no points of their own."""

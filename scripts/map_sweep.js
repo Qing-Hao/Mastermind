@@ -265,13 +265,14 @@ function harvest(svg) {
     // exactly on its own node, reports as a collision once per project.
     if (node.tagName === "clipPath" || node.tagName === "defs") return;
     if (node.tagName === "text") {
-      // Two labels are *meant* to sit on a circle and are not collisions:
-      // the tier-1 pip's numeral, which is drawn on its own node's shoulder,
-      // and the hub's name, which is centred inside the hub. Counting either
-      // would report a designed overlap as a defect and bury the real ones.
-      // The hub *circle* stays in the list, so a label drifting onto the hub is
-      // still caught.
-      if (classes.includes("map-pip-text") || classes.includes("map-hub")) return;
+      // Three labels are *meant* to sit on a circle and are not collisions: the
+      // tier pip's numeral, drawn on its own node's shoulder; the completion
+      // percentage, drawn in the middle of its own node; and the hub's name,
+      // centred inside the hub. Counting any of them would report a designed
+      // overlap as a defect and bury the real ones. The hub *circle* stays in
+      // the list, so a label drifting onto the hub is still caught.
+      if (classes.includes("map-pip-text") || classes.includes("map-hub")
+          || classes.includes("map-percent")) return;
       const box = textBox(node, inherited);
       if (box) labels.push(box);
       return;  // tspans are the text's own business
@@ -295,13 +296,16 @@ function harvest(svg) {
 }
 
 // A circle has no text of its own; its name is whatever its group is labelled.
-// The pip's numeral is skipped: it comes first in a tier-1 group, so taking the
-// first <text> would name every tier-1 project "1".
+// The pip's numeral and the completion percentage are both skipped: each comes
+// before the label in its group, so taking the first <text> would name every
+// ranked project "1" and every measured one "67%".
+const MARKS_ON_THE_NODE = ["map-pip-text", "map-percent"];
+
 function circleName(node) {
   const group = node.parent;
   if (!group) return "circle";
   const text = group.children.find((child) => child.tagName === "text"
-    && !child.classes().includes("map-pip-text"));
+    && !child.classes().some((name) => MARKS_ON_THE_NODE.includes(name)));
   if (!text) return "circle";
   const spans = text.children.filter((child) => child.tagName === "tspan");
   return (spans[0] || text).textContent || "circle";

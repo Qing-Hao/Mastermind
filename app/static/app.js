@@ -1932,26 +1932,52 @@ function laneSummaryBar(project, view) {
     daysBetween(view.origin, parseDate(project.span_start)),
     daysBetween(view.origin, parseDate(project.span_end)), view);
 
-  const total = project.deliverables_total;
-  const done = project.deliverables_done;
-  // 0 of 0 is drawn as no fill at all rather than as an empty one: a project
-  // naming no deliverables has not started nothing, it has said nothing. The
-  // same distinction `validation.deliverable_progress` refuses to divide away.
-  if (total > 0) {
+  // A project with no phases has no frame to measure against, so it draws no
+  // fill at all rather than an empty one -- the server sends `null`, never 0,
+  // and the difference is the whole point. A lane only exists where a phase is
+  // on screen, so this is the belt to the payload's braces.
+  const filled = project.completion;
+  if (filled !== null && filled !== undefined) {
     const fill = element("div", "bar-fill");
-    fill.style.width = `${(done / total) * 100}%`;
+    fill.style.width = `${filled * 100}%`;
     bar.appendChild(fill);
   }
-  bar.appendChild(element("span", "bar-text", total > 0
-    ? `${done}/${total} delivered · ${project.phase_count} phase(s)`
-    : `${project.phase_count} phase(s) · nothing named yet`));
+  bar.appendChild(element("span", "bar-text", filled === null
+    ? `${project.phase_count} phase(s) · nothing to measure`
+    : `${percentText(filled)} · ${project.phases_done}/${project.phase_count} phases`
+      + ` · ${project.deliverables_done}/${project.deliverables_total} delivered`));
 
-  bar.title = `${laneSummary(project)}\n`
-    + (total > 0
-      ? `${done} of ${total} deliverable(s) ticked`
-      : "No deliverables named yet")
+  bar.title = `${laneSummary(project)}\n${completionNote(project)}`
     + "\n\nOpen the lane to move a phase.";
   return bar;
+}
+
+// The fraction as a whole number, and the two roundings that matter.
+//
+// **100% is only ever printed by a project that is actually complete**, and 0%
+// only by one where nothing is: 199 of 200 rounds to 99, not to a finish that
+// has not happened, and one of 200 rounds to 1 rather than reporting nothing
+// started. Everything between is ordinary rounding. A percentage on a chart is
+// read as a claim, and those two are the claims worth being exact about.
+function percentText(fraction) {
+  const percent = Math.round(fraction * 100);
+  if (percent >= 100 && fraction < 1) return "99%";
+  if (percent <= 0 && fraction > 0) return "1%";
+  return `${percent}%`;
+}
+
+// What the number was read off, spelt out wherever there is room for a sentence.
+// The arithmetic is not guessable from one figure -- phases as the frame,
+// deliverables filling their own phase's share -- and a percentage nobody can
+// account for is a percentage nobody trusts.
+function completionNote(project) {
+  if (project.completion === null || project.completion === undefined) {
+    return "No phases yet, so there is nothing to measure against.";
+  }
+  return `${percentText(project.completion)} complete — each phase is an equal `
+    + `share, filled by the deliverables named under it`
+    + `\n${project.phases_done}/${project.phase_count} phases closed · `
+    + `${project.deliverables_done}/${project.deliverables_total} deliverables ticked`;
 }
 
 function renderPortfolio() {
@@ -3575,9 +3601,11 @@ function renderMapLegend() {
   }
 
   legend.appendChild(element("p", "legend-note",
-    "Circle size is total effort points. The shaded part of a circle is how "
-    + "many of the project's deliverables are ticked. The numbered pip is its "
-    + "tier; an unpipped node has never been ranked."));
+    "Circle size is total effort points. The percentage in a circle — and how "
+    + "far it is filled — counts every phase as an equal share, each one filled "
+    + "by the deliverables named under it; a phase closed by hand counts whole. "
+    + "The numbered pip is the project's tier; an unpipped node has never been "
+    + "ranked."));
 }
 
 function renderMap() {
@@ -4013,23 +4041,38 @@ function projectNode(project, point, radius, place, branch) {
   // already saying something: hollow is undated, pale is dated, solid is
   // running, green is delivered. Progress reads as depth of colour inside that.
   //
-  // Drawn only where deliverables exist. 0 of 0 gets no wedge rather than an
-  // empty circle -- see `validation.deliverable_progress`, which will not divide
-  // it.
-  if (project.deliverables_total > 0) {
+  // Drawn only where there is a plan to measure against. A project with no
+  // phases sends `null` rather than 0 and gets neither a wedge nor a number --
+  // no frame, no fraction. `validation.completion_fraction` owns the
+  // arithmetic; both charts read the same field so they cannot disagree.
+  const filled = project.completion;
+  if (filled !== null && filled !== undefined) {
     const clipId = `map-fill-${project.id}`;
     const clip = svgElement("clipPath", { id: clipId });
     clip.appendChild(svgElement("circle", {
       cx: point.x, cy: point.y, r: Math.max(radius - 0.75, 1),
     }));
-    const height = 2 * radius
-      * (project.deliverables_done / project.deliverables_total);
+    const height = 2 * radius * filled;
     group.appendChild(clip);
     group.appendChild(svgElement("rect", {
       class: "map-fill", "clip-path": `url(#${clipId})`,
       x: point.x - radius, y: point.y + radius - height,
       width: 2 * radius, height,
     }));
+    // The number in the middle of the circle. The wedge says roughly how far at
+    // a glance and this says exactly, which is the pair a dashboard usually
+    // gets wrong by drawing only one of them.
+    //
+    // **The font is scaled to the node**, because the radius clamp is 16-38px
+    // and a fixed size cannot serve both ends: at 9px "100%" is about 22px wide
+    // inside a 32px circle, and at the top of the clamp it would be a speck.
+    // Clamped rather than a straight ratio so it never outgrows the circle or
+    // falls below legibility.
+    group.appendChild(svgElement("text", {
+      class: "map-percent", x: point.x, y: point.y,
+      "text-anchor": "middle",
+      "font-size": Math.max(9, Math.min(radius * 0.45, 13)),
+    }, percentText(filled)));
   }
 
   const meta = [];
@@ -4058,9 +4101,14 @@ function projectNode(project, point, radius, place, branch) {
     tier === 0 ? "untiered" : `tier ${tier}`,
     `${project.effort_points} pts`,
     project.phases_total ? `${project.phases_done}/${project.phases_total} phases done` : null,
-    // What the node is filled to. On the tooltip rather than the label: the
-    // map's label clearances are sized against the height of the label block,
-    // so a fourth line would move every one of them.
+    // What the node is filled to, and how that number was arrived at. On the
+    // tooltip rather than the label: the map's label clearances are sized
+    // against the height of the label block, so a fourth line would move every
+    // one of them. `phase_count` is the graph payload's `phases_total`, so the
+    // note is built here rather than shared with the swimlane's.
+    project.completion === null || project.completion === undefined ? null
+      : `${percentText(project.completion)} complete — each phase an equal `
+        + `share, filled by the deliverables under it`,
     project.deliverables_total
       ? `${project.deliverables_done}/${project.deliverables_total} deliverables ticked`
       : null,
