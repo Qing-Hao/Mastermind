@@ -277,6 +277,10 @@ function weekRuler({ origin, weeks, pxPerWeek }) {
   const ruler = element("div", "ruler");
   const monthRow = element("div", "ruler-row ruler-months");
   const weekRow = element("div", "ruler-row ruler-weeks");
+  // The column today falls in. This ruler names dates, so the week is a thing
+  // it can point at; `relativeRuler` counts weeks from the project start and
+  // has no calendar, which is why nothing here reaches it.
+  const thisMonday = formatDate(weekStart(new Date()));
 
   let block = null;
   let blockKey = null;
@@ -300,11 +304,36 @@ function weekRuler({ origin, weeks, pxPerWeek }) {
 
     const cell = element("div", "week", String(monday.getDate()));
     cell.title = `Week of ${formatDate(monday)}`;
+    if (formatDate(monday) === thisMonday) {
+      cell.classList.add("week-now");
+      cell.title += " — this week";
+    }
     weekRow.appendChild(cell);
   }
 
   ruler.append(monthRow, weekRow);
   return ruler;
+}
+
+// The line marking today, for the body `weekGrid` returns. Both calendar charts
+// draw it, off the same window arithmetic their bars use.
+//
+// Null when today is outside the window, so the line is **absent** rather than
+// clamped to an edge -- a line at the edge reads as "today is here", which is
+// the one thing it must never say. `sliceTodayLine` states the same rule for
+// the fortnight strip; this is the third view of one marker.
+//
+// It takes no pointer events (see the CSS), which costs it the tooltip the
+// strip's line carries. That is deliberate: this one sits over bars that are
+// dragged, and a 2px column swallowing a mousedown would cost more than a
+// tooltip buys. The ruler's `.week-now` cell does the naming instead. The
+// drawer never had to decide this -- nothing on its strip is draggable.
+function todayLine(view) {
+  const day = daysBetween(view.origin, parseDate(todayISO()));
+  if (day < 0 || day >= view.totalDays) return null;
+  const line = element("div", "today-line");
+  line.style.left = `${day * view.pxPerDay}px`;
+  return line;
 }
 
 // --- window controls --------------------------------------------------------
@@ -840,6 +869,12 @@ function renderTimeline() {
   offWindowNote(timeline, phases.length - visible.length);
 
   const body = weekGrid(timeline, view);
+  // Before the milestone lane, deliberately: both are positioned, so DOM order
+  // is what decides which paints over the other, and a diamond and its label
+  // must not be cut by the line. Bars need no such care -- they are plain block
+  // elements, so any positioned sibling paints above them whatever the order.
+  const now = todayLine(view);
+  if (now) body.appendChild(now);
   const { marks, undated, offWindow } = datedMilestoneMarks(view);
   if (marks.length > 0) body.appendChild(milestoneLane(marks));
 
@@ -1460,6 +1495,8 @@ function renderPortfolio() {
   // Drawn even with nothing on it: the empty grid is the drop target for the
   // tray, and a dataset where nothing is dated yet is exactly when you need it.
   const body = weekGrid(chart, view, portfolioRuler);
+  const now = todayLine(view);
+  if (now) body.appendChild(now);
 
   for (const project of projects) {
     const own = visible.filter((phase) => phase.project_id === project.id);

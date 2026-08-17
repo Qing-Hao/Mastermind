@@ -1122,6 +1122,26 @@ Both charts share one week grid: Monday-based columns under a month/week ruler,
 window capped at 26 weeks, column width fitted to the container and clamped
 22–64px. A week belongs to the month of its Monday.
 
+**Today is marked on the grid**, in the project timeline's Dates mode and on the
+portfolio: a 2px line in the grid body plus the current week's ruler cell drawn
+in ink rather than grey. It is the **third view of one marker** — the drawer's
+strip has had `.slice-today` all along — so it inherits that component's rules
+rather than inventing a second vocabulary: grey and not red, since red means
+*late* in these charts and today is not a problem, and **absent rather than
+clamped when today is outside the window**, because a line at an edge reads as
+"today is here". The one difference is that this line takes **no pointer
+events**, so it loses the strip's tooltip: it lies over bars whose whole gesture
+is dragging, and a 2px column that swallows a `mousedown` costs more than a
+tooltip buys. The ruler cell does the naming instead, and is the bigger target
+anyway. It is appended **before** the milestone lane — both are positioned, so
+DOM order is what stops a diamond's label being cut — and `.week-now` is weight
+and ink with no background, because on the portfolio ruler the same cell can also
+be `.week-open`, which owns the indigo wash there.
+
+**Weeks mode has no today line**, and that falls out of the structure rather than
+being special-cased: it counts weeks from the project start, so it has no
+calendar to place a date on, and it swaps in `relativeRuler`.
+
 ## Sprint planning lives in markdown files, not in the schema
 
 Third step after Project and Portfolio. `templates/sprint.md` is copied to

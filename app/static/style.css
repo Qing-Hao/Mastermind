@@ -285,9 +285,36 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 /* One line per week column, so a bar's start and length are readable off the
    grid instead of guessed. */
 .grid-body {
+  /* What the today line measures against. Bars are block elements placed with
+     `margin-left`, so positioning the body moves nothing that was already
+     drawn. */
+  position: relative;
   background-image: repeating-linear-gradient(
     to right, #ededed 0 1px, transparent 1px var(--week-px, 42px));
 }
+
+/* Today, on both calendar charts -- the same marker the fortnight strip draws,
+   down to the 2px, since one date in three views should look like one thing.
+   Deliberately not red: red means late in these charts, and today is not a
+   problem. Absent, never parked against an edge, when today is off the window.
+
+   `pointer-events: none` is load-bearing on the portfolio, where the whole
+   gesture is dragging a bar: a 2px column that ate a mousedown would cost more
+   than the tooltip it would buy. The ruler's `.week-now` names the week
+   instead. `.slice-today` can afford to be hoverable because nothing on the
+   drawer's strip is dragged. */
+.today-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 2px solid #1a1a1a;
+  pointer-events: none;
+}
+
+/* Ink and weight rather than a wash, because on the portfolio ruler this cell
+   can also be `.week-open` -- the fortnight owns the indigo background there,
+   and two fills on one cell would say neither. */
+.week.week-now { color: #1a1a1a; font-weight: 600; }
 
 /* --- window controls --- */
 .window-bar {
