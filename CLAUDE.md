@@ -186,7 +186,10 @@ entire reason milestones exist.** The `done` rung used to derive from every phas
 carrying `status='done'` — unreachable in practice, since `in_progress` had never
 been used once on the real file and 29 of 30 phases sat at the untouched default,
 so nothing could finish itself and the only exit was the manual close, a hatch
-built for *cancelled* work. The two obvious alternatives were both worse:
+built for *cancelled* work. (That measurement was 2026-08-14 and the first half
+of it has since expired: one phase now carries `in_progress`. The second half
+holds — 32 of 39 at the default on 2026-08-17 — so the conclusion stands, but
+**do not re-quote "never used once"**; FR-21 carries both readings.) The two obvious alternatives were both worse:
 deriving from dates silences **V6**, the only rule that has found real late work,
 and deriving from deliverable ticks breaks **rule 4**, which keeps those casual on
 purpose. A milestone is the one object here designed to carry the decision.
@@ -226,16 +229,19 @@ plan a plan, and that is also what makes "all reached" mean anything.
    loaded onto a field built to stay casual.
    **Two charts now read the tick, and both read it to *draw*, never to derive**
    — the portfolio's collapsed swimlane fills a bar with it and a map node fills
-   from the bottom with it (`validation.deliverable_progress`, and see the two
+   from the bottom with it (`validation.completion_fraction`, and see the two
    views below). That is the standing `fortnight_lane`'s `done` has always had —
    "so it can be shown, never so anything can be derived from it" — and the line
    the rule draws is unchanged: no rule reads it, no stage reads it, nothing is
    written back. The honest cost, stated rather than discovered later: a field
    built to stay casual is now visible on two charts at once, which is pressure
-   on it even though nothing depends on it. It was chosen over `phase.status`
-   deliberately, because that field is maintained by nobody (34 of 39 phases sit
-   at the untouched default, `in_progress` has never been used once) and a bar
-   driven by it draws empty for ten of the thirteen projects holding work.
+   on it even though nothing depends on it.
+   **The tick is the detail inside a frame the phases set**, not the measure on
+   its own — a phase owns an equal share of its project and its deliverables
+   fill that share. A first cut read the ticks flat and was wrong in a way the
+   real file demonstrated: `Transaction Graph Fix` had 2 of 2 deliverables ticked
+   under 1 of its 3 phases, so a flat read called it two-thirds done. See
+   `completion_fraction` for the full argument and the three rules it needs.
 5. **V5 is deleted, not dormant.** Deliverables lost their estimates, so the
    rollup had no input. `v5_tolerance_pct` went with it. `PROMPT.md` still carries
    the original V5 prose as the record of what was first asked; its **Amendments**
@@ -431,13 +437,19 @@ each project in `projects` carries its own derived facts — `span_start`,
 the one thing on that tab readable nowhere. The span is derived from **every**
 phase, dated or not, never from the bars on screen.
 
-The deliverable pair is what a **collapsed** swimlane fills its bar with, and it
-comes from `validation.deliverable_progress` — a display read of the tick, rule 4
-intact. It is the tick and not `phase.status` because nothing maintains that
-field; the same pair rides on `GET /api/graph` for the map's node fill, so the
-two charts cannot disagree about how far along a project is. `0 of 0` travels as
-itself rather than as a fraction, and **every caller has to decide what to draw
-for it** — both draw nothing, which is neither 0% nor complete. The route reads
+Beside them rides **`completion`**, and that is what a collapsed swimlane fills
+its bar with and prints: one fraction from `validation.completion_fraction`,
+phases as the frame and each phase's share filled by the deliverables named
+under it. The tallies travel too, because the bar prints them — the fraction says
+how far, the tallies say what it was read off.
+**The identical field is on `GET /api/graph`**, so the map node and the swimlane
+cannot disagree about one project. It is **`None`, never 0, for a project with no
+phases** — no frame, no fraction — and both charts draw nothing at all for that,
+the same 0-of-0 refusal `deliverable_progress` makes.
+`completion_fraction` needs deliverables keyed by *phase*, so both routes run
+`main.deliverables_by_phase_id` over the project-keyed read they already hold —
+those rows are `deliverable.*` off a join and carry `phase_id`, so it is a
+regroup rather than a query. The portfolio route reads
 `db.deliverables_by_project()` **once** into a local and hands it to both
 `with_project_span` and `with_derived_stage`, the same shape the milestone read
 above has.
@@ -712,7 +724,8 @@ into one project link.
   reading one project and the wrong one for reading a dozen: on the real file the
   chart was 938px of rows before the ruler, and this tab exists to show the whole
   department at once. Folded, a project is **one bar over its own span, filled to
-  how many of its deliverables are ticked** — 564px for nine lanes, 41px each.
+  and labelled with its `completion`** (`67% · 2/3 phases · 4/6 delivered`) —
+  564px for nine lanes, 41px each.
   `state.laneOpen` holds what is **open** rather than what is closed, so a project
   created while the tab is open lands folded like every other one; same lifetime
   as `state.mapTiers`, gone on a reload. One `Expand all` / `Collapse all` sits
@@ -723,9 +736,9 @@ into one project link.
   write, so opening the lane is what gets you a bar you can move. Its span is
   read off the payload and placed by `placeBar`, so it keeps the dotted clip edge
   every other bar has and paging the window cannot change what a project claims
-  its dates are. **A project naming no deliverables draws no fill at all** rather
-  than an empty one — `0 of 0` is not 0%, which is the distinction
-  `deliverable_progress` refuses to divide away.
+  its dates are. **A project with no phases draws no fill and no percentage** —
+  the payload says `null` rather than 0, because with no frame there is no
+  fraction to draw.
   The folded lane's checkpoints go on **one shared strip** below the bar, which
   is the shape `milestoneLane` and `stackMilestoneLanes` were kept alive for when
   interleaving left them one mark per row and nothing to stack — "the cheap way
@@ -1291,10 +1304,20 @@ into one project link.
   different question from whether the project arrived.
   On the real dataset this currently colours **nothing**, since nothing has a
   checkpoint yet.
-  **A node fills from the bottom with how much of its work is ticked off** —
-  `deliverables_done / deliverables_total` off `GET /api/graph`, the same pair
-  the portfolio's folded lane fills a bar with, so the two charts cannot
-  disagree. It is a **`<rect>` clipped to the node's own circle, never a second
+  **A node fills from the bottom and prints its percentage in the middle** —
+  `completion` off `GET /api/graph`, the identical field the portfolio's folded
+  lane fills a bar with, so the two charts cannot disagree. **The wedge says
+  roughly and the number says exactly**, which is the pair a chart usually gets
+  wrong by drawing only one of them.
+  The **font scales with the radius** (`max(9, min(r × 0.45, 13))`), because the
+  clamp is 16–38px and no fixed size serves both ends; `dominant-baseline:
+  central` keeps it centred as it scales, rather than an offset that would only
+  be right at one size. `paint-order: stroke` puts a white halo *behind* the
+  glyphs, which is what keeps them legible where the top edge of the fill runs
+  straight through the text — at 50% it always does. Measured at the worst case
+  the real file cannot show: `100%` at r=16 is 23.6px in a 32px circle, 4.2px
+  clear each side.
+  The fill is a **`<rect>` clipped to the node's own circle, never a second
   circle**, and that is mechanical rather than stylistic: every stage rule is
   `.map-node circle:not(.map-pip)`, which outranks anything a class on a
   `<circle>` could say, so a circle drawn for this would be painted whatever
@@ -1305,14 +1328,17 @@ into one project link.
   undated, pale still dated, solid still running, green still delivered, and
   progress is depth of colour *inside* that instead of a fifth body colour.
   Translucent for the same reason — the green of a delivered project has to read
-  through a full one. A project naming no deliverables gets **no wedge at all**
-  rather than an empty circle, since `0 of 0` is neither started nor finished.
-  The tally goes on the tooltip and not the label: the map's label clearances are
+  through a full one. A project with **no phases gets neither wedge nor number**,
+  since `completion` is `null` and there is nothing to draw a fraction of.
+  The tallies go on the tooltip and not the label: the map's label clearances are
   sized against the height of the label block, so a fourth line would move every
   one of them. It reads the tick to *draw* and nothing more — rule 4.
-  **`map_sweep.js` skips `<clipPath>` and `<defs>`** as of this: geometry that is
-  never ink cannot collide with anything, and without it the clip circle — which
-  sits exactly on its own node — reported as a collision once per project.
+  **`map_sweep.js` needed two things from this.** It skips `<clipPath>` and
+  `<defs>` — geometry that is never ink cannot collide with anything, and without
+  it the clip circle, which sits exactly on its own node, reported as a collision
+  once per project. And `.map-percent` joins `.map-pip-text` and `.map-hub` as a
+  label **meant** to sit on a circle, excluded from the label list and from
+  `circleName`, which would otherwise name every measured project `67%`.
   **Both colour vocabularies are spelt out in a legend under the canvas**
   (`renderMapLegend`, `#map-legend`): the stage ramp, in the ladder's order and
   with `done` listed twice because the map draws it as two things, then one dot

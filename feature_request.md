@@ -510,11 +510,21 @@ Milestones took the completion question off `phase.status`, so the `done` rung i
 reachable again without it. What has not changed is the measurement that opened
 FR-16, against `data\roadmap.db` on 2026-08-14:
 
-| | |
-|---|---|
-| phases at `planned` | **29 of 30** |
-| phases at `in_progress` | **0, ever** |
-| dated phases whose window contains today, still `planned` | 6 |
+| | 2026-08-14 | 2026-08-17 |
+|---|---|---|
+| phases at `planned` | **29 of 30** | **32 of 39** |
+| phases at `in_progress` | 0, ever | **1** — see below |
+| phases at `done` | 1 | 6 |
+| dated phases whose window contains today, still `planned` | 6 | — |
+
+**`in_progress` is no longer the never-used value**, and every note that said so
+— this entry, and the CLAUDE.md line it was taken from — was written before
+2026-08-17. One phase carries it: *Aggregate Same Transaction Name /
+Development*, starting 2026-08-12 and two weeks long, so it is running as this is
+written. One row is not a habit, but "the select offers a state the team does not
+have" is now false as stated, and the argument below has to survive without it.
+It does: 32 of 39 at the untouched default is the problem, and a done tick would
+address that whether or not a middle state is ever used.
 
 `phase.status` now has **exactly one job: feeding V6 and V7.** That is a narrower
 and more useful field than it was, and it makes the bookkeeping problem sharper
@@ -526,8 +536,10 @@ scroll past.
 **What is worth doing, roughly FR-16's option D without any of its derivation.**
 Make closing a phase cheap where you already are: a done tick on the phase row
 instead of a three-value `<select>` nobody opens, and an action on the V6 warning
-that already names the phase. `in_progress` has never been used once, so the
-select is offering a state the team does not have.
+that already names the phase. **The `in_progress` half of this argument is now
+weaker** — the value is in use, once — so a tick that silently drops it would
+lose a state somebody deliberately set. A tick plus the select, or a tick that
+leaves an existing `in_progress` alone, rather than a straight replacement.
 
 **What is not worth doing, and the reason is unchanged.** Deriving `status` from
 dates kills V6 outright — a phase past its end would auto-read `done` and the
@@ -537,16 +549,22 @@ thing they were trying to rescue (project completion) has its own object.
 
 **What changed on 2026-08-17, and it sharpens this again rather than answering
 it.** Two charts now show how far along a project is — the portfolio's folded
-swimlane and the map's node fill — and both read the **deliverable tick**, because
-this field could not carry them: the same measurement, re-taken that day, said 34
-of 39 phases at the untouched default and `in_progress` still never used once, so
-a phase-driven bar drew empty for 10 of the 13 projects holding work. The
-requester was offered the phase done-tick above as the fix that would have made
-the phase tally usable, and declined it: the ticks are the number people maintain.
-So `phase.status` is no longer just unmaintained, it is now read by **V6 and V7
-and nothing else at all** — and V6, the one rule that has found real late work,
-still fires on `status != 'done'`. The done-tick remains the cheap fix; nothing
-about the argument for it has weakened.
+swimlane and the map's node fill. The first cut read the **deliverable tick**
+alone, because this field could not carry them: 32 of 39 phases at the untouched
+default draws an empty bar for 10 of the 13 projects holding work. The requester
+was offered the phase done-tick above as the fix that would have made a phase
+tally usable, and declined it.
+
+The model that shipped is **neither** — phases are the frame and deliverables
+fill each phase's share (`validation.completion_fraction`) — and that lands
+`phase.status` in a sharper spot than either. It is still read by only **V6 and
+V7** among the rules, but it now also **sets the ceiling on 17 of the 39
+phases**: a phase naming no deliverables contributes 0 or 1 off its status alone,
+so `Graphiti GraphRAG Memory`, with deliverables under 1 of its 5 phases, cannot
+read above 20% until somebody either names work under the rest or closes them.
+That is the model being honest — those phases carry no evidence — but it means an
+unmaintained field is now visible on two charts rather than only inside V6's
+warning list. The done-tick has more to buy than it did.
 
 **Open question before building:** dropping `in_progress` narrows a CHECK, which
 means rebuilding the `project`-shaped table for `phase` — the `migrate_stage_check`
