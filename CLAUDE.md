@@ -682,6 +682,29 @@ into one project link.
   stage but `idea`; committed is committed, whatever rung the ladder then puts
   it on). Drag a bar to move **only** that phase; snaps to a
   week, `Alt` for single days. No resize.
+  **The project name has a column of its own, left of the calendar**, and it is
+  the only grid gutter in the app: `LANE_NAME_PX` (160) is set as `view.gutterPx`
+  by `renderPortfolio` alone, and a lane is two cells — `.lane-name`, then
+  `.lane-rows` holding the bars and diamonds. It was a row *above* each lane's
+  bars, which put every name on the gridlines and under the today line — 2px of
+  near-black ink through whichever name it landed on — and left the names at a
+  dozen different heights to scan down. Nothing is drawn across a column.
+  **The gutter is paid for in `weekGrid`, not in the lane**, because three things
+  have to agree about where the calendar starts: it comes off the width before
+  the columns are fitted (26 weeks at the 1100px cap → 34px, well clear of the
+  22px floor), each ruler row gets a leading `.ruler-gutter` spacer, and the grid
+  body holds it open as `padding-left` with `background-origin`/`background-clip`
+  at `content-box` so the gridline gradient starts on the calendar's own edge
+  instead of tiling back under the names. The name cell is then pulled into that
+  padding by a negative margin, which is what leaves `.lane-rows` exactly the
+  calendar's width so a bar's `margin-left` still measures from day 0. Everything
+  that draws against the grid steps over the gutter — the today line, and the
+  tray drag turning a cursor into a day. `--lane-name-px` is 0 everywhere else,
+  so the project timeline is untouched by every one of those declarations.
+  A free consequence worth knowing: the gradient's first stripe lands on the
+  content edge, so the divider between the two columns is drawn for the whole
+  height of the chart by the gridlines themselves, and the ruler's first week
+  cell — no longer `:first-child`, so it keeps its left border — lines up with it.
   **A lane's title carries the project's own span**, which its bars cannot say
   between them — each bar is one phase, and the project's dates are the question
   this tab exists to answer. `Name / 2026-09-01 → 2026-12-12 · 6 phases · 55 pts
@@ -695,7 +718,10 @@ into one project link.
   project**, which is what the underline is for: the way from a bar you are
   reading to the plan behind it. Same affordance as the ruler's week cells — a
   `tabIndex`'d div, keyboard-reachable, `width: fit-content` so the hit area is
-  the name and not the empty grid beside it. It shares `openProject` with the
+  the name and not the empty half of the column beside it. A name too long for
+  160px is clipped with an ellipsis rather than wrapping the lane taller, and the
+  whole name is on the tooltip that already carries the span. It shares
+  `openProject` with the
   map's nodes and the Future-directions rows, so all three agree about what
   opening clears (`expandedPhases`, `timelineMode`, and the picker's own value).
   **There is no warnings panel here, and that is a decision.** One was built —
@@ -721,6 +747,13 @@ into one project link.
   project-view decision) and neither do projects with no phases, since the tray
   places work. A half-placed project stays in the tray until every phase has a
   date; its dated phases keep them and only push the placed run later.
+  **The ghost lane the drag draws lands on the first row, not the last.** It was
+  appended, which put the one thing the gesture is aimed at below however many
+  lanes the chart already had — off the bottom of the screen on a real dataset,
+  which is exactly when a chip is being placed. At the top it sits directly under
+  the tray the chip came from whatever the chart has grown to; the lanes below
+  shift down a row while the drag is live, which a horizontal placement can
+  afford. The today line is positioned, so DOM order costs it nothing.
   The grid is drawn even when nothing is scheduled at all — it is the drop
   target, and that is exactly the case where the tray matters most.
   A press only becomes a drag after 4px (`DRAG_ARM_PX`), so hand shake during a
@@ -1360,6 +1393,29 @@ into one project link.
   links to, drawing arrows predecessor → successor. Hovering a project with no
   links is a no-op. Tracks fade less than unrelated projects so the lit circles
   keep their bearings.
+  **Hovering a track or subtrack dims the map to that branch** — the level, every
+  level under it, the projects hanging off any of them and the spokes joining the
+  lot (`wireTrackFocus`, `.map-branched`). "What is actually in here" was a
+  question you answered by following spokes with your eye: the hue says which
+  *root* a node belongs to, never which subtree, and at 28 projects across
+  nineteen levels that is not a picture you can read a branch out of.
+  **A second focus mode rather than a reuse of the dependency one**, because the
+  two want opposite things from the spokes. Dependency focus dims every edge to
+  .12 — the arrows it draws are what it has to say — while a branch *is* its
+  edges: lit, they make one shape running out from the hub, dimmed it is a scatter
+  of circles that happen to be bright. Everything outside the branch goes further
+  down than a dependency hover takes it (.1 node, .2 group, .08 edge), since this
+  mode is answering what is *in* the branch and the rest of the map is context.
+  It costs a `data-track` attribute on every level node, project node and spoke,
+  and membership is a **prefix test** on it (`trackKey`) rather than a second walk
+  of the tree. Two details follow from that being the *drawn* path: a project past
+  the ring ceiling lights with the folded node it was drawn under, since that is
+  where the picture put it, and an untracked project belongs to no branch and is
+  dimmed by every one of these hovers.
+  **Mouse only, deliberately.** Project nodes get the dependency highlight from
+  the keyboard for free because they are already focusable for click-to-open; a
+  level node is not, and making it so would add a tab stop per track on the way to
+  the chart — the same trade the fortnight drawer's day chips declined.
 - **Future directions** — the idea list under the map, and the second place
   dependencies can be written. Capturing takes name, track and an **optional**
   link (`No link` by default, direction disabled until a project is picked), so
@@ -1380,6 +1436,13 @@ into one project link.
 Both charts share one week grid: Monday-based columns under a month/week ruler,
 window capped at 26 weeks, column width fitted to the container and clamped
 22–64px. A week belongs to the month of its Monday.
+
+`weekGrid` also knows about **one gutter, and only the portfolio asks for it** —
+`view.gutterPx`, the width of the swimlane name column. It is spent before the
+columns are fitted, opens a spacer in each ruler row and is held clear in the grid
+body as padding the gridlines are clipped out of; everything drawn against the
+grid afterwards steps over it. With no gutter every one of those is a no-op, which
+is why the project timeline is unaffected. See the Portfolio view below.
 
 **The grid is shared; the viewport is not.** `state.windows` holds one per chart
 (`activeWindow()` picks by `state.view`), because the two tabs answer different
@@ -1420,6 +1483,11 @@ anyway. It is appended **before** the milestone lane — both are positioned, so
 DOM order is what stops a diamond's label being cut — and `.week-now` is weight
 and ink with no background, because on the portfolio ruler the same cell can also
 be `.week-open`, which owns the indigo wash there.
+On the portfolio it now starts at the gutter rather than at the body's own edge:
+an absolutely positioned child measures from the padding box, so the line has to
+be offset by `view.gutterPx` to stay on the calendar. That is the point of the
+name column — the one marker on the chart deliberately drawn in near-black ink
+used to run through the project names.
 
 **Weeks mode has no today line**, and that falls out of the structure rather than
 being special-cased: it counts weeks from the project start, so it has no

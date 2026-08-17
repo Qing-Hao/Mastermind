@@ -353,21 +353,46 @@ function resolveWindow() {
 // `ruler` is swappable because the relative timeline counts weeks from the
 // start of the project instead of naming dates; everything below the ruler --
 // the column width, the gridlines, the way a bar is placed -- is identical.
+//
+// `view.gutterPx` opens a column to the left of the calendar, and only the
+// portfolio asks for one (its swimlane names live there). It is a *lane* feature
+// paid for here because the ruler and the gridlines have to agree with it: the
+// gutter comes off the width fitted to the columns, the ruler rows get a spacer
+// in front of them, and the grid body keeps it clear as padding so the gridlines
+// start where the calendar does. Everything with no gutter is untouched.
 function weekGrid(chart, view, ruler = weekRuler) {
   // Cleared before measuring: a width left over from the previous render would
   // otherwise be what we measured, and the chart would never resize back down.
   chart.style.width = "";
-  view.pxPerWeek = fitWeekPx(chart, view.weeks);
+  const gutter = view.gutterPx || 0;
+  view.pxPerWeek = fitWeekPx(chart, view.weeks, gutter);
   view.pxPerDay = view.pxPerWeek / 7;
 
   // Set on the chart rather than the document, since each chart fits its own
   // container. The stylesheet reads it for the gridlines and the ruler cells,
-  // which is what keeps them from drifting off where the bars are drawn.
+  // which is what keeps them from drifting off where the bars are drawn. The
+  // gutter rides along the same way, for the lane name column.
   chart.style.setProperty("--week-px", `${view.pxPerWeek}px`);
+  chart.style.setProperty("--lane-name-px", `${gutter}px`);
 
-  const width = view.weeks * view.pxPerWeek;
+  const weeksWidth = view.weeks * view.pxPerWeek;
+  const width = gutter + weeksWidth;
   chart.style.width = `${width}px`;
-  chart.appendChild(ruler(view));
+
+  const head = ruler(view);
+  // A spacer per ruler row rather than one above the whole ruler: the rows are
+  // flex, so the months and the weeks each have to be pushed off the gutter to
+  // stay over their own columns. Inserted out here so no ruler has to know about
+  // it -- `portfolioRuler` has already indexed its `.week` cells by then, and a
+  // spacer is not one.
+  if (gutter) {
+    for (const row of head.querySelectorAll(".ruler-row")) {
+      const spacer = element("div", "ruler-gutter");
+      spacer.style.width = `${gutter}px`;
+      row.insertBefore(spacer, row.firstChild);
+    }
+  }
+  chart.appendChild(head);
 
   const body = element("div", "grid-body");
   body.style.width = `${width}px`;
@@ -379,9 +404,12 @@ function weekGrid(chart, view, ruler = weekRuler) {
 // the room its container gives it. Whole pixels only: a fractional column
 // accumulates over 26 of them and pushes the last one past the edge, which is
 // the horizontal scrollbar this is meant to avoid.
-function fitWeekPx(chart, weeks) {
-  const available = chart.clientWidth;
-  if (!available) return FALLBACK_WEEK_PX;  // hidden or not yet laid out
+//
+// The gutter is spent before the columns are fitted, so a name column narrows the
+// weeks rather than widening the chart past its container.
+function fitWeekPx(chart, weeks, gutter = 0) {
+  const available = chart.clientWidth - gutter;
+  if (available <= 0) return FALLBACK_WEEK_PX;  // hidden or not yet laid out
   const fitted = Math.floor(available / weeks);
   return Math.min(Math.max(fitted, MIN_WEEK_PX), MAX_WEEK_PX);
 }
@@ -441,11 +469,14 @@ function weekRuler({ origin, weeks, pxPerWeek }) {
 // dragged, and a 2px column swallowing a mousedown would cost more than a
 // tooltip buys. The ruler's `.week-now` cell does the naming instead. The
 // drawer never had to decide this -- nothing on its strip is draggable.
+// The gutter is inside the grid body, and an absolutely positioned child measures
+// from the padding edge -- so the line has to step over the name column, which is
+// the whole point of the column: today no longer runs through the names.
 function todayLine(view) {
   const day = daysBetween(view.origin, parseDate(todayISO()));
   if (day < 0 || day >= view.totalDays) return null;
   const line = element("div", "today-line");
-  line.style.left = `${day * view.pxPerDay}px`;
+  line.style.left = `${(view.gutterPx || 0) + day * view.pxPerDay}px`;
   return line;
 }
 
@@ -1833,6 +1864,24 @@ function renderDependencies() {
 
 // --- portfolio view ---------------------------------------------------------
 
+// The width of the swimlane name column, and the only thing that sets a grid
+// gutter anywhere in the app. Wide enough for a typical project name at 13px
+// bold; a longer one is clipped with an ellipsis and keeps the whole name on the
+// tooltip it already had. Sized rather than fitted to the longest name on
+// purpose: the calendar beside it would then be a different width per dataset,
+// and the column is meant to be a straight edge you scan down.
+const LANE_NAME_PX = 160;
+
+// The name column of a lane. A cell of its own with the clickable title inside
+// it, rather than the title being the cell: the title stays `fit-content`, so
+// the underline and the click target are the name and not the empty half of the
+// column beside it.
+function laneName(title) {
+  const cell = element("div", "lane-name");
+  cell.appendChild(title);
+  return cell;
+}
+
 function renderPortfolio() {
   renderWindowBar($("portfolio-window"));
   renderPortfolioDependencies();
@@ -1849,6 +1898,13 @@ function renderPortfolio() {
   }
 
   const view = resolveWindow();
+  // The swimlane names get a column of their own, left of the calendar. They used
+  // to be a row above each lane's bars, which put every name on the gridlines and
+  // under the today line -- the one marker on this chart that is deliberately 2px
+  // of near-black ink, so it cut straight through whichever name it landed on.
+  // A column also means the names line up as a list you can scan, which is how
+  // you find a lane among a dozen.
+  view.gutterPx = LANE_NAME_PX;
   const visible = phases.filter((phase) => inWindow(phase, view));
   offWindowNote(chart, phases.length - visible.length);
 
@@ -1888,7 +1944,7 @@ function renderPortfolio() {
       event.preventDefault();
       openProject(project.id);
     };
-    lane.appendChild(title);
+    lane.appendChild(laneName(title));
     // One row per plan row inside the lane, the same shape and the same
     // components as the project timeline: a bar for a phase, a one-mark lane for
     // a checkpoint, interleaved on the shared `sort_order`. Every checkpoint in
@@ -1897,17 +1953,22 @@ function renderPortfolio() {
     // (`db.list_all_phases`), so the sequence was already the thing the rows say.
     // The lane grows by a row per dated checkpoint, which is what it costs.
     const placed = markIndex(milestoneMarks(checkpoints.get(project.id), view).marks);
+    // The rows go in the lane's second column, beside the name rather than under
+    // it. Bars still measure from the column's own left edge, which is where the
+    // calendar starts, so nothing about how one is placed changed.
+    const rows = element("div", "lane-rows");
     for (const row of mergePlanRows(own, checkpoints.get(project.id))) {
       if (row.kind === "phase") {
         const bar = phaseBar(row.item, view, false);
         bar.classList.add("draggable");
         bar.title += "  (drag to move; hold Alt for day steps)";
         makeDraggable(bar, row.item, view);
-        lane.appendChild(bar);
+        rows.appendChild(bar);
       } else if (placed.has(row.item.id)) {
-        lane.appendChild(milestoneLane([placed.get(row.item.id)]));
+        rows.appendChild(milestoneLane([placed.get(row.item.id)]));
       }
     }
+    lane.appendChild(rows);
     body.appendChild(lane);
   }
 
@@ -2036,12 +2097,23 @@ function makeTrayDraggable(chip, entry, body, view) {
     // gridlines the real ones use, so the week you are about to pick is read
     // off the ruler instead of guessed. Built on arming, not on mousedown, so
     // an unarmed press leaves the chart untouched.
+    //
+    // **First row, not last.** It was appended, which put it under however many
+    // lanes the chart already had -- on a real dataset that is below the fold, so
+    // the one thing the gesture is aimed at was the one thing you could not see.
+    // At the top it sits directly under the tray the chip came from, whatever the
+    // chart has grown to. The rows below shift down by a row while the drag is
+    // live; the placement is horizontal, so that costs the gesture nothing.
     const arm = () => {
       lane = element("div", "lane lane-ghost");
-      lane.appendChild(element("div", "lane-title", entry.project_name));
+      lane.appendChild(laneName(element("div", "lane-title", entry.project_name)));
+      const rows = element("div", "lane-rows");
       ghost = element("div", "bar tray-ghost");
-      lane.appendChild(ghost);
-      body.appendChild(lane);
+      rows.appendChild(ghost);
+      lane.appendChild(rows);
+      // The today line is in here too and is positioned, so DOM order costs it
+      // nothing -- it stays over the bars either way.
+      body.insertBefore(lane, body.firstChild);
       chip.classList.add("dragging");
     };
 
@@ -2051,8 +2123,12 @@ function makeTrayDraggable(chip, entry, body, view) {
         if (travelled < DRAG_ARM_PX) return;
         arm();
       }
+      // The body's box starts at the name column, which the calendar does not:
+      // the gutter comes off before the pointer is turned into a day, or every
+      // drop would land a column's worth of weeks early.
       const rect = body.getBoundingClientRect();
-      const raw = (moveEvent.clientX - rect.left) / view.pxPerDay;
+      const raw = (moveEvent.clientX - rect.left - (view.gutterPx || 0))
+        / view.pxPerDay;
       // Whole weeks by default, matching how bars are dragged; Alt for a
       // project that has to begin mid-week.
       const snapped = moveEvent.altKey ? Math.round(raw) : Math.round(raw / 7) * 7;
@@ -3094,6 +3170,16 @@ const trackPath = (raw) => String(raw || "")
 // tooltip names every stored value folded into it.
 const foldPath = (path) => path.slice(0, MAX_DRAWN_DEPTH);
 
+// The branch a drawn thing belongs to, as one string, so hovering a level can
+// find everything under it with a prefix test rather than walking the tree again
+// at hover time. Unambiguous because a segment can never hold a separator --
+// `trackPath` splits on every one of them -- so "A/B" is under "A" and a track
+// called "Ax" is not.
+//
+// Empty for the untracked group, which draws no level node: its projects belong
+// to no branch and are dimmed by every branch hover, which is what they are.
+const trackKey = (path) => path.join(SUBTRACK_SEPARATOR);
+
 // One hue per track name, keyed off **every** track in the dataset rather than
 // the tracks currently drawn. The tier filter runs before mapGroups, so a track
 // can leave the map entirely; keying off what is drawn would recolour the whole
@@ -3380,8 +3466,12 @@ function renderMap() {
         anchor = polar(cx, cy, rings, fractions[depth - 1], angle);
         anchorOf.set(at, anchor);
 
+        // Tagged with the branch it *arrives at*, not the one it leaves, so the
+        // spoke down from the hub is part of the branch a track hover lights and
+        // the lit shape reaches the centre instead of floating.
         edges.appendChild(paint(svgElement("line", {
-          class: "map-edge", x1: from.x, y1: from.y, x2: anchor.x, y2: anchor.y,
+          class: "map-edge", "data-track": trackKey(at.path),
+          x1: from.x, y1: from.y, x2: anchor.x, y2: anchor.y,
         }), { "--track-edge": hue }));
         levelNodes.push(levelNode(at, depth, anchor, labelPlace(
           anchor, rings, angle, dotFor(depth) + LABEL_GAP, ALONG_RING), hue));
@@ -3396,14 +3486,19 @@ function renderMap() {
       const angle = ruler.angleAt(distanceAt(index));
       const point = polar(cx, cy, rings, isIdea ? IDEA_RING : PROJECT_RING,
         angle);
+      // The project and its spoke belong to the level they hang off, which is
+      // the deepest one that fits -- a project on a path past the ring ceiling
+      // lights with the folded node it was drawn under, since that is where the
+      // picture put it.
+      const branch = trackKey(slot.owner.path);
       edges.appendChild(svgElement("line", {
-        class: `map-edge${isIdea ? " map-edge-idea" : ""}`,
+        class: `map-edge${isIdea ? " map-edge-idea" : ""}`, "data-track": branch,
         x1: from.x, y1: from.y, x2: point.x, y2: point.y,
       }));
       const radius = nodeRadius(slot.project.effort_points, largest);
       centres.set(slot.project.id, { x: point.x, y: point.y, r: radius });
       nodes.appendChild(projectNode(slot.project, point, radius, labelPlace(
-        point, rings, angle, radius + LABEL_GAP, ACROSS_RING)));
+        point, rings, angle, radius + LABEL_GAP, ACROSS_RING), branch));
     });
 
     // Deepest first, so a shallower level's label draws over a deeper one's
@@ -3415,6 +3510,7 @@ function renderMap() {
   // Last, so the hub draws over any spoke that passes near the centre.
   nodes.appendChild(hubNode(state.graph.department_name, cx, cy));
   wireMapFocus(svg, focusEdges, centres);
+  wireTrackFocus(svg);
   canvas.appendChild(svg);
 }
 
@@ -3503,6 +3599,56 @@ function wireMapFocus(svg, focusEdges, centres) {
   }
 }
 
+// Pointing at a track or a subtrack dims the map to that branch: the level
+// itself, every level under it, the projects hanging off any of them and the
+// spokes joining the lot. On a map of a dozen projects across eight tracks, "what
+// is actually in here" was a question you had to answer by following spokes with
+// your eye -- the hue says which ring a node belongs to, not which subtree.
+//
+// A second mode rather than a reuse of `wireMapFocus`, because the two answer
+// different questions and want opposite things from the edges: dependency focus
+// dims every spoke to .12 (the arrows it draws are the point), while a branch
+// *is* its spokes -- lit, they make one connected shape instead of a scatter of
+// circles that happen to be bright.
+//
+// Membership is a prefix test over `data-track` (see trackKey) rather than a walk
+// of the tree, so nothing here needs the group nodes it was built from and the
+// whole mechanism is two attributes and a class.
+//
+// Mouse only, deliberately. Project nodes get the dependency highlight from the
+// keyboard for free because they are already focusable for click-to-open; a level
+// node is not focusable and making it so would add a tab stop per track on the way
+// to the chart, which is the same trade the ruler's day chips declined.
+function wireTrackFocus(svg) {
+  const inBranch = (key, root) => key === root
+    || key.startsWith(`${root}${SUBTRACK_SEPARATOR}`);
+
+  const clear = () => {
+    svg.classList.remove("map-branched");
+    for (const node of svg.querySelectorAll(".branch-lit")) {
+      node.classList.remove("branch-lit");
+    }
+  };
+
+  const focus = (root) => {
+    clear();
+    svg.classList.add("map-branched");
+    for (const node of svg.querySelectorAll("[data-track]")) {
+      if (inBranch(node.dataset.track, root)) node.classList.add("branch-lit");
+    }
+  };
+
+  // `.map-group` rather than `.map-group[data-track]`: every level node carries
+  // the attribute by construction, and the compound selector would be a third
+  // shape for `map_sweep.js`'s stub DOM to support for no gain.
+  for (const node of svg.querySelectorAll(".map-group")) {
+    const root = node.dataset.track;
+    if (!root) continue;
+    node.addEventListener("mouseenter", () => focus(root));
+    node.addEventListener("mouseleave", clear);
+  }
+}
+
 function hubNode(name, cx, cy) {
   const group = svgElement("g", { class: "map-hub" });
   group.appendChild(svgElement("circle", { cx, cy, r: HUB_RADIUS }));
@@ -3548,6 +3694,9 @@ function levelNode(at, depth, point, place, hue) {
   // typed a slash into a name".
   const group = paint(svgElement("g", {
     class: `map-group level-${depth}${at.flattened ? " folded" : ""}`,
+    // What a hover reads to light this branch, and what everything under it is
+    // tested against -- see wireTrackFocus.
+    "data-track": trackKey(at.path),
   }), { "--track-dot": tone, "--track-text": hue });
   group.appendChild(svgElement("circle", {
     cx: point.x, cy: point.y, r: dotFor(depth),
@@ -3571,7 +3720,7 @@ function levelNode(at, depth, point, place, hue) {
   return group;
 }
 
-function projectNode(project, point, radius, place) {
+function projectNode(project, point, radius, place, branch) {
   const tier = project.tier ?? 0;
   // Styled off the derived stage, not the stored one. The map used to show a
   // project as committed-not-started until somebody remembered to change the
@@ -3597,6 +3746,10 @@ function projectNode(project, point, radius, place) {
     class: `map-node stage-${project.derived_stage} tier-${tier}`
       + (delivered ? " delivered" : ""),
     tabindex: "0", role: "button", "data-project-id": project.id,
+    // The branch this node hangs off, so a track hover can light it. Read off
+    // the level it was *drawn* under rather than off `project.track`, which the
+    // ring ceiling can fold -- the picture is what the hover is dimming.
+    "data-track": branch || "",
   });
   group.appendChild(svgElement("circle", { cx: point.x, cy: point.y, r: radius }));
   // Tier 1 wears a numbered pip on its shoulder. A ring around the node was the

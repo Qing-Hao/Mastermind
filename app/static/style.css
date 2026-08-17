@@ -310,6 +310,14 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   overflow: hidden;
   white-space: nowrap;
 }
+/* The leading cell of a ruler row, holding the lane name column open above the
+   names. Width is inline, from the same gutter `weekGrid` fits the columns to.
+   Note what it does to the rule below it: the first real month and week cell is
+   no longer `:first-child`, so it keeps its left border -- which lands exactly on
+   the gutter boundary and is wanted there, as the divider between the name column
+   and the calendar. The grid body's first gridline draws the same edge, so the
+   two line up down the whole chart without either being a rule of its own. */
+.ruler-gutter { flex: 0 0 auto; }
 .month:first-child, .week:first-child { border-left-color: transparent; }
 
 /* One line per week column, so a bar's start and length are readable off the
@@ -319,6 +327,18 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
      `margin-left`, so positioning the body moves nothing that was already
      drawn. */
   position: relative;
+  /* The lane name column, which only the portfolio asks for: `--lane-name-px` is
+     0 on the project timeline, where padding of 0 and a content box equal to the
+     padding box make every declaration below a no-op.
+     It is padding rather than a column in a grid because the gridlines are a
+     background: `content-box` on both origin and clip is what keeps them off the
+     names -- origin starts the first stripe on the calendar's own left edge, and
+     clip stops the tiling wrapping back into the gutter. The lane's name cell is
+     then pulled back into that padding, so the names sit beside the grid rather
+     than on it. */
+  padding-left: var(--lane-name-px, 0);
+  background-origin: content-box;
+  background-clip: content-box;
   background-image: repeating-linear-gradient(
     to right, #ededed 0 1px, transparent 1px var(--week-px, 42px));
 }
@@ -377,7 +397,33 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   border-right: 3px dotted #5c6bc0;
 }
 
-.lane { padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
+/* Two columns: the project's name, then its rows. The name used to be a row
+   above the bars, which put it on the gridlines and under the today line -- 2px
+   of near-black ink straight through whichever name it landed on. In a column of
+   its own nothing is drawn across it, and the names stack into a list you can
+   scan down to find a lane. */
+.lane {
+  padding: 6px 0;
+  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  align-items: flex-start;
+}
+/* The name cell sits in the gutter `.grid-body` keeps clear, which is what the
+   negative margin is: it takes the cell's own width back out of the flex line, so
+   the rows beside it get the full calendar width and a bar's `margin-left` still
+   measures from the first column. */
+.lane-name {
+  flex: 0 0 var(--lane-name-px, 0);
+  margin-left: calc(-1 * var(--lane-name-px, 0));
+  box-sizing: border-box;
+  padding-right: 10px;
+  min-width: 0;
+}
+/* `0` basis rather than `auto`: the bars inside are wider than the box (one of
+   them is 26 weeks long if the phase is), and an auto basis would size the column
+   to that before shrinking it back. */
+.lane-rows { flex: 1 1 0; min-width: 0; }
+
 /* The project's name, and the heaviest thing in the swimlane: it is what you
    are looking for when scanning a chart of a dozen lanes, and the bars beside
    it are all the same weight. It is also the way into the plan behind the bars,
@@ -387,13 +433,20 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   font-size: 13px;
   font-weight: 700;
   color: #333;
-  margin-bottom: 4px;
+  /* A row of bars, so the name sits on the first one rather than above them. */
+  line-height: 24px;
   text-decoration: underline;
   text-underline-offset: 3px;
   cursor: pointer;
-  /* The lane is as wide as the chart, so a full-width block would underline --
-     and be clickable across -- a stretch of empty grid past the name. */
+  /* The column is wider than most names, so a full-width block would underline --
+     and be clickable across -- the empty half of it. A name too long for the
+     column is clipped instead of wrapping the lane taller, and keeps the whole
+     name plus the project's span on the tooltip it already carries. */
   width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .lane-title:hover { color: #3949ab; }
 .lane-title:focus-visible { outline: 2px solid #5c6bc0; outline-offset: 2px; }
@@ -1355,6 +1408,21 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 
 .map-focus-edge { stroke: #ef6c00; stroke-width: 2.5; }
 #map-arrow path { fill: #ef6c00; }
+
+/* Branch highlight -- pointing at a track or subtrack, rather than at a project.
+   The second focus mode, and kept apart from `.map-focused` above because the two
+   want opposite things from the spokes: dependency focus dims every one of them,
+   since the arrows it draws are what it has to say, while a branch *is* its
+   spokes. Lit, they make the subtree one connected shape running out from the
+   hub; dimmed, it is a scatter of circles that happen to be bright.
+   Everything else goes further down than it does under a dependency hover: this
+   mode is answering "what is in here", so the rest of the map is context and not
+   the subject. `.branch-lit` carries the same two-class specificity as the three
+   rules above it, so it has to sit after them. */
+.map-branched .map-edge { opacity: .08; }
+.map-branched .map-group { opacity: .2; }
+.map-branched .map-node { opacity: .1; }
+.map-branched .branch-lit { opacity: 1; }
 
 /* Every rule below excludes .map-pip: the pip is a mark sitting on the node,
    not the node itself, and it has to look identical whatever the stage does to
