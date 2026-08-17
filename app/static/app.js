@@ -568,6 +568,26 @@ async function loadProjectList() {
   refreshTrackPickers();
 }
 
+// Open a project on the Project tab, from wherever it was named. Three surfaces
+// now point here -- a map node, a Future-directions row and a portfolio lane
+// title -- and they were one copy away from drifting apart about what "open"
+// clears.
+//
+// The picker is set here rather than left to the render: it is the control that
+// says which project you are looking at, and `loadProjectList` restores the
+// value it finds on the select when it rebuilds the options. `expandedPhases`
+// and `timelineMode` are cleared for the reason the picker's own `onchange`
+// clears them -- both were pinned for a different plan. The window is not
+// touched here: `loadPlan` fits it, once per selection.
+async function openProject(id) {
+  state.currentProjectId = id;
+  state.view = "project";
+  state.expandedPhases.clear();
+  state.timelineMode = null;
+  $("project-select").value = id;
+  await refreshView();
+}
+
 async function loadProjects() {
   await loadProjectList();
   const select = $("project-select");
@@ -1612,7 +1632,18 @@ function renderPortfolio() {
 
     const lane = element("div", "lane");
     const title = element("div", "lane-title", project.name);
-    title.title = laneSummary(project);
+    // The way from a bar you are reading to the plan behind it. Same affordance
+    // as the ruler's week cells -- a div with a tabIndex rather than a button,
+    // so it keeps the lane's own type -- and the same wording pattern on the
+    // tooltip. It is a read, so nothing about the chart is disturbed by it.
+    title.title = `${laneSummary(project)}\n\nClick to open this project.`;
+    title.tabIndex = 0;
+    title.onclick = () => openProject(project.id);
+    title.onkeydown = (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      openProject(project.id);
+    };
     lane.appendChild(title);
     for (const phase of own) {
       const bar = phaseBar(phase, view, false);
@@ -3171,14 +3202,7 @@ function projectNode(project, point, radius, place) {
     project.goal || null,
   ].filter(Boolean).join("\n")));
 
-  const open = async () => {
-    state.currentProjectId = project.id;
-    state.view = "project";
-    state.expandedPhases.clear();
-    state.timelineMode = null;
-    $("project-select").value = project.id;
-    await refreshView();
-  };
+  const open = () => openProject(project.id);
   group.onclick = open;
   group.onkeydown = (event) => {
     if (event.key === "Enter" || event.key === " ") {

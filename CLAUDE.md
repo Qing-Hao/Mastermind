@@ -602,9 +602,13 @@ into one project link.
   where the chart is scrolled. An undated project says `no dates yet` rather than
   printing blanks. The title is the **heaviest thing in the lane** — bold,
   underlined, a size up — because it is what you scan a dozen swimlanes for and
-  every bar beside it carries the same weight. It is not a link and nothing about
-  it is clickable; the underline is decoration, and the whole title carries the
-  summary as a tooltip.
+  every bar beside it carries the same weight. **Clicking it opens that
+  project**, which is what the underline is for: the way from a bar you are
+  reading to the plan behind it. Same affordance as the ruler's week cells — a
+  `tabIndex`'d div, keyboard-reachable, `width: fit-content` so the hit area is
+  the name and not the empty grid beside it. It shares `openProject` with the
+  map's nodes and the Future-directions rows, so all three agree about what
+  opening clears (`expandedPhases`, `timelineMode`, and the picker's own value).
   **There is no warnings panel here, and that is a decision.** One was built —
   every rule for every project, grouped in swimlane order — and removed on the
   requester's call the same day: warnings stay in the project view. The argument

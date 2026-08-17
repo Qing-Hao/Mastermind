@@ -350,9 +350,9 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 .lane { padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
 /* The project's name, and the heaviest thing in the swimlane: it is what you
    are looking for when scanning a chart of a dozen lanes, and the bars beside
-   it are all the same weight. Underlined on request; note it is not a link and
-   nothing here is clickable — the whole title carries the lane's summary as a
-   tooltip and that is all it does. */
+   it are all the same weight. It is also the way into the plan behind the bars,
+   so the underline is doing a job rather than decorating one -- same affordance
+   as `.week-target` on the ruler, and reachable without a mouse. */
 .lane-title {
   font-size: 13px;
   font-weight: 700;
@@ -360,10 +360,13 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   margin-bottom: 4px;
   text-decoration: underline;
   text-underline-offset: 3px;
-  /* The lane is as wide as the chart, so an undecorated span would still be a
-     full-width underline running past the name. */
+  cursor: pointer;
+  /* The lane is as wide as the chart, so a full-width block would underline --
+     and be clickable across -- a stretch of empty grid past the name. */
   width: fit-content;
 }
+.lane-title:hover { color: #3949ab; }
+.lane-title:focus-visible { outline: 2px solid #5c6bc0; outline-offset: 2px; }
 
 /* --- unscheduled staging --- */
 .unscheduled { list-style: none; padding: 0; margin: 8px 0; }
