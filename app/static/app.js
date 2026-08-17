@@ -724,7 +724,8 @@ function renderProjectView() {
   renderWarnings();
   renderUnscheduled();
   renderTimeline();
-  renderMilestones();
+  // Checkpoints are rows in the phase table now, so `renderPhases` draws both
+  // kinds and there is no milestone render of its own to call.
   renderPhases();
   renderDependencies();
 }
@@ -768,72 +769,72 @@ function renderProjectFields() {
 // Ticking every one is what finishes the project, so the tally says how far off
 // that is. Nothing here is hidden: the list decides the stage on a plan being
 // drafted, and it is the record of what the project is for once it is running.
-function renderMilestones() {
-  const milestones = state.plan.milestones || [];
-  const body = $("milestone-table").querySelector("tbody");
+// The rows themselves are built by `milestoneRow` and drawn interleaved with the
+// phases; what is left here is the tally beside the heading and the gate on the
+// Promote button, both of which are about the list as a whole.
+function renderMilestoneTally(milestones) {
   const reached = milestones.filter((milestone) => milestone.achieved).length;
-  body.innerHTML = "";
-
   $("milestone-tally").textContent = milestones.length === 0
-    ? "none yet"
+    ? "no checkpoints yet"
     : `${reached}/${milestones.length} reached`;
   renderPromote(milestones.length);
+}
 
-  const lines = [];
-  for (const milestone of milestones) {
-    const line = element("tr", milestone.achieved ? "done" : null);
+// A checkpoint row, in the same table as the phases. It keeps the furniture the
+// deliverable list settled on -- grip in its own column, tick, struck-through
+// name when it is ticked -- and adds a ◆ before the name, because in a table of
+// phases the row has to say what kind of row it is. The four columns a phase
+// spends on weeks, points, status and its derived end are one muted cell here: a
+// checkpoint is a point with no work of its own, which is the whole distinction.
+function milestoneRow(milestone) {
+  const line = element("tr",
+    `checkpoint-row${milestone.achieved ? " done" : ""}`);
 
-    // Its own column, the same conclusion the deliverable list reached: a drag
-    // surface over the name would cost click-to-place-cursor inside it.
-    const gripCell = element("td", "grip");
-    const grip = element("span", "grip-handle", "⠿");
-    grip.title = "Drag to reorder";
-    gripCell.appendChild(grip);
-    line.appendChild(gripCell);
+  const gripCell = element("td", "grip");
+  const grip = element("span", "grip-handle", "⠿");
+  grip.title = "Drag to move this checkpoint in the sequence";
+  gripCell.appendChild(grip);
+  line.appendChild(gripCell);
 
-    const tickCell = element("td", "tick");
-    const tick = element("input");
-    tick.type = "checkbox";
-    tick.checked = Boolean(milestone.achieved);
-    tick.title = milestone.achieved ? "Reached" : "Not reached yet";
-    tick.onchange = () => saveMilestone(milestone.id, { achieved: tick.checked });
-    tickCell.appendChild(tick);
-    line.appendChild(tickCell);
+  const tickCell = element("td", "tick");
+  const tick = element("input");
+  tick.type = "checkbox";
+  tick.checked = Boolean(milestone.achieved);
+  tick.title = milestone.achieved ? "Reached" : "Not reached yet";
+  tick.onchange = () => saveMilestone(milestone.id, { achieved: tick.checked });
+  tickCell.appendChild(tick);
+  line.appendChild(tickCell);
 
-    const nameCell = fieldCell(milestone, "name", "text", saveMilestone);
-    const nameInput = nameCell.querySelector("input");
-    nameInput.onkeydown = (event) => {
-      if (event.key !== "Enter") return;
-      state.focusMilestoneAdder = true;
-      if (nameInput.value === milestone.name) renderMilestones();
-    };
-    line.appendChild(nameCell);
+  const nameCell = fieldCell(milestone, "name", "text", saveMilestone);
+  nameCell.classList.add("checkpoint-name");
+  const mark = element("span", "checkpoint-mark", "◆");
+  mark.title = "Checkpoint";
+  nameCell.insertBefore(mark, nameCell.firstChild);
+  const nameInput = nameCell.querySelector("input");
+  nameInput.onkeydown = (event) => {
+    if (event.key !== "Enter") return;
+    state.focusMilestoneAdder = true;
+    if (nameInput.value === milestone.name) renderPhases();
+  };
+  line.appendChild(nameCell);
 
-    line.appendChild(fieldCell(milestone, "target_date", "date", saveMilestone));
+  line.appendChild(fieldCell(milestone, "target_date", "date", saveMilestone));
 
-    const actionCell = element("td");
-    const remove = element("button", null, "✕");
-    remove.title = "Delete milestone";
-    remove.onclick = async () => {
-      await api(`/api/milestones/${milestone.id}`, { method: "DELETE" });
-      await loadPlan();
-    };
-    actionCell.appendChild(remove);
-    line.appendChild(actionCell);
+  const spanCell = element("td", "muted", "checkpoint");
+  spanCell.colSpan = 4;
+  line.appendChild(spanCell);
 
-    body.appendChild(line);
-    lines.push({ line, grip, milestone });
-  }
+  const actionCell = element("td");
+  const remove = element("button", null, "✕");
+  remove.title = "Delete checkpoint";
+  remove.onclick = async () => {
+    await api(`/api/milestones/${milestone.id}`, { method: "DELETE" });
+    await loadPlan();
+  };
+  actionCell.appendChild(remove);
+  line.appendChild(actionCell);
 
-  lines.forEach((entry, index) =>
-    makeMilestoneDraggable(entry, lines, index, milestones));
-
-  // An input can only take focus once it is in the document -- the same reason
-  // `renderPhases` does this at the end rather than where the adder is built.
-  if (state.focusMilestoneAdder) {
-    state.focusMilestoneAdder = false;
-    $("new-milestone-name").focus();
-  }
+  return { line, grip };
 }
 
 // Turning an idea into a plan, which is the one transition the ladder will not
@@ -869,18 +870,67 @@ async function promoteProject() {
   await loadPlan();
 }
 
-// Writes `sort_order` and nothing else: not the tick, not a date. The twin of
-// `makeDeliverableDraggable`, and arrangement rather than state -- no rule reads
-// the order, so nothing fires. There is no adder row inside this table, so a
-// drop past the last line anchors on nothing and appends.
-function makeMilestoneDraggable(entry, lines, index, milestones) {
+// --- the plan sequence: phases and checkpoints on one number line -------------
+
+// Phases and milestones are separate tables with a `sort_order` each, and this
+// reads the two as one sequence: a checkpoint sits *between* two phases, so the
+// order across both is the thing worth arranging and neither column alone can
+// say it. No schema change buys this -- `list_phases` and `list_milestones` both
+// order by `sort_order` and only ever use it relatively, so gaps in either
+// table's numbers are harmless.
+//
+// The cost, stated: nothing enforces the shared line. `create_phase` and
+// `create_milestone` each take their own table's MAX+1, so a new row of each
+// kind can land on the same number until the first drag renumbers the sequence.
+// Ties break phases-first, and the sort is stable, so rows of one kind keep the
+// order the server sent them in.
+function orderedPlanRows() {
+  const rows = [];
+  for (const phase of state.plan.phases) rows.push({ kind: "phase", item: phase });
+  for (const milestone of state.plan.milestones || []) {
+    rows.push({ kind: "milestone", item: milestone });
+  }
+  rows.sort((a, b) => (a.item.sort_order - b.item.sort_order)
+    || (a.kind === b.kind ? 0 : a.kind === "phase" ? -1 : 1));
+  return rows;
+}
+
+// Renumbered from zero across both kinds, each row written to its own endpoint
+// and only if it actually moved. Writes `sort_order` and nothing else -- not a
+// tick, not a date, not a phase's status -- the same contract the deliverable
+// list and the timeline's bar drag have. No rule reads the order, so nothing
+// fires.
+async function savePlanOrder(rows) {
+  for (let index = 0; index < rows.length; index += 1) {
+    const { kind, item } = rows[index];
+    if (item.sort_order === index) continue;
+    const path = kind === "phase"
+      ? `/api/phases/${item.id}`
+      : `/api/milestones/${item.id}`;
+    await api(path, { method: "PUT", body: JSON.stringify({ sort_order: index }) });
+  }
+  await loadPlan();
+}
+
+// One drag for both row kinds, because it is one sequence.
+//
+// Rows here are **not** uniform height -- an expanded phase carries its
+// deliverable table under it -- so the step-per-row arithmetic the deliverable
+// list uses cannot work. The drop slot is the number of other rows whose
+// midpoint the cursor has passed. Those midpoints are frozen at mousedown, on
+// purpose: reading the live boxes would feed the preview back into the decision
+// and oscillate on a boundary.
+function makePlanRowDraggable(entry, entries, index) {
   entry.grip.onmousedown = (event) => {
     event.preventDefault();
     const from = { x: event.clientX, y: event.clientY };
     const row = entry.line;
     const table = row.parentElement;
-    const others = lines.filter((other) => other !== entry).map((other) => other.line);
-    const step = row.getBoundingClientRect().height;
+    const others = entries.filter((other) => other !== entry);
+    const midpoints = others.map((other) => {
+      const box = other.line.getBoundingClientRect();
+      return box.top + box.height / 2;
+    });
     let targetIndex = index;
     let armed = false;
 
@@ -891,11 +941,13 @@ function makeMilestoneDraggable(entry, lines, index, milestones) {
         armed = true;
         row.classList.add("dragging");
       }
-      const moved = Math.round((moveEvent.clientY - from.y) / step);
-      const next = Math.min(Math.max(index + moved, 0), lines.length - 1);
+      const next = midpoints.filter((middle) => middle < moveEvent.clientY).length;
       if (next === targetIndex) return;
       targetIndex = next;
-      table.insertBefore(row, others[targetIndex] || null);
+      table.insertBefore(row, others[targetIndex] ? others[targetIndex].line : null);
+      // An open phase's deliverables travel with it: they are a sibling row, so
+      // leaving them behind would park them under whichever phase took the slot.
+      if (entry.extra) table.insertBefore(entry.extra, row.nextSibling);
     };
 
     const onUp = async () => {
@@ -904,30 +956,17 @@ function makeMilestoneDraggable(entry, lines, index, milestones) {
       row.classList.remove("dragging");
       if (!armed) return;
       if (targetIndex === index) {
-        renderMilestones();  // put the previewed list back where it was
+        renderPhases();  // put the previewed list back where it was
         return;
       }
-      const reordered = milestones.filter((item) => item.id !== entry.milestone.id);
-      reordered.splice(targetIndex, 0, entry.milestone);
-      await saveMilestoneOrder(reordered);
+      const reordered = others.slice();
+      reordered.splice(targetIndex, 0, entry);
+      await savePlanOrder(reordered);
     };
 
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
   };
-}
-
-// Renumbered from zero, only the rows that moved written. `saveDeliverableOrder`
-// is the twin.
-async function saveMilestoneOrder(milestones) {
-  for (let index = 0; index < milestones.length; index += 1) {
-    if (milestones[index].sort_order === index) continue;
-    await api(`/api/milestones/${milestones[index].id}`, {
-      method: "PUT",
-      body: JSON.stringify({ sort_order: index }),
-    });
-  }
-  await loadPlan();
 }
 
 async function saveMilestone(milestoneId, fields) {
@@ -1048,6 +1087,7 @@ function renderTimeline() {
     body.appendChild(phaseBar(phase, view, warned.has(phase.id)));
   }
   milestoneNotes(timeline, undated, offWindow);
+  stackMilestoneLanes(timeline);  // needs layout, so after the chart is attached
 }
 
 // Half-open against the window: a phase touching the last day is still in.
@@ -1101,6 +1141,9 @@ function phaseBar(phase, view, isWarned) {
 // Diamonds are absolutely positioned inside the lane so several share one line.
 // Every other bar in this app is a block element owning its own row, which is
 // exactly what a point marker must not be.
+//
+// One line is only the starting point: `stackMilestoneLanes` measures the labels
+// once the chart is in the document and moves colliding ones down a row.
 function milestoneLane(marks) {
   const lane = element("div", "milestone-lane");
   for (const { milestone, x } of marks) {
@@ -1114,6 +1157,41 @@ function milestoneLane(marks) {
     lane.appendChild(mark);
   }
   return lane;
+}
+
+// A label is wider than the gap between two nearby dates, so a single line put
+// one checkpoint's name on top of another's -- which is what this lane did until
+// now, with the `title` as the consolation. Marks are dropped into the first row
+// that has cleared them, so a cluster grows the lane downwards instead of
+// printing over itself, and the lane's own height grows with it: the bars below
+// are block elements, so a second row has to push them down rather than paint
+// across them.
+//
+// It runs over the finished chart rather than inside `milestoneLane`, and that is
+// forced: a detached element has no layout, so `offsetWidth` inside the builder
+// is 0 -- and neither the project timeline's grid body nor a portfolio swimlane
+// is in the document when its lane is built. Failing to call it costs only the
+// overlap it fixes, which is why it is a sweep and not a step.
+const MILESTONE_ROW_PX = 16;
+const MILESTONE_LABEL_GAP_PX = 8;
+
+function stackMilestoneLanes(root) {
+  for (const lane of root.querySelectorAll(".milestone-lane")) {
+    // Ascending by position, not by `sort_order`: the greedy row assignment is
+    // only correct left to right, and the marks arrive in list order.
+    const marks = Array.from(lane.children)
+      .map((mark) => ({ mark, left: parseFloat(mark.style.left) || 0 }))
+      .sort((a, b) => a.left - b.left);
+    const rowEnds = [];
+
+    for (const { mark, left } of marks) {
+      let row = 0;
+      while (row < rowEnds.length && rowEnds[row] > left) row += 1;
+      rowEnds[row] = left + mark.offsetWidth + MILESTONE_LABEL_GAP_PX;
+      mark.style.top = `${row * MILESTONE_ROW_PX}px`;
+    }
+    lane.style.height = `${Math.max(rowEnds.length, 1) * MILESTONE_ROW_PX + 4}px`;
+  }
 }
 
 // Undated and off-window are counted apart because they are different problems:
@@ -1220,6 +1298,7 @@ function renderRelativeTimeline() {
     body.appendChild(relativeBar(phase, index, phase.offset_weeks, view, warned));
   });
   milestoneNotes(timeline, undated, offWindow);
+  stackMilestoneLanes(timeline);
 }
 
 function relativeRuler({ weeks }) {
@@ -1324,83 +1403,46 @@ function insertionIndex(others, heldCentre) {
 
 // Renumbered from zero so the stored order matches what is on screen. Only the
 // rows that actually moved are written.
+// A phase-only reorder, from dragging a bar on the Weeks timeline. Phases share
+// one number line with checkpoints now (see `orderedPlanRows`), so renumbering
+// the phases 0..n-1 on their own would walk them straight through the
+// checkpoints between them. The new phase order is written back into the merged
+// sequence instead: checkpoints keep the slots they occupy, and the phases fill
+// the rest in the order the drop put them in.
 async function saveOrder(phases) {
-  for (let index = 0; index < phases.length; index += 1) {
-    if (phases[index].sort_order === index) continue;
-    await api(`/api/phases/${phases[index].id}`, {
-      method: "PUT",
-      body: JSON.stringify({ sort_order: index }),
-    });
-  }
-  await loadPlan();
+  let next = 0;
+  const merged = orderedPlanRows().map((row) =>
+    row.kind === "phase" ? { kind: "phase", item: phases[next++] } : row);
+  await savePlanOrder(merged);
 }
 
 // --- phases and deliverables ------------------------------------------------
 
+// The plan's one ordered list: phases, and the checkpoints between them. It was
+// two sections and two tables, which could hold no opinion at all about what
+// comes before what -- and where a checkpoint sits in the sequence is exactly
+// what a plan is being drafted to decide.
 function renderPhases() {
   const body = $("phase-table").querySelector("tbody");
   const warned = warnedPhaseIds();
+  const milestones = state.plan.milestones || [];
   body.innerHTML = "";
+  renderMilestoneTally(milestones);
 
-  for (const phase of state.plan.phases) {
-    const row = element("tr", warned.has(phase.id) ? "row-warn" : null);
-    const isOpen = state.expandedPhases.has(phase.id);
-
-    const toggleCell = element("td");
-    const toggle = element("button", "toggle", isOpen ? "▾" : "▸");
-    toggle.title = "Show deliverables";
-    toggle.onclick = () => {
-      if (isOpen) state.expandedPhases.delete(phase.id);
-      else state.expandedPhases.add(phase.id);
-      renderPhases();
-    };
-    toggleCell.appendChild(toggle);
-    // Ticked-off count, so a collapsed phase still says how far along it is.
-    // Display only: it never feeds a warning and never sets phase.status.
-    if (phase.deliverables.length > 0) {
-      const doneCount = phase.deliverables.filter((d) => d.done).length;
-      const tally = element("span", "done-count",
-        `${doneCount}/${phase.deliverables.length}`);
-      tally.title = `${doneCount} of ${phase.deliverables.length} deliverables done`;
-      toggleCell.appendChild(tally);
-    }
-    row.appendChild(toggleCell);
-
-    row.appendChild(fieldCell(phase, "name", "text", savePhase));
-    row.appendChild(fieldCell(phase, "start_date", "date", savePhase));
-    row.appendChild(fieldCell(phase, "duration_weeks", "number", savePhase,
-      { step: "0.5", min: "0" }));
-    row.appendChild(fieldCell(phase, "effort_points", "number", savePhase,
-      { step: "1", min: "0" }));
-
-    const statusCell = element("td");
-    const select = element("select");
-    for (const status of ["planned", "in_progress", "done"]) {
-      const option = element("option", null, status);
-      option.value = status;
-      select.appendChild(option);
-    }
-    select.value = phase.status;
-    select.onchange = () => savePhase(phase.id, { status: select.value });
-    statusCell.appendChild(select);
-    row.appendChild(statusCell);
-
-    row.appendChild(element("td", "muted", phase.end_date || "unscheduled"));
-
-    const actionCell = element("td");
-    const remove = element("button", null, "Delete");
-    remove.onclick = async () => {
-      if (!confirm(`Delete phase "${phase.name}" and its deliverables?`)) return;
-      await api(`/api/phases/${phase.id}`, { method: "DELETE" });
-      state.expandedPhases.delete(phase.id);
-      await loadPlan();
-    };
-    actionCell.appendChild(remove);
-    row.appendChild(actionCell);
-
-    body.appendChild(row);
-    if (isOpen) body.appendChild(deliverableRow(phase));
+  const entries = [];
+  for (const row of orderedPlanRows()) {
+    const built = row.kind === "phase"
+      ? phaseRow(row.item, warned)
+      : milestoneRow(row.item);
+    body.appendChild(built.line);
+    // An open phase's deliverables are a second row rather than a cell, so the
+    // drag has to know to carry it along.
+    if (built.extra) body.appendChild(built.extra);
+    entries.push({ ...built, kind: row.kind, item: row.item });
   }
+
+  // Wired once the whole sequence exists: a drag needs its neighbours' boxes.
+  entries.forEach((entry, index) => makePlanRowDraggable(entry, entries, index));
 
   // An input can only take focus once it is in the document, so this happens
   // here rather than where the adder is built.
@@ -1409,12 +1451,88 @@ function renderPhases() {
     state.focusAdder = null;
     if (adder) adder.focus();
   }
+  if (state.focusMilestoneAdder) {
+    state.focusMilestoneAdder = false;
+    $("new-milestone-name").focus();
+  }
+}
+
+function phaseRow(phase, warned) {
+  const row = element("tr", warned.has(phase.id) ? "row-warn" : null);
+  const isOpen = state.expandedPhases.has(phase.id);
+
+  // Its own column, the same conclusion the deliverable list reached: a drag
+  // surface over the rest of the row would cost click-to-place-cursor inside the
+  // name. Phases had no grip at all until the sequence merged -- they reordered
+  // only by dragging a bar on the Weeks timeline, which still works and still
+  // writes nothing but `sort_order`.
+  const gripCell = element("td", "grip");
+  const grip = element("span", "grip-handle", "⠿");
+  grip.title = "Drag to move this phase in the sequence";
+  gripCell.appendChild(grip);
+  row.appendChild(gripCell);
+
+  const toggleCell = element("td");
+  const toggle = element("button", "toggle", isOpen ? "▾" : "▸");
+  toggle.title = "Show deliverables";
+  toggle.onclick = () => {
+    if (isOpen) state.expandedPhases.delete(phase.id);
+    else state.expandedPhases.add(phase.id);
+    renderPhases();
+  };
+  toggleCell.appendChild(toggle);
+  // Ticked-off count, so a collapsed phase still says how far along it is.
+  // Display only: it never feeds a warning and never sets phase.status.
+  if (phase.deliverables.length > 0) {
+    const doneCount = phase.deliverables.filter((d) => d.done).length;
+    const tally = element("span", "done-count",
+      `${doneCount}/${phase.deliverables.length}`);
+    tally.title = `${doneCount} of ${phase.deliverables.length} deliverables done`;
+    toggleCell.appendChild(tally);
+  }
+  row.appendChild(toggleCell);
+
+  row.appendChild(fieldCell(phase, "name", "text", savePhase));
+  row.appendChild(fieldCell(phase, "start_date", "date", savePhase));
+  row.appendChild(fieldCell(phase, "duration_weeks", "number", savePhase,
+    { step: "0.5", min: "0" }));
+  row.appendChild(fieldCell(phase, "effort_points", "number", savePhase,
+    { step: "1", min: "0" }));
+
+  const statusCell = element("td");
+  const select = element("select");
+  for (const status of ["planned", "in_progress", "done"]) {
+    const option = element("option", null, status);
+    option.value = status;
+    select.appendChild(option);
+  }
+  select.value = phase.status;
+  select.onchange = () => savePhase(phase.id, { status: select.value });
+  statusCell.appendChild(select);
+  row.appendChild(statusCell);
+
+  row.appendChild(element("td", "muted", phase.end_date || "unscheduled"));
+
+  const actionCell = element("td");
+  const remove = element("button", null, "Delete");
+  remove.onclick = async () => {
+    if (!confirm(`Delete phase "${phase.name}" and its deliverables?`)) return;
+    await api(`/api/phases/${phase.id}`, { method: "DELETE" });
+    state.expandedPhases.delete(phase.id);
+    await loadPlan();
+  };
+  actionCell.appendChild(remove);
+  row.appendChild(actionCell);
+
+  return { line: row, grip, extra: isOpen ? deliverableRow(phase) : null };
 }
 
 function deliverableRow(phase) {
   const row = element("tr", "deliverable-row");
   const cell = element("td");
-  cell.colSpan = 8;
+  // Nine now, not eight: the phase table grew a grip column when checkpoints
+  // moved into it.
+  cell.colSpan = 9;
 
   const table = element("table", "deliverables");
   const head = element("tr");
@@ -1711,6 +1829,8 @@ function renderPortfolio() {
     body.appendChild(lane);
   }
 
+  // Every lane at once, now that they are all attached and have a layout.
+  stackMilestoneLanes(chart);
   renderTray(body, view);
   renderPlacementUndo();
   // Redrawn from the slice already in hand: the chart moving underneath it

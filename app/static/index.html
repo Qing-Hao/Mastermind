@@ -126,9 +126,13 @@
         </div>
       </section>
 
+      <!-- One ordered list rather than a section each. A checkpoint sits between
+           two phases, so the sequence is the thing worth being able to arrange,
+           and two tables could not say it. Both row kinds read one `sort_order`
+           number line; see `orderedPlanRows` in app.js. -->
       <section>
         <div class="section-head">
-          <h2>Milestones</h2>
+          <h2>Phases, checkpoints &amp; deliverables</h2>
           <span class="section-aside">
             <span id="milestone-tally" class="muted"></span>
             <!-- No `display` on this button anywhere in the CSS, deliberately:
@@ -138,37 +142,18 @@
           </span>
         </div>
         <p class="hint">
-          Checkpoints the plan is aiming at, between the phases. Reaching every
-          one is what finishes a project &mdash; closing phases does not.
-        </p>
-        <table id="milestone-table">
-          <thead>
-            <tr>
-              <th></th><th>Reached</th><th>Checkpoint</th><th>Target</th><th></th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-        <div class="row">
-          <input id="new-milestone-name" type="text" placeholder="New milestone name">
-          <input id="new-milestone-date" type="date" title="Optional — name it now, date it when you commit">
-          <button id="add-milestone">Add milestone</button>
-        </div>
-      </section>
-
-      <section>
-        <div class="section-head">
-          <h2>Phases &amp; deliverables</h2>
-        </div>
-        <p class="hint">
-          Expand a phase to list what it produces. Deliverables are named, not
-          estimated &mdash; the weeks and points stay on the phase.
+          Phases are the work; a ◆ row is a checkpoint the plan is aiming at,
+          between the phases rather than inside one. Drag a ⠿ grip to put either
+          where it belongs in the sequence. Expand a phase to list what it
+          produces &mdash; deliverables are named, not estimated, so the weeks
+          and points stay on the phase. Reaching every checkpoint is what
+          finishes a project; closing phases does not.
         </p>
         <table id="phase-table">
           <thead>
             <tr>
-              <th></th><th>Name</th><th>Start</th><th>Weeks</th><th>Points</th>
-              <th>Status</th><th>Ends</th><th></th>
+              <th></th><th></th><th>Name</th><th>Start / target</th><th>Weeks</th>
+              <th>Points</th><th>Status</th><th>Ends</th><th></th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -179,6 +164,11 @@
           <input id="new-phase-weeks" type="number" min="0.5" step="0.5" value="2" title="weeks">
           <input id="new-phase-points" type="number" min="0" value="20" title="points">
           <button id="add-phase">Add phase</button>
+        </div>
+        <div class="row">
+          <input id="new-milestone-name" type="text" placeholder="New checkpoint name">
+          <input id="new-milestone-date" type="date" title="Optional — name it now, date it when you commit">
+          <button id="add-milestone">Add checkpoint</button>
         </div>
       </section>
 

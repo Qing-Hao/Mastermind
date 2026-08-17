@@ -172,6 +172,13 @@ naming a checkpoint before committing to a date is a real state and simply draws
 no diamond. Ordered by `sort_order` like phases and deliverables: order is
 arrangement, and an undated milestone has no date to sort on.
 
+**That `sort_order` is now shared with `phase.sort_order`** — one number line, so
+the project view can draw the two interleaved and you can put a checkpoint where
+it belongs between two phases. It stays a *frontend* convention: nothing
+validates it, no rule reads it, and there is still no `phase_id` on a milestone,
+which is the whole reason a checkpoint spanning several phases is sayable. See
+the Project view under "Views".
+
 **`achieved` is the only stored tick a derived status reads, and that is the
 entire reason milestones exist.** The `done` rung used to derive from every phase
 carrying `status='done'` — unreachable in practice, since `in_progress` had never
@@ -534,8 +541,9 @@ into one project link.
   - Committing dispatches `change` itself rather than waiting for blur, because
     the field's existing `onchange` is what saves the project.
 - **Project** — goal, fields (including **Tier**, the only place it is set),
-  warnings, unscheduled list, timeline, **milestone list**, phase table
-  with expandable deliverables (`3/5` tally on the phase row), dependencies. The
+  warnings, unscheduled list, timeline, **the plan sequence** — phases and
+  checkpoints in one table, with expandable deliverables (`3/5` tally on the phase
+  row) — then dependencies. The
   dependency panel lists both directions (`← waits on X`, `→ Y waits on this`)
   and links by picking another project plus a direction.
   The **deliverable list is typed straight through**: adding one keeps the
@@ -556,15 +564,43 @@ into one project link.
   because those are the only three the ladder does not derive. "Committed"
   writes `planned`; a legacy `active` row reads back as committed, since they
   are the same thing.
-  The **milestone list** sits between the timeline and the phases, above the
-  work because it is what the work is aiming at. Name, target date, a reached
-  tick, a `⠿` grip, and a `2/3 reached` tally beside the heading. It borrows the
+  **Checkpoints are rows in the phase table, not a section of their own**, and
+  that is the point: a checkpoint sits *between* two phases, so where it falls in
+  the sequence is the thing worth arranging — and two tables, each ordered only
+  among themselves, could hold no opinion about it at all. `Phases, checkpoints &
+  deliverables`, one ordered list, a `⠿` grip on both row kinds. A checkpoint row
+  carries a ◆, a reached tick, a name, a target date and a muted `checkpoint`
+  spanning the four columns a phase spends on weeks, points, status and its
+  derived end — it is a point with no work of its own, which is the distinction.
+  The `2/3 reached` tally sits beside the heading. Nothing about it is hidden: it
+  decides the stage while a plan is being drafted, and it is the record of what
+  the project is for once it is running.
+  It borrows the
   deliverable list's row furniture deliberately — same grip in its own column,
   same tick, same struck-through name — because it is the same gesture on a
   different record and two spellings of one row would drift; reordering writes
-  `sort_order` and nothing else, `DRAG_ARM_PX` and all. Nothing about it is
-  hidden: it decides the stage while a plan is being drafted, and it is the
-  record of what the project is for once it is running.
+  `sort_order` and nothing else, `DRAG_ARM_PX` and all.
+  **The sequence costs no schema change: the two tables share one `sort_order`
+  number line.** `orderedPlanRows` reads them as one list and `savePlanOrder`
+  renumbers it from zero across both kinds, each row written to its own endpoint.
+  `list_phases` and `list_milestones` only ever use `sort_order` relatively, so
+  gaps in either table's numbers are harmless. Two consequences worth knowing.
+  Nothing enforces the shared line — `create_phase` and `create_milestone` each
+  take their own table's `MAX+1`, so a new row of each kind can land on the same
+  number until the first drag; ties break phases-first and the sort is stable, so
+  rows of one kind keep the order the server sent. And **`saveOrder`, the
+  Weeks-timeline bar drag, had to learn about it**: renumbering the phases 0..n-1
+  on their own would walk them straight through the checkpoints between them, so
+  the new phase order is written back into the merged sequence with the
+  checkpoints keeping the slots they occupy. Phases also gained a grip of their
+  own here, which they never had — a bar on the Weeks timeline was the only way to
+  reorder one.
+  **The drag cannot use the deliverable list's step-per-row arithmetic**, because
+  rows here are not uniform height: an expanded phase carries its deliverable row
+  under it, and that row travels with the phase when it moves. The drop slot is
+  the number of other rows whose midpoint the cursor has passed, and those
+  midpoints are **frozen at mousedown** — reading the live boxes would feed the
+  preview back into the decision and oscillate on a boundary.
   **It replaced the drafting switch, which is deleted rather than hidden** — the
   switch asked the same question twice and could go stale afterwards. Two knock-on
   facts worth knowing: `.draft-toggle[hidden]` was cited in three other CSS
@@ -584,9 +620,17 @@ into one project link.
   *project's* start, and without one there is no origin at all. That is the
   common case in Weeks mode, since it is what an undated project opens on, so
   those are counted as undated and reported rather than dropped. Two counts, kept
-  apart because they are two problems: no date, versus scrolled off screen. Two
-  checkpoints a few days apart **will overlap their labels**; the `title` carries
-  the full text and thinning them would need measurement this view does not do.
+  apart because they are two problems: no date, versus scrolled off screen.
+  **Colliding labels stack.** Two checkpoints a few days apart used to print one
+  name over the other, with the `title` as the consolation; `stackMilestoneLanes`
+  now measures the labels and drops each mark into the first row that has cleared
+  it, growing the lane's height with the rows — the bars below are block elements,
+  so a second row has to push them down rather than paint across them. It is a
+  **sweep over the finished chart**, not a step inside `milestoneLane`, and that
+  is forced: a detached element has no layout, so `offsetWidth` in the builder is
+  0 and neither the grid body nor a portfolio swimlane is in the document when its
+  lane is built. All three charts call it, so the vocabulary cannot drift; failing
+  to call it costs only the overlap it fixes.
   - **Dates** — the calendar grid. Only phases with a start date appear.
   - **Weeks** — `W1, W2, …` counted from the start of the project, no calendar.
     Every phase appears, stacked back to back in `sort_order`; dates on phases
@@ -652,7 +696,10 @@ into one project link.
   survives re-renders and tab switches but not a page reload — the offer says so.
   **Each lane draws its project's checkpoints** as diamonds above its bars, the
   same `milestoneLane` the project timeline uses — one component, so the
-  hollow-until-reached vocabulary cannot drift between the two charts. **Bars
+  hollow-until-reached vocabulary cannot drift between the two charts, and the
+  label stacking described there arrives here for free. This is where the overlap
+  was worst: a dozen lanes each a few rows tall, and three checkpoints a few days
+  apart printed one name over another. **Bars
   still decide which lanes exist**: a project whose work is all off-window keeps
   its checkpoints off-window with it, rather than opening a lane holding nothing
   but a diamond.
