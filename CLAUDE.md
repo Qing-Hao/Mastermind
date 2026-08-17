@@ -224,6 +224,18 @@ plan a plan, and that is also what makes "all reached" mean anything.
    **This rule survived the milestone work intact, and that was the point of
    milestones**: the completion question got its own object rather than being
    loaded onto a field built to stay casual.
+   **Two charts now read the tick, and both read it to *draw*, never to derive**
+   — the portfolio's collapsed swimlane fills a bar with it and a map node fills
+   from the bottom with it (`validation.deliverable_progress`, and see the two
+   views below). That is the standing `fortnight_lane`'s `done` has always had —
+   "so it can be shown, never so anything can be derived from it" — and the line
+   the rule draws is unchanged: no rule reads it, no stage reads it, nothing is
+   written back. The honest cost, stated rather than discovered later: a field
+   built to stay casual is now visible on two charts at once, which is pressure
+   on it even though nothing depends on it. It was chosen over `phase.status`
+   deliberately, because that field is maintained by nobody (34 of 39 phases sit
+   at the untouched default, `in_progress` has never been used once) and a bar
+   driven by it draws empty for ten of the thirteen projects holding work.
 5. **V5 is deleted, not dormant.** Deliverables lost their estimates, so the
    rollup had no input. `v5_tolerance_pct` went with it. `PROMPT.md` still carries
    the original V5 prose as the record of what was first asked; its **Amendments**
@@ -413,10 +425,22 @@ project view.
 waiting for a date, with `total_weeks`, `total_points` and `scheduled_count`.
 Built by `main.unplaced_work`; it is what the staging tray is drawn from. And
 each project in `projects` carries its own derived facts — `span_start`,
-`span_end`, `phase_count`, `total_points` (`main.with_project_span`) plus
+`span_end`, `phase_count`, `total_points`, `deliverables_done`,
+`deliverables_total` (`main.with_project_span`) plus
 `derived_stage` — because the chart draws phases, so the project's own dates were
 the one thing on that tab readable nowhere. The span is derived from **every**
 phase, dated or not, never from the bars on screen.
+
+The deliverable pair is what a **collapsed** swimlane fills its bar with, and it
+comes from `validation.deliverable_progress` — a display read of the tick, rule 4
+intact. It is the tick and not `phase.status` because nothing maintains that
+field; the same pair rides on `GET /api/graph` for the map's node fill, so the
+two charts cannot disagree about how far along a project is. `0 of 0` travels as
+itself rather than as a fraction, and **every caller has to decide what to draw
+for it** — both draw nothing, which is neither 0% nor complete. The route reads
+`db.deliverables_by_project()` **once** into a local and hands it to both
+`with_project_span` and `with_derived_stage`, the same shape the milestone read
+above has.
 
 It also returns **`milestones`**: every *dated* checkpoint on a committed
 project, flat and carrying `project_id`, so a swimlane can draw the same
@@ -659,14 +683,15 @@ into one project link.
   0 and neither the grid body nor a portfolio swimlane is in the document when its
   lane is built. All three charts call it, so the vocabulary cannot drift; failing
   to call it costs only the overlap it fixes.
-  **Both mechanisms now have no input, and that is stated rather than tidied
-  away.** Every lane in the app holds one mark, and one mark per row cannot
-  collide with anything — interleaving *dissolved* the problem the sweep was
-  written for. `milestoneLane` still takes a list and the sweep still runs, so a
-  shared strip is a thing the code can still draw; both are a row's worth of code
-  from deletion, and the CSS already carries the one-row height. Left in
-  deliberately, as the cheap way back if a compact all-checkpoints strip is ever
-  wanted.
+  **Both mechanisms went input-less and then got their input back**, which is
+  the whole argument for having kept them. Interleaving *dissolved* the problem
+  the sweep was written for — one mark per row cannot collide with anything — and
+  this paragraph used to say so, adding that a shared strip stayed a thing the
+  code could draw and was "the cheap way back if a compact all-checkpoints strip
+  is ever wanted". The portfolio's **folded lane** is that strip: every
+  checkpoint on one line under a single summary bar, and on the real file two
+  lanes stack to a second row. The project timeline still hands `milestoneLane`
+  exactly one mark per row, so nothing here changed for it.
   - **Dates** — the calendar grid. Only phases with a start date appear.
   - **Weeks** — `W1, W2, …` counted from the start of the project, no calendar.
     Every phase appears, stacked back to back in `sort_order`; dates on phases
@@ -682,6 +707,30 @@ into one project link.
   stage but `idea`; committed is committed, whatever rung the ladder then puts
   it on). Drag a bar to move **only** that phase; snaps to a
   week, `Alt` for single days. No resize.
+  **A lane is folded by default, and opens on a `▸` beside its name.** A lane is
+  one row per phase plus one per dated checkpoint, which is the right shape for
+  reading one project and the wrong one for reading a dozen: on the real file the
+  chart was 938px of rows before the ruler, and this tab exists to show the whole
+  department at once. Folded, a project is **one bar over its own span, filled to
+  how many of its deliverables are ticked** — 564px for nine lanes, 41px each.
+  `state.laneOpen` holds what is **open** rather than what is closed, so a project
+  created while the tab is open lands folded like every other one; same lifetime
+  as `state.mapTiers`, gone on a reload. One `Expand all` / `Collapse all` sits
+  above the chart, labelled with what it will do next and counting only the lanes
+  actually drawn.
+  **The summary bar does not drag**, and its tooltip says so. A drag here moves
+  one phase to a date; there is nothing honest for a drop on a whole project to
+  write, so opening the lane is what gets you a bar you can move. Its span is
+  read off the payload and placed by `placeBar`, so it keeps the dotted clip edge
+  every other bar has and paging the window cannot change what a project claims
+  its dates are. **A project naming no deliverables draws no fill at all** rather
+  than an empty one — `0 of 0` is not 0%, which is the distinction
+  `deliverable_progress` refuses to divide away.
+  The folded lane's checkpoints go on **one shared strip** below the bar, which
+  is the shape `milestoneLane` and `stackMilestoneLanes` were kept alive for when
+  interleaving left them one mark per row and nothing to stack — "the cheap way
+  back if a compact all-checkpoints strip is ever wanted". The sweep has a real
+  input again: two lanes on the real file grow their strip to a second row.
   **The project name has a column of its own, left of the calendar**, and it is
   the only grid gutter in the app: `LANE_NAME_PX` (160) is set as `view.gutterPx`
   by `renderPortfolio` alone, and a lane is two cells — `.lane-name`, then
@@ -766,7 +815,8 @@ into one project link.
   **Each lane draws its project's checkpoints** as diamonds, the
   same `milestoneLane` the project timeline uses — one component, so the
   hollow-until-reached vocabulary cannot drift between the two charts.
-  **A lane is the plan sequence too**, by the same `mergePlanRows`: a bar for a
+  **An open lane is the plan sequence too**, by the same `mergePlanRows`: a bar
+  for a
   phase, a one-diamond row for a checkpoint, interleaved on the shared
   `sort_order`. A lane's bars have always been in that order
   (`db.list_all_phases` orders by it), so the sequence was already what the rows
@@ -1240,7 +1290,42 @@ into one project link.
   the label and in the tooltip, because how much of the *work* is finished is a
   different question from whether the project arrived.
   On the real dataset this currently colours **nothing**, since nothing has a
-  checkpoint yet. A fourth ring for
+  checkpoint yet.
+  **A node fills from the bottom with how much of its work is ticked off** —
+  `deliverables_done / deliverables_total` off `GET /api/graph`, the same pair
+  the portfolio's folded lane fills a bar with, so the two charts cannot
+  disagree. It is a **`<rect>` clipped to the node's own circle, never a second
+  circle**, and that is mechanical rather than stylistic: every stage rule is
+  `.map-node circle:not(.map-pip)`, which outranks anything a class on a
+  `<circle>` could say, so a circle drawn for this would be painted whatever
+  colour the stage is. No selector here matches a rect. The clip is a circle a
+  hair inside the rim, so the stroke — half the stage vocabulary — keeps its own
+  colour all the way round.
+  It sits **over** the stage fill rather than replacing it: hollow is still
+  undated, pale still dated, solid still running, green still delivered, and
+  progress is depth of colour *inside* that instead of a fifth body colour.
+  Translucent for the same reason — the green of a delivered project has to read
+  through a full one. A project naming no deliverables gets **no wedge at all**
+  rather than an empty circle, since `0 of 0` is neither started nor finished.
+  The tally goes on the tooltip and not the label: the map's label clearances are
+  sized against the height of the label block, so a fourth line would move every
+  one of them. It reads the tick to *draw* and nothing more — rule 4.
+  **`map_sweep.js` skips `<clipPath>` and `<defs>`** as of this: geometry that is
+  never ink cannot collide with anything, and without it the clip circle — which
+  sits exactly on its own node — reported as a collision once per project.
+  **Both colour vocabularies are spelt out in a legend under the canvas**
+  (`renderMapLegend`, `#map-legend`): the stage ramp, in the ladder's order and
+  with `done` listed twice because the map draws it as two things, then one dot
+  per track hue. Below the canvas rather than inside the SVG, which is
+  width-fitted and collision-swept — a block in there spends layout budget the
+  rings need. **Every swatch is a real `.map-node` or `.map-group` circle**, so
+  the rules that draw the picture draw the key with it and the two cannot drift;
+  the only thing the legend's own CSS adds is `cursor: default`, since a swatch
+  opens nothing. The track half is built from `trackPalette` over the **whole
+  dataset**, exactly as the map is, so filtering a tier never empties the key,
+  and the greys are claimed only when something wears them: a ninth track past
+  the end of the palette, and untracked projects if any exist.
+  A fourth ring for
   `planned` was the alternative and was rejected on cost — ring gaps are the
   tightest budget on the map and `MAX_RING_ASPECT` would have needed re-fitting. Node radius
   `sqrt(points)`, clamped 16–38px. A track's wedge is sized by how many projects
@@ -1355,9 +1440,18 @@ into one project link.
   reload, like `timelineMode`, because it is a way of looking rather than a
   setting. A dependency pointing at a filtered-out project simply is not drawn —
   `wireMapFocus` already skipped links whose ends it has no centre for.
-  On the node itself, tier is **visual weight**: tier 1 wears a numbered pip on
-  its upper-right shoulder, tier 3 fades (returning to full strength on hover,
-  so the fade is a resting state and not a handicap), tier 2 is the plain node.
+  On the node itself, **tier is a number: every ranked project wears its own
+  digit** on a pip on its upper-right shoulder, and untiered wears nothing —
+  the absence of a decision is not a fourth rank, and `T?` on the label is where
+  that is said. One indigo for all three, because the digit is the cue and a
+  paler pip could not carry white 10px text.
+  **It was visual weight and that was reported as not reading.** Tier 1 had the
+  pip, tier 3 receded at half opacity and tier 2 was the plain node. Two things
+  were wrong with the fade beyond being missable: it sat *on top of* the stage
+  fill, so a faded `dated` node and a faded `idea` came out as the same wash —
+  a second axis quietly spending the one vocabulary the circle has — and it
+  needed a hover-restore to stop being a handicap, which is a rule you have to
+  find by pointing at things. Both are deleted, not hidden.
   A halo ring was the first attempt and **failed at the bottom of the radius
   clamp** — at 16px the gap between node and ring is narrower than the stroke,
   so the two merge, and on a dashed idea it just doubled the dashes. The pip is
@@ -1365,8 +1459,11 @@ into one project link.
   scales with the node fails wherever the node is smallest. It is pinned to a
   fixed angle rather than dodging the label, because a mark that moves stops
   being scannable, and it is drawn at `0.707r` so it never reaches past the
-  label gap — verified clean against every label from 1200px up; at 1000px it
-  touches one, which is already below the width where labels collide anyway.
+  label gap. **Three times as many pips moved no label**, and that is arithmetic
+  rather than luck: the pip's far edge is `0.707r + 8` against a label starting
+  at `r + LABEL_GAP`, clear at every radius in the 16–38 clamp. The sweep agrees
+  — 134 collisions across 1000–1530px before and after, the same pre-existing
+  count at this dataset size (STATUS item 47).
   Every `.map-node circle` rule carries `:not(.map-pip)`, so the stage colours
   never reach the pip and a tier-1 idea wears the same mark as a tier-1 active
   project. Within a wedge, projects sort by

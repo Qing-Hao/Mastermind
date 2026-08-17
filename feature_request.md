@@ -535,6 +535,19 @@ rule could never fire again. FR-16's options A, B and C were all attempts to wor
 around that, and all of them are now unnecessary rather than merely awkward: the
 thing they were trying to rescue (project completion) has its own object.
 
+**What changed on 2026-08-17, and it sharpens this again rather than answering
+it.** Two charts now show how far along a project is — the portfolio's folded
+swimlane and the map's node fill — and both read the **deliverable tick**, because
+this field could not carry them: the same measurement, re-taken that day, said 34
+of 39 phases at the untouched default and `in_progress` still never used once, so
+a phase-driven bar drew empty for 10 of the 13 projects holding work. The
+requester was offered the phase done-tick above as the fix that would have made
+the phase tally usable, and declined it: the ticks are the number people maintain.
+So `phase.status` is no longer just unmaintained, it is now read by **V6 and V7
+and nothing else at all** — and V6, the one rule that has found real late work,
+still fires on `status != 'done'`. The done-tick remains the cheap fix; nothing
+about the argument for it has weakened.
+
 **Open question before building:** dropping `in_progress` narrows a CHECK, which
 means rebuilding the `project`-shaped table for `phase` — the `migrate_stage_check`
 path that cost a real dataset once. Leaving the value in the column while removing
