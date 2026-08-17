@@ -1529,11 +1529,20 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 .map-node:focus { outline: none; }
 
 /* --- tier ---------------------------------------------------------------
-   Priority reads as visual weight: tier 1 gains a numbered pip, tier 3
-   recedes, tier 2 is the plain node. Untiered is plain too and is marked in
-   the label instead -- "never ranked" is not a shade of a rank.
+   Priority is a number on the node: every ranked project wears its own digit
+   on a pip, and an untiered one wears nothing -- "never ranked" is not a
+   shade of a rank, and the label's `T?` is where it is said.
+
+   Tier 3 used to recede instead, at half opacity on the fill and the stroke.
+   That was reported as not reading as a rank, and it was also sitting on top
+   of the stage colours, so a faded `dated` node and a faded `idea` came out
+   as the same wash -- a second axis quietly spending the one vocabulary the
+   circle has. The fade and its hover-restore are deleted, not hidden.
+
    The pip keeps its own fill and stroke so the node's stage colours never
-   reach it: a tier-1 idea and a tier-1 active project carry the same mark. */
+   reach it: a tier-1 idea and a tier-1 active project carry the same mark.
+   One indigo for all three ranks -- the digit is the cue, and a paler pip
+   could not carry white 10px text. */
 .map-node .map-pip { fill: #3949ab; stroke: #fff; stroke-width: 1.5; }
 .map-node .map-pip-text {
   fill: #fff;
@@ -1541,15 +1550,23 @@ body.resizing-column { cursor: col-resize; user-select: none; }
   font-weight: 700;
   pointer-events: none;
 }
-.map-node.tier-3 circle:not(.map-pip) { fill-opacity: .5; stroke-opacity: .4; }
-.map-node.tier-3 .map-name { fill: #666; }
-.map-node.tier-3 .map-meta { fill: #aaa; }
-/* Pointing at a faded node brings it fully back -- the fade is a resting
-   state, not a permanent handicap. */
-.map-node.tier-3:hover circle:not(.map-pip),
-.map-node.tier-3:focus circle:not(.map-pip) {
-  fill-opacity: 1;
-  stroke-opacity: 1;
+/* --- completion ---------------------------------------------------------
+   How much of a project's work is ticked off, as the circle filling from the
+   bottom. A `<rect>` clipped to the node's circle rather than a second
+   circle, and that is not a stylistic choice: every rule above is
+   `.map-node circle:not(.map-pip)`, which would outrank any class this could
+   put on a `<circle>` and paint it the stage colour. No selector here
+   matches a rect.
+
+   Over the stage fill, never instead of it. The fill is already the
+   vocabulary -- hollow is undated, pale is dated, solid is running, green is
+   delivered -- so completion is depth of colour inside that rather than a
+   fifth body colour. Translucent for the same reason: the green of a
+   delivered project has to read through a full one. */
+.map-fill {
+  fill: #3949ab;
+  fill-opacity: .28;
+  pointer-events: none;
 }
 
 /* Two captioned groups of chips. The gap between groups is wider than the gap
@@ -1575,6 +1592,26 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 /* Tier 1's chip carries the same ring the node does. */
 .map-chip.tier-1.on { box-shadow: 0 0 0 2px #eef0ff, 0 0 0 3px #c5cae9; }
 .map-chip.tier-0 { font-style: italic; }
+
+/* --- the legend ---------------------------------------------------------
+   Both colour axes, spelt out under the canvas. Each swatch is a real
+   `.map-node` or `.map-group` circle, so every rule above draws the key as
+   well as the picture and the two cannot drift apart. The only thing added
+   here is to undo the pointer the nodes carry: a swatch opens nothing. */
+.map-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #eee;
+}
+.legend-group { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+.legend-item { display: flex; align-items: center; gap: 3px; font-size: 12px; }
+.legend-swatch { overflow: visible; }
+.map-legend .map-node { cursor: default; }
+.legend-name { color: #555; }
+.legend-note { margin: 2px 0 0; color: #999; font-size: 11px; }
 
 .map-label { pointer-events: none; }
 .map-name { fill: #1a1a1a; font-size: 12px; font-weight: 600; }

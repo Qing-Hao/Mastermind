@@ -258,6 +258,12 @@ function harvest(svg) {
 
   const walk = (node, inherited) => {
     const classes = [...inherited, ...node.classes()];
+    // Geometry that is never ink. A <clipPath> holds a shape describing where
+    // something else may paint, and <defs> holds things drawn only where they
+    // are referenced -- neither is on the picture, so neither can collide with
+    // anything on it. Without this the completion fill's clip circle, which sits
+    // exactly on its own node, reports as a collision once per project.
+    if (node.tagName === "clipPath" || node.tagName === "defs") return;
     if (node.tagName === "text") {
       // Two labels are *meant* to sit on a circle and are not collisions:
       // the tier-1 pip's numeral, which is drawn on its own node's shoulder,

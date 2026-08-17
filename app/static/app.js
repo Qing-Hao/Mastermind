@@ -3486,11 +3486,106 @@ function renderMapFilters() {
     });
 }
 
+// What a node's own colours mean, in the ladder's order. The map has carried two
+// colour axes for a while -- the stage on a project node, the track hue on the
+// rings -- and explained neither anywhere you could see while looking at it.
+//
+// The wording is the data model's, cut to what fits beside a swatch; the
+// sentence each rung actually means is on the tooltip. `done` is the one rung
+// listed twice, because the map is the one place it is drawn as two things: a
+// close with checkpoints outstanding is as often cancelled as finished, and only
+// reaching every checkpoint earns the green.
+const STAGE_LEGEND = [
+  ["idea", "idea", "A future direction. Nobody has committed to it yet."],
+  ["planning", "planning", "Committed, but with no work named or nothing to aim at."],
+  ["planned", "planned", "Work named and a checkpoint set. Waiting only for dates."],
+  ["dated", "dated", "On the calendar, not started."],
+  ["active", "active", "Today falls inside the project's span."],
+  ["overdue", "overdue", "The last phase end has passed with phases still open."],
+  ["done", "done · closed", "Closed by hand with checkpoints outstanding — "
+    + "descoped or cancelled as often as finished."],
+  ["done delivered", "done · delivered", "Every checkpoint reached."],
+];
+
+// The two colour vocabularies, drawn from the map's own CSS rather than from a
+// second palette: a stage swatch is a real `.map-node` circle and a track swatch
+// a real `.map-group` one, so a rule that changes the picture changes the key
+// with it. A legend that can drift from what it explains is worse than none.
+function renderMapLegend() {
+  const legend = $("map-legend");
+  legend.innerHTML = "";
+
+  const group = (caption) => {
+    const box = element("div", "legend-group");
+    box.appendChild(element("span", "filter-caption", caption));
+    legend.appendChild(box);
+    return box;
+  };
+
+  const swatch = (className, painted) => {
+    const svg = svgElement("svg", {
+      class: "legend-swatch", width: 20, height: 20, viewBox: "0 0 20 20",
+    });
+    const node = svgElement("g", { class: className });
+    node.appendChild(svgElement("circle", { cx: 10, cy: 10, r: 6 }));
+    if (painted) paint(node, painted);
+    svg.appendChild(node);
+    return svg;
+  };
+
+  const entry = (box, className, label, tooltip, painted, colour) => {
+    const item = element("span", "legend-item");
+    item.title = tooltip;
+    item.appendChild(swatch(className, painted));
+    const name = element("span", "legend-name", label);
+    if (colour) name.style.color = colour;
+    item.appendChild(name);
+    box.appendChild(item);
+  };
+
+  const stages = group("Stage");
+  for (const [className, label, tooltip] of STAGE_LEGEND) {
+    entry(stages, `map-node stage-${className}`, label, tooltip);
+  }
+
+  // Keyed off the whole dataset, exactly as `trackPalette` is and for the same
+  // reason: hiding a tier must not move a colour, and a key that only lists the
+  // tracks currently drawn would empty itself as you filter.
+  const palette = trackPalette(state.graph.projects);
+  const tracks = group("Track");
+  for (const [name, hue] of palette) {
+    if (!hue) continue;
+    entry(tracks, "map-group", name,
+      `${name} — every level under it is a lighter tone of this colour.`,
+      { "--track-dot": hue }, hue);
+  }
+  // Both greys the map can draw, and each is only claimed when something is
+  // actually wearing it: a ninth track past the end of the palette, and the
+  // untracked projects that hang straight off the hub with no ring at all.
+  const roots = new Set(state.graph.projects
+    .map((project) => trackPath(project.track)[0]).filter(Boolean));
+  if (roots.size > TRACK_HUES.length) {
+    entry(tracks, "map-group", `${roots.size - TRACK_HUES.length} more`,
+      "Past the eighth track the map runs out of colours anyone could tell "
+      + "apart, so the rest take the grey.");
+  }
+  if (state.graph.projects.some((project) => !trackPath(project.track).length)) {
+    entry(tracks, "map-group", "untracked",
+      "Projects with no track. They hang straight off the hub and draw no ring.");
+  }
+
+  legend.appendChild(element("p", "legend-note",
+    "Circle size is total effort points. The shaded part of a circle is how "
+    + "many of the project's deliverables are ticked. The numbered pip is its "
+    + "tier; an unpipped node has never been ranked."));
+}
+
 function renderMap() {
   const canvas = $("map-canvas");
   canvas.innerHTML = "";
   $("department-name").value = state.graph.department_name || "";
   renderMapFilters();
+  renderMapLegend();
 
   // Filtered before grouping, so a wedge is sized by what is actually drawn and
   // a track with nothing left in it drops off the map entirely. Hiding the
@@ -3874,16 +3969,26 @@ function projectNode(project, point, radius, place, branch) {
     "data-track": branch || "",
   });
   group.appendChild(svgElement("circle", { cx: point.x, cy: point.y, r: radius }));
-  // Tier 1 wears a numbered pip on its shoulder. A ring around the node was the
-  // first attempt and failed at the bottom of the radius clamp -- at 16px the
-  // gap between node and ring is narrower than the stroke, so the two merge.
-  // The pip is a fixed 8px whatever the node does, which is the whole point;
-  // a mark that scales with the node fails wherever the node is smallest.
+  // **Every ranked project wears its number.** Tier 3 used to recede instead --
+  // half opacity on the fill and the stroke -- and that failed twice over: it
+  // was reported as not reading as a rank at all, and it sat on top of the stage
+  // fill, so a faded `dated` node and a faded `idea` were the same wash. A rank
+  // is a number and now says so; untiered gets no pip, because the absence of a
+  // decision is not a fourth rank and the label's `T?` is where that is said.
+  //
+  // A ring around the node was the first attempt and failed at the bottom of the
+  // radius clamp -- at 16px the gap between node and ring is narrower than the
+  // stroke, so the two merge. The pip is a fixed 8px whatever the node does,
+  // which is the whole point; a mark that scales with the node fails wherever
+  // the node is smallest. All three ranks take the same indigo: the digit is the
+  // cue, and a paler pip could not hold white 10px text at the contrast floor.
   //
   // Fixed to the upper-right rather than placed away from the label: a mark
   // that moves stops being scannable, which is the only job it has. It sits at
-  // 0.707r diagonally, so it never reaches past the label gap.
-  if (tier === 1) {
+  // 0.707r diagonally, so its far edge is `0.707r + 8` against a label starting
+  // at `r + LABEL_GAP` -- clear at every radius in the 16-38 clamp, which is why
+  // putting one on three times as many nodes moves no label.
+  if (tier > 0) {
     const px = point.x + radius * 0.707;
     const py = point.y - radius * 0.707;
     group.appendChild(svgElement("circle", {
@@ -3891,7 +3996,40 @@ function projectNode(project, point, radius, place, branch) {
     }));
     group.appendChild(svgElement("text", {
       class: "map-pip-text", x: px, y: py + 3.4, "text-anchor": "middle",
-    }, "1"));
+    }, String(tier)));
+  }
+
+  // How much of the work is ticked off, as the circle filling from the bottom.
+  //
+  // It is a **rect clipped to the node's own circle**, not a second circle, and
+  // that is the one mechanical thing to know here: every stage rule in the CSS
+  // is `.map-node circle:not(.map-pip)`, which outranks anything a class on a
+  // `<circle>` could say, so a circle drawn for this would be painted whatever
+  // colour the stage is. A rect is not matched by any of them. The clip is a
+  // circle a hair inside the rim, so the stroke -- which is half the stage
+  // vocabulary -- stays its own colour all the way round.
+  //
+  // It sits *over* the stage fill rather than replacing it, because the fill is
+  // already saying something: hollow is undated, pale is dated, solid is
+  // running, green is delivered. Progress reads as depth of colour inside that.
+  //
+  // Drawn only where deliverables exist. 0 of 0 gets no wedge rather than an
+  // empty circle -- see `validation.deliverable_progress`, which will not divide
+  // it.
+  if (project.deliverables_total > 0) {
+    const clipId = `map-fill-${project.id}`;
+    const clip = svgElement("clipPath", { id: clipId });
+    clip.appendChild(svgElement("circle", {
+      cx: point.x, cy: point.y, r: Math.max(radius - 0.75, 1),
+    }));
+    const height = 2 * radius
+      * (project.deliverables_done / project.deliverables_total);
+    group.appendChild(clip);
+    group.appendChild(svgElement("rect", {
+      class: "map-fill", "clip-path": `url(#${clipId})`,
+      x: point.x - radius, y: point.y + radius - height,
+      width: 2 * radius, height,
+    }));
   }
 
   const meta = [];
@@ -3920,6 +4058,12 @@ function projectNode(project, point, radius, place, branch) {
     tier === 0 ? "untiered" : `tier ${tier}`,
     `${project.effort_points} pts`,
     project.phases_total ? `${project.phases_done}/${project.phases_total} phases done` : null,
+    // What the node is filled to. On the tooltip rather than the label: the
+    // map's label clearances are sized against the height of the label block,
+    // so a fourth line would move every one of them.
+    project.deliverables_total
+      ? `${project.deliverables_done}/${project.deliverables_total} deliverables ticked`
+      : null,
     project.milestones_total
       ? `${project.milestones_reached}/${project.milestones_total} milestones reached`
       : null,
