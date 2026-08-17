@@ -762,9 +762,16 @@ into one project link.
     snapped**, while the chart window is Monday-based and is — so when they
     differ the panel names the week it read from rather than quietly showing two
     days the sprint does not cover, the same distinction `sprint_window` and
-    `fortnight_window` exist separately to keep. And the 860px cap moved off
-    `.sprint-view` onto the **document column**: a cap belongs to a thing being
-    read, and there are two of them now.
+    `fortnight_window` exist separately to keep. And **the panel is a fifth of
+    the tab, the file is the rest** — `minmax(0, 4fr) minmax(260px, 1fr)`, with
+    no cap on either. There was one: 1220px on the view with the document fixed
+    at 860 of that, on the reading-width argument that prose at chart width is a
+    worse editor than prose in a column. Measured on a 1778px screen that left
+    the file on **48% of the page** and 543px of nothing beside the panel, and
+    the argument was answering for the wrong content — what fills a sprint file
+    is the capacity and unplanned-work **tables**, which want every column
+    visible far more than a paragraph wants a short line. The panel keeps a
+    260px floor so it stays readable on the way down to the 1180px stack.
   - **A landed save re-reads the picker** (`refreshSprintFiles`). The File list
     names each file by its *first line*, so renaming a heading left the old name
     showing until you left the tab and came back — `loadSprints` was the only
@@ -801,6 +808,13 @@ into one project link.
     One property keeps the cost contained: the swap is **local** — the `<td>`
     exchanges its one child, never a document re-render, because `Tab` walks cells
     and rebuilding 200-odd of them per keypress is not affordable.
+    **The click that opens a cell is the `<td>`'s, not either state's**, and that
+    follows from the swap rather than being a second decision: the host is what
+    survives it. It also has to be, because a `<td>` is `vertical-align: middle`,
+    so a one-line cell in a row made tall by the cell beside it drew its view 30px
+    high inside 263px and the other 234px did nothing — measured, `elementFromPoint`
+    returned the bare `TD` there. Binding on the host makes that margin live in
+    both states, so a press beside an open textarea puts the caret in it.
     The two states now mean what they mean everywhere else in the editor —
     **rendered when you are not in it, source when you are** — which is what makes
     the reveal earn itself rather than merely cost something. An earlier draft of

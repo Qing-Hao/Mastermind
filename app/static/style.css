@@ -731,16 +731,19 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 .week-day:hover .week-day-num, .week-day:hover .week-day-initial { color: #3949ab; }
 
 /* --- sprint view --- */
-/* The **document** is measured for reading rather than given the width of a
-   chart -- prose at chart width is a worse editor than prose in a column -- so
-   the 860px that used to sit on the whole view now sits on the column that holds
-   it. The view itself takes the extra width the scope panel needs beside it, the
-   way the map takes the window: a cap belongs to a thing being read, and there
-   are two things here. */
-.sprint-view { max-width: 1220px; }
+/* **The file takes the window; the panel takes a fifth of it.** This view used to
+   be capped at 1220px with the document fixed at 860 of that, on the reading-width
+   argument that prose at chart width is a worse editor than prose in a column. On
+   a 1778px screen that measured 48% of the page for the file and 543px of nothing
+   to the right of the panel -- and the argument was answering for the wrong
+   content, because what fills a sprint file is the capacity and unplanned-work
+   **tables**, which want every column visible at once far more than a paragraph
+   wants a short line. So the cap is gone and the split is 4:1 by request.
+   The panel keeps a floor: below about 1300px a fifth stops being enough to read a
+   deliverable name in, and the stack below is still a way off. */
 .sprint-layout {
   display: grid;
-  grid-template-columns: minmax(0, 860px) 300px;
+  grid-template-columns: minmax(0, 4fr) minmax(260px, 1fr);
   gap: 16px;
   align-items: start;
 }
@@ -781,9 +784,9 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 .sprint-scope .slice-deliv-head { display: none; }
 .sprint-scope .slice-deliverables { margin-top: 0; }
 /* Load-bearing, the fifth time this trap has come up -- see
-   `.fortnight-drawer[hidden]` above. The rule on the line before sets a width,
-   not a display, but the document below sets one, and the whole view is toggled
-   by the same `hidden` attribute every other view uses. */
+   `.fortnight-drawer[hidden]` above. `.sprint-view` carries no rule of its own
+   any more, but `.sprint-doc` below sets a `display`, and the whole view is
+   toggled by the same `hidden` attribute every other view uses. */
 .sprint-view[hidden] { display: none; }
 
 /* The left padding is the gutter the rail is drawn in: the rail is positioned
@@ -1073,9 +1076,14 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 }
 .sprint-cell { resize: none; overflow: hidden; }
 
-/* The resting state. `cursor: text` because clicking it is how you type here, and
-   `min-height` so an empty cell is still a target rather than a 0px line. */
-.sprint-cell-view { cursor: text; }
+/* The resting state. `min-height` on the line below so an empty cell is still a
+   target rather than a 0px line.
+   **`cursor: text` is the host's, not the view's**, because the click is the
+   host's: a `<td>` is `vertical-align: middle`, so a one-line view sits in the
+   middle of a row made tall by the cell beside it and the margin around it is
+   cell you can type in. The class is what keeps it off the gutter and grip cells,
+   which are the same two tags. */
+.sprint-table .sprint-cell-host { cursor: text; }
 /* `--cell-depth` is the line's indent, drawn as padding with the text hanging
    under itself rather than under its bullet. The line keeps `pre-wrap` because a
    line that is *not* a list item still owns whatever spaces you typed into it. */

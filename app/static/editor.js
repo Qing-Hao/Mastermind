@@ -1531,8 +1531,36 @@ function columnResizer(block, column, table) {
 // The swap is local — the `<td>` exchanges its one child — and never a document
 // re-render: `Tab` walks cells, and rebuilding every block per keypress in a file
 // with 200-odd cells is not affordable.
+// **The whole cell is the target, which means the handler is on the host and not
+// on either state inside it.** A `<td>` is `vertical-align: middle`, so a
+// one-line cell in a row made tall by the cell beside it draws its view 30px high
+// in the middle of 263px -- and it was the view that carried the click, so 234px
+// of that cell did nothing. Measured, not guessed: `elementFromPoint` at the top
+// and bottom of such a cell returned the bare `TD`.
+//
+// The host survives the view/textarea swap -- the swap replaces the host's one
+// child -- so binding here also means the dead space is live *while you are
+// typing*, where the textarea is its text's height and centred the same way.
 function sprintCellHost(block, index, r, column) {
-  const host = element(r === -1 ? "th" : "td");
+  // The class is what tells the cursor apart from the gutter and grip cells,
+  // which are the same two tags and are not "click here to type".
+  const host = element(r === -1 ? "th" : "td", "sprint-cell-host");
+  host.title = "Click to edit";
+  host.onclick = (event) => {
+    // A table lives inside a `.sprint-row` with drag handlers of its own.
+    event.stopPropagation();
+    // A link in a cell is there to be followed, the same conclusion `sprintBlock`
+    // reached for a link in a paragraph. The checkbox stops its own click.
+    if (event.target.closest("a")) return;
+    const editor = host.querySelector(".sprint-cell");
+    // Already editing: a press in the margin around the textarea puts you in it,
+    // and a press inside it is the browser's to place the caret with.
+    if (editor) {
+      if (event.target !== editor) editor.focus();
+      return;
+    }
+    editSprintCell(host, block, index, r, column);
+  };
   showSprintCell(host, block, index, r, column);
   return host;
 }
@@ -1552,7 +1580,6 @@ function sprintCellView(block, index, r, column) {
   view.dataset.r = r;
   view.dataset.c = column;
   view.style.textAlign = CELL_ALIGN[grid.align[column]] || "";
-  view.title = "Click to edit";
 
   // The tint is the cell's, so its marker is taken off the front of the whole
   // cell before the lines are read -- otherwise it would draw as text on line one.
@@ -1596,13 +1623,8 @@ function sprintCellView(block, index, r, column) {
     view.appendChild(row);
   });
 
-  view.onclick = (event) => {
-    event.stopPropagation();
-    // A link in a cell is there to be followed, the same conclusion `sprintBlock`
-    // reached for a link in a paragraph.
-    if (event.target.closest("a")) return;
-    editSprintCell(cellHost(view), block, index, r, column);
-  };
+  // No click handler here: the whole `<td>` carries it, so the dead margin a
+  // short cell leaves in a tall row is live too. See `sprintCellHost`.
   return view;
 }
 
