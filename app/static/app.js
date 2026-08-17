@@ -160,16 +160,32 @@ let state = {
     // Which block a gutter drag is carrying, by index. Null unless dragging.
     dragIndex: null,
   },
+  // How many roadmap writes this page has made. Bumped by `api` on every
+  // non-GET that is not a sprint file, and read by anything holding a **cached
+  // read of the roadmap** -- which is the scope panel and, so far, only it.
+  //
+  // A counter rather than an invalidation call per edit: the panel is on a
+  // different tab from every gesture that changes what it draws, so wiring each
+  // one to it would mean remembering to, in about a dozen places, with nothing
+  // failing loudly when somebody forgets. This cannot be forgotten -- a write is
+  // an edition, and a cache carrying the edition it was read at can tell.
+  roadmapRevision: 0,
   // The roadmap beside the sprint file: one fortnight of it, for the panel down
-  // the right of the Sprint tab. `asked` is the window a fetch has already been
+  // the right of the Sprint tab. `asked` is the **key** a fetch has already been
   // fired for -- success or failure -- so a render never re-asks the same
-  // question, and a failure does not loop.
-  sprintScope: { asked: null, start: null, slice: null, error: "" },
+  // question, and a failure does not loop. See `scopeKey`: the key carries the
+  // roadmap's edition as well as the fortnight, which is what lets adding a
+  // deliverable on the Project tab reach this panel.
+  // `key` is what the slice in hand was read at; `start` is the fortnight half of
+  // it on its own, because a slice for the *same* fortnight at an older edition
+  // is still worth drawing while the re-read is in flight.
+  sprintScope: { asked: null, key: null, start: null, slice: null, error: "" },
 };
 
 // --- api --------------------------------------------------------------------
 
 async function api(path, options = {}) {
+  const method = (options.method || "GET").toUpperCase();
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json" },
     ...options,
@@ -188,6 +204,14 @@ async function api(path, options = {}) {
     error.status = response.status;
     error.detail = detail;
     throw error;
+  }
+  // A landed write is a new edition of the roadmap, and the counter is bumped
+  // here so no caller has to remember to. Sprint files are excluded on purpose:
+  // they are not the roadmap, and the editor `PUT`s a whole file per autosave
+  // debounce -- counting those would re-read `/api/fortnight` every time you
+  // stopped typing, to draw a panel nothing had changed.
+  if (method !== "GET" && !path.startsWith("/api/sprints")) {
+    state.roadmapRevision += 1;
   }
   return response.status === 204 ? null : response.json();
 }
@@ -2289,6 +2313,18 @@ function sliceDeliverables(lanes, colours) {
 const openSprintWindow = () => state.sprint.files.find(
   (file) => file.number === state.sprint.number)?.window || null;
 
+// What the cached slice is a read of: **which fortnight, at which edition of the
+// roadmap.** The fortnight alone was the whole key until 2026-08-17, and that was
+// the bug -- a slice fetched once was kept forever, so adding a deliverable on
+// the Project tab left this panel drawing the scope from before the edit, with
+// nothing on screen admitting it was stale.
+//
+// Keying on `roadmapRevision` rather than clearing the cache when the Sprint tab
+// opens: the tab is reached by a click that changes nothing far more often than
+// by one that follows an edit, and a key that says what it was read at re-asks
+// exactly when the answer can have changed.
+const scopeKey = (window) => `${window.start}#${state.roadmapRevision}`;
+
 function renderSprintScope() {
   const panel = $("sprint-scope");
   if (!panel) return;
@@ -2310,8 +2346,13 @@ function renderSprintScope() {
   panel.appendChild(element("p", "sprint-scope-window",
     `${shortDate(window.start)} → ${shortDate(window.end)}`));
 
-  if (scope.asked !== window.start) loadSprintScope(window);
-  if (scope.start !== window.start || !scope.slice) {
+  // The slice already in hand is kept on screen while a re-read is in flight, so
+  // an edit does not blank the panel and flash "Reading the roadmap…" over a
+  // picture that is one deliverable out of date. It is replaced when the answer
+  // lands; only a panel with nothing at all to draw says it is reading.
+  const key = scopeKey(window);
+  if (scope.asked !== key) loadSprintScope(window, key);
+  if (!scope.slice || scope.start !== window.start) {
     panel.appendChild(element("p", "muted", scope.error || "Reading the roadmap…"));
     return;
   }
@@ -2333,18 +2374,20 @@ function renderSprintScope() {
 // be made async. `asked` is set before the request and never cleared: a failure
 // leaves the message on screen rather than asking again on the next render,
 // which would be a request per keystroke on a localhost that is refusing.
-async function loadSprintScope(window) {
+async function loadSprintScope(window, key) {
   const scope = state.sprintScope;
-  scope.asked = window.start;
+  scope.asked = key;
   try {
     const slice = await api(`/api/fortnight?start=${encodeURIComponent(window.start)}`);
-    Object.assign(scope, { start: window.start, slice, error: "" });
+    Object.assign(scope, { key, start: window.start, slice, error: "" });
   } catch (failure) {
-    Object.assign(scope, { start: null, slice: null, error: failure.message });
+    Object.assign(scope, { key: null, start: null, slice: null, error: failure.message });
   }
   // Only if the panel is still asking the same question: switching file mid-flight
-  // must not paint the previous file's fortnight over the new one's.
-  if (openSprintWindow()?.start === window.start) renderSprintScope();
+  // must not paint the previous file's fortnight over the new one's, and an edit
+  // landing mid-flight has already asked a newer one that will draw itself.
+  const open = openSprintWindow();
+  if (open && scopeKey(open) === key) renderSprintScope();
 }
 
 // --- the fortnight drawer ---------------------------------------------------
