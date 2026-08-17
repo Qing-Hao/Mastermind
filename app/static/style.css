@@ -1001,9 +1001,12 @@ kbd {
    a width is a suggestion the browser re-fits to the content, so a drag would not
    land where it was let go; under fixed layout every column has been seeded with
    what it was already occupying, so nothing moves at the moment of the switch.
-   `width: auto` with it, or the table would stretch the columns back out to fill
-   the block -- the scroller above is what handles a table wider than the page. */
-.sprint-table.sized { table-layout: fixed; width: auto; }
+   **The width is set inline by `applyColumnWidths`, and it has to be**: `width:
+   auto` means the automatic algorithm whatever `table-layout` says, so this rule
+   read `table-layout: fixed; width: auto` and did nothing at all -- the columns
+   went on being re-fitted to their content and a drag moved the wrong ones. The
+   inline width is the sum of the columns; the scroller above carries the overflow. */
+.sprint-table.sized { table-layout: fixed; }
 .sprint-table.sized .sprint-cell, .sprint-table.sized .sprint-cell-view {
   min-width: 0;   /* the column's width is the width now, not the cell's floor */
 }
@@ -1021,6 +1024,11 @@ kbd {
   cursor: col-resize;
   opacity: 0;
   transition: opacity 0.12s ease;
+  /* The handle straddles the column edge, so its right half lies over the *next*
+     grip cell -- which is `position: relative` too and later in tree order, so it
+     painted on top and swallowed the press. The visible line sits at the centre of
+     the handle, which meant the pixel you aim at was the dead one. */
+  z-index: 2;
 }
 .col-resize::after {
   content: "";

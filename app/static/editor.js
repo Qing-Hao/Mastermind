@@ -1378,6 +1378,12 @@ const SPRINT_WIDTHS_KEY = "roadmap.sprint-widths";
 // to nothing and lost.
 const MIN_COLUMN_PX = 44;
 
+// The row-grip gutter's width once the table is sized. It is not in the stored
+// array -- it is furniture, not a column of the table -- but it still has to be
+// stated, because under fixed layout a column with no width of its own takes
+// whatever is left over between the columns and the table.
+const GUTTER_COLUMN_PX = 18;
+
 // What a column inserted into an already-sized table gets. Only reached when the
 // table has widths at all -- an auto-sized one stays auto-sized.
 const NEW_COLUMN_PX = 120;
@@ -1422,13 +1428,31 @@ function writeWidths(block, widths) {
 // Auto-sized until you touch it. A sized table switches to `table-layout: fixed`,
 // which is what makes a drag land exactly where it was let go -- with auto layout
 // the browser treats a width as a suggestion and re-fits it to the content.
+//
+// **The table's own width is set here, and it is what makes `table-layout: fixed`
+// run at all.** `width: auto` means the *automatic* algorithm whatever
+// `table-layout` says (CSS 2.1 17.5.2.1), so a sized table with no width was still
+// laid out automatically: every `<col>` stayed a suggestion, and dragging a column
+// to 263px drew it at 130 while the columns beside it moved instead -- the exact
+// failure the sized state exists to prevent. A definite width is the sum of the
+// columns, so the table is as wide as its columns make it and `.sprint-grid`
+// scrolls whatever does not fit.
+//
+// One consequence to expect: the first drag narrows the table by whatever slack
+// auto layout had parked in the gutter, which can be 60px. The columns keep the
+// widths they were measured at; only the empty gutter gives its share back.
 function applyColumnWidths(table, widths) {
   const cols = table.querySelectorAll("col");
   table.classList.toggle("sized", Boolean(widths));
   cols.forEach((col, position) => {
-    // Position 0 is the gutter, which is never sized.
-    if (position > 0) col.style.width = widths ? `${widths[position - 1]}px` : "";
+    // Position 0 is the gutter -- sized too, or fixed layout hands it the whole
+    // difference between the columns and the table.
+    if (position === 0) col.style.width = widths ? `${GUTTER_COLUMN_PX}px` : "";
+    else col.style.width = widths ? `${widths[position - 1]}px` : "";
   });
+  table.style.width = widths
+    ? `${GUTTER_COLUMN_PX + widths.reduce((total, width) => total + width, 0)}px`
+    : "";
 }
 
 // The widths a drag starts from: what is stored, or what the columns are actually
