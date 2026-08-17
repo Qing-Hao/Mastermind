@@ -145,6 +145,11 @@ td input { width: 100%; min-width: 80px; }
    `.bar` -- those are block elements owning a row, and several points share one
    line. Hence the positioned lane and absolutely-placed marks.
 
+   Sharing is what a *portfolio* swimlane needs, since a lane there is one row per
+   project. On the project timeline a lane holds one checkpoint and takes its own
+   row in the plan sequence, between the bars it sits between -- so these metrics
+   are a row height in that stack as well as a strip above a swimlane.
+
    `overflow: visible` is deliberate: a label runs to the right of its diamond
    and past the end of the chart if the checkpoint is near it, which is better
    than clipping the name of the thing the plan is aiming at. It also lets a

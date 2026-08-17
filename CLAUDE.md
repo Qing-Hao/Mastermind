@@ -620,8 +620,8 @@ into one project link.
   teaching and a button that is not there teaches nothing. See rule 7 for why the
   gate is not a server-side refusal.
   The timeline has two modes, switched by `Dates | Weeks`, and **milestones draw
-  as diamonds in a lane above the bars in both** — hollow until reached, filled
-  once it is, the same vocabulary the map uses on a project node. A milestone is
+  as diamonds in both** — hollow until reached, filled once it is, the same
+  vocabulary the map uses on a project node. A milestone is
   a point rather than a span, so it cannot be a `.bar`: those are block elements
   owning a row, and several points share one line. The two modes measure from
   different origins, which is the subtlety — Dates counts days from the window
@@ -630,16 +630,35 @@ into one project link.
   common case in Weeks mode, since it is what an undated project opens on, so
   those are counted as undated and reported rather than dropped. Two counts, kept
   apart because they are two problems: no date, versus scrolled off screen.
+  **The chart is one row per plan row, in the shared `sort_order`** — a bar for a
+  phase, a one-diamond lane for a checkpoint, interleaved. Every checkpoint in a
+  single lane pinned above all the bars was the first shape and it made the
+  sequence unreadable: a checkpoint belonging between phases 3 and 4 drew above
+  phase 1, while the table directly below the chart interleaved them properly, so
+  one number line had two pictures. **Row position is the sequence; a mark's x is
+  still its own date** — the two are independent and neither is snapped to the
+  other, so a checkpoint dated in the middle of a phase draws in the middle of
+  that phase while sitting on its own row between the phases it falls between.
+  Nothing here is derived and nothing is repaired: a diamond left of the bar above
+  it is a plan saying something worth seeing.
+  A knock-on the drag had to learn: `makeResequenceable` previews a re-order by
+  re-appending rows, so it now re-appends **the merged sequence** — checkpoint
+  rows keeping their slots, exactly the merge `saveOrder` writes on the drop.
+  Re-appending the bars alone swept every one of them past every checkpoint, which
+  previewed an order the drop would not have produced. It also no longer indexes
+  the body's children positionally, since the body holds rows that are not bars.
   **Colliding labels stack.** Two checkpoints a few days apart used to print one
   name over the other, with the `title` as the consolation; `stackMilestoneLanes`
-  now measures the labels and drops each mark into the first row that has cleared
+  measures the labels and drops each mark into the first row that has cleared
   it, growing the lane's height with the rows — the bars below are block elements,
   so a second row has to push them down rather than paint across them. It is a
   **sweep over the finished chart**, not a step inside `milestoneLane`, and that
   is forced: a detached element has no layout, so `offsetWidth` in the builder is
   0 and neither the grid body nor a portfolio swimlane is in the document when its
   lane is built. All three charts call it, so the vocabulary cannot drift; failing
-  to call it costs only the overlap it fixes.
+  to call it costs only the overlap it fixes. On the project timeline it now finds
+  nothing to stack — a lane there holds one mark — and it is still called, because
+  the **portfolio's** lanes are shared and are where the overlap was worst.
   - **Dates** — the calendar grid. Only phases with a start date appear.
   - **Weeks** — `W1, W2, …` counted from the start of the project, no calendar.
     Every phase appears, stacked back to back in `sort_order`; dates on phases
@@ -706,7 +725,11 @@ into one project link.
   **Each lane draws its project's checkpoints** as diamonds above its bars, the
   same `milestoneLane` the project timeline uses — one component, so the
   hollow-until-reached vocabulary cannot drift between the two charts, and the
-  label stacking described there arrives here for free. This is where the overlap
+  label stacking described there arrives here for free. **This is the surface the
+  shared lane is still for**: a swimlane is one row per project, so every
+  checkpoint the project has goes in the one strip, where the project timeline now
+  hands the same component a single mark per row. That is why the builder takes a
+  list. This is where the overlap
   was worst: a dozen lanes each a few rows tall, and three checkpoints a few days
   apart printed one name over another. **Bars
   still decide which lanes exist**: a project whose work is all off-window keeps

@@ -1070,22 +1070,31 @@ function renderTimeline() {
   }
 
   const view = resolveWindow();
-  const visible = phases.filter((phase) => inWindow(phase, view));
-  offWindowNote(timeline, phases.length - visible.length);
+  const visible = new Set(phases.filter((phase) => inWindow(phase, view))
+    .map((phase) => phase.id));
+  offWindowNote(timeline, phases.length - visible.size);
 
   const body = weekGrid(timeline, view);
-  // Before the milestone lane, deliberately: both are positioned, so DOM order
+  // Before the milestone rows, deliberately: both are positioned, so DOM order
   // is what decides which paints over the other, and a diamond and its label
   // must not be cut by the line. Bars need no such care -- they are plain block
   // elements, so any positioned sibling paints above them whatever the order.
   const now = todayLine(view);
   if (now) body.appendChild(now);
-  const { marks, undated, offWindow } = milestoneMarks(state.plan.milestones, view);
-  if (marks.length > 0) body.appendChild(milestoneLane(marks));
 
+  const { marks, undated, offWindow } = milestoneMarks(state.plan.milestones, view);
+  const placed = markIndex(marks);
   const warned = warnedPhaseIds();
-  for (const phase of visible) {
-    body.appendChild(phaseBar(phase, view, warned.has(phase.id)));
+  // One chart row per plan row, in the shared `sort_order` -- see the note above
+  // `milestoneLane`. A phase with no date, or one scrolled out of the window,
+  // takes no row and is counted in the notes below instead.
+  for (const row of orderedPlanRows()) {
+    if (row.kind === "phase") {
+      if (!visible.has(row.item.id)) continue;
+      body.appendChild(phaseBar(row.item, view, warned.has(row.item.id)));
+    } else if (placed.has(row.item.id)) {
+      body.appendChild(milestoneLane([placed.get(row.item.id)]));
+    }
   }
   milestoneNotes(timeline, undated, offWindow);
   stackMilestoneLanes(timeline);  // needs layout, so after the chart is attached
@@ -1136,12 +1145,23 @@ function phaseBar(phase, view, isWarned) {
 
 // A milestone is a point rather than a span, so it draws as a diamond and needs
 // a lane of its own: a zero-width bar among the phases would be invisible and
-// impossible to hover. The lane sits above the bars because that is what the
-// phases are aiming at.
+// impossible to hover.
 //
 // Diamonds are absolutely positioned inside the lane so several share one line.
 // Every other bar in this app is a block element owning its own row, which is
-// exactly what a point marker must not be.
+// exactly what a point marker must not be. That is what makes one lane able to
+// hold a whole project's checkpoints, which is how the **portfolio** uses it: a
+// swimlane is one row per project, so a lane there is shared by every checkpoint
+// the project has.
+//
+// The **project timeline** hands it one mark at a time instead, and gets one row
+// per checkpoint interleaved among the bars in `sort_order`. Every checkpoint in
+// a single lane above the chart was the first shape and it made the sequence
+// unreadable: a checkpoint belonging between phases 3 and 4 drew above phase 1,
+// while the phase table right below the chart interleaved them properly -- two
+// pictures of one number line. Row position is the sequence; the mark's x is
+// still its own date, so a checkpoint dated in the middle of a phase draws in
+// the middle of it. The two are independent and neither is snapped to the other.
 //
 // One line is only the starting point: `stackMilestoneLanes` measures the labels
 // once the chart is in the document and moves colliding ones down a row.
@@ -1226,6 +1246,14 @@ function milestoneMarks(milestones, view) {
   return { marks, undated, offWindow };
 }
 
+// Both mark builders return a list, because the portfolio hands a whole lane its
+// project's checkpoints. The project timeline draws one per row, so it needs to
+// find a mark by id while walking the plan sequence -- and a milestone missing
+// from here is one that could not be placed, which is what skips its row.
+function markIndex(marks) {
+  return new Map(marks.map((mark) => [mark.milestone.id, mark]));
+}
+
 // Weeks mode has no calendar, so a milestone's stored date has to be measured
 // against something: the project's own start. Without that there is no origin to
 // count from and nothing can be placed -- which is the common case here, since
@@ -1291,13 +1319,34 @@ function renderRelativeTimeline() {
 
   const body = weekGrid(timeline, view, relativeRuler);
   const { marks, undated, offWindow } = relativeMilestoneMarks(view);
-  if (marks.length > 0) body.appendChild(milestoneLane(marks));
-
+  const placed = markIndex(marks);
   const warned = warnedPhaseIds();
 
-  phases.forEach((phase, index) => {
-    body.appendChild(relativeBar(phase, index, phase.offset_weeks, view, warned));
-  });
+  // One row per plan row, the same sequence the phase table shows. The phase
+  // index counted here is its index in `state.plan.phases`, which is what the
+  // drag re-sequences: both lists are `sort_order` ascending and the merge sorts
+  // stably, so counting the phase rows off reproduces it.
+  const rows = [];
+  let phaseIndex = 0;
+  for (const row of orderedPlanRows()) {
+    if (row.kind === "phase") {
+      const bar = relativeBar(row.item, row.item.offset_weeks, view, warned);
+      rows.push({ kind: "phase", item: row.item, node: bar, index: phaseIndex });
+      phaseIndex += 1;
+      body.appendChild(bar);
+    } else if (placed.has(row.item.id)) {
+      const lane = milestoneLane([placed.get(row.item.id)]);
+      rows.push({ kind: "milestone", item: row.item, node: lane });
+      body.appendChild(lane);
+    }
+  }
+
+  // Armed only once every row exists: the drag previews the whole sequence, so
+  // it has to know about the rows that are not bars.
+  for (const row of rows) {
+    if (row.kind !== "phase") continue;
+    makeResequenceable(row.node, row.item, row.index, row.item.offset_weeks, view, rows);
+  }
   milestoneNotes(timeline, undated, offWindow);
   stackMilestoneLanes(timeline);
 }
@@ -1314,7 +1363,9 @@ function relativeRuler({ weeks }) {
   return ruler;
 }
 
-function relativeBar(phase, index, offset, view, warned) {
+// The drag is armed by the caller rather than here, since it needs the finished
+// row list -- checkpoint rows included -- and that does not exist yet.
+function relativeBar(phase, offset, view, warned) {
   const isWarned = warned.has(phase.id);
   const bar = element("div",
     `bar status-${phase.status}${isWarned ? " bar-warn" : ""} draggable`);
@@ -1323,7 +1374,6 @@ function relativeBar(phase, index, offset, view, warned) {
   bar.title = `${phase.name}: ${span} (${phase.duration_weeks}w, `
     + `${phase.effort_points} pts)  (drag to re-order)`;
   bar.textContent = phase.name;
-  makeResequenceable(bar, phase, index, offset, view);
   return bar;
 }
 
@@ -1339,15 +1389,14 @@ function placeRelativeBar(bar, offset, weeks, view) {
 // created and none is moved, so the rule that the timeline never reschedules
 // itself is untouched -- this is the ordering the layout button will later
 // turn into dates, not a schedule.
-function makeResequenceable(bar, phase, index, offset, view) {
+function makeResequenceable(bar, phase, index, offset, view, rows) {
   bar.onmousedown = (event) => {
     event.preventDefault();
     const startX = event.clientX;
     const body = bar.parentElement;
-    const phases = state.plan.phases;
-    const others = phases.filter((other) => other.id !== phase.id);
-    const bars = new Map(phases.map((item, position) =>
-      [item.id, body.children[position]]));
+    const others = state.plan.phases.filter((other) => other.id !== phase.id);
+    const barsById = new Map(rows.filter((row) => row.kind === "phase")
+      .map((row) => [row.item.id, row.node]));
     let targetIndex = index;
     bar.classList.add("dragging");
 
@@ -1360,12 +1409,28 @@ function makeResequenceable(bar, phase, index, offset, view) {
       const preview = others.slice();
       preview.splice(targetIndex, 0, phase);
       const offsets = stackOffsets(preview);
-      preview.forEach((item, position) => {
-        const node = bars.get(item.id);
+
+      // Re-appended in the *merged* sequence, checkpoint rows included, which is
+      // the same merge `saveOrder` writes on the drop: the phase slots take the
+      // previewed order and a checkpoint keeps the slot it occupies. Re-appending
+      // the bars alone would sweep every one of them past every checkpoint, so
+      // the preview would show a sequence the drop then would not produce.
+      // A checkpoint's own x is a date and a re-order writes none, so no mark
+      // moves sideways here.
+      let next = 0;
+      for (const row of rows) {
+        if (row.kind !== "phase") {
+          body.appendChild(row.node);
+          continue;
+        }
+        const item = preview[next];
+        const node = barsById.get(item.id);
         body.appendChild(node);
-        if (item.id === phase.id) return;
-        placeRelativeBar(node, offsets[position], phaseWeeks(item), view);
-      });
+        if (item.id !== phase.id) {
+          placeRelativeBar(node, offsets[next], phaseWeeks(item), view);
+        }
+        next += 1;
+      }
       // The held bar follows the cursor instead of snapping, so it reads as
       // picked up; the drop lands it wherever the others have made room.
       bar.style.marginLeft = `${Math.max(held, 0) * view.pxPerWeek}px`;
