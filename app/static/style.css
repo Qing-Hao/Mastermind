@@ -348,7 +348,22 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 }
 
 .lane { padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
-.lane-title { font-size: 12px; font-weight: 600; color: #555; margin-bottom: 4px; }
+/* The project's name, and the heaviest thing in the swimlane: it is what you
+   are looking for when scanning a chart of a dozen lanes, and the bars beside
+   it are all the same weight. Underlined on request; note it is not a link and
+   nothing here is clickable — the whole title carries the lane's summary as a
+   tooltip and that is all it does. */
+.lane-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #333;
+  margin-bottom: 4px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  /* The lane is as wide as the chart, so an undecorated span would still be a
+     full-width underline running past the name. */
+  width: fit-content;
+}
 
 /* --- unscheduled staging --- */
 .unscheduled { list-style: none; padding: 0; margin: 8px 0; }
@@ -489,6 +504,17 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 .slice-day.is-weekend.is-lead-out { background: #eaeaea; }
 .slice-day.is-lead-edge, .slice-tick.is-lead-edge { border-left: 2px solid #c8c8c8; }
 
+/* Today's whole column, shaded so it is found without being looked for -- the
+   line below still marks the day exactly. Last, so it wins over the weekend and
+   lead-out shading: today falling on a Saturday is still today.
+
+   Amber because every other meaning in this component is already spoken for:
+   red is late, blue is planned work, green is in progress and grey is done or
+   next fortnight's problem. It is the one warm neutral left, and it is a wash
+   rather than a fill, so it says "here" without claiming to be a state. */
+.slice-day.is-today, .slice-tick.is-today { background: #fdf1d0; }
+.slice-tick.is-today { color: #8a6a12; font-weight: 600; }
+
 /* Deliberately not red: red in this component means late, and today is not a
    problem. It is absent entirely when today is off the strip. */
 .slice-today {
@@ -499,7 +525,22 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   z-index: 2;
 }
 
-.slice-lane { position: relative; z-index: 1; padding: 2px 0 5px; }
+/* --lane-hue is one colour per project, set inline by sliceLane(). It is
+   identity and not meaning: the bar keeps saying status and overdue, so the
+   colour is spent on the rail, the name and a wash — never on the fill. The
+   wash carries its own alpha so the weekend and lead-out shading behind the row
+   still reads through it. Both fall back to nothing, so a lane drawn without a
+   colour is exactly the lane this component drew before. */
+.slice-lane {
+  position: relative;
+  z-index: 1;
+  padding: 2px 0 5px;
+  background: var(--lane-tint, transparent);
+}
+/* The rail rides on the title, not on `.slice-lane`: the lane is a grid of day
+   columns, so a border on it would take its width out of the columns and walk
+   every bar off the ruler above. The title spans `1 / -1`, so it owns no column
+   and can be given one freely. */
 .slice-lane-title {
   grid-column: 1 / -1;
   display: flex;
@@ -507,8 +548,10 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   align-items: baseline;
   font-size: 11px;
   padding: 0 3px;
+  border-left: 3px solid var(--lane-hue, transparent);
+  padding-left: 6px;
 }
-.slice-project { font-weight: 600; color: #555; }
+.slice-project { font-weight: 600; color: var(--lane-hue, #555); }
 .slice-phase { color: #777; }
 .slice-flag {
   color: #b00020;
@@ -575,8 +618,14 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
-.slice-deliv-group { margin-top: 6px; }
-.slice-deliv-title { font-size: 12px; color: #555; }
+/* Carries its row's rail, so a group of names is traceable up to the bar it
+   came from without reading the project name twice. */
+.slice-deliv-group {
+  margin-top: 6px;
+  border-left: 3px solid var(--lane-hue, transparent);
+  padding-left: 6px;
+}
+.slice-deliv-title { font-size: 12px; color: var(--lane-hue, #555); font-weight: 600; }
 .slice-deliv-group ul { margin: 2px 0 0; padding-left: 20px; font-size: 12px; }
 
 /* --- the fortnight drawer --- */

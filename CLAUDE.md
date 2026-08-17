@@ -600,7 +600,11 @@ into one project link.
   on screen**: a lane only draws the phases inside the current window, so
   measuring those would make one project report different dates depending on
   where the chart is scrolled. An undated project says `no dates yet` rather than
-  printing blanks.
+  printing blanks. The title is the **heaviest thing in the lane** — bold,
+  underlined, a size up — because it is what you scan a dozen swimlanes for and
+  every bar beside it carries the same weight. It is not a link and nothing about
+  it is clickable; the underline is decoration, and the whole title carries the
+  summary as a tooltip.
   **There is no warnings panel here, and that is a decision.** One was built —
   every rule for every project, grouped in swimlane order — and removed on the
   requester's call the same day: warnings stay in the project view. The argument
@@ -652,6 +656,27 @@ into one project link.
   the map is the one hand-rolled SVG here. `compact` is the drawer's density:
   same DOM, tighter metrics, so the drawer and the Sprint tab cannot drift into
   two pictures of one fortnight.
+  **Today is a shaded column as well as a line**: the line marks the day
+  exactly, the shading is what you find without looking for it. Amber, because
+  every other meaning here is spoken for — red is late, blue is planned, green
+  is in progress, grey is done or next fortnight's problem — and it is last in
+  the cascade, so today falling on a Saturday is still today.
+  **Each project row takes a colour, and it is identity rather than meaning.**
+  One hue per project on the row's rail, its name and a faint wash; the bar fill
+  still says status and the one red still says overdue, which is why no colour
+  goes on the bar. Assigned by **order of first appearance** rather than by id,
+  so adjacent rows differ — `TRACK_HUES` is sequenced for neighbouring pairs and
+  the lanes sort by band then project. The cost is that a project can take a
+  different colour in a different fortnight; accepted, because this panel is one
+  fortnight read on its own, and a stable hash lets two adjacent rows collide,
+  which is the thing being fixed. The eight are the map's, reused rather than a
+  second palette invented — they are already colour-blindness checked — and the
+  collision with *track* is a non-collision: this panel draws no tracks. The
+  wash carries an alpha rather than being mixed towards white, so the weekend
+  and lead-out shading behind the row still reads through it. The rail rides on
+  the **lane title**, never on `.slice-lane`: the lane is a grid of day columns,
+  so a border on it would take its width out of the columns and walk every bar
+  off the ruler above.
   **Points are drawn whole, on the bar**, and the share of a phase inside the
   fortnight is the bar's width and nothing else. A clipped edge gets a solid
   tab and a chevron rather than the portfolio's dotted edge, because at day
@@ -1121,6 +1146,30 @@ into one project link.
 Both charts share one week grid: Monday-based columns under a month/week ruler,
 window capped at 26 weeks, column width fitted to the container and clamped
 22–64px. A week belongs to the month of its Monday.
+
+**The grid is shared; the viewport is not.** `state.windows` holds one per chart
+(`activeWindow()` picks by `state.view`), because the two tabs answer different
+questions and want different framings — and one viewport meant opening a project
+re-framed the portfolio you had just been reading. Each opens on its own default
+(`defaultOrigin`), and `Today` restores that default rather than writing a date,
+so the button and the way the tab opens cannot say different things about where
+"now" is:
+
+- **Portfolio** — this week with `PORTFOLIO_LOOKBACK_WEEKS` (2) of run-up behind
+  it. Where the work has just come from is part of "where are we".
+- **Project** — fitted to the open plan by `fitProjectWindow`, as a *custom*
+  range rather than a week count, since a span is whatever it is and the preset
+  list holds five numbers. `planDateRange` is deliberately **not**
+  `validation.project_span` and is not named after it: this is a viewport, so it
+  also counts a checkpoint dated past the last phase — a window that opened with
+  the thing the plan is aiming at off its right edge would be framing the work
+  and hiding the target. Over 26 weeks it caps, with the existing note.
+  Fitting happens **once per project selection**, not per load: every edit calls
+  `loadPlan`, and refitting there would drag the viewport back while you were
+  paging it (`state.windowFittedTo`). `Fit` in the window bar is how you ask
+  again after moving dates; it appears in the project view only, and only when
+  there is a range to fit to. An undated plan has nothing to fit and opens on
+  this week — and on the Weeks timeline anyway, which has no window at all.
 
 **Today is marked on the grid**, in the project timeline's Dates mode and on the
 portfolio: a 2px line in the grid body plus the current week's ruler cell drawn

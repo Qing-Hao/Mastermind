@@ -91,10 +91,24 @@ let state = {
   // a project with nothing scheduled opens on weeks, anything else on dates.
   // Clicking the switch pins it until you change project.
   timelineMode: null,
-  // Both charts share one viewport, so switching tabs keeps your place.
-  // `start` is an ISO date, or null meaning "the week containing today".
-  // `weeks` is null while a custom range is set, in which case `customEnd` holds it.
-  window: { start: null, weeks: MAX_WINDOW_WEEKS, customEnd: null },
+  // One viewport per chart. They were shared, on the grounds that switching
+  // tabs should keep your place -- but the two charts answer different
+  // questions and so want different framings: the portfolio opens on *now*,
+  // with a run-up behind it, and the project page opens on *this project's
+  // dates*. One viewport cannot be both, and holding it in step meant opening
+  // a project always re-framed the portfolio you had just been reading.
+  //
+  // In each: `start` is an ISO date, or null meaning "the default framing for
+  // this chart" (`defaultOrigin`). `weeks` is null while a custom range is set,
+  // in which case `customEnd` holds it.
+  windows: {
+    project: { start: null, weeks: MAX_WINDOW_WEEKS, customEnd: null },
+    portfolio: { start: null, weeks: MAX_WINDOW_WEEKS, customEnd: null },
+  },
+  // The project the project window was last fitted to. Fitting happens when you
+  // *change* project, never on a reload -- every edit calls `loadPlan`, and
+  // refitting there would yank the viewport back while you were paging it.
+  windowFittedTo: null,
   // The last tray placement, kept so it can be reversed exactly: the project's
   // previous start date and the phases that drop dated. In memory only -- a
   // reload loses it, and the offer says so rather than pretending otherwise.
@@ -213,15 +227,80 @@ const addDays = (date, days) => {
   return moved;
 };
 
+// Which chart's viewport is in play. The map has no window, and `redraw` only
+// ever reaches a chart whose own view is current, so "not the project view"
+// means the portfolio.
+const activeWindow = () =>
+  state.windows[state.view === "project" ? "project" : "portfolio"];
+
+// How far the portfolio's default framing sits behind this week. Two weeks of
+// run-up: the question that tab answers is "where are we", and where the work
+// has just come from is part of the answer -- a window opening exactly on today
+// puts the run-in off the left edge, which is the half you check against.
+const PORTFOLIO_LOOKBACK_WEEKS = 2;
+
+// The origin a chart falls back to with no start of its own. The project view
+// is normally fitted to its project by `fitProjectWindow`, so this is what an
+// undated project -- which has nothing to fit to -- opens on.
+function defaultOrigin() {
+  const monday = weekStart(new Date());
+  return state.view === "project"
+    ? monday
+    : addDays(monday, -PORTFOLIO_LOOKBACK_WEEKS * 7);
+}
+
+// The dates the open plan occupies, which is what the project page frames
+// itself to. Not `validation.project_span`, deliberately, and not named after
+// it: that pair is the project's own start and end, while this is a *viewport*
+// and so also counts a checkpoint dated past the last phase -- a window that
+// opened with the thing the plan is aiming at off its right edge would be
+// framing the work and hiding the target. Undated records are skipped, so a
+// plan with nothing on the calendar has no range and nothing to fit to.
+function planDateRange() {
+  if (!state.plan) return null;
+  const dated = state.plan.phases.filter(isScheduled);
+  if (dated.length === 0) return null;
+
+  const starts = dated.map((phase) => phase.start_date);
+  const ends = dated.map((phase) => phase.end_date);
+  // The project's own start when it is set: it is the date the plan is measured
+  // from, so a window opening after it would cut off the run-in.
+  if (state.plan.project.start_date) starts.push(state.plan.project.start_date);
+  for (const milestone of state.plan.milestones || []) {
+    if (milestone.target_date) ends.push(milestone.target_date);
+  }
+
+  // ISO dates, so string order is date order.
+  return {
+    start: starts.reduce((a, b) => (a < b ? a : b)),
+    end: ends.reduce((a, b) => (a > b ? a : b)),
+  };
+}
+
+// Frame the project window on the open plan. A custom range rather than a week
+// count, because the span is whatever it is and the preset list holds five
+// numbers; `resolveWindow` rounds it out to whole columns and caps it at
+// MAX_WINDOW_WEEKS, which is where the "capped at 26 weeks" note comes from on
+// a long plan.
+function fitProjectWindow() {
+  const range = planDateRange();
+  if (!range) return;
+  state.windows.project = {
+    start: range.start,
+    weeks: null,
+    customEnd: range.end,
+  };
+}
+
 // The visible viewport, in whole week columns. Everything else measures against
 // this -- the grid is drawn for the full window even where nothing is planned.
 function resolveWindow() {
-  const origin = weekStart(
-    state.window.start ? parseDate(state.window.start) : new Date());
+  const win = activeWindow();
+  const origin = win.start ? weekStart(parseDate(win.start)) : defaultOrigin();
   // A custom range is rounded out to whole weeks, since a week is the column.
-  const requested = state.window.weeks === null
-    ? Math.ceil((daysBetween(origin, parseDate(state.window.customEnd)) + 1) / 7)
-    : state.window.weeks;
+  const requested = win.weeks === null
+    ? Math.ceil((daysBetween(origin, parseDate(win.customEnd)) + 1) / 7)
+    : win.weeks;
 
   // A cleared or reversed custom range would otherwise give NaN or a negative,
   // and a chart sized NaN renders as nothing at all.
@@ -351,20 +430,21 @@ function redraw() {
 }
 
 // Rebuilt from scratch on every render. Both views call this with their own
-// container, and both drive the same state.window, so the two stay in step.
+// container; each drives its own viewport, so paging one leaves the other where
+// you left it.
 function renderWindowBar(container) {
   container.innerHTML = "";
+  const win = activeWindow();
   const { origin, weeks, clamped } = resolveWindow();
-  const custom = state.window.weeks === null;
+  const custom = win.weeks === null;
 
   const step = (direction) => {
     // Page by exactly the span on screen, so consecutive windows tile with no
     // gap or overlap and stay Monday-aligned.
     const shift = direction * weeks * 7;
-    state.window.start = formatDate(addDays(origin, shift));
+    win.start = formatDate(addDays(origin, shift));
     if (custom) {
-      state.window.customEnd = formatDate(
-        addDays(parseDate(state.window.customEnd), shift));
+      win.customEnd = formatDate(addDays(parseDate(win.customEnd), shift));
     }
     redraw();
   };
@@ -373,12 +453,19 @@ function renderWindowBar(container) {
   back.title = "Previous period";
   back.onclick = () => step(-1);
 
+  // Back to this chart's own default framing, which on the portfolio is two
+  // weeks of run-up rather than a window starting today. Clearing `start`
+  // rather than writing today's Monday is what keeps the button and the
+  // default one thing: a button that framed the week differently from the way
+  // the tab opens would be a second opinion about where "now" is.
   const today = element("button", null, "Today");
-  today.title = "Jump back to the period starting this week";
+  today.title = state.view === "project"
+    ? "Jump back to the period starting this week"
+    : `Jump back to now, with ${PORTFOLIO_LOOKBACK_WEEKS} weeks of run-up`;
   today.onclick = () => {
-    state.window.start = formatDate(weekStart(new Date()));
+    win.start = null;
     if (custom) {
-      state.window.customEnd = formatDate(addDays(weekStart(new Date()), weeks * 7 - 1));
+      win.customEnd = formatDate(addDays(defaultOrigin(), weeks * 7 - 1));
     }
     redraw();
   };
@@ -396,36 +483,47 @@ function renderWindowBar(container) {
   const customOption = element("option", null, "Custom…");
   customOption.value = "custom";
   select.appendChild(customOption);
-  select.value = custom ? "custom" : String(state.window.weeks);
+  select.value = custom ? "custom" : String(win.weeks);
 
   select.onchange = () => {
     if (select.value === "custom") {
-      state.window.weeks = null;
+      win.weeks = null;
       // Seed the range from whatever was on screen, so nothing jumps.
-      state.window.customEnd = formatDate(addDays(origin, weeks * 7 - 1));
+      win.customEnd = formatDate(addDays(origin, weeks * 7 - 1));
     } else {
-      state.window.weeks = Number(select.value);
-      state.window.customEnd = null;
+      win.weeks = Number(select.value);
+      win.customEnd = null;
     }
     redraw();
   };
 
   container.append(back, today, forward, select);
 
+  // The project page opens fitted to the project's own dates, so it needs a way
+  // back to that framing once you have paged away -- `Today` is the portfolio's
+  // answer to the same question and is the wrong one here. Offered only where
+  // there is a span to fit to; an undated project has nothing to return to.
+  if (state.view === "project" && planDateRange()) {
+    const fit = element("button", null, "Fit");
+    fit.title = "Fit the window to this project's dates";
+    fit.onclick = () => { fitProjectWindow(); redraw(); };
+    container.appendChild(fit);
+  }
+
   if (custom) {
     const from = element("input");
     from.type = "date";
     from.value = formatDate(origin);
     from.onchange = () => {
-      if (from.value) state.window.start = from.value;
+      if (from.value) win.start = from.value;
       redraw();
     };
 
     const to = element("input");
     to.type = "date";
-    to.value = state.window.customEnd;
+    to.value = win.customEnd;
     to.onchange = () => {
-      if (to.value) state.window.customEnd = to.value;
+      if (to.value) win.customEnd = to.value;
       redraw();
     };
 
@@ -521,6 +619,16 @@ async function loadPlan() {
   if (!state.currentProjectId) return;
   state.plan = await api(`/api/projects/${state.currentProjectId}`);
   state.settings = state.plan.settings;
+  // Opening a project frames the chart on that project's dates. Once per
+  // selection, not once per load: every edit lands here, and refitting on each
+  // one would drag the viewport back while you were paging it. `Fit` in the
+  // window bar is how you ask for it again after moving dates around. Marked
+  // even when there was nothing to fit, so an undated project is not refitted
+  // out from under you the moment its first phase gets a date.
+  if (state.windowFittedTo !== state.plan.project.id) {
+    fitProjectWindow();
+    state.windowFittedTo = state.plan.project.id;
+  }
   renderProjectView();
   // Naming a deliverable, setting a date or ticking the last milestone all
   // change the badge on the project you are looking at, and every edit lands
@@ -1883,6 +1991,7 @@ function renderSprintSlice(container, slice, { compact = false } = {}) {
 
   const strip = element("div", "slice-strip");
   strip.appendChild(sliceRuler(window, days));
+  const colours = laneColours(lanes);
 
   const body = element("div", "slice-body");
   body.appendChild(sliceBackdrop(window, days));
@@ -1890,7 +1999,9 @@ function renderSprintSlice(container, slice, { compact = false } = {}) {
   // line at an edge would read as "today is here", which is the one thing it
   // must never say.
   if (window.today) body.appendChild(sliceTodayLine(window, days));
-  for (const lane of lanes) body.appendChild(sliceLane(lane, window, days));
+  for (const lane of lanes) {
+    body.appendChild(sliceLane(lane, window, days, colours.get(lane.project_id)));
+  }
   strip.appendChild(body);
   container.appendChild(strip);
 
@@ -1899,7 +2010,36 @@ function renderSprintSlice(container, slice, { compact = false } = {}) {
       "Nothing scheduled in this fortnight."));
     return;
   }
-  container.appendChild(sliceDeliverables(lanes));
+  container.appendChild(sliceDeliverables(lanes, colours));
+}
+
+// One colour per project, so several lanes of one project read as one project
+// and its neighbour reads as somebody else's. It is **identity, not meaning**:
+// the bar fill still says status and the one red still says overdue, which is
+// why the colour goes on the row's rail, its name and a wash faint enough to
+// leave the weekend shading showing through, and never on the bar.
+//
+// Assigned in order of first appearance rather than by project id, so adjacent
+// rows differ: `TRACK_HUES` is sequenced for exactly that -- neighbouring pairs
+// -- and lanes sort by band then project, so first-appearance order is the
+// order down the strip. The cost is that a project can take a different colour
+// in a different fortnight. Accepted: this panel is one fortnight read on its
+// own, and the alternative -- a stable hash -- lets two adjacent rows collide,
+// which is the thing being fixed.
+//
+// The eight are the map's, deliberately reused rather than a second palette
+// invented: they are already checked for the three common colour-blindnesses
+// against a 3:1 floor. They mean *track* on the map, but the map is a different
+// picture and this panel draws no tracks at all, so nothing is being said twice
+// in one place. A ninth project in one fortnight wraps, which is one more than
+// the real dataset has ever put in a fortnight.
+function laneColours(lanes) {
+  const colours = new Map();
+  for (const lane of lanes) {
+    if (colours.has(lane.project_id)) continue;
+    colours.set(lane.project_id, TRACK_HUES[colours.size % TRACK_HUES.length]);
+  }
+  return colours;
 }
 
 function sliceHeading(window) {
@@ -1922,7 +2062,7 @@ function sliceRuler(window, days) {
   const origin = parseDate(window.start);
   for (let index = 0; index < days; index += 1) {
     const day = addDays(origin, index);
-    const cell = element("div", sliceDayClass(day, index, "slice-tick"),
+    const cell = element("div", sliceDayClass(window, day, index, "slice-tick"),
       String(day.getDate()));
     cell.title = day.toLocaleDateString(
       undefined, { weekday: "long", day: "numeric", month: "long" });
@@ -1937,19 +2077,26 @@ function sliceBackdrop(window, days) {
   const backdrop = element("div", "slice-backdrop");
   const origin = parseDate(window.start);
   for (let index = 0; index < days; index += 1) {
+    const day = addDays(origin, index);
     backdrop.appendChild(
-      element("div", sliceDayClass(addDays(origin, index), index, "slice-day")));
+      element("div", sliceDayClass(window, day, index, "slice-day")));
   }
   return backdrop;
 }
 
-function sliceDayClass(day, index, base) {
+function sliceDayClass(window, day, index, base) {
   const weekend = day.getDay() === 0 || day.getDay() === 6;
   // The fortnight is the first 14 columns; everything past it is the lead-out,
   // and the first of those carries the divider.
   const leadOut = index >= 14;
+  // Today's whole column is shaded, alongside the line that marks the day
+  // exactly. The line says *where* today is to the day; the shading is what you
+  // find without looking for it. `window.today` is already null when today is
+  // off the strip, so this cannot land on a column that is not today.
+  const today = window.today && formatDate(day) === window.today;
   return `${base}${weekend ? " is-weekend" : ""}`
-    + `${leadOut ? " is-lead-out" : ""}${index === 14 ? " is-lead-edge" : ""}`;
+    + `${leadOut ? " is-lead-out" : ""}${index === 14 ? " is-lead-edge" : ""}`
+    + `${today ? " is-today" : ""}`;
 }
 
 function sliceTodayLine(window, days) {
@@ -1959,8 +2106,16 @@ function sliceTodayLine(window, days) {
   return line;
 }
 
-function sliceLane(lane, window, days) {
+function sliceLane(lane, window, days, colour) {
   const row = element("div", `slice-lane band-${lane.band}`);
+  // Inline, like the map's --track-dot and for the same reason: the hue is a
+  // value worked out from the data, not one of a fixed set of classes. The wash
+  // carries an alpha rather than being mixed towards white, so the weekend and
+  // lead-out shading behind the row still shows through it.
+  if (colour) {
+    row.style.setProperty("--lane-hue", colour);
+    row.style.setProperty("--lane-tint", hexRgba(colour, 0.09));
+  }
 
   const title = element("div", "slice-lane-title");
   title.appendChild(element("span", "slice-project", lane.project_name));
@@ -2002,7 +2157,7 @@ function sliceBar(lane, window, days) {
 
 // Names only. A deliverable is a planning unit -- no estimate, no owner, no
 // date -- and the tick is progress, which is not what this view is asking.
-function sliceDeliverables(lanes) {
+function sliceDeliverables(lanes, colours) {
   const wrap = element("div", "slice-deliverables");
   wrap.appendChild(element("div", "slice-deliv-head", "Deliverables in scope"));
 
@@ -2011,6 +2166,10 @@ function sliceDeliverables(lanes) {
     if (lane.deliverables.length === 0) continue;
     named += 1;
     const group = element("div", "slice-deliv-group");
+    // The same rail as the strip above, so a group of names is traceable back
+    // to the row it came from without reading the project name twice.
+    const colour = colours.get(lane.project_id);
+    if (colour) group.style.setProperty("--lane-hue", colour);
     group.appendChild(element("div", "slice-deliv-title",
       `${lane.project_name} · ${lane.phase_name}`));
     const list = element("ul", null);
@@ -2473,6 +2632,14 @@ function trackPalette(projects) {
     .filter(Boolean)
     .sort();
   return new Map(names.map((name, index) => [name, TRACK_HUES[index]]));
+}
+
+// The same hue at an alpha, for a wash that has to let what is behind it
+// through -- the fortnight strip's row tint sits over the weekend and lead-out
+// shading, which mixing towards white would paint out.
+function hexRgba(hex, alpha) {
+  const channel = (at) => parseInt(hex.slice(at, at + 2), 16);
+  return `rgba(${channel(1)}, ${channel(3)}, ${channel(5)}, ${alpha})`;
 }
 
 // Mix a hue towards white. The subtrack ring is its track's colour a few steps
