@@ -109,6 +109,17 @@ let state = {
   // *change* project, never on a reload -- every edit calls `loadPlan`, and
   // refitting there would yank the viewport back while you were paging it.
   windowFittedTo: null,
+  // Which swimlanes are drawing every phase. **Empty means every lane is
+  // collapsed**, which is the default and the point: a lane is one row per phase
+  // plus one per dated checkpoint, so the real file drew 45 rows and the tab that
+  // exists to show the whole department could not show it at once. Collapsed, a
+  // project is one bar over its own span with one strip of checkpoints under it.
+  //
+  // A set of what is *open* rather than of what is closed, so a project created
+  // while the tab is open lands collapsed like every other one. Same lifetime as
+  // `mapTiers` and `timelineMode` -- a way of looking, kept across re-renders and
+  // tab switches, gone on a reload.
+  laneOpen: new Set(),
   // The last tray placement, kept so it can be reversed exactly: the project's
   // previous start date and the phases that drop dated. In memory only -- a
   // reload loses it, and the offer says so rather than pretending otherwise.
@@ -1876,10 +1887,71 @@ const LANE_NAME_PX = 160;
 // it, rather than the title being the cell: the title stays `fit-content`, so
 // the underline and the click target are the name and not the empty half of the
 // column beside it.
-function laneName(title) {
+//
+// The twisty goes in here beside the name rather than on the rows, because the
+// name column is the one part of a lane that is always in the same place --
+// the rows start wherever the project's dates put them, which on a paged window
+// can be the far right of the chart or nowhere at all.
+function laneName(title, twisty) {
   const cell = element("div", "lane-name");
-  cell.appendChild(title);
+  cell.append(twisty, title);
   return cell;
+}
+
+// Open this lane, or fold it back to one bar. A `<button>` rather than a div
+// with a handler, so it is in the tab order and takes Enter and Space for free
+// -- the same reason the sprint editor's rail grip is one.
+function laneTwisty(project, open) {
+  const twisty = element("button", "lane-twisty", open ? "▾" : "▸");
+  twisty.type = "button";
+  twisty.setAttribute("aria-expanded", String(open));
+  twisty.title = open
+    ? `Fold ${project.name} back to one bar`
+    : `Show every phase and checkpoint in ${project.name}`;
+  twisty.onclick = () => {
+    if (open) state.laneOpen.delete(project.id);
+    else state.laneOpen.add(project.id);
+    renderPortfolio();
+  };
+  return twisty;
+}
+
+// The whole project as one bar: its own span, filled to how much of the work is
+// ticked off. It is the collapsed lane's only row, and it is **not draggable** --
+// a drag on this chart moves one phase to a date, and there is nothing honest for
+// a drop on a summary to write. Open the lane to move something.
+//
+// The span comes off the payload, never from the bars on screen: a lane only
+// draws the phases inside the current window, so measuring those would make one
+// project report a different length depending on where the chart is scrolled.
+// Placed by `placeBar`, so a span running off either end of the window keeps the
+// dotted clip edge every other bar uses.
+function laneSummaryBar(project, view) {
+  const bar = element("div", "bar lane-summary");
+  placeBar(bar,
+    daysBetween(view.origin, parseDate(project.span_start)),
+    daysBetween(view.origin, parseDate(project.span_end)), view);
+
+  const total = project.deliverables_total;
+  const done = project.deliverables_done;
+  // 0 of 0 is drawn as no fill at all rather than as an empty one: a project
+  // naming no deliverables has not started nothing, it has said nothing. The
+  // same distinction `validation.deliverable_progress` refuses to divide away.
+  if (total > 0) {
+    const fill = element("div", "bar-fill");
+    fill.style.width = `${(done / total) * 100}%`;
+    bar.appendChild(fill);
+  }
+  bar.appendChild(element("span", "bar-text", total > 0
+    ? `${done}/${total} delivered · ${project.phase_count} phase(s)`
+    : `${project.phase_count} phase(s) · nothing named yet`));
+
+  bar.title = `${laneSummary(project)}\n`
+    + (total > 0
+      ? `${done} of ${total} deliverable(s) ticked`
+      : "No deliverables named yet")
+    + "\n\nOpen the lane to move a phase.";
+  return bar;
 }
 
 function renderPortfolio() {
@@ -1923,12 +1995,14 @@ function renderPortfolio() {
     checkpoints.get(milestone.project_id).push(milestone);
   }
 
+  const drawn = [];
   for (const project of projects) {
     const own = visible.filter((phase) => phase.project_id === project.id);
     // Bars decide which lanes exist, as they always have. A project whose work
     // is all off-window keeps its checkpoints off-window with it rather than
     // opening a lane holding nothing but a diamond.
     if (own.length === 0) continue;
+    drawn.push(project.id);
 
     const lane = element("div", "lane");
     const title = element("div", "lane-title", project.name);
@@ -1944,7 +2018,9 @@ function renderPortfolio() {
       event.preventDefault();
       openProject(project.id);
     };
-    lane.appendChild(laneName(title));
+    const open = state.laneOpen.has(project.id);
+    lane.classList.toggle("open", open);
+    lane.appendChild(laneName(title, laneTwisty(project, open)));
     // One row per plan row inside the lane, the same shape and the same
     // components as the project timeline: a bar for a phase, a one-mark lane for
     // a checkpoint, interleaved on the shared `sort_order`. Every checkpoint in
@@ -1952,26 +2028,39 @@ function renderPortfolio() {
     // "these come first" -- while a lane's bars have always been in `sort_order`
     // (`db.list_all_phases`), so the sequence was already the thing the rows say.
     // The lane grows by a row per dated checkpoint, which is what it costs.
-    const placed = markIndex(milestoneMarks(checkpoints.get(project.id), view).marks);
+    const marks = milestoneMarks(checkpoints.get(project.id), view).marks;
+    const placed = markIndex(marks);
     // The rows go in the lane's second column, beside the name rather than under
     // it. Bars still measure from the column's own left edge, which is where the
     // calendar starts, so nothing about how one is placed changed.
     const rows = element("div", "lane-rows");
-    for (const row of mergePlanRows(own, checkpoints.get(project.id))) {
-      if (row.kind === "phase") {
-        const bar = phaseBar(row.item, view, false);
-        bar.classList.add("draggable");
-        bar.title += "  (drag to move; hold Alt for day steps)";
-        makeDraggable(bar, row.item, view);
-        rows.appendChild(bar);
-      } else if (placed.has(row.item.id)) {
-        rows.appendChild(milestoneLane([placed.get(row.item.id)]));
+    if (!open) {
+      // Two rows at most, and usually one: the span, then every checkpoint on a
+      // single strip. That strip is the shape `milestoneLane` and
+      // `stackMilestoneLanes` were kept alive for after interleaving left them
+      // with one mark per row and nothing to stack -- "the cheap way back if a
+      // compact all-checkpoints strip is ever wanted". This is it, and the sweep
+      // below has a real input again.
+      rows.appendChild(laneSummaryBar(project, view));
+      if (marks.length) rows.appendChild(milestoneLane(marks));
+    } else {
+      for (const row of mergePlanRows(own, checkpoints.get(project.id))) {
+        if (row.kind === "phase") {
+          const bar = phaseBar(row.item, view, false);
+          bar.classList.add("draggable");
+          bar.title += "  (drag to move; hold Alt for day steps)";
+          makeDraggable(bar, row.item, view);
+          rows.appendChild(bar);
+        } else if (placed.has(row.item.id)) {
+          rows.appendChild(milestoneLane([placed.get(row.item.id)]));
+        }
       }
     }
     lane.appendChild(rows);
     body.appendChild(lane);
   }
 
+  renderLaneControls(drawn);
   // Every lane at once, now that they are all attached and have a layout.
   stackMilestoneLanes(chart);
   renderTray(body, view);
@@ -1979,6 +2068,39 @@ function renderPortfolio() {
   // Redrawn from the slice already in hand: the chart moving underneath it
   // does not change which fortnight you opened.
   renderFortnightDrawer();
+}
+
+// One button for the whole chart, beside the count of what it is showing.
+// Twelve lanes means twelve twisties, and the gesture this tab is for -- read
+// the department, then open the one project you are asking about -- starts with
+// all of them one way.
+//
+// Built here rather than wired in `bindEvents` because its label is a reading of
+// the state: it says the thing it will do next, so with any lane open it offers
+// to collapse. Only the lanes actually **drawn** are counted, so a project whose
+// work is all off-window is neither counted nor opened by it.
+function renderLaneControls(drawn) {
+  const bar = $("lane-controls");
+  bar.innerHTML = "";
+  if (drawn.length === 0) return;
+
+  const openCount = drawn.filter((id) => state.laneOpen.has(id)).length;
+  const collapse = openCount > 0;
+  const button = element("button", null, collapse ? "Collapse all" : "Expand all");
+  button.type = "button";
+  button.title = collapse
+    ? "Fold every lane back to one bar per project"
+    : "Show every phase and checkpoint in every lane";
+  button.onclick = () => {
+    // Collapsing clears the whole set rather than the drawn ids, so paging the
+    // window cannot leave a lane open off-screen and make the next press read
+    // "Collapse all" with nothing on screen open.
+    if (collapse) state.laneOpen.clear();
+    else for (const id of drawn) state.laneOpen.add(id);
+    renderPortfolio();
+  };
+  bar.append(button, element("span", "muted",
+    `${drawn.length} lane(s) · ${openCount} open`));
 }
 
 // The lane's own dates, which its bars cannot say between them: each bar carries

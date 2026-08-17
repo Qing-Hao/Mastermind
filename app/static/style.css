@@ -418,6 +418,11 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   box-sizing: border-box;
   padding-right: 10px;
   min-width: 0;
+  /* The twisty then the name. `min-width: 0` above is what still lets the name
+     shrink to its ellipsis with the twisty holding its own width. */
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
 }
 /* `0` basis rather than `auto`: the bars inside are wider than the box (one of
    them is 26 weeks long if the phase is), and an auto basis would size the column
@@ -450,6 +455,57 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 }
 .lane-title:hover { color: #3949ab; }
 .lane-title:focus-visible { outline: 2px solid #5c6bc0; outline-offset: 2px; }
+
+/* --- the collapsed lane -------------------------------------------------
+   A lane is one row per phase plus one per dated checkpoint, so the tab that
+   exists to show the whole department needed a page of scrolling to do it.
+   Collapsed it is one bar over the project's span with one strip of
+   checkpoints under it, which is what fits a dozen projects on a screen. */
+
+/* Sits in the name column beside the title, on the same 24px line so it lands
+   on the first row rather than above it. Stripped back to a glyph: a bordered
+   button per lane would out-weigh the project names, which are what you scan. */
+.lane-twisty {
+  flex: 0 0 auto;
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: #aaa;
+  font-size: 11px;
+  line-height: 24px;
+  cursor: pointer;
+}
+.lane-twisty:hover { color: #3949ab; }
+.lane-twisty:focus-visible { outline: 2px solid #5c6bc0; outline-offset: 1px; }
+
+/* Not a phase, so it wears none of the `status-` colours: the track is neutral
+   and the fill is how much of the work is ticked off. A project naming no
+   deliverables gets no fill at all rather than an empty one -- there is no
+   honest fraction of nothing, which is why the tally is never divided. */
+.bar.lane-summary {
+  position: relative;
+  background: #eceff1;
+  color: #37474f;
+}
+.bar-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: #90caf9;
+  /* The bar's own padding must not inset the fill: it measures a fraction of
+     the span, and 6px of either end would be a lie at the 22px/week floor. */
+  border-radius: 3px 0 0 3px;
+}
+/* Above the fill, which is absolutely positioned and would otherwise cover it. */
+.bar-text { position: relative; }
+
+.lane-controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin: 8px 0 4px;
+}
 
 /* --- unscheduled staging --- */
 .unscheduled { list-style: none; padding: 0; margin: 8px 0; }

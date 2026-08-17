@@ -199,7 +199,11 @@
         <p class="hint">
           One column per week, labelled with the Monday it starts. The window
           shows up to six months at a time &mdash; pick a length, or
-          <em>Custom&hellip;</em> for your own range. Drag a bar sideways to
+          <em>Custom&hellip;</em> for your own range.
+          Each project starts folded to a single bar over its own dates, filled
+          to how many of its deliverables are ticked; open one with the
+          <code>&#9656;</code> beside its name to see every phase and
+          checkpoint. Drag a phase bar sideways to
           move that phase; it snaps to a week column, hold <kbd>Alt</kbd> to
           nudge it by single days. The date you are about to drop on follows the
           cursor, with the weekday added while <kbd>Alt</kbd> is held.
@@ -228,6 +232,11 @@
         <!-- Outside the tray section on purpose: placing the last staged
              project empties the tray, and the undo has to outlive it. -->
         <div id="place-undo" class="undo-bar" hidden></div>
+
+        <!-- Filled by `renderLaneControls`, not wired in `bindEvents`: the
+             button's label is a reading of how many lanes are open, so it is
+             rebuilt with the chart rather than bound once. -->
+        <div id="lane-controls" class="lane-controls"></div>
 
         <div id="portfolio-scroll">
           <div id="portfolio-chart"></div>
