@@ -885,15 +885,24 @@ async function promoteProject() {
 // phases at 0..n-1 and its checkpoints at 0..m-1, so almost every row collides
 // until the first drag renumbers them. Ties break phases-first, and the sort is
 // stable, so rows of one kind keep the order the server sent them in.
-function orderedPlanRows() {
+// Takes the two lists rather than reading `state.plan`, because the **portfolio**
+// merges the same sequence per swimlane off its own flat payload -- both charts
+// draw one row per plan row, and two copies of this arithmetic would drift.
+// Handed a subset (a window's worth of bars, the checkpoints that could be
+// placed) it still holds: a subset of one ordering keeps that ordering.
+function mergePlanRows(phases, milestones) {
   const rows = [];
-  for (const phase of state.plan.phases) rows.push({ kind: "phase", item: phase });
-  for (const milestone of state.plan.milestones || []) {
+  for (const phase of phases || []) rows.push({ kind: "phase", item: phase });
+  for (const milestone of milestones || []) {
     rows.push({ kind: "milestone", item: milestone });
   }
   rows.sort((a, b) => (a.item.sort_order - b.item.sort_order)
     || (a.kind === b.kind ? 0 : a.kind === "phase" ? -1 : 1));
   return rows;
+}
+
+function orderedPlanRows() {
+  return mergePlanRows(state.plan.phases, state.plan.milestones);
 }
 
 // Renumbered from zero across both kinds, each row written to its own endpoint
@@ -1147,24 +1156,25 @@ function phaseBar(phase, view, isWarned) {
 // a lane of its own: a zero-width bar among the phases would be invisible and
 // impossible to hover.
 //
-// Diamonds are absolutely positioned inside the lane so several share one line.
-// Every other bar in this app is a block element owning its own row, which is
-// exactly what a point marker must not be. That is what makes one lane able to
-// hold a whole project's checkpoints, which is how the **portfolio** uses it: a
-// swimlane is one row per project, so a lane there is shared by every checkpoint
-// the project has.
+// Diamonds are absolutely positioned inside the lane so several could share one
+// line. Every other bar in this app is a block element owning its own row, which
+// is exactly what a point marker must not be.
 //
-// The **project timeline** hands it one mark at a time instead, and gets one row
-// per checkpoint interleaved among the bars in `sort_order`. Every checkpoint in
-// a single lane above the chart was the first shape and it made the sequence
-// unreadable: a checkpoint belonging between phases 3 and 4 drew above phase 1,
-// while the phase table right below the chart interleaved them properly -- two
-// pictures of one number line. Row position is the sequence; the mark's x is
-// still its own date, so a checkpoint dated in the middle of a phase draws in
-// the middle of it. The two are independent and neither is snapped to the other.
+// **Both charts now hand it exactly one mark**, and get one row per checkpoint
+// interleaved among the bars on the shared `sort_order` -- the project timeline in
+// either mode, and a portfolio swimlane. Every checkpoint in a single lane above
+// the bars was the first shape and it made the sequence unreadable: a checkpoint
+// belonging between phases 3 and 4 drew above phase 1, while the phase table right
+// below the chart interleaved them properly -- two pictures of one number line.
+// Row position is the sequence; the mark's x is still its own date, so a
+// checkpoint dated in the middle of a phase draws in the middle of it. The two
+// are independent and neither is snapped to the other.
 //
-// One line is only the starting point: `stackMilestoneLanes` measures the labels
-// once the chart is in the document and moves colliding ones down a row.
+// It still takes a list, and `stackMilestoneLanes` still sweeps the finished
+// chart, so a shared strip remains a thing this can draw. Nothing asks for one:
+// interleaving is what dissolved the label collisions the sweep exists for, since
+// one mark per row cannot collide with anything. Both are a row's worth of code
+// away from being deleted -- the CSS carries the one-row height already.
 function milestoneLane(marks) {
   const lane = element("div", "milestone-lane");
   for (const { milestone, x } of marks) {
@@ -1246,10 +1256,9 @@ function milestoneMarks(milestones, view) {
   return { marks, undated, offWindow };
 }
 
-// Both mark builders return a list, because the portfolio hands a whole lane its
-// project's checkpoints. The project timeline draws one per row, so it needs to
-// find a mark by id while walking the plan sequence -- and a milestone missing
-// from here is one that could not be placed, which is what skips its row.
+// Both mark builders return a list; both charts draw one mark per row, so they
+// need to find one by id while walking the plan sequence -- and a milestone
+// missing from here is one that could not be placed, which is what skips its row.
 function markIndex(marks) {
   return new Map(marks.map((mark) => [mark.milestone.id, mark]));
 }
@@ -1880,17 +1889,24 @@ function renderPortfolio() {
       openProject(project.id);
     };
     lane.appendChild(title);
-    // Above this project's bars, the same as the project timeline: a lane of
-    // diamonds is what the bars under it are aiming at. Same component, so the
-    // hollow-until-reached vocabulary cannot drift between the two charts.
-    const { marks } = milestoneMarks(checkpoints.get(project.id), view);
-    if (marks.length > 0) lane.appendChild(milestoneLane(marks));
-    for (const phase of own) {
-      const bar = phaseBar(phase, view, false);
-      bar.classList.add("draggable");
-      bar.title += "  (drag to move; hold Alt for day steps)";
-      makeDraggable(bar, phase, view);
-      lane.appendChild(bar);
+    // One row per plan row inside the lane, the same shape and the same
+    // components as the project timeline: a bar for a phase, a one-mark lane for
+    // a checkpoint, interleaved on the shared `sort_order`. Every checkpoint in
+    // one strip above the bars was the first shape here too, and it read as
+    // "these come first" -- while a lane's bars have always been in `sort_order`
+    // (`db.list_all_phases`), so the sequence was already the thing the rows say.
+    // The lane grows by a row per dated checkpoint, which is what it costs.
+    const placed = markIndex(milestoneMarks(checkpoints.get(project.id), view).marks);
+    for (const row of mergePlanRows(own, checkpoints.get(project.id))) {
+      if (row.kind === "phase") {
+        const bar = phaseBar(row.item, view, false);
+        bar.classList.add("draggable");
+        bar.title += "  (drag to move; hold Alt for day steps)";
+        makeDraggable(bar, row.item, view);
+        lane.appendChild(bar);
+      } else if (placed.has(row.item.id)) {
+        lane.appendChild(milestoneLane([placed.get(row.item.id)]));
+      }
     }
     body.appendChild(lane);
   }

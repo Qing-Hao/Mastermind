@@ -635,7 +635,9 @@ into one project link.
   single lane pinned above all the bars was the first shape and it made the
   sequence unreadable: a checkpoint belonging between phases 3 and 4 drew above
   phase 1, while the table directly below the chart interleaved them properly, so
-  one number line had two pictures. **Row position is the sequence; a mark's x is
+  one number line had two pictures. **The portfolio's swimlanes do the same thing
+  with the same components** — `mergePlanRows` is shared, since a lane there
+  stacks one bar row per phase too, and two copies of the arithmetic would drift. **Row position is the sequence; a mark's x is
   still its own date** — the two are independent and neither is snapped to the
   other, so a checkpoint dated in the middle of a phase draws in the middle of
   that phase while sitting on its own row between the phases it falls between.
@@ -656,9 +658,15 @@ into one project link.
   is forced: a detached element has no layout, so `offsetWidth` in the builder is
   0 and neither the grid body nor a portfolio swimlane is in the document when its
   lane is built. All three charts call it, so the vocabulary cannot drift; failing
-  to call it costs only the overlap it fixes. On the project timeline it now finds
-  nothing to stack — a lane there holds one mark — and it is still called, because
-  the **portfolio's** lanes are shared and are where the overlap was worst.
+  to call it costs only the overlap it fixes.
+  **Both mechanisms now have no input, and that is stated rather than tidied
+  away.** Every lane in the app holds one mark, and one mark per row cannot
+  collide with anything — interleaving *dissolved* the problem the sweep was
+  written for. `milestoneLane` still takes a list and the sweep still runs, so a
+  shared strip is a thing the code can still draw; both are a row's worth of code
+  from deletion, and the CSS already carries the one-row height. Left in
+  deliberately, as the cheap way back if a compact all-checkpoints strip is ever
+  wanted.
   - **Dates** — the calendar grid. Only phases with a start date appear.
   - **Weeks** — `W1, W2, …` counted from the start of the project, no calendar.
     Every phase appears, stacked back to back in `sort_order`; dates on phases
@@ -722,19 +730,24 @@ into one project link.
   reports which phases it dated, so undo blanks those and only those, then puts
   the project's own start date back. It lives in `state.lastPlacement`, so it
   survives re-renders and tab switches but not a page reload — the offer says so.
-  **Each lane draws its project's checkpoints** as diamonds above its bars, the
+  **Each lane draws its project's checkpoints** as diamonds, the
   same `milestoneLane` the project timeline uses — one component, so the
-  hollow-until-reached vocabulary cannot drift between the two charts, and the
-  label stacking described there arrives here for free. **This is the surface the
-  shared lane is still for**: a swimlane is one row per project, so every
-  checkpoint the project has goes in the one strip, where the project timeline now
-  hands the same component a single mark per row. That is why the builder takes a
-  list. This is where the overlap
-  was worst: a dozen lanes each a few rows tall, and three checkpoints a few days
-  apart printed one name over another. **Bars
+  hollow-until-reached vocabulary cannot drift between the two charts.
+  **A lane is the plan sequence too**, by the same `mergePlanRows`: a bar for a
+  phase, a one-diamond row for a checkpoint, interleaved on the shared
+  `sort_order`. A lane's bars have always been in that order
+  (`db.list_all_phases` orders by it), so the sequence was already what the rows
+  said — while every checkpoint sat in one strip above them, reading as "these
+  come first". The strip was fixed on the project timeline first and looked
+  finished there; the tab that shows a dozen projects at once still had the
+  original confusion, which is what got it reported a second time. The lane grows
+  by a row per dated checkpoint, and on the real dataset the whole chart grew by
+  one row net — four lanes each lost a strip, five checkpoints each gained a row.
+  **Bars
   still decide which lanes exist**: a project whose work is all off-window keeps
   its checkpoints off-window with it, rather than opening a lane holding nothing
-  but a diamond.
+  but a diamond. So a lane is the sequence **restricted to what it draws** — an
+  off-window phase leaves a hole, exactly as it does on the project timeline.
   Below the chart, every cross-project
   link as a **list**, V2-marked where violated — not arrows between swimlanes,
   because a link can point at an idea, which has no bar to draw to.
