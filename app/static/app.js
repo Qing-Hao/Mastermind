@@ -160,6 +160,11 @@ let state = {
     // Which block a gutter drag is carrying, by index. Null unless dragging.
     dragIndex: null,
   },
+  // The roadmap beside the sprint file: one fortnight of it, for the panel down
+  // the right of the Sprint tab. `asked` is the window a fetch has already been
+  // fired for -- success or failure -- so a render never re-asks the same
+  // question, and a failure does not loop.
+  sprintScope: { asked: null, start: null, slice: null, error: "" },
 };
 
 // --- api --------------------------------------------------------------------
@@ -2243,6 +2248,84 @@ function sliceDeliverables(lanes, colours) {
       "None of this fortnight's phases name a deliverable yet."));
   }
   return wrap;
+}
+
+// --- the sprint tab's scope panel -------------------------------------------
+
+// **The roadmap, beside the file you are planning into.** The Sprint tab had no
+// roadmap in it at all: the fortnight drawer on Portfolio was the one place the
+// two met, and it is on the wrong tab to fill a capacity table from.
+//
+// It **reads and never writes**, which is the line this panel is deliberately on
+// the safe side of: allocating deliverables into sprints is a Phase 2 non-goal,
+// and a panel that could put one into the file is a step towards allocating them.
+// You read it and type what you decide.
+//
+// It costs no endpoint and no server code. The file's fortnight is already on
+// `GET /api/sprints` -- `sprint_window_from_heading` reads it off the first line,
+// leniently, so a heading with no dates in it simply has no window -- and
+// `GET /api/fortnight` already answers "what is in that fortnight". The panel is
+// the two of them joined, drawn with `sliceDeliverables`, the same component the
+// drawer uses, so the two pictures of one fortnight cannot drift apart.
+const openSprintWindow = () => state.sprint.files.find(
+  (file) => file.number === state.sprint.number)?.window || null;
+
+function renderSprintScope() {
+  const panel = $("sprint-scope");
+  if (!panel) return;
+  const scope = state.sprintScope;
+  const window = openSprintWindow();
+  panel.innerHTML = "";
+  panel.appendChild(element("h3", "sprint-scope-head", "Deliverables in scope"));
+
+  if (!window) {
+    // Two different silences, and they are worth telling apart: nothing open, or
+    // a heading whose dates cannot be read. Neither is guessed at -- inventing a
+    // fortnight is exactly what the server refuses to do for the overlap check.
+    panel.appendChild(element("p", "muted", state.sprint.number === null
+      ? "No sprint file open."
+      : "This file's first line names no dates, so there is no fortnight to look up."));
+    return;
+  }
+
+  panel.appendChild(element("p", "sprint-scope-window",
+    `${shortDate(window.start)} → ${shortDate(window.end)}`));
+
+  if (scope.asked !== window.start) loadSprintScope(window);
+  if (scope.start !== window.start || !scope.slice) {
+    panel.appendChild(element("p", "muted", scope.error || "Reading the roadmap…"));
+    return;
+  }
+
+  // The heading's dates are the sprint's own and are never snapped; the chart
+  // window is Monday-based and is. So when the two differ the panel says so
+  // rather than quietly showing two days the sprint does not cover -- the same
+  // distinction `sprint_window` and `fortnight_window` exist separately to keep.
+  const framed = scope.slice.window.start;
+  if (framed !== window.start) {
+    panel.appendChild(element("p", "muted sprint-scope-note",
+      `Read from the week of ${shortDate(framed)}.`));
+  }
+
+  panel.appendChild(sliceDeliverables(scope.slice.lanes, laneColours(scope.slice.lanes)));
+}
+
+// Fired from the render and re-rendering when it lands, so nothing else has to
+// be made async. `asked` is set before the request and never cleared: a failure
+// leaves the message on screen rather than asking again on the next render,
+// which would be a request per keystroke on a localhost that is refusing.
+async function loadSprintScope(window) {
+  const scope = state.sprintScope;
+  scope.asked = window.start;
+  try {
+    const slice = await api(`/api/fortnight?start=${encodeURIComponent(window.start)}`);
+    Object.assign(scope, { start: window.start, slice, error: "" });
+  } catch (failure) {
+    Object.assign(scope, { start: null, slice: null, error: failure.message });
+  }
+  // Only if the panel is still asking the same question: switching file mid-flight
+  // must not paint the previous file's fortnight over the new one's.
+  if (openSprintWindow()?.start === window.start) renderSprintScope();
 }
 
 // --- the fortnight drawer ---------------------------------------------------

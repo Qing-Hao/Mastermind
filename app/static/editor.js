@@ -123,6 +123,10 @@ function renderSprintView() {
   renderSprintStatus();
   renderSprintMode();
   renderSprintDocument();
+  // The panel beside the document. It lives in app.js because it reads the
+  // **roadmap** -- this file still knows nothing about one, and nothing about a
+  // sprint beyond its number and the dates in its first line.
+  renderSprintScope();
 }
 
 function renderSprintPicker() {
@@ -799,7 +803,67 @@ function reorderSprintBlocks(from, to) {
 const TODO_OFF = "☐";
 const TODO_ON = "☑";
 const TODO_WRITE = "- [ ] ";
-const CELL_TODO = /^(\s*)(☐|☑|-[ \t]+\[[ xX]\])([ \t]+|$)/;
+const CELL_TODO = /^([ \t]*)(☐|☑|-[ \t]+\[[ xX]\])([ \t]+|$)/;
+
+// --- the three things a cell line can be drawn as ----------------------------
+
+// A bullet, an indent and a highlight are the same trick the checkbox already
+// is, and the trick is worth naming once: **the file holds characters and the
+// grid draws an affordance over them.** `- x` in a cell is literal text to GFM
+// -- a cell is inline content, so the tasklists plugin never touches it -- which
+// is exactly why a bullet here costs the file nothing. Outside this grid all
+// three read as what they are: a hyphen, two spaces and a coloured square.
+//
+// Consumed in the **view** and left alone in the textarea, which is the two-state
+// contract the whole editor keeps: rendered when you are not in it, source when
+// you are. So every marker stays reachable by typing.
+
+// One level of indent. Two spaces rather than a tab: `serialise_table` pads the
+// file by character count, and a tab makes the column it is in unreadable there.
+const CELL_INDENT = "  ";
+
+// •, then ◦, then ▪, by depth. The last one repeats rather than the ramp
+// running out -- a fourth level is still a bullet, just not a new glyph.
+const CELL_BULLETS = ["•", "◦", "▪"];
+const CELL_BULLET = /^([ \t]*)([-*+])([ \t]+)/;
+
+// **A highlight is a marker at the head of the cell**, not a property of it: one
+// glyph, drawn as a tinted cell here and as a coloured square everywhere else.
+// Four, because they have to be told apart at a glance and the fifth colour is
+// where that stops being true.
+const CELL_HIGHLIGHTS = [
+  { key: "amber", label: "Highlight amber", highlight: "🟨" },
+  { key: "red", label: "Highlight red", highlight: "🟥" },
+  { key: "green", label: "Highlight green", highlight: "🟩" },
+  { key: "blue", label: "Highlight blue", highlight: "🟦" },
+];
+const CELL_TINTS = new Map(CELL_HIGHLIGHTS.map((item) => [item.highlight, item.key]));
+const CELL_HIGHLIGHT = new RegExp(`^(${CELL_HIGHLIGHTS.map((i) => i.highlight).join("|")})[ \\t]*`, "u");
+const CELL_TINT_CLASSES = CELL_HIGHLIGHTS.map((item) => `cell-tint-${item.key}`);
+
+// The marker at the head of a cell, or null. Read off the whole cell rather than
+// per line: the tint is the cell's, and a cell is one box however many lines it
+// holds.
+function cellTint(text) {
+  const found = CELL_HIGHLIGHT.exec(text);
+  return found ? { key: CELL_TINTS.get(found[1]), length: found[0].length } : null;
+}
+
+// How deep a line's leading whitespace puts it. A tab counts as one level, since
+// that is what a hand-editor's tab key put there.
+const cellDepth = (indent) =>
+  Math.floor(indent.replace(/\t/g, CELL_INDENT).length / CELL_INDENT.length);
+
+// The tint rides on the `<td>` rather than on either state's element, so it
+// survives the swap between them and fills the cell even when a taller cell
+// beside it sets the row's height. Repainted on input, so typing the marker
+// shows the colour without leaving the cell.
+function paintCellHost(host, grid, r, column) {
+  if (!host) return;
+  host.classList.remove(...CELL_TINT_CLASSES);
+  const tint = cellTint(cellText(cellValue(grid, r, column)));
+  if (tint) host.classList.add(`cell-tint-${tint.key}`);
+}
 
 // --- inline markdown inside a cell ------------------------------------------
 
@@ -942,13 +1006,21 @@ const SPRINT_MENU = [
 // line break in a cell is `CELL_BREAK` in the file, so "put the next thing on its
 // own line" is a real construct here rather than a keystroke. `caret` is where the
 // cursor lands, counted from the start of the snippet.
+//
+// The highlights are the odd entries: every other one inserts at the caret, and a
+// tint is the *cell's* rather than the caret's, so it is written at the head of
+// the cell wherever the menu was opened from. `insertIntoCell` is where the two
+// meanings part company -- one menu, still one pick.
 const CELL_MENU = [
   { key: "todo", label: "Checkbox", markdown: TODO_WRITE },
+  { key: "bullet", label: "Bullet", markdown: "- " },
   { key: "break", label: "Line break", markdown: "\n" },
   { key: "bold", label: "Bold", markdown: "****", caret: 2 },
   { key: "italic", label: "Italic", markdown: "**", caret: 1 },
   { key: "code", label: "Code", markdown: "``", caret: 1 },
   { key: "link", label: "Link", markdown: "[](url)", caret: 1 },
+  ...CELL_HIGHLIGHTS,
+  { key: "clear", label: "Clear highlight", highlight: "" },
 ];
 
 // `pick` is what the chosen entry does, set by whichever surface opened the menu:
@@ -1074,13 +1146,28 @@ function pickSprintMenuItem(position) {
 function insertIntoCell(item, cell, block, index, r, column) {
   const upto = cell.value.slice(0, cell.selectionStart);
   const start = upto.length - upto.split("\n").pop().length;
+  const rest = cell.value.slice(cell.selectionStart);
 
-  cell.value = cell.value.slice(0, start) + item.markdown + cell.value.slice(cell.selectionStart);
-  const caret = start + (item.caret ?? item.markdown.length);
-  cell.setSelectionRange(caret, caret);
-  cell.focus();
+  if (item.highlight !== undefined) {
+    // Drop the `/filter` that opened the menu, then re-mark the head of the cell:
+    // one marker at a time, and an empty one is what clears it.
+    const dropped = cell.value.slice(0, start) + rest;
+    const tint = cellTint(dropped);
+    const bare = tint ? dropped.slice(tint.length) : dropped;
+    const mark = item.highlight ? `${item.highlight} ` : "";
+    cell.value = mark + bare;
+    const caret = Math.max(0, start - (tint ? tint.length : 0) + mark.length);
+    cell.setSelectionRange(caret, caret);
+    cell.focus();
+  } else {
+    cell.value = cell.value.slice(0, start) + item.markdown + rest;
+    const caret = start + (item.caret ?? item.markdown.length);
+    cell.setSelectionRange(caret, caret);
+    cell.focus();
+  }
 
   writeCell(block.table, r, column, cell.value);
+  paintCellHost(cellHost(cell), block.table, r, column);
   autosizeSprintArea(cell);
   tableEdited(block);
 }
@@ -1222,11 +1309,22 @@ function sprintTable(block, index) {
   // the left. Both are their own cells rather than marks inside the header: a
   // header cell is an `<input>`, and a handle drawn over one would cost the click
   // that places a cursor in it.
+  // One `<col>` per column plus the gutter's, so a width can be set in one place
+  // rather than on every cell in the column. Always present, even before anything
+  // has been resized: it is what the first drag seeds.
+  const cols = element("colgroup");
+  cols.appendChild(element("col", "sprint-col-gutter"));
+  grid.head.forEach(() => cols.appendChild(element("col")));
+  table.appendChild(cols);
+
   const grips = element("tr", "sprint-colgrips");
   grips.appendChild(element("th", "sprint-corner"));
   grid.head.forEach((_, column) => {
     const cell = element("th", "sprint-colgrip");
-    cell.appendChild(gridGrip(block, index, "column", column, cell));
+    cell.append(
+      gridGrip(block, index, "column", column, cell),
+      columnResizer(block, column, table),
+    );
     grips.appendChild(cell);
   });
   thead.appendChild(grips);
@@ -1255,8 +1353,141 @@ function sprintTable(block, index) {
   table.appendChild(body);
 
   scroller.appendChild(table);
+  applyColumnWidths(table, storedWidths(block));
   node.append(scroller, sprintTableTools(block, index));
   return node;
+}
+
+// --- column widths -----------------------------------------------------------
+
+// **A width is a way of looking, not content**, so none of this reaches the file:
+// markdown has no column width, and inventing a syntax for one would put a second
+// record beside the file the whole editor exists to leave alone. It lives in
+// `localStorage` instead, the same standing as `state.mapTiers` -- except that a
+// width is worth keeping across a reload, which is the one thing that state is
+// not, and the cost of being wrong is a column you drag again.
+//
+// Keyed on the **header row's text** rather than the block's index, so a width
+// survives the block being reordered and the file being reopened. Renaming a
+// header loses that table's widths, and two tables with identical headers share
+// them -- both accepted: the first is rare and re-draggable, the second gives two
+// tables of the same shape the same shape.
+const SPRINT_WIDTHS_KEY = "roadmap.sprint-widths";
+
+// Narrow enough for a tally column, wide enough that a column cannot be dragged
+// to nothing and lost.
+const MIN_COLUMN_PX = 44;
+
+// What a column inserted into an already-sized table gets. Only reached when the
+// table has widths at all -- an auto-sized one stays auto-sized.
+const NEW_COLUMN_PX = 120;
+
+const tableWidthKey = (block) =>
+  block.table.head.map((cell) => cellText(cell).trim()).join(" | ");
+
+// Every stored width for the open file. `localStorage` throws when it is disabled
+// rather than being absent, so both directions are guarded and a failure means
+// widths do not persist -- never that the editor stops working.
+function widthStore() {
+  try {
+    return JSON.parse(localStorage.getItem(`${SPRINT_WIDTHS_KEY}:${state.sprint.number}`)) || {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function storedWidths(block) {
+  const found = widthStore()[tableWidthKey(block)];
+  return Array.isArray(found) && found.length === block.table.head.length ? found : null;
+}
+
+// Read the widths out and drop the entry they were under, so a structural edit
+// can write them back beside the new header row. Returns null when the table is
+// auto-sized, which is what keeps every caller's "if widths" honest.
+function takeWidths(block) {
+  const widths = storedWidths(block);
+  if (widths) writeWidths(block, null);
+  return widths;
+}
+
+function writeWidths(block, widths) {
+  const store = widthStore();
+  if (widths) store[tableWidthKey(block)] = widths;
+  else delete store[tableWidthKey(block)];
+  try {
+    localStorage.setItem(`${SPRINT_WIDTHS_KEY}:${state.sprint.number}`, JSON.stringify(store));
+  } catch (_) { /* no storage: the drag still worked, it just will not be kept */ }
+}
+
+// Auto-sized until you touch it. A sized table switches to `table-layout: fixed`,
+// which is what makes a drag land exactly where it was let go -- with auto layout
+// the browser treats a width as a suggestion and re-fits it to the content.
+function applyColumnWidths(table, widths) {
+  const cols = table.querySelectorAll("col");
+  table.classList.toggle("sized", Boolean(widths));
+  cols.forEach((col, position) => {
+    // Position 0 is the gutter, which is never sized.
+    if (position > 0) col.style.width = widths ? `${widths[position - 1]}px` : "";
+  });
+}
+
+// The widths a drag starts from: what is stored, or what the columns are actually
+// occupying right now. Seeding **every** column from the measurement is what keeps
+// the first drag from resizing the whole table -- under fixed layout a column with
+// no width of its own would take whatever was left over.
+function seedColumnWidths(block, table) {
+  const stored = storedWidths(block);
+  if (stored) return stored.slice();
+  const header = table.tHead.rows[1];
+  return block.table.head.map((_, column) => {
+    const cell = header.cells[column + 1];
+    return Math.max(MIN_COLUMN_PX, Math.round(cell ? cell.getBoundingClientRect().width : MIN_COLUMN_PX));
+  });
+}
+
+// The handle on a column's right edge. It sits in the grip strip above the header
+// rather than in the header cell itself: a header cell's whole area is "click here
+// to type", and a 6px strip taken out of it would be 6px you cannot put a cursor
+// in.
+function columnResizer(block, column, table) {
+  const grip = element("span", "col-resize");
+  grip.title = "Drag to set this column's width · double-click to size every column to its content again";
+
+  grip.onmousedown = (event) => {
+    // Both stopped: the block around this table has drag handlers of its own, and
+    // a press here must not start selecting text across the document either.
+    event.preventDefault();
+    event.stopPropagation();
+
+    const widths = seedColumnWidths(block, table);
+    const from = event.clientX;
+    const was = widths[column];
+
+    const move = (moved) => {
+      widths[column] = Math.max(MIN_COLUMN_PX, Math.round(was + moved.clientX - from));
+      applyColumnWidths(table, widths);
+    };
+    // Written on release rather than per frame: a drag is one decision.
+    const drop = () => {
+      document.removeEventListener("mousemove", move);
+      document.removeEventListener("mouseup", drop);
+      document.body.classList.remove("resizing-column");
+      writeWidths(block, widths);
+    };
+    document.body.classList.add("resizing-column");
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", drop);
+  };
+
+  // Resets the **table**, not the column. One auto column among fixed ones has no
+  // width to fall back to under fixed layout -- it would collapse rather than fit
+  // its content -- so the honest reset is all of them at once.
+  grip.ondblclick = (event) => {
+    event.stopPropagation();
+    writeWidths(block, null);
+    applyColumnWidths(table, null);
+  };
+  return grip;
 }
 
 // **A cell has two states, and this is the one reveal gesture the grid has.**
@@ -1285,6 +1516,7 @@ function sprintCellHost(block, index, r, column) {
 function showSprintCell(host, block, index, r, column) {
   host.innerHTML = "";
   host.appendChild(sprintCellView(block, index, r, column));
+  paintCellHost(host, block.table, r, column);
 }
 
 // The resting state. One `<div>` per line so a line can carry a checkbox beside
@@ -1298,10 +1530,21 @@ function sprintCellView(block, index, r, column) {
   view.style.textAlign = CELL_ALIGN[grid.align[column]] || "";
   view.title = "Click to edit";
 
-  const lines = cellText(cellValue(grid, r, column)).split("\n");
+  // The tint is the cell's, so its marker is taken off the front of the whole
+  // cell before the lines are read -- otherwise it would draw as text on line one.
+  const raw = cellText(cellValue(grid, r, column));
+  const tint = cellTint(raw);
+  const lines = (tint ? raw.slice(tint.length) : raw).split("\n");
+
   lines.forEach((line, position) => {
     const row = element("div", "sprint-cell-line");
     const found = CELL_TODO.exec(line);
+    const bullet = found ? null : CELL_BULLET.exec(line);
+    // Indent is drawn as padding rather than left as spaces, so a nested line
+    // hangs under its parent's text instead of under its glyph.
+    if (found || bullet) {
+      row.style.setProperty("--cell-depth", cellDepth((found || bullet)[1]));
+    }
     if (found) {
       const box = element("input", "sprint-cell-todo");
       box.type = "checkbox";
@@ -1316,6 +1559,13 @@ function sprintCellView(block, index, r, column) {
       const label = element("span", "sprint-cell-label");
       renderCellInline(label, line.slice(found[0].length));
       row.append(box, label);
+    } else if (bullet) {
+      const depth = cellDepth(bullet[1]);
+      const glyph = element("span", "sprint-cell-bullet",
+        CELL_BULLETS[Math.min(depth, CELL_BULLETS.length - 1)]);
+      const label = element("span", "sprint-cell-label");
+      renderCellInline(label, line.slice(bullet[0].length));
+      row.append(glyph, label);
     } else {
       renderCellInline(row, line);
     }
@@ -1344,6 +1594,7 @@ function editSprintCell(host, block, index, r, column, select) {
   const area = sprintCell(block, index, r, column);
   host.innerHTML = "";
   host.appendChild(area);
+  paintCellHost(host, block.table, r, column);
   autosizeSprintArea(area);
   area.focus();
   if (select) area.select();
@@ -1389,7 +1640,8 @@ function toggleCellTodo(host, block, index, r, column, position) {
 
 // A `<textarea>` and not an `<input>`, because an input has no second line to
 // give: `Enter` in a cell is a line break within it, and the height follows the
-// text. `Tab` still walks the grid rather than typing a tab.
+// text. The keyboard rules below are read **per line** for the same reason -- a
+// tab on a checklist line and a tab on a word are not the same request.
 function sprintCell(block, index, r, column) {
   const grid = block.table;
   const cell = element("textarea", "sprint-cell");
@@ -1403,6 +1655,7 @@ function sprintCell(block, index, r, column) {
 
   cell.oninput = () => {
     writeCell(grid, r, column, cell.value);
+    paintCellHost(cellHost(cell), grid, r, column);
     autosizeSprintArea(cell);
     maybeOpenCellMenu(cell, block, index, r, column);
     tableEdited(block);
@@ -1433,21 +1686,49 @@ function sprintCell(block, index, r, column) {
       return;
     }
 
-    if (event.key !== "Tab") return;
-    event.preventDefault();
-    const columns = grid.head.length;
-    let row = r;
-    let next = column + (event.shiftKey ? -1 : 1);
-    if (next >= columns) { next = 0; row = r + 1; }
-    if (next < 0) { next = columns - 1; row = r - 1; }
-    // Tab off the last cell grows the table rather than leaving it.
-    if (row > grid.rows.length - 1) {
-      insertGridRow(block, grid.rows.length);
-      applyGridChange(block, index, grid.rows.length - 1, 0);
+    // **`Tab` indents on a list line and walks the grid everywhere else.** Which
+    // is the honest reading of the key: indenting a paragraph inside a table cell
+    // means nothing, and a cell holding one word is the common case -- taking
+    // `Tab` from it would cost the gesture that fills a table in. So the line the
+    // caret is on decides, and the two meanings never both apply.
+    if (event.key === "Tab" && cellLineMarker(caretLine(cell).line)) {
+      event.preventDefault();
+      indentCellLine(cell, block, r, column, event.shiftKey ? -1 : 1);
       return;
     }
-    if (row < -1) return;   // Shift+Tab out of the first header cell stays put
-    focusSprintCell(index, row, next);
+
+    // A list carries on by itself: `Enter` on an item opens the next one with the
+    // same marker at the same depth, and on an empty item takes the marker away
+    // rather than laying out a third. That second half is the way out of a list,
+    // and without it the only exit is deleting what the first half just wrote.
+    if (event.key === "Enter" && !event.shiftKey && !event.ctrlKey && !event.metaKey
+        && continueCellList(cell, block, r, column)) {
+      event.preventDefault();
+      return;
+    }
+
+    // The way out, and it only exists because `Tab` no longer is one: without it
+    // a keyboard has no way to leave the grid at all. It commits nothing, unlike
+    // `Esc` on a block -- the grid already holds every keystroke.
+    if (event.key === "Escape") {
+      event.preventDefault();
+      cell.blur();
+      return;
+    }
+
+    // `Tab` anywhere but a list line still walks the grid, exactly as it always
+    // has -- including growing a row off the end. `Ctrl`+arrow walks from
+    // anywhere, which is what a list line has instead.
+    if (event.key === "Tab") {
+      event.preventDefault();
+      stepSprintCell(block, index, r, column, [0, event.shiftKey ? -1 : 1]);
+      return;
+    }
+
+    const step = CELL_STEP[event.key];
+    if (!step || !(event.ctrlKey || event.metaKey)) return;
+    event.preventDefault();
+    stepSprintCell(block, index, r, column, step);
   };
 
   cell.onpaste = (event) => {
@@ -1463,6 +1744,128 @@ function sprintCell(block, index, r, column) {
   };
 
   return cell;
+}
+
+// The line the caret is on, and where it starts in the box. Every keyboard rule
+// below is per line rather than per cell, because a cell holds several -- the
+// same reading `maybeOpenCellMenu` does for `/`.
+function caretLine(cell) {
+  const upto = cell.value.slice(0, cell.selectionStart);
+  const start = upto.length - upto.split("\n").pop().length;
+  return { start, line: cell.value.slice(start).split("\n")[0] };
+}
+
+// What a line is, for the two rules that care: a checkbox, a bullet, or neither.
+// `write` is what continuing it looks like, in the **spelling this line already
+// uses** -- `☐` carries on as `☐`, `- [x]` carries on as an unticked `- [ ]`, and
+// `*` stays `*`. The marker belongs to the line, which is the same stance
+// `flipCellTodo` takes about ticking one.
+function cellLineMarker(line) {
+  const todo = CELL_TODO.exec(line);
+  if (todo) {
+    const glyph = todo[2] === TODO_ON || todo[2] === TODO_OFF;
+    return { indent: todo[1], length: todo[0].length, write: glyph ? `${TODO_OFF} ` : TODO_WRITE };
+  }
+  const bullet = CELL_BULLET.exec(line);
+  if (bullet) return { indent: bullet[1], length: bullet[0].length, write: `${bullet[2]} ` };
+  return null;
+}
+
+// `Enter` on a list line. Returns whether it handled the key -- on an ordinary
+// line it does not, and the textarea inserts a plain newline as before.
+function continueCellList(cell, block, r, column) {
+  const { start, line } = caretLine(cell);
+  const marker = cellLineMarker(line);
+  if (!marker) return false;
+
+  const value = cell.value;
+  const from = cell.selectionStart;
+  const to = cell.selectionEnd;
+  let caret;
+
+  if (line.slice(marker.length).trim()) {
+    const carry = `\n${marker.indent}${marker.write}`;
+    cell.value = value.slice(0, from) + carry + value.slice(to);
+    caret = from + carry.length;
+  } else {
+    // An empty item ends the list rather than laying out another empty one. The
+    // indent goes with the marker: what is left is a blank line, not a stray two
+    // spaces that the next save would strip anyway.
+    cell.value = value.slice(0, start) + value.slice(start + marker.length);
+    caret = start;
+  }
+
+  cell.setSelectionRange(caret, caret);
+  writeCell(block.table, r, column, cell.value);
+  autosizeSprintArea(cell);
+  tableEdited(block);
+  return true;
+}
+
+// Where `Ctrl`+arrow goes, as `[down, across]`. Modifiers are nearly all spoken
+// for -- `Ctrl+Tab` is the browser's, `Alt+Tab` is the window manager's -- so the
+// arrows are what is left, and they are the spreadsheet gesture anyway.
+const CELL_STEP = {
+  ArrowRight: [0, 1],
+  ArrowLeft: [0, -1],
+  ArrowDown: [1, 0],
+  ArrowUp: [-1, 0],
+};
+
+// One step through the grid, wrapping at the ends of a row the way `Tab` did.
+function stepSprintCell(block, index, r, column, [down, across]) {
+  const grid = block.table;
+  const columns = grid.head.length;
+  let row = r + down;
+  let next = column + across;
+  if (next >= columns) { next = 0; row += 1; }
+  if (next < 0) { next = columns - 1; row -= 1; }
+
+  // Off the end grows the table rather than leaving it -- `Tab`'s old job,
+  // carried over so nothing was lost when the key changed.
+  if (row > grid.rows.length - 1) {
+    insertGridRow(block, grid.rows.length);
+    applyGridChange(block, index, grid.rows.length - 1, next);
+    return;
+  }
+  if (row < -1) return;   // up out of the header row stays put
+  focusSprintCell(index, row, next);
+}
+
+// Indent or outdent every line the selection touches, and nothing else: this
+// writes spaces into the cell's text, so it is the same kind of edit as typing.
+//
+// **A cell's first line cannot hold an indent**, and that is the file's rule
+// rather than this function's: `_split_row` strips each cell, so leading
+// whitespace on line one is gone by the next save. Lines two and after keep it,
+// which is where nesting belongs anyway -- a list starts at the left.
+function indentCellLine(cell, block, r, column, direction) {
+  const value = cell.value;
+  const was = { start: cell.selectionStart, end: cell.selectionEnd };
+  const from = value.lastIndexOf("\n", Math.max(0, was.start - 1)) + 1;
+  const found = value.indexOf("\n", was.end);
+  const to = found === -1 ? value.length : found;
+
+  let first = 0;
+  let total = 0;
+  const lines = value.slice(from, to).split("\n").map((line, position) => {
+    const taken = direction > 0 ? "" : (/^(\t| {1,2})/.exec(line) || [""])[0];
+    const moved = direction > 0 ? CELL_INDENT.length : -taken.length;
+    if (position === 0) first = moved;
+    total += moved;
+    return direction > 0 ? CELL_INDENT + line : line.slice(taken.length);
+  });
+
+  cell.value = value.slice(0, from) + lines.join("\n") + value.slice(to);
+  // Both ends move by what was added or taken *before* them, so the caret keeps
+  // its place in the line rather than jumping to the end of the box.
+  cell.setSelectionRange(
+    Math.max(from, was.start + first),
+    Math.max(from, was.end + total));
+
+  writeCell(block.table, r, column, cell.value);
+  autosizeSprintArea(cell);
+  tableEdited(block);
 }
 
 // Fills from the anchor cell, growing the table to fit what was pasted. A
@@ -1534,28 +1937,47 @@ function moveGridRow(block, from, to) {
 // marker in the same breath. Miss it and a right-aligned column of numbers quietly
 // lines up under a different heading -- which the round-trip test cannot catch,
 // because the file it writes still round-trips perfectly.
+// ...and its **width**, for the same reason, with one wrinkle `align` does not
+// have: widths are keyed on the header row's text, which is the very thing these
+// three edits change. So the entry is read and dropped before the grid moves, and
+// written back under the new key after -- `takeWidths` is that half of it.
 function insertGridColumn(block, at) {
   const grid = block.table;
+  const widths = takeWidths(block);
   squareGrid(grid);
   grid.head.splice(at, 0, "");
   grid.align.splice(at, 0, "");
   for (const row of grid.rows) row.splice(at, 0, "");
+  if (widths) {
+    widths.splice(at, 0, NEW_COLUMN_PX);
+    writeWidths(block, widths);
+  }
 }
 
 function deleteGridColumn(block, at) {
   const grid = block.table;
+  const widths = takeWidths(block);
   squareGrid(grid);
   grid.head.splice(at, 1);
   grid.align.splice(at, 1);
   for (const row of grid.rows) row.splice(at, 1);
+  if (widths) {
+    widths.splice(at, 1);
+    writeWidths(block, widths);
+  }
 }
 
 function moveGridColumn(block, from, to) {
   const grid = block.table;
+  const widths = takeWidths(block);
   squareGrid(grid);
   grid.head.splice(to, 0, grid.head.splice(from, 1)[0]);
   grid.align.splice(to, 0, grid.align.splice(from, 1)[0]);
   for (const row of grid.rows) row.splice(to, 0, row.splice(from, 1)[0]);
+  if (widths) {
+    widths.splice(to, 0, widths.splice(from, 1)[0]);
+    writeWidths(block, widths);
+  }
 }
 
 // Flag, redraw, and put the cursor back in the grid: a structural edit that leaves
@@ -1801,7 +2223,8 @@ function sprintTableTools(block, index) {
     gridButton("+ Row", change(() => insertGridRow(block, grid.rows.length))),
     gridButton("+ Column", change(() => insertGridColumn(block, grid.head.length))),
     element("span", "sprint-table-note",
-      "Tab moves · paste from a spreadsheet fills the grid · ⠿ moves a row or column"),
+      "Tab moves, or indents a list line · Enter continues a list · / inserts · "
+      + "paste fills the grid · ⠿ moves a row or column · drag a column edge"),
   );
   return tools;
 }
@@ -1996,6 +2419,9 @@ async function refreshSprintFiles() {
   // this is the moment it lands on disk -- so the warning appears with the save
   // that caused it rather than the next time the tab is opened.
   renderSprintOverlaps();
+  // Same reason, second consequence: the heading is where this file's fortnight
+  // is written down, so retyping its dates re-aims the scope panel beside it.
+  renderSprintScope();
 }
 
 function renderSprintStatus() {

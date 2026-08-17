@@ -724,9 +724,50 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 .week-day:hover .week-day-num, .week-day:hover .week-day-initial { color: #3949ab; }
 
 /* --- sprint view --- */
-/* A document, so it is measured for reading rather than given the width of a
-   chart: prose at chart width is a worse editor than prose in a column. */
-.sprint-view { max-width: 860px; }
+/* The **document** is measured for reading rather than given the width of a
+   chart -- prose at chart width is a worse editor than prose in a column -- so
+   the 860px that used to sit on the whole view now sits on the column that holds
+   it. The view itself takes the extra width the scope panel needs beside it, the
+   way the map takes the window: a cap belongs to a thing being read, and there
+   are two things here. */
+.sprint-view { max-width: 1220px; }
+.sprint-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 860px) 300px;
+  gap: 16px;
+  align-items: start;
+}
+/* `min-width: 0` or the grid column refuses to shrink below its widest table and
+   pushes the panel off the page -- a grid item's default `min-width: auto` is the
+   same trap `.sprint-grid`'s overflow exists to solve inside the block. */
+.sprint-main { min-width: 0; }
+
+/* Below this there is not room for both, and squeezing the document is the wrong
+   half to lose: the panel is a reference, the file is the work. */
+@media (max-width: 1180px) {
+  .sprint-layout { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Sticky, so the deliverables stay beside whichever part of the file you have
+   scrolled to -- which is the whole point of it being a panel rather than a
+   section under the document. */
+.sprint-scope {
+  position: sticky;
+  top: 12px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  padding: 10px 12px;
+  border: 1px solid #e4e4e8;
+  border-radius: 6px;
+  background: #fbfbfd;
+}
+.sprint-scope-head { margin: 0 0 4px; font-size: 13px; }
+.sprint-scope-window { margin: 0 0 8px; font-size: 12px; color: #555; font-weight: 600; }
+.sprint-scope-note { font-size: 11.5px; }
+/* The panel is the head of this list, so the component's own heading would be
+   the same words twice. */
+.sprint-scope .slice-deliv-head { display: none; }
+.sprint-scope .slice-deliverables { margin-top: 0; }
 /* Load-bearing, the fifth time this trap has come up -- see
    `.fortnight-drawer[hidden]` above. The rule on the line before sets a width,
    not a display, but the document below sets one, and the whole view is toggled
@@ -944,6 +985,57 @@ kbd {
 .sprint-table th, .sprint-table td { border: 1px solid #e0e0e0; padding: 0; }
 .sprint-table th { background: #f6f6f6; }
 
+/* Auto-sized until a column is dragged, and fixed from then on. Under auto layout
+   a width is a suggestion the browser re-fits to the content, so a drag would not
+   land where it was let go; under fixed layout every column has been seeded with
+   what it was already occupying, so nothing moves at the moment of the switch.
+   `width: auto` with it, or the table would stretch the columns back out to fill
+   the block -- the scroller above is what handles a table wider than the page. */
+.sprint-table.sized { table-layout: fixed; width: auto; }
+.sprint-table.sized .sprint-cell, .sprint-table.sized .sprint-cell-view {
+  min-width: 0;   /* the column's width is the width now, not the cell's floor */
+}
+
+/* The handle on a column's right edge. It lives in the grip strip above the
+   header rather than in the header cell, which is entirely "click here to type" —
+   6px of it taken for a drag surface is 6px you cannot put a cursor in. */
+.sprint-colgrip { position: relative; }
+.col-resize {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.col-resize::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  left: 3px;
+  width: 1px;
+  background: #5c6bc0;
+}
+.sprint-table-block:hover .col-resize,
+.sprint-table-block:focus-within .col-resize { opacity: 0.55; }
+.col-resize:hover { opacity: 1 !important; }
+/* While a drag is live the cursor is over whatever it happens to pass, and a text
+   caret over the grid mid-resize reads as "you are selecting", which you are not. */
+body.resizing-column { cursor: col-resize; user-select: none; }
+
+/* **A highlight is the cell's, so it is drawn on the cell.** On the `<td>` rather
+   than on either state inside it: the tint has to survive the swap between view
+   and textarea, and it has to fill the cell even when a taller cell beside it
+   sets the row's height. Washes rather than colours -- the text on top is the
+   content, and `.sprint-cell:focus` still wins while you are typing in it. */
+.sprint-table td.cell-tint-amber, .sprint-table th.cell-tint-amber { background: #fff3cd; }
+.sprint-table td.cell-tint-red, .sprint-table th.cell-tint-red { background: #fbe0de; }
+.sprint-table td.cell-tint-green, .sprint-table th.cell-tint-green { background: #ddf2e3; }
+.sprint-table td.cell-tint-blue, .sprint-table th.cell-tint-blue { background: #e2ecfa; }
+
 /* The two states of one cell, sharing every metric that decides the row's height
    so the swap on focus does not move the grid. A textarea, so a cell can hold a
    second line — sized by its text rather than resizable, and `display: block`
@@ -964,7 +1056,26 @@ kbd {
 /* The resting state. `cursor: text` because clicking it is how you type here, and
    `min-height` so an empty cell is still a target rather than a 0px line. */
 .sprint-cell-view { cursor: text; }
-.sprint-cell-line { min-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* `--cell-depth` is the line's indent, drawn as padding with the text hanging
+   under itself rather than under its bullet. The line keeps `pre-wrap` because a
+   line that is *not* a list item still owns whatever spaces you typed into it. */
+.sprint-cell-line {
+  min-height: 18px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding-left: calc(var(--cell-depth, 0) * 14px);
+}
+
+/* One glyph per level -- • ◦ ▪ -- where the file holds `- `, `  - `, `    - `. The
+   grid draws the affordance; the characters are what everything else sees. Fixed
+   width, so the text of every item at one depth starts in the same place, and the
+   same 14px the indent steps by. */
+.sprint-cell-bullet {
+  display: inline-block;
+  width: 14px;
+  color: #777;
+  user-select: none;
+}
 
 /* The four constructs the cell menu can insert, drawn so a rendered row is the
    same height as the raw one it swaps to — no padded `code`, no larger link. */

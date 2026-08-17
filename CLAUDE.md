@@ -741,6 +741,30 @@ into one project link.
   mtime, which would arm the next save to overwrite the change it just refused.
   `.sprint-view[hidden]` is load-bearing in the CSS — the **fifth** time that
   trap has come up.
+  - **The roadmap sits down the right, read-only** — `Deliverables in scope`,
+    the phases touching this file's fortnight and the deliverables they name.
+    The tab had no roadmap in it at all until this: the fortnight drawer on
+    Portfolio was where the two met, which is the wrong tab to fill a capacity
+    table from.
+    It costs **no endpoint and no server code**. The file's fortnight is already
+    on `GET /api/sprints` (`sprint_window_from_heading`, read off the first line
+    and lenient — no dates means no window, and the panel says so rather than
+    guessing), and `GET /api/fortnight` already answers what is in a fortnight.
+    `renderSprintScope` in **app.js**, not `editor.js`, and that is the gate
+    holding: the editor still knows nothing about a roadmap or a sprint. It
+    draws `sliceDeliverables`, the drawer's own component, so the two pictures of
+    one fortnight cannot drift.
+    **It writes nothing and offers no insert**, which was offered and declined:
+    a click that puts a deliverable into the file is one step from allocating
+    deliverables into sprints, which `PROMPT.md` lists as do-not-build. You read
+    it and type what you decide.
+    Two honest details. The heading's dates are the sprint's own and are **never
+    snapped**, while the chart window is Monday-based and is — so when they
+    differ the panel names the week it read from rather than quietly showing two
+    days the sprint does not cover, the same distinction `sprint_window` and
+    `fortnight_window` exist separately to keep. And the 860px cap moved off
+    `.sprint-view` onto the **document column**: a cap belongs to a thing being
+    read, and there are two of them now.
   - **A landed save re-reads the picker** (`refreshSprintFiles`). The File list
     names each file by its *first line*, so renaming a heading left the old name
     showing until you left the tab and came back — `loadSprints` was the only
@@ -758,7 +782,10 @@ into one project link.
   - **A table is a grid of cells, and a cell has two states.** Every other block
     type swaps between rendered HTML and its markdown; a table swaps to cells, so
     raw pipes have nowhere to appear. `Tab`/`Shift+Tab` walk cells
-    and `Tab` off the last one grows a row; `+ Row` `+ Column` sit under it on
+    and `Tab` off the last one grows a row — **except on a list line, where it
+    indents instead**, see the keyboard entry below; `Ctrl`+arrow walks from
+    anywhere and does everything `Tab` does, growing a row included, which is
+    what a list line has instead. `+ Row` `+ Column` sit under it on
     hover; and **pasting a spreadsheet range fills from the anchor cell
     outwards**, growing the table to fit. That paste is the feature the editor
     was built for. Editing a table's alignment markers, or turning one back into
@@ -817,9 +844,60 @@ into one project link.
     file.** It would render, because `html=True`, and then the tick would have no
     persistence path at all, the grid would have to parse HTML back out to stay
     editable, and the file would stop being markdown a person can hand-edit.
+  - **A cell line can be a bullet, and a cell can be highlighted — both are
+    characters in the file.** The checkbox above is the precedent and the
+    argument is identical each time: *the file holds text and the grid draws an
+    affordance over it*, because `- x` in a cell is literal text to GFM. So a
+    line starting `- `, `* ` or `+ ` draws as **• ◦ ▪ by depth** (the ramp
+    repeats rather than running out), and a cell whose first characters are
+    🟨🟥🟩🟦 draws **tinted**, its marker consumed the way `- [ ]` is. Both are
+    set from the `/` cell menu; outside this grid they read as a hyphen and a
+    coloured square, which is what they are.
+    Two mechanical facts worth knowing. The tint rides on the **`<td>`**, not on
+    either state inside it, so it survives the view/textarea swap and fills the
+    cell when a taller cell beside it sets the row's height. And **a nested
+    bullet cannot be a cell's first line**: `_split_row` strips each cell, so a
+    leading indent on line one is gone by the next save. That is the file's rule
+    rather than the editor's, and a list starts at the left anyway.
+    **What was rejected, and why it matters:** a sidecar file holding colours and
+    widths per cell. It is the precise thing this feature exists not to be — the
+    markdown file is the one record, and a second store beside it is how that
+    stops being true. Column widths went to `localStorage` instead (below);
+    colour went into the text, where every other tool can see it.
+  - **`Enter` continues a list**, in whichever spelling the line already uses —
+    `☑` carries on as `☐`, `- [x]` as an unticked `- [ ] `, `*` as `*`. The
+    marker belongs to the line, the same stance `flipCellTodo` takes about
+    ticking one. On an **empty** item it takes the marker away rather than laying
+    out a third, and that half is not a nicety: it is the only way out of a list
+    that continues itself.
+  - **`Tab` indents a list line and walks the grid everywhere else.** Read per
+    line, not per cell, like the `/` menu — and the split is the whole design.
+    Taking `Tab` outright was built first and was wrong: indenting a paragraph
+    inside a table cell means nothing, and a cell holding one word is the common
+    case, so it would have cost the gesture that fills a table in. `Shift+Tab`
+    outdents. `Esc` blurs a cell back to its view, which nothing did before —
+    with `Tab` sometimes staying put, a keyboard needed a way out of the grid.
+  - **A column can be resized, and the width is not in the file.** Markdown has
+    no column width, so it lives in `localStorage` — a way of looking, like
+    `state.mapTiers`, except that unlike those it is worth keeping across a
+    reload. Keyed on the **header row's text**, so it survives a block reorder;
+    renaming a header loses that table's widths and two identically-headed tables
+    share them, both accepted. A table is **auto-sized until the first drag**,
+    which seeds every column from what it was already occupying and switches to
+    `table-layout: fixed` — under auto layout a width is a suggestion the browser
+    re-fits, so a drag would not land where it was let go. Double-click resets
+    the **table**, not the column: one auto column among fixed ones has no width
+    to fall back to. The handle sits in the grip strip above the header rather
+    than in the header cell, whose whole area is "click here to type".
+    Inserting, deleting and moving a column carries the width along **exactly as
+    it already carries `align`** — and reads it *before* the move, because the
+    key is the header row the move is about to change.
   - **The view renders four inline constructs, and it is the second thing drawn in
     the browser rather than in Python.** Bold, italic, code and a link — *exactly*
-    what `CELL_MENU` can insert, and nothing else. The discipline is the point:
+    what `CELL_MENU` can insert, and nothing else. (The checkbox, the bullet and
+    the tint are not on that list and are not exceptions to it: they are line and
+    cell affordances over literal text, not inline markdown being rendered.) The
+    discipline is the point:
     this is not a markdown renderer and must not grow into one. `markdown.py`
     renders the file.
     The reason it is client-side has the same shape as mermaid's without being the
@@ -875,7 +953,9 @@ into one project link.
     nothing marks as clickable, and that path does not exist at all for a
     fortnight outside the chart's window. It is **dates only and reads no
     roadmap**: the drawer is the roadmap-aware path, and duplicating it would
-    put roadmap knowledge in a tab that has none. The number is still the
+    put roadmap knowledge in a control that needs none. That is now a statement
+    about *this button* rather than about the tab, which has the scope panel
+    below — the button still asks for a date and nothing else. The number is still the
     server's, off the directory, and a 409 re-reads the picker and says which
     file it refused to overwrite — or which sprint's days the fortnight you asked
     for would have overlapped, since both refusals arrive as a 409 and the

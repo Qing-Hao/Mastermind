@@ -327,7 +327,8 @@
 
     <!-- ---------------- Sprint view ---------------- -->
     <div id="sprint-view" class="sprint-view" hidden>
-      <section>
+     <div class="sprint-layout">
+      <section class="sprint-main">
         <h2>
           Sprint file
           <span id="sprint-status" class="save-state"></span>
@@ -395,6 +396,12 @@
           <textarea id="sprint-raw-file" spellcheck="false"></textarea>
         </div>
       </section>
+
+      <!-- The roadmap beside the file, read-only. Drawn from the fortnight in
+           this file's own heading; it writes nothing and offers no insert,
+           because putting a deliverable into a sprint is the Phase 2 line. -->
+      <aside id="sprint-scope" class="sprint-scope"></aside>
+     </div>
     </div>
   </main>
 
