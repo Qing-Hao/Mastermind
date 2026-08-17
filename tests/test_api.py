@@ -675,6 +675,31 @@ def test_portfolio_carries_each_project_span_and_totals(client):
     assert lane["total_points"] == 95
 
 
+def test_a_swimlane_carries_its_deliverable_tally(client):
+    """What the collapsed lane's progress bar fills from. Display only.
+
+    Read off the ticks rather than `phase.status`, which nothing maintains --
+    see `validation.deliverable_progress`. A project naming no deliverables
+    reports 0 of 0 and gets no bar at all, never an empty one.
+    """
+    project = make_project(client, "Payments", "2026-01-05")
+    design = make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+    make_phase(client, project["id"], "Build", "2026-02-02", 6, 55)
+    ticked = add_deliverable(client, design["id"], "Wireframes")
+    add_deliverable(client, design["id"], "Prototype")
+    client.put(f"/api/deliverables/{ticked['id']}", json={"done": True})
+
+    bare = make_project(client, "Search", "2026-01-05")
+    make_phase(client, bare["id"], "Spike", "2026-01-05", 1, 10)
+
+    lanes = {lane["name"]: lane for lane in
+             client.get("/api/portfolio").json()["projects"]}
+    assert (lanes["Payments"]["deliverables_done"],
+            lanes["Payments"]["deliverables_total"]) == (1, 2)
+    assert (lanes["Search"]["deliverables_done"],
+            lanes["Search"]["deliverables_total"]) == (0, 0)
+
+
 def test_a_swimlane_carries_the_derived_stage_too(client):
     """Dated around today, so the rung is the clock's answer and not the file's."""
     started = (date.today() - timedelta(days=7)).isoformat()
@@ -1146,6 +1171,37 @@ def test_graph_reports_progress_size_and_what_lands_next(client):
     assert node["effort_points"] == 100
     # Dates are all in the past by the time this runs, so nothing is upcoming.
     assert node["next_date"] is None
+
+
+def test_graph_carries_the_deliverable_tally_the_node_fills_from(client):
+    """How full a node draws. A different question from the phase tally beside it.
+
+    The fill reads ticks rather than `phase.status` because that field is
+    maintained by nobody on the real file, so a phase-driven fill draws every
+    circle empty. Both tallies travel; neither derives anything (rule 4).
+    """
+    project = make_project(client, start="2026-01-05")
+    design = make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+    build = make_phase(client, project["id"], "Build", "2026-02-02", 6, 60)
+    ticked = add_deliverable(client, design["id"], "Wireframes")
+    add_deliverable(client, design["id"], "Prototype")
+    add_deliverable(client, build["id"], "Refund flow")
+    client.put(f"/api/deliverables/{ticked['id']}", json={"done": True})
+
+    node = client.get("/api/graph").json()["projects"][0]
+    assert (node["deliverables_done"], node["deliverables_total"]) == (1, 3)
+    # Nothing was closed, so the phase tally disagrees -- which is the point of
+    # carrying both.
+    assert (node["phases_done"], node["phases_total"]) == (0, 2)
+
+
+def test_graph_tally_of_a_project_naming_no_deliverables_is_zero_of_zero(client):
+    """The map draws no fill for this, rather than an empty one meaning 0%."""
+    project = make_project(client, start="2026-01-05")
+    make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+
+    node = client.get("/api/graph").json()["projects"][0]
+    assert (node["deliverables_done"], node["deliverables_total"]) == (0, 0)
 
 
 def test_graph_next_date_is_the_soonest_boundary_still_ahead(client):

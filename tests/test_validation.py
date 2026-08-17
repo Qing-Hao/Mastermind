@@ -18,6 +18,7 @@ from app.validation import (
     check_phase_done_without_deliverables,
     check_phase_overdue,
     project_effort_points,
+    deliverable_progress,
     project_progress,
     project_span,
     project_stage,
@@ -382,6 +383,20 @@ def test_progress_counts_only_done_phases():
 
 def test_progress_of_a_project_with_no_phases_is_zero_of_zero():
     assert project_progress([]) == {"done": 0, "total": 0}
+
+
+def test_deliverable_progress_counts_the_ticks():
+    items = [{"done": 1}, {"done": 0}, {"done": 1}, {"done": 0}]
+    assert deliverable_progress(items) == {"done": 2, "total": 4}
+
+
+def test_deliverable_progress_of_a_project_naming_none_is_zero_of_zero():
+    """Not 0% and not complete: there is no honest fraction of nothing.
+
+    The same 0-of-0 trap that ruled out deriving a project's `done` rung from
+    these ticks. Every caller decides what to draw for it; none may divide.
+    """
+    assert deliverable_progress([]) == {"done": 0, "total": 0}
 
 
 def test_effort_points_sum_the_phases_own_estimates():

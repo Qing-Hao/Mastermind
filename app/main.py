@@ -25,6 +25,7 @@ from app.validation import (
     UNSCHEDULED,
     as_date,
     as_optional_date,
+    deliverable_progress,
     find_dependency_cycle,
     fortnight_slice,
     fortnight_window,
@@ -350,8 +351,8 @@ def unplaced_work(projects, phases):
     return tray
 
 
-def with_project_span(projects, phases_by_project):
-    """Attach each project's own dates, phase count and points. Never stored.
+def with_project_span(projects, phases_by_project, deliverables_by_project):
+    """Attach each project's own dates, counts, points and progress. Never stored.
 
     The span comes from `validation.project_span` over **every** phase the
     project has, not the ones a chart happens to be drawing. A swimlane that
@@ -361,6 +362,14 @@ def with_project_span(projects, phases_by_project):
     Both dates come back as "" while that half is unscheduled, the same
     convention `with_end_date` follows, so a half-dated project still reports
     the half it has.
+
+    `deliverables_done` / `deliverables_total` are how far through the work a
+    project is, for the swimlane's collapsed summary bar. Deliberately the
+    deliverable tick rather than `phase.status`: 34 of 39 phases on the real file
+    sit at the untouched default and `in_progress` has never been used once, so a
+    phase tally draws an empty bar for ten of the thirteen projects that hold
+    work. This is a **read for display** and rule 4 is intact -- see
+    `validation.deliverable_progress`.
     """
     for project in projects:
         own = phases_by_project.get(project["id"], [])
@@ -369,6 +378,10 @@ def with_project_span(projects, phases_by_project):
         project["span_end"] = end.isoformat() if end else UNSCHEDULED
         project["phase_count"] = len(own)
         project["total_points"] = project_effort_points(own)
+        progress = deliverable_progress(
+            deliverables_by_project.get(project["id"], []))
+        project["deliverables_done"] = progress["done"]
+        project["deliverables_total"] = progress["total"]
     return projects
 
 
@@ -514,9 +527,9 @@ def read_portfolio():
     project waiting on something uncommitted is worth seeing here even though the
     idea itself has no bar to draw.
 
-    Each project also carries its derived span, counts and stage. The chart draws
-    phases, so the project's own dates -- the question this tab exists to answer
-    -- were the one thing on it that could not be read anywhere.
+    Each project also carries its derived span, counts, progress and stage. The
+    chart draws phases, so the project's own dates -- the question this tab
+    exists to answer -- were the one thing on it that could not be read anywhere.
 
     `milestones` is every dated checkpoint on a committed project, flat and
     carrying `project_id`, so the chart can draw the same diamonds the project
@@ -531,15 +544,18 @@ def read_portfolio():
     owned = {}
     for phase in phases:
         owned.setdefault(phase["project_id"], []).append(phase)
-    with_project_span(projects, owned)
-    # Read once and used twice: the ladder needs every checkpoint to derive a
-    # stage, the chart needs the dated ones to draw diamonds.
+    # Both of these are read once and used twice. The ladder needs every
+    # checkpoint to derive a stage and the chart needs the dated ones to draw
+    # diamonds; the ladder needs deliverable *presence* and the collapsed
+    # swimlane needs the ticks. Two reads of either would be two queries for one
+    # answer.
     milestones = db.milestones_by_project()
+    deliverables = db.deliverables_by_project()
+    with_project_span(projects, owned, deliverables)
     # The ladder reads checkpoints since the milestone work, so the swimlane
     # stage has to be derived from them as well -- a lane claiming `planning`
     # while the picker says `done` would be two answers to one question.
-    with_derived_stage(projects, owned, db.deliverables_by_project(),
-                       milestones, date.today())
+    with_derived_stage(projects, owned, deliverables, milestones, date.today())
 
     return {
         "projects": projects,
@@ -981,6 +997,7 @@ def read_graph():
             db.list_projects(), grouped, deliverables, milestones, today):
         phases = grouped.get(project["id"], [])
         progress = project_progress(phases)
+        delivered = deliverable_progress(deliverables.get(project["id"], []))
         nodes.append({
             "id": project["id"],
             "name": project["name"],
@@ -995,6 +1012,15 @@ def read_graph():
             "goal": project["goal"],
             "phases_done": progress["done"],
             "phases_total": progress["total"],
+            # How full the node draws, and a different question from the phase
+            # tally beside it: the phase count is how much of the *plan* is
+            # closed, this is how much of the *work* is ticked off. The node
+            # fill reads this one because `phase.status` is maintained by
+            # nobody -- 34 of 39 phases sit at the untouched default -- so a
+            # phase-driven fill would draw every circle empty. Display only;
+            # see `validation.deliverable_progress` and rule 4.
+            "deliverables_done": delivered["done"],
+            "deliverables_total": delivered["total"],
             # The map's green splits `done` into delivered and merely closed, and
             # since the ladder derives `done` from checkpoints, that is what the
             # split has to read. The phase tally beside it stays on the label:

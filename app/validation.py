@@ -408,6 +408,27 @@ def project_progress(phases):
     }
 
 
+def deliverable_progress(deliverables):
+    """Ticked deliverables against the total. A project naming none is 0 of 0.
+
+    Display only, and that is the whole contract: the tick fires no rule, never
+    sets `phase.status` and never moves a date (rule 4). This reads it so a chart
+    can *show* how much of a project is finished, the same way `fortnight_lane`
+    carries `done` -- so it can be shown, never so anything can be derived from
+    it. Nothing in this module calls it, and the stage ladder still does not.
+
+    0 of 0 is returned as it is rather than as a fraction, because there is no
+    honest one: a project naming no deliverables is neither started nor complete.
+    Every caller has to decide what to draw for it, which is the same 0-of-0 trap
+    `milestones_all_achieved` guards and the reason deriving `done` from these
+    ticks was declined.
+    """
+    return {
+        "done": sum(1 for item in deliverables if item.get("done")),
+        "total": len(deliverables),
+    }
+
+
 def project_effort_points(phases):
     """Top-down points across a project. The phase estimate is the only estimate
     there is -- deliverables carry no points of their own."""
