@@ -670,12 +670,58 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 
 .drawer-result { color: #2e7d32; }
 
+/* Only shown when the file's start is not the Monday the strip is framed on --
+   the one case where the heading and the picture above it differ. */
+.drawer-from { font-size: 12px; color: #3949ab; font-weight: 600; }
+
 /* A week column on the portfolio ruler is the way into a fortnight, so it has
    to look like something you can press -- and be reachable without a mouse. */
-.week-target { cursor: pointer; }
+.week-target { cursor: pointer; position: relative; }
 .week-target:hover { background: #eef1ff; color: #3949ab; }
 .week-target:focus-visible { outline: 2px solid #5c6bc0; outline-offset: -2px; }
 .week.week-open { background: #e8eaf6; color: #3949ab; font-weight: 600; }
+
+/* The seven days inside a week column, revealed on hover. The column prints its
+   Monday and nothing else, so without this a fortnight could only be started
+   from a Monday -- and the planning day is the team's own.
+
+   `.week` clips its own text at narrow widths, so hovering has to unclip the
+   column for the strip to escape it; the strip is roughly 150px against a
+   column of 22-64px. It opens downwards, over the top of the chart rather than
+   out of the scroll box, and the last few columns open leftwards so it never
+   hangs off the end and grows a scrollbar. */
+.week-target:hover { overflow: visible; z-index: 6; }
+.week-days {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 6;
+  grid-template-columns: repeat(7, 21px);
+  padding: 2px;
+  background: #fff;
+  border: 1px solid #c8c8c8;
+  border-radius: 3px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.14);
+  cursor: default;
+}
+.week-target:hover .week-days { display: grid; }
+.week-days.days-end { left: auto; right: 0; }
+
+.week-day {
+  cursor: pointer;
+  text-align: center;
+  padding: 2px 0;
+  border-radius: 2px;
+  line-height: 1.15;
+}
+.week-day-initial { display: block; font-size: 9px; color: #aaa; }
+.week-day-num { display: block; font-size: 11px; color: #333; }
+/* Shaded like the fortnight strip's weekends, and for the same reason: a sprint
+   occasionally starts on one, so it has to be pickable rather than hidden. */
+.week-day.is-weekend { background: #f7f7f7; }
+.week-day:hover { background: #e8eaf6; }
+.week-day:hover .week-day-num, .week-day:hover .week-day-initial { color: #3949ab; }
 
 /* --- sprint view --- */
 /* A document, so it is measured for reading rather than given the width of a

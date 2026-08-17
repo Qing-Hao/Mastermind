@@ -409,6 +409,15 @@ each project in `projects` carries its own derived facts — `span_start`,
 the one thing on that tab readable nowhere. The span is derived from **every**
 phase, dated or not, never from the bars on screen.
 
+It also returns **`milestones`**: every *dated* checkpoint on a committed
+project, flat and carrying `project_id`, so a swimlane can draw the same
+diamonds the project timeline does (`main.drawable_milestones`). Same rule as
+`phases` — undated is omitted, because there is nowhere honest to draw it — but
+unlike a phase it gets no tray: a checkpoint has no work to place, and an
+undated one is chased up in the project view. The dict `db.milestones_by_project`
+returns is read **once** and used twice on this route, since the derived stage
+needs every checkpoint and the chart needs only the dated ones.
+
 `GET /api/fortnight?start=` returns **one fortnight, flattened**: a `window`
 and a lane per phase touching it. `start` is optional and snaps back to its
 Monday, both dates reported. The bands, the clip flags and the order are all
@@ -641,12 +650,31 @@ into one project link.
   reports which phases it dated, so undo blanks those and only those, then puts
   the project's own start date back. It lives in `state.lastPlacement`, so it
   survives re-renders and tab switches but not a page reload — the offer says so.
+  **Each lane draws its project's checkpoints** as diamonds above its bars, the
+  same `milestoneLane` the project timeline uses — one component, so the
+  hollow-until-reached vocabulary cannot drift between the two charts. **Bars
+  still decide which lanes exist**: a project whose work is all off-window keeps
+  its checkpoints off-window with it, rather than opening a lane holding nothing
+  but a diamond.
   Below the chart, every cross-project
   link as a **list**, V2-marked where violated — not arrows between swimlanes,
   because a link can point at an idea, which has no bar to draw to.
 - **Fortnight drawer** — clicking a week number on the portfolio ruler opens
   the fortnight starting that Monday, under the chart, and marks the two weeks
-  it covers. The ruler variant (`portfolioRuler`) is **passed into `weekGrid`
+  it covers.
+  **Hovering a week column reveals its seven days**, and picking one opens the
+  fortnight *containing* that day. The column prints its Monday and nothing
+  else, so until this existed a fortnight could only be started from a Monday —
+  while the cadence is the team's own and planning happens on a Wednesday here.
+  Weekends are shaded rather than disabled: a sprint occasionally starts on one.
+  The picked day is `state.fortnight.planFrom`, and **it never moves
+  `state.fortnight.start`** — that is read back off the payload, because the
+  server snaps the window and marking a Wednesday on the ruler would mark
+  nothing. Mouse only, deliberately: making 182 chips focusable would put that
+  many stops in the tab order on the way to the chart, so `Enter` on the column
+  still opens the Monday. `.week` clips its own text, so hovering unclips the
+  column to let the strip escape it, and the last few columns open leftwards so
+  it never hangs off the end of the chart. The ruler variant (`portfolioRuler`) is **passed into `weekGrid`
   rather than flagged on**, so the project timeline's ruler is untouched and
   nothing there knows the drawer exists. `state.fortnight` survives re-renders
   and tab switches but not a reload, like `timelineMode` and `state.mapTiers`.
@@ -694,6 +722,14 @@ into one project link.
   that window the button reads `Open NN.md →` and opens it instead of posting.
   That lives in `state.plannedSprints`, in memory: after a reload the offer comes
   back, and the file on disk is the real record.
+  **What it posts is `plannedFrom` — the day picked off the ruler, not the
+  Monday the strip is framed on.** This is what the day chips are for, and it is
+  exactly the distinction `fortnight_window` and `sprint_window` exist
+  separately to keep: the strip is a chart window and snaps, the heading is a
+  file's dates and does not. So a Wednesday cadence can now be started from this
+  tab rather than only from the Sprint tab's date box. The footer says
+  `planning from Wed 19 Aug` when the two differ, and `plannedSprints` is keyed
+  on what was posted, so the second-press guard still guards the right thing.
 - **Sprint** — the fourth tab: `sprints/NN.md` edited as a **block document**,
   not a textarea. A picker lists the files newest first; each block of the file
   renders as formatted HTML, clicking one swaps in a `<textarea>` holding its own

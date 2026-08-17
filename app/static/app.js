@@ -130,7 +130,12 @@ let state = {
   // the server computed for it. Same lifetime as the two above -- a way of
   // looking, kept across re-renders and tab switches, gone on reload. `start`
   // null means the drawer is closed.
-  fortnight: { start: null, slice: null },
+  // `planFrom` is the day you picked off the ruler, which is a Monday when you
+  // clicked the week itself and any weekday or weekend day when you picked one
+  // off the hovered strip. It never moves `start` -- a chart window and a file
+  // heading are different things, which is why `fortnight_window` snaps and
+  // `sprint_window` does not.
+  fortnight: { start: null, planFrom: null, slice: null },
   // Fortnights a sprint file has been started for, by window start, holding what
   // `POST /api/sprints` said it made. In memory only, like the two above, and it
   // exists to stop the drawer offering to start a *second* sprint for the same
@@ -663,8 +668,11 @@ async function loadPortfolio() {
   // is re-read with it. The drawer still writes nothing -- it is the chart's
   // edit that invalidated what it was showing.
   if (state.fortnight.start) {
-    state.fortnight.slice = await api(
-      `/api/fortnight?start=${encodeURIComponent(state.fortnight.start)}`);
+    // Re-asked with the day that was picked, not the Monday it snapped to, so
+    // the slice comes back reporting the same pair of dates it did when it was
+    // opened -- the heading's "snapped back from" line is read off that pair.
+    state.fortnight.slice = await api(`/api/fortnight?start=${
+      encodeURIComponent(state.fortnight.planFrom || state.fortnight.start)}`);
   }
   renderPortfolio();
 }
@@ -1003,7 +1011,7 @@ function renderTimeline() {
   // elements, so any positioned sibling paints above them whatever the order.
   const now = todayLine(view);
   if (now) body.appendChild(now);
-  const { marks, undated, offWindow } = datedMilestoneMarks(view);
+  const { marks, undated, offWindow } = milestoneMarks(state.plan.milestones, view);
   if (marks.length > 0) body.appendChild(milestoneLane(marks));
 
   const warned = warnedPhaseIds();
@@ -1093,13 +1101,15 @@ function milestoneNotes(chart, undated, offWindow) {
   }
 }
 
-// Placed on the calendar, the same arithmetic `phaseSpan` uses.
-function datedMilestoneMarks(view) {
+// Placed on the calendar, the same arithmetic `phaseSpan` uses. Takes the list
+// rather than reading `state.plan`, because the portfolio draws checkpoints per
+// swimlane off its own payload and two copies of this would drift.
+function milestoneMarks(milestones, view) {
   const marks = [];
   let undated = 0;
   let offWindow = 0;
 
-  for (const milestone of state.plan.milestones || []) {
+  for (const milestone of milestones || []) {
     if (!milestone.target_date) { undated += 1; continue; }
     const day = daysBetween(view.origin, parseDate(milestone.target_date));
     if (day < 0 || day > view.totalDays) { offWindow += 1; continue; }
@@ -1626,8 +1636,20 @@ function renderPortfolio() {
   const now = todayLine(view);
   if (now) body.appendChild(now);
 
+  // Checkpoints, per lane. Grouped once rather than filtered per project: the
+  // payload is flat because a milestone belongs to a project and not to a
+  // phase, which is the one thing the chart cannot read off a bar.
+  const checkpoints = new Map();
+  for (const milestone of state.portfolio.milestones || []) {
+    if (!checkpoints.has(milestone.project_id)) checkpoints.set(milestone.project_id, []);
+    checkpoints.get(milestone.project_id).push(milestone);
+  }
+
   for (const project of projects) {
     const own = visible.filter((phase) => phase.project_id === project.id);
+    // Bars decide which lanes exist, as they always have. A project whose work
+    // is all off-window keeps its checkpoints off-window with it rather than
+    // opening a lane holding nothing but a diamond.
     if (own.length === 0) continue;
 
     const lane = element("div", "lane");
@@ -1645,6 +1667,11 @@ function renderPortfolio() {
       openProject(project.id);
     };
     lane.appendChild(title);
+    // Above this project's bars, the same as the project timeline: a lane of
+    // diamonds is what the bars under it are aiming at. Same component, so the
+    // hollow-until-reached vocabulary cannot drift between the two charts.
+    const { marks } = milestoneMarks(checkpoints.get(project.id), view);
+    if (marks.length > 0) lane.appendChild(milestoneLane(marks));
     for (const phase of own) {
       const bar = phaseBar(phase, view, false);
       bar.classList.add("draggable");
@@ -2224,10 +2251,17 @@ function sliceDeliverables(lanes, colours) {
 // portfolio ruler opens the fortnight that starts on that Monday; the drawer
 // draws the same slice component the sprint tab will, and offers no edit.
 
-async function openFortnight(monday) {
-  state.fortnight.start = monday;
-  state.fortnight.slice = await api(
-    `/api/fortnight?start=${encodeURIComponent(monday)}`);
+// `day` is any date, not necessarily a Monday: the ruler's day chips open the
+// fortnight *containing* a day. The server snaps the window back to its Monday
+// and reports both dates, so `start` is read off the answer rather than assumed
+// -- it is what marks the two open weeks on the ruler, and marking a Wednesday
+// would mark nothing. `planFrom` is the day you actually picked, and it is what
+// the sprint file gets written from; see `plannedFrom`.
+async function openFortnight(day) {
+  const slice = await api(`/api/fortnight?start=${encodeURIComponent(day)}`);
+  state.fortnight.start = slice.window.start;
+  state.fortnight.planFrom = day;
+  state.fortnight.slice = slice;
   // The portfolio render draws the drawer and marks the two open weeks on the
   // ruler. Nothing refetches: looking at a fortnight changes no plan.
   renderPortfolio();
@@ -2238,7 +2272,7 @@ async function openFortnight(monday) {
 // in hand to redraw.
 function closeFortnight() {
   if (!state.fortnight.start) return;
-  state.fortnight = { start: null, slice: null };
+  state.fortnight = { start: null, planFrom: null, slice: null };
   if (state.view === "portfolio" && state.portfolio) renderPortfolio();
   else renderFortnightDrawer();
 }
@@ -2265,6 +2299,21 @@ function renderFortnightDrawer() {
   drawer.appendChild(fortnightFooter(slice.window));
 }
 
+// The date a sprint file gets written from: the day picked off the ruler, or
+// the fortnight's own Monday when the week itself was clicked.
+//
+// This is the whole point of the day chips. `fortnight_window` snaps to a
+// Monday and must -- the strip is drawn on Monday-based week columns -- while
+// `sprint_window` deliberately does not, because the cadence is the team's own
+// and planning happens on a Wednesday here. The two functions exist separately
+// for exactly this reason, and until now the drawer could only ever post the
+// snapped Monday, so a Wednesday sprint could not be started from this tab at
+// all.
+const plannedFrom = (window) => state.fortnight.planFrom || window.start;
+
+const weekdayDate = (iso) => parseDate(iso).toLocaleDateString(
+  undefined, { weekday: "short", day: "numeric", month: "short" });
+
 // The drawer's one write, and it writes a file rather than a plan: the sprint
 // template, copied and numbered. The drawer still only reads the roadmap -- what
 // it creates is a markdown file, and editing that file is the Sprint tab's job,
@@ -2275,7 +2324,8 @@ function renderFortnightDrawer() {
 // heading. So once a file exists for this window the button opens it instead.
 function fortnightFooter(window) {
   const footer = element("div", "drawer-foot");
-  const made = state.plannedSprints.get(window.start);
+  const from = plannedFrom(window);
+  const made = state.plannedSprints.get(from);
   const note = element("span", "muted", made
     ? `Started ${made.path}.`
     : "Copies templates/sprint.md to the next sprints/NN.md and opens it on the "
@@ -2284,14 +2334,23 @@ function fortnightFooter(window) {
     made ? `Open ${made.name} →` : "Plan this fortnight →");
   const result = element("span", "muted");
 
+  // Only when it is not the Monday the strip is framed on, because that is the
+  // one case where the file's dates and the picture above it differ. Saying so
+  // here is cheaper than explaining a heading that reads two days later than
+  // the strip you planned it from.
+  if (from !== window.start) {
+    footer.appendChild(element("span", "drawer-from",
+      `planning from ${weekdayDate(from)}`));
+  }
+
   button.onclick = async () => {
     button.disabled = true;
     try {
       const created = made || await api("/api/sprints", {
         method: "POST",
-        body: JSON.stringify({ start: window.start }),
+        body: JSON.stringify({ start: from }),
       });
-      state.plannedSprints.set(window.start, created);
+      state.plannedSprints.set(from, created);
       // Creating the file and then leaving you to find it in a picker is the
       // step that makes a button not worth pressing.
       closeFortnight();
@@ -2327,8 +2386,52 @@ function portfolioRuler(view) {
       event.preventDefault();
       openFortnight(monday);
     };
+    // The strip is far wider than a column, so the last few open leftwards
+    // rather than hanging off the end of the chart and growing a scrollbar.
+    cell.appendChild(weekDays(monday, index >= view.weeks - 3));
   });
   return ruler;
+}
+
+// Sunday-first, because `Date.getDay()` is.
+const DAY_INITIALS = ["S", "M", "T", "W", "T", "F", "S"];
+
+// The seven days inside a week cell, revealed on hover. The cell prints its
+// Monday's date and nothing else, so until now a fortnight could only be opened
+// from a Monday -- while the planning day is the team's own and lands on a
+// Wednesday here, and a fortnight is occasionally started over a weekend.
+//
+// Picking a day opens the fortnight *containing* it and, more to the point,
+// becomes the date the sprint file is written from (`plannedFrom`). The strip
+// itself stays Monday-framed: it is drawn on week columns, which is why
+// `fortnight_window` snaps and `sprint_window` does not.
+//
+// Built for every cell on every render rather than on demand -- 7 nodes across
+// at most 26 weeks, against a chart that is already drawing a bar per phase --
+// so revealing is pure CSS and there is no hover state in JS to get wrong.
+// Mouse only, deliberately: making 182 chips focusable would put that many
+// stops in the tab order to reach the chart. `Enter` on the cell still opens
+// the Monday, which is the keyboard path this had before.
+function weekDays(monday, openLeft = false) {
+  const strip = element("div", `week-days${openLeft ? " days-end" : ""}`);
+  const origin = parseDate(monday);
+
+  for (let index = 0; index < 7; index += 1) {
+    const day = addDays(origin, index);
+    const iso = formatDate(day);
+    const weekend = day.getDay() === 0 || day.getDay() === 6;
+    const chip = element("div", `week-day${weekend ? " is-weekend" : ""}`);
+    chip.appendChild(element("span", "week-day-initial", DAY_INITIALS[day.getDay()]));
+    chip.appendChild(element("span", "week-day-num", String(day.getDate())));
+    chip.title = `Plan the fortnight from ${weekdayDate(iso)}`;
+    // The cell underneath opens the Monday, and a chip is inside it.
+    chip.onclick = (event) => {
+      event.stopPropagation();
+      openFortnight(iso);
+    };
+    strip.appendChild(chip);
+  }
+  return strip;
 }
 
 // --- map view ---------------------------------------------------------------

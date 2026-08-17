@@ -288,6 +288,23 @@ def warnings_touching(project_id, cross_project):
             if project_id in (warning.project_id, warning.related_project_id)]
 
 
+def drawable_milestones(by_project, committed):
+    """Every checkpoint the portfolio chart can draw: dated, on a committed project.
+
+    Undated ones are left out for the reason unscheduled phases are -- there is
+    nowhere honest to put them on a calendar -- but unlike phases they are not
+    handed back in a tray: a checkpoint has no work to place, and the project
+    view is where one with no date gets chased up. Ideas are absent because
+    `committed` is the schedulable set.
+    """
+    drawn = []
+    for project_id, milestones in by_project.items():
+        if project_id not in committed:
+            continue
+        drawn += [item for item in milestones if item.get("target_date")]
+    return drawn
+
+
 def unplaced_work(projects, phases):
     """Per project, the phases still waiting for a date -- the staging tray.
 
@@ -500,6 +517,10 @@ def read_portfolio():
     Each project also carries its derived span, counts and stage. The chart draws
     phases, so the project's own dates -- the question this tab exists to answer
     -- were the one thing on it that could not be read anywhere.
+
+    `milestones` is every dated checkpoint on a committed project, flat and
+    carrying `project_id`, so the chart can draw the same diamonds the project
+    timeline does. Same rule as `phases`: dated only.
     """
     projects = db.list_projects(stages=SCHEDULABLE_STAGES)
     committed = {project["id"] for project in projects}
@@ -511,15 +532,19 @@ def read_portfolio():
     for phase in phases:
         owned.setdefault(phase["project_id"], []).append(phase)
     with_project_span(projects, owned)
+    # Read once and used twice: the ladder needs every checkpoint to derive a
+    # stage, the chart needs the dated ones to draw diamonds.
+    milestones = db.milestones_by_project()
     # The ladder reads checkpoints since the milestone work, so the swimlane
     # stage has to be derived from them as well -- a lane claiming `planning`
     # while the picker says `done` would be two answers to one question.
     with_derived_stage(projects, owned, db.deliverables_by_project(),
-                       db.milestones_by_project(), date.today())
+                       milestones, date.today())
 
     return {
         "projects": projects,
         "phases": scheduled,
+        "milestones": drawable_milestones(milestones, committed),
         "unscheduled": unplaced_work(projects, phases),
         "unscheduled_count": len(phases) - len(scheduled),
         "dependencies": db.list_all_dependencies(with_names=True),

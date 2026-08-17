@@ -689,6 +689,44 @@ def test_a_swimlane_carries_the_derived_stage_too(client):
     assert lane["stage"] == "active"
 
 
+def test_portfolio_carries_dated_milestones_for_the_chart(client):
+    """The diamonds the swimlanes draw: dated checkpoints, flat, project-tagged."""
+    first = make_project(client, "Payments", "2026-01-05")
+    second = make_project(client, "Search", "2026-03-02")
+    client.post(f"/api/projects/{first['id']}/milestones",
+                json={"name": "Private beta", "target_date": "2026-02-02"})
+    client.post(f"/api/projects/{second['id']}/milestones",
+                json={"name": "Launch", "target_date": "2026-04-06"})
+
+    drawn = client.get("/api/portfolio").json()["milestones"]
+    assert [(m["project_id"], m["name"]) for m in drawn] == [
+        (first["id"], "Private beta"),
+        (second["id"], "Launch"),
+    ]
+
+
+def test_portfolio_omits_an_undated_milestone(client):
+    """Same rule as an unscheduled phase: no honest place on a calendar.
+
+    Unlike a phase it is not handed back in a tray either -- a checkpoint has no
+    work to place, and the project view is where an undated one is chased up.
+    """
+    project = make_project(client, start="2026-01-05")
+    client.post(f"/api/projects/{project['id']}/milestones", json={"name": "Someday"})
+
+    assert client.get("/api/portfolio").json()["milestones"] == []
+
+
+def test_portfolio_omits_an_idea_s_milestones(client):
+    """An idea has no swimlane, so its checkpoints have no lane to draw in."""
+    idea = make_project(client, "Someday", start="2026-01-05")
+    client.put(f"/api/projects/{idea['id']}", json={"name": "Someday", "stage": "idea"})
+    client.post(f"/api/projects/{idea['id']}/milestones",
+                json={"name": "Private beta", "target_date": "2026-02-02"})
+
+    assert client.get("/api/portfolio").json()["milestones"] == []
+
+
 def test_a_project_span_ignores_the_chart_window(client):
     """The span is every phase, so a lane cannot report the visible slice.
 
@@ -728,8 +766,8 @@ def test_a_span_covers_a_phase_dated_before_its_project(client):
 
 def test_portfolio_is_empty_when_nothing_is_planned(client):
     assert client.get("/api/portfolio").json() == {
-        "projects": [], "phases": [], "unscheduled": [], "unscheduled_count": 0,
-        "dependencies": [], "warnings": [],
+        "projects": [], "phases": [], "milestones": [], "unscheduled": [],
+        "unscheduled_count": 0, "dependencies": [], "warnings": [],
     }
 
 
