@@ -1163,17 +1163,24 @@ function renderSettingsFields() {
   $("setting-tolerance").value = state.settings.v1_tolerance_pct;
 }
 
+// The banner at the top of the project view. It goes quiet rather than away when
+// there is nothing to report: `is-clear` drops the amber, the border and the
+// aside, and the count becomes the sentence. Keeping the slot means the page does
+// not jump the moment the last warning clears -- and an empty card carrying a `0`
+// pill, which is what this was, is furniture.
 function renderWarnings() {
+  const banner = $("warnings-banner");
   const list = $("warning-list");
   const warnings = state.plan.warnings;
-  $("warning-count").textContent = warnings.length;
-  $("warning-count").className = warnings.length ? "pill pill-warn" : "pill";
   list.innerHTML = "";
 
-  if (warnings.length === 0) {
-    list.appendChild(element("li", "ok", "No problems detected."));
-    return;
-  }
+  const clear = warnings.length === 0;
+  banner.classList.toggle("is-clear", clear);
+  $("warning-count").textContent = clear
+    ? "No problems detected."
+    : `${warnings.length} warning${warnings.length === 1 ? "" : "s"}`;
+  if (clear) return;
+
   for (const warning of warnings) {
     const item = element("li");
     item.appendChild(element("span", "rule", warning.rule));
@@ -4864,11 +4871,51 @@ function bindEvents() {
     renderProjectList();
   };
 
+  // The ⋯ menu: rename, the global settings, delete. `aria-expanded` is on the
+  // button rather than tracked in `state`, because the panel's own `hidden` is
+  // already the truth and a second copy of it could disagree.
+  const projectMenu = (open) => {
+    $("project-menu-panel").hidden = !open;
+    $("project-menu").setAttribute("aria-expanded", String(open));
+  };
+  $("project-menu").onclick = (event) => {
+    event.stopPropagation();
+    projectMenu($("project-menu-panel").hidden);
+  };
+  // Anywhere outside closes it. On `document`, so it fires for a press on the
+  // chart or the sidebar as well; the panel's own clicks are stopped below, or
+  // typing in the name field would close the box you are typing in.
+  $("project-menu-panel").onclick = (event) => event.stopPropagation();
+  document.addEventListener("click", () => projectMenu(false));
+
+  // Both reveals, and the topbar's primary action is the third caller. Focus
+  // follows, because the button's whole purpose is to get you into the first
+  // field -- and pressing it again folds the row back.
+  const revealAdder = (rowId, fieldId) => {
+    const row = $(rowId);
+    row.hidden = !row.hidden;
+    if (!row.hidden) $(fieldId).focus();
+  };
+  $("show-phase-adder").onclick = () => revealAdder("phase-adder", "new-phase-name");
+  $("show-milestone-adder").onclick =
+    () => revealAdder("milestone-adder", "new-milestone-name");
+  // The page's primary action. It only ever opens -- a primary button that
+  // sometimes closes the thing it names would be a toggle wearing the wrong
+  // label -- and it scrolls the row into view, since the bar is sticky and the
+  // table it belongs to may be a screen down.
+  $("add-phase-open").onclick = () => {
+    const row = $("phase-adder");
+    row.hidden = false;
+    row.scrollIntoView({ block: "center" });
+    $("new-phase-name").focus();
+  };
+
   // The drawer reads and nothing else, so Esc can close it unconditionally --
   // there is never unsaved work behind it to lose.
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     closeFortnight();
+    projectMenu(false);
     // Esc out of the raw file view too, but only from outside the textarea:
     // inside it, Esc is how you leave the box, and the blur that follows is what
     // re-splits the document. Leaving the view first would throw that away.

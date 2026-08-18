@@ -99,7 +99,37 @@
               title="Give every undated phase a date, back to back from the project start">
         Lay out sequentially
       </button>
-      <button id="delete-project" class="btn-ghost">Delete</button>
+      <button id="add-phase-open" class="btn-primary">Add phase</button>
+      <!-- Everything about this project you touch rarely, plus the one thing you
+           must not touch by accident. Renaming and the global settings were two
+           more controls in a row of eight; Delete looked exactly like New
+           project. -->
+      <span class="topbar-menu">
+        <button id="project-menu" class="btn-ghost topbar-more" aria-expanded="false"
+                title="Rename, global settings, delete">⋯</button>
+        <div id="project-menu-panel" class="menu-panel" hidden>
+          <label>Name <input id="project-name" type="text"></label>
+
+          <div class="menu-rule"></div>
+          <span class="menu-caption">Global settings</span>
+          <p class="hint menu-hint">
+            These apply to every project. Velocity is what V1 checks a phase's
+            weeks against.
+          </p>
+          <label>Global velocity (pts/sprint)
+            <input id="setting-velocity" type="number" min="1">
+          </label>
+          <label>Sprint length (days)
+            <input id="setting-sprint-days" type="number" min="1">
+          </label>
+          <label>V1 tolerance (%)
+            <input id="setting-tolerance" type="number" min="0" step="0.5">
+          </label>
+
+          <div class="menu-rule"></div>
+          <button id="delete-project" class="menu-danger">Delete this project</button>
+        </div>
+      </span>
     </div>
   </header>
 
@@ -110,71 +140,75 @@
 
     <!-- ---------------- Project view ---------------- -->
     <div id="workspace" hidden>
-      <section>
-        <h2>Goal</h2>
-        <textarea id="project-goal" rows="3"
-          placeholder="What is this project actually for? What does success look like?"></textarea>
-        <p class="hint">Your north star for this project. Re-read it whenever the plan starts drifting.</p>
-      </section>
-
-      <section>
-        <h2>Project</h2>
-        <div class="row">
-          <label>Name <input id="project-name" type="text"></label>
-          <label>Start date <input id="project-start" type="date"></label>
-          <label>Stage
-            <select id="project-stage" title="The three things only you can say. Everything between them — drafted, dated, running, late — is worked out from the plan and today's date. Closed means finished with, whether or not the work was completed.">
-              <option value="idea">idea</option>
-              <option value="planned">committed</option>
-              <option value="done">closed</option>
-            </select>
-          </label>
-          <label>Tier
-            <select id="project-tier" title="Priority, 1 highest. Untiered means nobody has ranked it yet — the map can filter on this">
-              <option value="0">untiered</option>
-              <option value="1">1</option>
-              <option value="2">2</option>
-              <option value="3">3</option>
-            </select>
-          </label>
-          <label>Track
-            <!-- The panel inside is built by `trackPicker`; this wrapper is only
-                 what positions it. Still a text input: type a track nobody has
-                 used yet and it exists the moment you save. -->
-            <span class="track-picker">
-              <input id="project-track" type="text"
-                placeholder="e.g. Source Expansion / MCP"
-                title="Free-text grouping, used to cluster the map view. A slash splits it into track and subtrack.">
-            </span>
-          </label>
-          <label>Velocity override
-            <input id="project-velocity" type="number" min="1" placeholder="global">
-          </label>
+      <!-- Warnings first. What the plan is telling you comes before what you can
+           change about it, and this used to be the third section down. A banner
+           rather than a card, because it goes *quiet* rather than away when there
+           is nothing to report -- an empty card with a 0 pill is furniture. -->
+      <div id="warnings-banner" class="warnings-banner">
+        <div class="warnings-head">
+          <svg class="warnings-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path>
+          </svg>
+          <strong id="warning-count">0</strong>
+          <span class="spacer"></span>
+          <span class="warnings-note">Every rule reports; nothing repairs.</span>
         </div>
-        <p class="hint">
-          Dates are optional. Estimate in weeks and points first; leave start dates
-          empty until the plan settles, then set the project start and lay them out.
-        </p>
-        <details>
-          <summary>Settings</summary>
-          <div class="row">
-            <label>Global velocity (pts/sprint)
-              <input id="setting-velocity" type="number" min="1">
+        <ul id="warning-list" class="warnings"></ul>
+      </div>
+
+      <!-- Side by side: both are short, and stacked they pushed the timeline off
+           the first screen. -->
+      <div class="project-top">
+        <section>
+          <h2>Goal</h2>
+          <p class="hint">Your north star. Re-read it whenever the plan starts drifting.</p>
+          <textarea id="project-goal" rows="4"
+            placeholder="What is this project actually for? What does success look like?"></textarea>
+        </section>
+
+        <section>
+          <h2>Details</h2>
+          <p class="hint">
+            Dates are optional &mdash; estimate in weeks and points first, then set
+            the project start and lay the phases out.
+          </p>
+          <!-- A grid rather than a wrapping row: two columns of fields line up
+               down the card, where a flex row re-flowed into ragged lines every
+               time the window moved. The name lives in the ⋯ menu now. -->
+          <div class="field-grid">
+            <label>Start date <input id="project-start" type="date"></label>
+            <label>Stage
+              <select id="project-stage" title="The three things only you can say. Everything between them — drafted, dated, running, late — is worked out from the plan and today's date. Closed means finished with, whether or not the work was completed.">
+                <option value="idea">idea</option>
+                <option value="planned">committed</option>
+                <option value="done">closed</option>
+              </select>
             </label>
-            <label>Sprint length (days)
-              <input id="setting-sprint-days" type="number" min="1">
+            <label>Tier
+              <select id="project-tier" title="Priority, 1 highest. Untiered means nobody has ranked it yet — the map can filter on this">
+                <option value="0">untiered</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+              </select>
             </label>
-            <label>V1 tolerance (%)
-              <input id="setting-tolerance" type="number" min="0" step="0.5">
+            <label>Velocity override
+              <input id="project-velocity" type="number" min="1" placeholder="global">
+            </label>
+            <label class="field-wide">Track
+              <!-- The panel inside is built by `trackPicker`; this wrapper is only
+                   what positions it. Still a text input: type a track nobody has
+                   used yet and it exists the moment you save. -->
+              <span class="track-picker">
+                <input id="project-track" type="text"
+                  placeholder="e.g. Source Expansion / MCP"
+                  title="Free-text grouping, used to cluster the map view. A slash splits it into track and subtrack.">
+              </span>
             </label>
           </div>
-        </details>
-      </section>
-
-      <section>
-        <h2>Warnings <span id="warning-count" class="pill">0</span></h2>
-        <ul id="warning-list" class="warnings"></ul>
-      </section>
+        </section>
+      </div>
 
       <section id="unscheduled-section" hidden>
         <h2>Unscheduled <span id="unscheduled-count" class="pill">0</span></h2>
@@ -231,17 +265,26 @@
           </thead>
           <tbody></tbody>
         </table>
-        <div class="row">
+        <!-- Two adder rows, folded behind the two buttons below them. They were
+             always open: nine fields and two buttons under a table you are
+             reading, on a tab that is mostly for reading a plan back. The rows
+             themselves are unchanged, ids and all -- these are the same controls,
+             asked for rather than always there. -->
+        <div class="row adder-row" id="phase-adder" hidden>
           <input id="new-phase-name" type="text" placeholder="New phase name">
           <input id="new-phase-start" type="date">
           <input id="new-phase-weeks" type="number" min="0.5" step="0.5" value="2" title="weeks">
           <input id="new-phase-points" type="number" min="0" value="20" title="points">
           <button id="add-phase">Add phase</button>
         </div>
-        <div class="row">
+        <div class="row adder-row" id="milestone-adder" hidden>
           <input id="new-milestone-name" type="text" placeholder="New checkpoint name">
           <input id="new-milestone-date" type="date" title="Optional — name it now, date it when you commit">
           <button id="add-milestone">Add checkpoint</button>
+        </div>
+        <div class="row adder-buttons">
+          <button id="show-phase-adder" type="button">+ Phase</button>
+          <button id="show-milestone-adder" type="button">+ Checkpoint</button>
         </div>
       </section>
 

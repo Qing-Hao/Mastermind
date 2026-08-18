@@ -267,6 +267,52 @@
 }
 .stage-badge[hidden] { display: none; }
 
+/* --- the ⋯ menu ----------------------------------------------------------
+   Rename, the global settings and Delete: everything about the open project you
+   touch rarely, and the one thing that must not be a click away from `New
+   project`. Anchored to the button rather than to the bar, so it stays put as the
+   actions beside it change width. */
+.topbar-menu { position: relative; display: inline-flex; }
+.topbar-more { width: var(--control-h); padding: 0; font-size: 16px; line-height: 1; }
+
+.menu-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  /* Two shadows, the track panel's pair: a tight one to seat the edge and a soft
+     one to lift it off the page behind. */
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 8px 24px rgba(0, 0, 0, 0.16);
+  text-align: left;
+}
+/* Load-bearing: the rule above sets `display`, and the panel is folded away with
+   the `hidden` attribute. See `.mode-switch[hidden]`. */
+.menu-panel[hidden] { display: none; }
+
+.menu-rule { height: 1px; background: var(--line-soft); }
+.menu-caption {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.menu-hint { margin: 0; }
+
+/* The one destructive control in the app, and the only place a warning colour is
+   spent on chrome. Quiet until pointed at: it is in a menu you opened for two
+   other reasons. */
+.menu-danger { color: #b00020; border-color: transparent; background: transparent; }
+.menu-danger:hover { background: #fdf3f4; border-color: #f3c8ce; color: #7f0018; }
+
 body {
   margin: 0;
   font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -342,6 +388,22 @@ h3 { font-size: 13px; font-weight: 600; margin: 0 0 2px; }
   flex-wrap: wrap;
   margin: 8px 0;
 }
+/* Load-bearing wherever a `.row` is folded away -- the two adder rows in the
+   phase table are, and the rule above sets `display`. See `.mode-switch[hidden]`
+   for the trap; this is the class-level version of it, so a future `.row` that
+   gets a `hidden` attribute is covered before it is written. */
+.row[hidden] { display: none; }
+
+/* Two columns of fields that line up down a card. A wrapping `.row` re-flowed
+   into ragged lines as the window moved, which is fine for a toolbar and wrong
+   for a form you read down. */
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.field-wide { grid-column: 1 / -1; }
+.field-grid input, .field-grid select, .field-grid .track-picker { width: 100%; }
 
 label { display: flex; flex-direction: column; font-size: 12px; color: var(--ink-3); gap: 5px; font-weight: 500; }
 
@@ -571,6 +633,62 @@ tr.row-warn td { background: #fff8e1; }
   color: var(--ink);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
+
+/* --- the project view's own furniture ------------------------------------ */
+/* Goal and Details side by side. The sections keep their card rules and lose only
+   the margin the grid's own gap replaces. Stacked below 900px, which is where two
+   columns of fields stop fitting rather than a breakpoint chosen for a device. */
+.project-top {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+/* A column, so the goal's box takes whatever height the fields beside it set
+   rather than leaving a hole under itself. Scoped to `.project-top`'s own
+   children: `#unscheduled-section` is a `<section>` toggled with `hidden`, and a
+   `display` on `section` at large would be the trap. */
+.project-top > section {
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+}
+.project-top #project-goal { flex: 1; min-height: 90px; }
+@media (max-width: 900px) {
+  .project-top { grid-template-columns: minmax(0, 1fr); }
+  .field-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* The warnings banner. Amber and bordered when it has something to say; when it
+   has not, it drops to one quiet line -- `.is-clear` is set by `renderWarnings`.
+   Neither state is `hidden`, so nothing here is the `[hidden]` trap. */
+.warnings-banner {
+  border: 1px solid #fde68a;
+  border-radius: var(--radius-card);
+  background: #fffbeb;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+.warnings-head { display: flex; align-items: center; gap: 8px; }
+.warnings-icon { width: 15px; height: 15px; flex: none; color: #b45309; }
+.warnings-head strong { font-size: 13px; color: #92400e; }
+.warnings-note { font-size: 12px; color: #b45309; }
+/* Nothing to report: no border, no wash, no icon, no aside. It still occupies its
+   slot, so the page does not jump the moment a warning clears. */
+.warnings-banner.is-clear {
+  border-color: transparent;
+  background: transparent;
+  padding: 0 0 4px;
+}
+.warnings-banner.is-clear .warnings-icon,
+.warnings-banner.is-clear .warnings-note { display: none; }
+.warnings-banner.is-clear .warnings-head strong { color: #2e7d32; font-weight: 500; }
+
+/* Asked for rather than always there. The buttons sit under the table where the
+   row will appear; the topbar's `Add phase` is the same gesture from the page's
+   primary action, and both call `revealAdder`. */
+.adder-row { margin: 12px 0 0; }
+.adder-buttons { margin: 12px 0 0; }
 
 /* --- goal --- */
 #project-goal { width: 100%; padding: 10px; line-height: 1.5; resize: vertical; }
