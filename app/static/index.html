@@ -7,22 +7,100 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <header>
-    <strong>Mastermind</strong>
-    <span class="tabs">
-      <button id="tab-project" class="tab active">Project</button>
-      <button id="tab-portfolio" class="tab">Portfolio</button>
-      <button id="tab-map" class="tab">Map</button>
-      <button id="tab-sprint" class="tab">Sprint</button>
-    </span>
-    <select id="project-select"
-            title="💡 idea · ⚪ still planning · 🟡 planned, needs dates · 🔵 dated, not started · 🟢 active · 🔴 overdue · ✅ done"></select>
-    <button id="new-project">New project</button>
-    <button id="delete-project">Delete</button>
+ <div class="app">
+  <!-- Navigation and the project list in one column. The list replaces a native
+       <select> in the navbar: an <option> holds no markup, so the picker could
+       only badge a project with an emoji, and it could not be filtered, grouped
+       or given a tier digit. Those three are the whole reason this is a sidebar
+       and not a prettier dropdown. The dependency and Future-directions pickers
+       are still native selects and still carry 💡, because they list projects
+       rather than states. -->
+  <nav class="sidebar">
+    <div class="brand">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M12 2v4M12 18v4M2 12h4M18 12h4"></path>
+      </svg>
+      <strong>Mastermind</strong>
+    </div>
+
+    <!-- Same four ids the tab strip carried, so `refreshView` still toggles
+         `active` on them and nothing in app.js knows the shape changed. -->
+    <div class="nav-group">
+      <button id="tab-project" class="nav-item active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" aria-hidden="true">
+          <rect x="4" y="3" width="16" height="18" rx="2"></rect>
+          <path d="M8 8h8M8 12h8M8 16h5"></path>
+        </svg>Project
+      </button>
+      <button id="tab-portfolio" class="nav-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" aria-hidden="true">
+          <path d="M3 20h18"></path><rect x="5" y="12" width="4" height="6"></rect>
+          <rect x="11" y="7" width="4" height="11"></rect>
+          <rect x="17" y="14" width="3" height="4"></rect>
+        </svg>Portfolio
+      </button>
+      <button id="tab-map" class="nav-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="2.5"></circle><circle cx="12" cy="12" r="8.5"></circle>
+          <path d="M12 3.5v3M12 17.5v3M3.5 12h3M17.5 12h3"></path>
+        </svg>Map
+      </button>
+      <button id="tab-sprint" class="nav-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" aria-hidden="true">
+          <rect x="3" y="5" width="18" height="16" rx="2"></rect>
+          <path d="M3 10h18M8 3v4M16 3v4"></path>
+        </svg>Sprint
+      </button>
+    </div>
+
+    <div class="sidebar-rule"></div>
+
+    <div class="sidebar-head">
+      <span class="sidebar-caption">Projects</span>
+      <button id="new-project" class="btn-ghost sidebar-add"
+              title="New project">+</button>
+    </div>
+    <input id="project-filter" type="search" class="sidebar-filter"
+           placeholder="Filter…"
+           title="Matches anywhere in a project's name. Nothing is stored; it only narrows this list.">
+    <!-- Filled by `loadProjectList`. Each row is a button so it is reachable from
+         the keyboard without a tabindex of its own. -->
+    <div id="project-list" class="project-list"></div>
+
     <span class="spacer"></span>
-    <button id="export">Export JSON</button>
-    <button id="import">Import JSON</button>
-    <input type="file" id="import-file" accept="application/json" hidden>
+    <div class="sidebar-foot">
+      <button id="export" class="btn-ghost">Export</button>
+      <button id="import" class="btn-ghost">Import</button>
+      <input type="file" id="import-file" accept="application/json" hidden>
+    </div>
+  </nav>
+
+  <div class="main-col">
+  <!-- What you are looking at, and what you can do to it. Sticky, and
+       `--topbar-h` in the stylesheet is its height -- `.sprint-scope` parks
+       below it. -->
+  <header class="topbar">
+    <div class="topbar-what">
+      <div class="topbar-title-row">
+        <h1 id="view-title">Project</h1>
+        <span id="project-badge" class="stage-badge" hidden></span>
+      </div>
+      <div id="project-meta" class="topbar-meta" hidden></div>
+    </div>
+    <span class="spacer"></span>
+    <div id="topbar-actions" class="topbar-actions" hidden>
+      <button id="layout-phases"
+              title="Give every undated phase a date, back to back from the project start">
+        Lay out sequentially
+      </button>
+      <button id="delete-project" class="btn-ghost">Delete</button>
+    </div>
   </header>
 
   <main>
@@ -71,11 +149,6 @@
           </label>
           <label>Velocity override
             <input id="project-velocity" type="number" min="1" placeholder="global">
-          </label>
-          <label>&nbsp;
-            <button id="layout-phases" title="Give every undated phase a date, back to back from the project start">
-              Lay out sequentially
-            </button>
           </label>
         </div>
         <p class="hint">
@@ -415,6 +488,8 @@
      </div>
     </div>
   </main>
+  </div>
+ </div>
 
   <!-- editor.js first: it only defines things, and app.js ends by booting the
        page, so loading it after would mean booting before the Sprint tab

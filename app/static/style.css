@@ -39,6 +39,8 @@
   --radius: 6px;               /* controls */
   --radius-card: 10px;
 
+  --sidebar-w: 240px;
+
   /* A text control's height, which is the browser's rather than ours: 14px/1.5
      is 21px of line, plus 5px of padding and a 1px border either side. Not
      applied as a `height` anywhere -- a global one would make a checkbox 33px --
@@ -46,30 +48,230 @@
      ones, and for the arithmetic below. */
   --control-h: 33px;
 
-  /* The navbar's own height, published so anything else that sticks can park
-     below it rather than under it: 11px of padding either side of a control,
-     plus the bottom border. Erring high only widens the gap under the bar.
-     `.sprint-scope` is the one thing reading it. */
-  --topbar-h: 56px;
+  /* The top bar's own height, published so anything else that sticks can park
+     below it rather than under it: 12px of padding either side of a two-line
+     block -- a 19px title over a 12.5px meta line -- plus the bottom border.
+     Erring high only widens the gap under the bar. `.sprint-scope` is the one
+     thing reading it. */
+  --topbar-h: 68px;
 }
+
+/* --- the stage vocabulary ------------------------------------------------
+   The seven rungs of `validation.project_stage`, as a fill and a line each.
+   **These are the map's own colours, lifted into tokens so a second surface can
+   wear them without a second copy.** The map draws a rung as a circle and the
+   sidebar draws it as a dot; the shapes differ, and the colours must not.
+   `delivered` is the eighth entry rather than an eighth rung: `done` is reached
+   two ways, and only "every checkpoint achieved" earns the green -- see the map
+   section far below for why a manual close keeps the grey. */
+:root {
+  --stage-idea-fill: #fff;        --stage-idea-line: #bbb;
+  --stage-planning-fill: #fff;    --stage-planning-line: #9fa8da;
+  --stage-planned-fill: #fff;     --stage-planned-line: #5c6bc0;
+  --stage-dated-fill: #d5e6f7;    --stage-dated-line: #5c6bc0;
+  --stage-active-fill: #90caf9;   --stage-active-line: #5c6bc0;
+  --stage-overdue-fill: #ffccbc;  --stage-overdue-line: #d84315;
+  --stage-done-fill: #cfd8dc;     --stage-done-line: #90a4ae;
+  --stage-delivered-fill: #a5d6a7; --stage-delivered-line: #2e7d32;
+
+  /* One indigo for all three ranks: the digit is the cue, and a paler pip could
+     not carry white 10px text. Shared by the map's pip and the sidebar's. */
+  --tier-pip: #3949ab;
+}
+
+/* --- the shell -----------------------------------------------------------
+   A sidebar holding navigation and the project list, and a column holding a top
+   bar and the views. `display: flex` lives here and on the sidebar's own parts,
+   never on `#workspace`, `#portfolio-view`, `#map-view` or `#sprint-view` --
+   those four are toggled with the `hidden` attribute, and a class setting
+   `display` outranks the UA sheet's `[hidden]`. */
+.app { display: flex; min-height: 100vh; align-items: stretch; }
+
+.sidebar {
+  flex: 0 0 var(--sidebar-w);
+  width: var(--sidebar-w);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 16px 12px;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  /* Its own scroller, and it keeps the whole height: the project list is 28 rows
+     on the real file and must not push the foot off the page, and the chart
+     beside it scrolls independently. */
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.main-col { flex: 1 1 auto; min-width: 0; }
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 16px;
+  color: var(--accent);
+}
+.brand strong { font-size: 15px; letter-spacing: -0.02em; color: var(--ink); }
+
+.nav-group { display: flex; flex-direction: column; gap: 2px; }
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 13.5px;
+  text-align: left;
+}
+.nav-item svg { width: 17px; height: 17px; flex: none; }
+.nav-item:hover { background: var(--hover); }
+/* `refreshView` toggles this class, on the same four ids the tab strip used. */
+.nav-item.active { background: var(--accent-soft); color: var(--accent-hover); }
+
+.sidebar-rule { height: 1px; background: var(--line-soft); margin: 16px 8px; }
+
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px 8px 10px;
+}
+.sidebar-caption {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.sidebar-add { width: 26px; padding: 0; font-size: 17px; line-height: 1; }
+
+.sidebar-filter { margin: 0 4px 8px; width: calc(100% - 8px); padding: 4px 9px; }
+
+.sidebar-foot { display: flex; gap: 6px; padding: 8px 4px 0; }
+.sidebar-foot button { flex: 1; font-size: 12px; }
+
+/* --- the project list ---------------------------------------------------
+   One row per project: where it stands, its name, its rank. The row is the
+   picker, so the whole width is the target. */
+.project-list { display: flex; flex-direction: column; gap: 1px; }
+
+.project-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 400;
+  text-align: left;
+}
+.project-row:hover { background: var(--hover); }
+.project-row.selected { background: var(--hover); font-weight: 600; color: var(--ink); }
+.project-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* An idea is not committed work, so it sits back from it in the list the same way
+   it sits back on the map -- there by a dashed rim, which nothing can draw at
+   9px. This is what carries it here instead. */
+.project-row.is-idea .project-name { color: var(--muted); }
+
+/* The rung, as a dot in the map's own colours. Hollow means no dates in both
+   places. What a 9px dot cannot carry is the map's dash on an idea, or the
+   heavier rim on an overdue project; the border width does what it can and the
+   row's tooltip says the word. */
+.project-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  border: 1.5px solid var(--stage-planned-line);
+  background: var(--stage-planned-fill);
+}
+.project-dot.stage-idea { background: var(--stage-idea-fill); border-color: var(--stage-idea-line); }
+.project-dot.stage-planning { background: var(--stage-planning-fill); border-color: var(--stage-planning-line); }
+.project-dot.stage-planned { background: var(--stage-planned-fill); border-color: var(--stage-planned-line); }
+.project-dot.stage-dated { background: var(--stage-dated-fill); border-color: var(--stage-dated-line); }
+.project-dot.stage-active { background: var(--stage-active-fill); border-color: var(--stage-active-line); }
+.project-dot.stage-overdue { background: var(--stage-overdue-fill); border-color: var(--stage-overdue-line); border-width: 2.5px; }
+.project-dot.stage-done { background: var(--stage-done-fill); border-color: var(--stage-done-line); }
+
+/* The rank, as the digit the map's pip carries. Untiered wears a `?` in the
+   quiet greys, because the absence of a decision is not a fourth rank. */
+.project-tier {
+  flex: none;
+  min-width: 17px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--tier-pip);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-align: center;
+}
+.project-tier.tier-0 { background: var(--hover); color: var(--faint); }
+
+.project-list-empty { padding: 8px 10px; font-size: 12.5px; color: var(--muted); }
+
+/* --- the top bar --------------------------------------------------------- */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.topbar-what { min-width: 0; }
+.topbar-title-row { display: flex; align-items: center; gap: 9px; }
+.topbar h1 {
+  font-size: 19px;
+  font-weight: 650;
+  margin: 0;
+  letter-spacing: -0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.topbar-meta { font-size: 12.5px; color: var(--faint); margin-top: 1px; }
+.topbar-meta[hidden] { display: none; }
+
+.topbar-actions { display: flex; align-items: center; gap: 8px; }
+/* Load-bearing: hidden on every tab but Project, and the rule above sets
+   `display`. See `.mode-switch[hidden]` for the trap this is. */
+.topbar-actions[hidden] { display: none; }
+
+/* Where the open project stands, in the ladder's own words. The dot is the
+   sidebar's, so one project reads the same in both places. */
+.stage-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--hover);
+  color: var(--ink-3);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.stage-badge[hidden] { display: none; }
 
 body {
   margin: 0;
   font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
   color: var(--ink);
   background: var(--page);
-}
-
-header {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  padding: 11px 20px;
-  border-bottom: 1px solid var(--line);
-  background: var(--surface);
-  position: sticky;
-  top: 0;
-  z-index: 10;
 }
 
 .spacer { flex: 1; }
@@ -334,34 +536,11 @@ td input { width: 100%; min-width: 80px; }
 
 tr.row-warn td { background: #fff8e1; }
 
-/* --- tabs --- */
-/* A segmented control: a tray with the active segment lifted out of it, rather
-   than a bordered strip with one cell inverted to near-black. Same shape as the
-   mode switch below, one size up. */
-.tabs {
-  display: inline-flex;
-  gap: 2px;
-  padding: 3px;
-  border-radius: 8px;
-  background: var(--hover);
-}
-.tab {
-  border: 0;
-  background: transparent;
-  padding: 5px 14px;
-  border-radius: var(--radius);
-  color: var(--ink-3);
-}
-.tab:hover { background: rgba(255, 255, 255, 0.6); }
-.tab.active {
-  background: var(--surface);
-  color: var(--ink);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
-}
-
 /* --- timeline mode switch --- */
-/* Same shape as the tabs, sized down: it picks which timeline the section
-   below is drawing, not which page you are on. */
+/* A segmented control: a tray with the active segment lifted out of it. It picks
+   which timeline the section below is drawing, not which page you are on -- that
+   is `.nav-item` in the sidebar, which is a list rather than a strip because the
+   navigation and the project list belong in one column. */
 .mode-switch {
   display: inline-flex;
   gap: 2px;
@@ -1693,19 +1872,34 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 /* Every rule below excludes .map-pip: the pip is a mark sitting on the node,
    not the node itself, and it has to look identical whatever the stage does to
    the circle underneath it. */
+/* The colours are `--stage-*`, defined once at the top of this file and worn by
+   the sidebar's project dots as well: the map draws a rung as a circle and the
+   list draws it as a dot, and the two must not be able to disagree about which
+   colour a rung is. Only the *shape* of a rung lives here -- the stroke widths,
+   and the dash on an idea, neither of which a 9px dot can carry. */
 .map-node { cursor: pointer; }
-.map-node circle:not(.map-pip) { fill: #90caf9; stroke: #5c6bc0; stroke-width: 1.5; }
-.map-node.stage-done circle:not(.map-pip) { fill: #cfd8dc; stroke: #90a4ae; }
+.map-node circle:not(.map-pip) {
+  fill: var(--stage-active-fill);
+  stroke: var(--stage-active-line);
+  stroke-width: 1.5;
+}
+.map-node.stage-done circle:not(.map-pip) {
+  fill: var(--stage-done-fill);
+  stroke: var(--stage-done-line);
+}
 /* `done` covers two states: every phase finished, and a manual close on work
    that stopped -- which the data model is explicit is "closed without
    finishing", as often cancelled or descoped as delivered. Green is only
    honest for the first, so delivery earns the colour and the close keeps the
    grey. Same specificity as the rule above, so this has to sit after it. */
-.map-node.delivered circle:not(.map-pip) { fill: #a5d6a7; stroke: #2e7d32; }
+.map-node.delivered circle:not(.map-pip) {
+  fill: var(--stage-delivered-fill);
+  stroke: var(--stage-delivered-line);
+}
 /* Dashed and hollow: an idea is a shape, not yet a commitment. */
 .map-node.stage-idea circle:not(.map-pip) {
-  fill: #fff;
-  stroke: #bbb;
+  fill: var(--stage-idea-fill);
+  stroke: var(--stage-idea-line);
   stroke-dasharray: 5 4;
 }
 /* Solid outline, still hollow: a planned project is shaped and committed to,
@@ -1716,22 +1910,25 @@ body.resizing-column { cursor: col-resize; user-select: none; }
    "no dates" in both cases, which is the thing the map is showing. */
 .map-node.stage-planning circle:not(.map-pip),
 .map-node.stage-planned circle:not(.map-pip) {
-  fill: #fff;
-  stroke: #5c6bc0;
+  fill: var(--stage-planned-fill);
+  stroke: var(--stage-planned-line);
   stroke-width: 2;
 }
-.map-node.stage-planning circle:not(.map-pip) { stroke: #9fa8da; }
+.map-node.stage-planning circle:not(.map-pip) { stroke: var(--stage-planning-line); }
 
 /* Filled, because it is on the calendar -- but paler than active, which is
    running now. The fill is what carries "dated"; the two differ by weight. */
-.map-node.stage-dated circle:not(.map-pip) { fill: #d5e6f7; stroke: #5c6bc0; }
+.map-node.stage-dated circle:not(.map-pip) {
+  fill: var(--stage-dated-fill);
+  stroke: var(--stage-dated-line);
+}
 
 /* The one alarm on the map. Overdue keeps the filled body of a live project --
    it is live work -- and takes a heavy warning outline rather than a different
    fill, so it reads as "this one, now" without inventing a fifth body colour. */
 .map-node.stage-overdue circle:not(.map-pip) {
-  fill: #ffccbc;
-  stroke: #d84315;
+  fill: var(--stage-overdue-fill);
+  stroke: var(--stage-overdue-line);
   stroke-width: 2.5;
 }
 .map-node:hover circle:not(.map-pip),
@@ -1753,7 +1950,7 @@ body.resizing-column { cursor: col-resize; user-select: none; }
    reach it: a tier-1 idea and a tier-1 active project carry the same mark.
    One indigo for all three ranks -- the digit is the cue, and a paler pip
    could not carry white 10px text. */
-.map-node .map-pip { fill: #3949ab; stroke: #fff; stroke-width: 1.5; }
+.map-node .map-pip { fill: var(--tier-pip); stroke: #fff; stroke-width: 1.5; }
 .map-node .map-pip-text {
   fill: #fff;
   font-size: 10px;

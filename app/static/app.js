@@ -72,6 +72,10 @@ const TIER_MARK = { ...TIER_LABEL, 0: "T?" };
 let state = {
   view: "project",
   projects: [],
+  // What the sidebar's project list is narrowed to. A way of looking, like
+  // `mapTiers` and `timelineMode`: nothing is stored, the open project stays open
+  // even while filtered out of the list, and a reload clears it.
+  projectFilter: "",
   currentProjectId: null,
   plan: null,
   portfolio: null,
@@ -624,24 +628,66 @@ function renderWindowBar(container) {
 
 async function loadProjectList() {
   state.projects = await api("/api/projects");
-  const select = $("project-select");
-  const selected = select.value;
-  select.innerHTML = "";
-  for (const project of state.projects) {
-    // One mark per row, straight off the derived ladder -- 💡 for an idea is
-    // simply its first rung, not a separate rule any more. Ideas stay selectable
-    // so you can open one and write its goal, but cannot be mistaken for real
-    // work. An unknown stage -- and only that -- falls through to no badge.
-    const badge = STAGE_BADGE[project.derived_stage];
-    const label = `${badge ? `${badge} ` : ""}${project.name}`;
-    const option = element("option", null, label);
-    option.value = project.id;
-    select.appendChild(option);
-  }
-  select.value = selected;
+  renderProjectList();
   // The track suggestions come off the same read, so naming a new track is
   // enough to make it offerable everywhere -- nothing stores the list.
   refreshTrackPickers();
+}
+
+// The sidebar's project list, and the app's picker. It replaced a native
+// `<select>` whose only possible badge was an emoji in the option's text, because
+// an `<option>` holds no markup: here the rung is a dot in the map's own colours,
+// the rank is the digit the map's pip carries, and the list can be filtered.
+//
+// **The dot is one step less precise than the map's circle, deliberately.** The
+// map splits `done` into delivered (green, every checkpoint reached) and closed
+// (grey), off the milestone tally on `GET /api/graph`; `/api/projects` carries no
+// tally, and inventing one here would be a second copy of a rule that lives in
+// `validation`. So a finished project is grey in the list and the map is where
+// the split is drawn. That is less detail, not different detail -- the two never
+// disagree about a project, one of them simply says more.
+//
+// No stored order of its own: `db.list_projects` sorts done last and ideas just
+// above, and `GET /api/projects` re-sorts on the derived stage, so the middle of
+// this list is the work in flight.
+function renderProjectList() {
+  const list = $("project-list");
+  list.innerHTML = "";
+
+  const needle = state.projectFilter.trim().toLowerCase();
+  const shown = needle
+    ? state.projects.filter((p) => p.name.toLowerCase().includes(needle))
+    : state.projects;
+
+  if (shown.length === 0) {
+    list.appendChild(element("div", "project-list-empty", state.projects.length
+      ? "Nothing matches."
+      : "No projects yet."));
+    return;
+  }
+
+  for (const project of shown) {
+    const row = element("button", "project-row");
+    row.type = "button";
+    row.dataset.id = project.id;
+    if (project.id === state.currentProjectId) row.classList.add("selected");
+    // An idea is not committed work, so its name sits back from the rest -- the
+    // list's version of the dashed rim the map draws round it.
+    if (project.derived_stage === "idea") row.classList.add("is-idea");
+
+    row.appendChild(element("span", `project-dot stage-${project.derived_stage}`));
+    row.appendChild(element("span", "project-name", project.name));
+
+    const tier = project.tier || 0;
+    row.appendChild(element("span", `project-tier tier-${tier}`,
+      tier ? String(tier) : "?"));
+    // The words the marks stand for. A dot cannot say "planned, needs dates" and
+    // a `?` cannot say "untiered", and this is where the legend went when the
+    // `<select>` that used to carry it in a `title` was replaced.
+    row.title = `${project.name}\n${project.derived_stage} · ${TIER_LABEL[tier]}`;
+
+    list.appendChild(row);
+  }
 }
 
 // Open a project on the Project tab, from wherever it was named. Three surfaces
@@ -649,35 +695,95 @@ async function loadProjectList() {
 // title -- and they were one copy away from drifting apart about what "open"
 // clears.
 //
-// The picker is set here rather than left to the render: it is the control that
-// says which project you are looking at, and `loadProjectList` restores the
-// value it finds on the select when it rebuilds the options. `expandedPhases`
-// and `timelineMode` are cleared for the reason the picker's own `onchange`
-// clears them -- both were pinned for a different plan. The window is not
-// touched here: `loadPlan` fits it, once per selection.
+// The picker needs nothing set here any more: the sidebar list marks the row
+// whose id matches `state.currentProjectId`, so the state below *is* the
+// selection, and `loadPlan` re-renders the list at the end of every load. That
+// used to be a `select.value` write, which had to happen here because the option
+// list was rebuilt from scratch on each read and would otherwise lose its value.
+//
+// `expandedPhases` and `timelineMode` are cleared because both were pinned for a
+// different plan. The window is not touched: `loadPlan` fits it, once per
+// selection.
 async function openProject(id) {
   state.currentProjectId = id;
   state.view = "project";
   state.expandedPhases.clear();
   state.timelineMode = null;
-  $("project-select").value = id;
   await refreshView();
 }
 
 async function loadProjects() {
   await loadProjectList();
-  const select = $("project-select");
 
   if (state.projects.length === 0) {
     state.currentProjectId = null;
     state.plan = null;
-  } else {
-    if (!state.projects.some((p) => p.id === state.currentProjectId)) {
-      state.currentProjectId = state.projects[0].id;
-    }
-    select.value = state.currentProjectId;
+  } else if (!state.projects.some((p) => p.id === state.currentProjectId)) {
+    state.currentProjectId = state.projects[0].id;
   }
   await refreshView();
+}
+
+// What you are looking at, in the bar above it. On the Project tab that is the
+// open project, its rung and a line of its own facts; on the other three it is
+// the view's name, and the project actions are not there to press.
+//
+// **The meta line carries no derived end date, and that is deliberate.**
+// `validation.project_span` owns a project's dates and `main.with_project_span`
+// puts them on the portfolio payload; `/api/projects/{id}` does not carry them,
+// and deriving the pair here would be a second copy of that arithmetic living in
+// the frontend -- which is the mistake `laneSummary` documents not making. So
+// this prints the *stored* start date and counts what is in front of it.
+const VIEW_TITLE = {
+  project: "Project",
+  portfolio: "Portfolio",
+  map: "Team map",
+  sprint: "Sprint",
+};
+
+function renderTopbar() {
+  const title = $("view-title");
+  const badge = $("project-badge");
+  const meta = $("project-meta");
+  const actions = $("topbar-actions");
+
+  const project = state.view === "project" && state.plan
+    ? state.plan.project
+    : null;
+
+  if (!project) {
+    title.textContent = VIEW_TITLE[state.view] || "Mastermind";
+    title.title = "";
+    badge.hidden = true;
+    meta.hidden = true;
+    actions.hidden = true;
+    return;
+  }
+
+  title.textContent = project.name;
+  // A name too long for the bar is clipped by the CSS, so the whole of it lives
+  // on the tooltip -- the same trade `.lane-title` makes in a 160px column.
+  title.title = project.name;
+
+  badge.hidden = false;
+  badge.innerHTML = "";
+  badge.appendChild(element("span", `project-dot stage-${project.derived_stage}`));
+  badge.appendChild(element("span", null, project.derived_stage));
+  badge.title = "Worked out from the plan and today's date. Only idea, committed"
+    + " and closed are yours to set.";
+
+  const phases = state.plan.phases;
+  const points = phases.reduce((sum, phase) => sum + (phase.effort_points || 0), 0);
+  const facts = [
+    project.track || "no track",
+    project.start_date ? `starts ${project.start_date}` : "no start date",
+    `${phases.length} phase${phases.length === 1 ? "" : "s"}`,
+    `${points} pts`,
+  ];
+  meta.hidden = false;
+  meta.textContent = facts.join(" · ");
+
+  actions.hidden = false;
 }
 
 async function refreshView() {
@@ -709,6 +815,10 @@ async function refreshView() {
   } else {
     await loadGraph();
   }
+  // After the load, not before: on the Project tab the bar reads `state.plan`,
+  // which is what the load fetches. `renderProjectView` calls it too, so an edit
+  // retags the bar without a tab switch.
+  renderTopbar();
 }
 
 async function loadPlan() {
@@ -761,6 +871,7 @@ async function loadGraph() {
 const isScheduled = (phase) => Boolean(phase.start_date && phase.end_date);
 
 function renderProjectView() {
+  renderTopbar();
   renderProjectFields();
   renderSettingsFields();
   renderWarnings();
@@ -4735,13 +4846,22 @@ function bindEvents() {
     setSprintView("doc");
   };
 
-  $("project-select").onchange = async (event) => {
-    state.currentProjectId = Number(event.target.value);
-    state.expandedPhases.clear();
-    // Unpinned, so the next project decides its own default rather than
-    // inheriting a switch that was flipped for a different plan.
-    state.timelineMode = null;
-    await loadPlan();
+  // Delegated, because the rows are rebuilt on every read of `/api/projects` and
+  // binding each one would mean re-binding twenty-eight handlers per edit. It
+  // opens the project the ordinary way, so the sidebar clears exactly what a map
+  // node and a portfolio lane title clear.
+  $("project-list").onclick = async (event) => {
+    const row = event.target.closest(".project-row");
+    if (!row) return;
+    await openProject(Number(row.dataset.id));
+  };
+
+  // The filter narrows the list and nothing else -- no fetch, nothing stored, and
+  // the open project stays open even when it is filtered out of view. `input`
+  // rather than `change` so it narrows as you type, and a re-render is 28 rows.
+  $("project-filter").oninput = (event) => {
+    state.projectFilter = event.target.value;
+    renderProjectList();
   };
 
   // The drawer reads and nothing else, so Esc can close it unconditionally --
