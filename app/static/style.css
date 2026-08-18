@@ -2356,6 +2356,12 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 /* Tier 1's chip carries the same ring the node does. */
 .map-chip.tier-1.on { box-shadow: 0 0 0 2px var(--accent-soft), 0 0 0 3px var(--accent-ring); }
 .map-chip.tier-0 { font-style: italic; }
+/* The idea chip carries the dash its nodes do, the same way tier 1's carries the
+   node's ring: an idea is the one rung the map draws with a dashed rim, so the
+   chip that switches the ring on and off is drawn out of the same vocabulary.
+   Kept in the `on` state too -- it is what the chip is *about*, not a way of
+   saying it is off. */
+.map-chip.status-idea { border-style: dashed; }
 
 /* --- the legend ---------------------------------------------------------
    Both colour axes, spelt out under the canvas. Each swatch is a real
@@ -2376,6 +2382,44 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 .map-legend .map-node { cursor: default; }
 .legend-name { color: #555; }
 .legend-note { margin: 2px 0 0; color: #999; font-size: 11px; }
+
+/* The track half of the key is also the track filter, so those rows are real
+   controls: a `<button>` with its own chrome taken back off it, sitting *after*
+   `.legend-item` so the size and layout above still reach it.
+   Three states rather than two -- with no filter running every track sits plain,
+   because "all of them" is the default and eight rows dressed as *selected*
+   would claim a filter was on. `is-picked` borrows the chip row's accent pair,
+   so a picked track and a picked tier read as one idea. */
+.legend-pick {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 1px 8px 1px 2px;
+  background: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+.legend-pick:hover { background: var(--hover); }
+.legend-pick.is-picked { border-color: var(--accent); background: var(--accent-soft); }
+/* Off, rather than gone: the whole key stays listed while it filters, which is
+   what makes the filter reversible. Faded far enough to read as switched off and
+   not so far as to be unreadable -- you have to be able to find the track you
+   want back, and hovering brings it up to full while you aim at it. */
+.legend-pick.is-muted { opacity: .45; }
+.legend-pick.is-muted:hover { opacity: 1; }
+/* The way out of the track filter. It is on screen **only** while a filter is
+   running, so it is the one bordered thing in the key: what a control that comes
+   and goes has to buy back is being noticed the moment it arrives. */
+.legend-clear {
+  margin-left: 4px;
+  padding: 2px 9px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--accent-hover);
+  font-size: 11px;
+  font-weight: 600;
+}
+.legend-clear:hover { background: var(--accent-soft); }
 
 .map-label { pointer-events: none; }
 .map-name { fill: #1a1a1a; font-size: 12px; font-weight: 600; }

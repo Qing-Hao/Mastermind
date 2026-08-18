@@ -141,6 +141,27 @@ let state = {
   // the chip counts it while it is off, so the map says how much it is not
   // showing you. Same lifetime as the tiers: a way of looking, gone on reload.
   mapDone: false,
+  // Whether the map draws ideas, and the **second** filter that starts off. The
+  // exception rests on the same fact `mapDone`'s does and then on one more of
+  // its own: 16 of the 28 projects on the real file are future directions, all
+  // of them on the outermost ring where the labels are widest and the arc is
+  // thinnest, so they are most of what the picture is spending its room on
+  // while none of them is work anybody has committed to. And unlike a finished
+  // project, a hidden idea is still listed in full directly under the canvas --
+  // **Future directions** is the whole idea list, so nothing here is out of
+  // reach even while the ring is off.
+  mapIdeas: false,
+  // Which root tracks the map draws, and **empty means every one of them**.
+  // That is the same stance `laneOpen` takes, for the same reason: a set of
+  // what has been *picked* rather than of what has been hidden. It is what
+  // makes the first click on a legend swatch mean "draw only this track" --
+  // pre-filling the set with all eight would make it mean "hide this one",
+  // which is a different control -- and it is what lets a track invented
+  // tomorrow arrive drawn rather than arrive already filtered out.
+  //
+  // Holds the root of the path (`trackRoot`), since the legend lists roots.
+  // Same lifetime as the three above: a way of looking, gone on a reload.
+  mapTracks: new Set(),
   // The fortnight the drawer is open on: the Monday it starts, and the slice
   // the server computed for it. Same lifetime as the two above -- a way of
   // looking, kept across re-renders and tab switches, gone on reload. `start`
@@ -3808,6 +3829,48 @@ function mixWhite(hex, amount) {
 // where the team is pointed next.
 const isFinished = (project) => project.derived_stage === "done";
 
+// A future direction. Read off `derived_stage` like the rung above rather than
+// off the stored column, even though for this one rung the two can never
+// disagree -- `idea` beats every derived rung by design, so a stored idea always
+// reads back as one. Reading the same field as every other filter is what keeps
+// the four of them one kind of thing.
+const isIdea = (project) => project.derived_stage === "idea";
+
+// The track a legend swatch stands for: the **root** of the path, since roots
+// are what the legend lists and what `trackPalette` keys a hue off. Depth is a
+// tone of the root rather than a colour of its own, so there is nothing deeper
+// for the key to offer.
+//
+// Untracked projects collapse onto `UNTRACKED_KEY`, which is safe as a sentinel
+// for the reason `TEMPLATE_KEY` is: `trackPath` drops empty segments, so no real
+// track can ever be the empty string. They are a group the map genuinely draws
+// -- hanging straight off the hub -- so they get a swatch like anything else.
+const UNTRACKED_KEY = "";
+const trackRoot = (project) => trackPath(project.track)[0] || UNTRACKED_KEY;
+
+// Whether the track filter is letting a project through. An empty set is the
+// default and means every track; see `state.mapTracks`.
+const trackShown = (project) =>
+  state.mapTracks.size === 0 || state.mapTracks.has(trackRoot(project));
+
+// **The map's four filters, in one place.** They were written inline in
+// `renderMap` and copied into `map_sweep.js --tree`, which is a copy that goes
+// stale the moment a fifth filter arrives -- the sweep would then print a
+// hierarchy the map does not draw, which is the one thing that tool exists to be
+// trusted about. Exported to the sweep so both read the same function.
+//
+// Filtering happens **before `mapGroups`**, so a wedge is sized by what is
+// actually drawn and a track with nothing left in it leaves the map entirely.
+// Hiding the noise is what widens the room around everything else, and it is why
+// all four of these are worth having.
+function mapDrawn(projects) {
+  return projects.filter((project) =>
+    state.mapTiers.has(project.tier ?? 0)
+    && (state.mapDone || !isFinished(project))
+    && (state.mapIdeas || !isIdea(project))
+    && trackShown(project));
+}
+
 // Where a project sits in tier order: 1, 2, 3, then untiered. Untiered last
 // because it is an unanswered question, not the lowest priority.
 const tierRank = (project) => {
@@ -3939,7 +4002,15 @@ function renderMapFilters() {
       });
   }
 
+  // In the ladder's order -- `idea` is the first rung and `done` the last, so the
+  // two chips read as the two ends of it being switched off. Both start off, and
+  // between them they are what the map is filtered down to committed work by
+  // default: on the real file that is 12 projects of 28.
   const status = openGroup("status-filter", "Status");
+  chip(status, "status-idea", "idea", projects.filter(isIdea).length,
+    state.mapIdeas, "future directions", () => {
+      state.mapIdeas = !state.mapIdeas;
+    });
   chip(status, "status-done", "done", projects.filter(isFinished).length,
     state.mapDone, "finished projects", () => {
       state.mapDone = !state.mapDone;
@@ -3993,9 +4064,30 @@ function renderMapLegend() {
     return svg;
   };
 
-  const entry = (box, className, label, tooltip, painted, colour) => {
-    const item = element("span", "legend-item");
+  // One row of the key, and -- when it is given a `pick` -- one control as well.
+  // A `<button>` rather than a clickable `<span>` so it is in the tab order and
+  // answers the keyboard, which is the whole difference between a control and a
+  // thing that happens to respond to a mouse.
+  //
+  // Three states rather than two: with no filter on, every track sits plain,
+  // because "all of them" is the default and dressing eight rows as *selected*
+  // would say a filter was running when none is. Once one is picked the others
+  // are the ones that have to look switched off.
+  const entry = (box, className, label, tooltip, painted, colour, pick) => {
+    const picked = pick && state.mapTracks.has(pick.key);
+    const item = pick
+      ? element("button", "legend-item legend-pick"
+        + (state.mapTracks.size === 0 ? "" : picked ? " is-picked" : " is-muted"))
+      : element("span", "legend-item");
     item.title = tooltip;
+    if (pick) {
+      item.type = "button";
+      item.setAttribute("aria-pressed", String(Boolean(picked)));
+      item.onclick = () => {
+        pickMapTrack(pick.key);
+        renderMap();
+      };
+    }
     item.appendChild(swatch(className, painted));
     const name = element("span", "legend-name", label);
     if (colour) name.style.color = colour;
@@ -4010,28 +4102,69 @@ function renderMapLegend() {
 
   // Keyed off the whole dataset, exactly as `trackPalette` is and for the same
   // reason: hiding a tier must not move a colour, and a key that only lists the
-  // tracks currently drawn would empty itself as you filter.
+  // tracks currently drawn would empty itself as you filter. That reason is now
+  // twice as load-bearing, since this half of the key is also the track filter:
+  // a legend that dropped the tracks it was hiding would be a filter you could
+  // not switch back off.
   const palette = trackPalette(state.graph.projects);
   const tracks = group("Track");
+  const held = (key) => state.graph.projects
+    .filter((project) => trackRoot(project) === key).length;
+  const focus = (key) => state.mapTracks.has(key)
+    ? "Click to stop drawing it."
+    : state.mapTracks.size
+      ? "Click to add it to what the map is drawing."
+      : "Click to draw only this track.";
+
+  // **Every root track gets its own row, named, including the ones past the
+  // eighth that take the grey.** It used to collapse those into one `N more`
+  // entry, which was fine while the key only explained the picture and is wrong
+  // now that it filters it: a track with no row of its own is a track you cannot
+  // focus, and the real dataset has nine roots, so exactly one of them — `UIUX` —
+  // was unreachable. Several grey rows saying nothing but their names is also the
+  // honest drawing of what the map does to them, since it paints them the same
+  // grey; the tooltip is where "the palette ran out" is said.
+  //
+  // A no-hue row paints nothing, so `--track-dot` falls back to the grey the
+  // stylesheet already carries, and its name is left in the legend's own ink
+  // rather than coloured.
+  let pickable = 0;
   for (const [name, hue] of palette) {
-    if (!hue) continue;
+    pickable += 1;
     entry(tracks, "map-group", name,
-      `${name} — every level under it is a lighter tone of this colour.`,
-      { "--track-dot": hue }, hue);
-  }
-  // Both greys the map can draw, and each is only claimed when something is
-  // actually wearing it: a ninth track past the end of the palette, and the
-  // untracked projects that hang straight off the hub with no ring at all.
-  const roots = new Set(state.graph.projects
-    .map((project) => trackPath(project.track)[0]).filter(Boolean));
-  if (roots.size > TRACK_HUES.length) {
-    entry(tracks, "map-group", `${roots.size - TRACK_HUES.length} more`,
-      "Past the eighth track the map runs out of colours anyone could tell "
-      + "apart, so the rest take the grey.");
+      `${name} — ${held(name)} project${held(name) === 1 ? "" : "s"}. `
+      + (hue
+        ? "Every level under it is a lighter tone of this colour. "
+        : "Past the eighth track the map runs out of colours anyone could tell "
+          + "apart, so this one takes the grey. ")
+      + focus(name),
+      hue ? { "--track-dot": hue } : undefined, hue, { key: name });
   }
   if (state.graph.projects.some((project) => !trackPath(project.track).length)) {
+    pickable += 1;
     entry(tracks, "map-group", "untracked",
-      "Projects with no track. They hang straight off the hub and draw no ring.");
+      `Projects with no track — ${held(UNTRACKED_KEY)} of them. They hang `
+      + `straight off the hub and draw no ring. ${focus(UNTRACKED_KEY)}`,
+      undefined, undefined, { key: UNTRACKED_KEY });
+  }
+
+  // The way out of the filter, and it is **only here while there is one to get
+  // out of**. A control that appears and disappears is normally the one you
+  // cannot find, which is why it sits at the end of the row it belongs to,
+  // says the count it is about to throw away, and is the one thing in the key
+  // wearing a border. Switching your last track back off lands in the same
+  // place, so this is the findable way rather than the only way.
+  if (state.mapTracks.size) {
+    const clear = element("button", "legend-clear",
+      `✕ clear track filter (${state.mapTracks.size} of ${pickable})`);
+    clear.type = "button";
+    clear.title = "Draw every track again. The map is filtered to "
+      + `${[...state.mapTracks].map((key) => key || "untracked").join(", ")}.`;
+    clear.onclick = () => {
+      state.mapTracks.clear();
+      renderMap();
+    };
+    tracks.appendChild(clear);
   }
 
   legend.appendChild(element("p", "legend-note",
@@ -4039,7 +4172,21 @@ function renderMapLegend() {
     + "far it is filled — counts every phase as an equal share, each one filled "
     + "by the deliverables named under it; a phase closed by hand counts whole. "
     + "The numbered pip is the project's tier; an unpipped node has never been "
-    + "ranked."));
+    + "ranked. Click a track above to draw only that one, then click others to "
+    + "add them — the whole key stays listed, so nothing you hide is lost."));
+}
+
+// Clicking a track in the key, and it needs **no special case for the default**
+// -- which is the whole payoff of storing what has been picked rather than what
+// has been hidden. "Draw only this one" and "add this one as well" are the same
+// write, and the difference between them lives entirely in what an empty set
+// means to `trackShown`.
+//
+// Clicking your last pick back off empties the set, which is the same state the
+// ✕ writes: the way back to every track, arrived at from the other direction.
+function pickMapTrack(key) {
+  if (state.mapTracks.has(key)) state.mapTracks.delete(key);
+  else state.mapTracks.add(key);
 }
 
 function renderMap() {
@@ -4049,21 +4196,21 @@ function renderMap() {
   renderMapFilters();
   renderMapLegend();
 
-  // Filtered before grouping, so a wedge is sized by what is actually drawn and
-  // a track with nothing left in it drops off the map entirely. Hiding the
-  // noise is what widens the room around everything else.
-  const projects = state.graph.projects.filter((project) =>
-    state.mapTiers.has(project.tier ?? 0)
-    && (state.mapDone || !isFinished(project)));
+  // Every filter, in `mapDrawn` rather than here, so `map_sweep.js` reads the
+  // same one. Filtered before grouping -- see that function.
+  const projects = mapDrawn(state.graph.projects);
   if (state.graph.projects.length === 0) {
     canvas.appendChild(element("p", "muted",
       "Nothing here yet. Capture a future direction below to start the map."));
     return;
   }
   if (projects.length === 0) {
+    // Four filters can each empty the map, so the message names all of them
+    // rather than the two it used to. The legend is drawn before this return, so
+    // the ✕ that clears a track filter is on screen next to the empty canvas.
     canvas.appendChild(element("p", "muted",
-      "Every project is filtered out. Switch a tier — or done — back on above "
-      + "to see them."));
+      "Every project is filtered out. Switch a tier, idea or done back on "
+      + "above — or clear the track filter under the canvas — to see them."));
     return;
   }
 

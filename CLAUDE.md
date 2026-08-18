@@ -31,6 +31,8 @@ step: it is a prebuilt bundle served as a static file.
 
 node scripts\map_sweep.js            # map: label/circle collisions, 1000-1530px
 node scripts\map_sweep.js --tree     # map: the track hierarchy as drawn
+node scripts\map_sweep.js --ideas --done          # ...with every filter switched on
+node scripts\map_sweep.js --tracks "AI Agent"     # ...focused, as the legend filters
 
 node scripts\wire_check.js           # frontend: ids the JS asks for, index.html lacks
 node scripts\css_check.js            # frontend: the [hidden] trap, dead tokens, dead ids
@@ -67,7 +69,7 @@ Type checking is pyright, `basic` mode, config in `pyrightconfig.json`.
 | `tests/test_sprint_review.py` | Sprint script — pure helpers + one `TestModel` run. Offline. |
 | `templates/sprint.md` | The sprint template. Copied to `sprints/NN.md` (gitignored), and editable in the Sprint tab like a sprint file. |
 | `scripts/sprint_review.py` | Post-sprint LLM review. Optional dep, lazy import, CLI only. |
-| `scripts/map_sweep.js` | The map's collision sweep and tree dump. Node, no deps — loads the real `app.js` behind a stub DOM and measures the SVG `renderMap()` emits. **The map has no test suite; this is its verification.** |
+| `scripts/map_sweep.js` | The map's collision sweep and tree dump. Node, no deps — loads the real `app.js` behind a stub DOM and measures the SVG `renderMap()` emits. **The map has no test suite; this is its verification.** It drives the filters rather than reimplementing them (`mapDrawn`, `--ideas`/`--done`/`--tracks`), and its header prints how many of the payload's projects actually reached the canvas — a collision count means nothing without that number. |
 | `scripts/wire_check.js` | Runs `bindEvents()` behind a stub DOM and names every id the frontend asks for that `index.html` does not define. Node, no deps. **The frontend has no test suite either; this is the part of it a machine can check.** |
 | `scripts/css_check.js` | Four things a stylesheet gets wrong silently: the `[hidden]`-versus-`display` trap, a `var()` with neither a definition nor a fallback, a rule for an id nothing creates, and brace balance. Node, no deps. Every check is there because it fired; each was proved to fail on an injected fault, against a copy, before being trusted. **No theme-parity check — this app has one theme.** |
 | `.design/*.dc.html` | The UI as artboards — `Current`, `Option 1 — Reskin`, `Option 2 — Reskin + shell rebuild` — plus `canvas.json`, which holds their layout and the notes arguing each one. What shipped is Option 2; see **The look**. Source only: the 2.2MB published canvas beside them is gitignored. |
@@ -1472,7 +1474,9 @@ into one project link.
     measures wider than the 46px gutter.
 - **Map** — hand-rolled radial SVG, deterministic layout. Department hub → one
   ring per level of the track hierarchy → project ring, ideas outermost and
-  dashed. The levels are a table (`RING_FRACTIONS`) keyed on how deep the map
+  dashed — **and switched off by default**, since they were most of what the
+  picture was spending its room on; see the filters below.
+  The levels are a table (`RING_FRACTIONS`) keyed on how deep the map
   actually goes, shared by the whole picture rather than fitted per track —
   different tracks placing their levels at different radii would stop the rings
   being rings. Depth 2 is the 0.36/0.48 the two hard-coded constants used to
@@ -1553,12 +1557,15 @@ into one project link.
   per track hue. Below the canvas rather than inside the SVG, which is
   width-fitted and collision-swept — a block in there spends layout budget the
   rings need. **Every swatch is a real `.map-node` or `.map-group` circle**, so
-  the rules that draw the picture draw the key with it and the two cannot drift;
-  the only thing the legend's own CSS adds is `cursor: default`, since a swatch
-  opens nothing. The track half is built from `trackPalette` over the **whole
+  the rules that draw the picture draw the key with it and the two cannot drift.
+  The track half is built from `trackPalette` over the **whole
   dataset**, exactly as the map is, so filtering a tier never empties the key,
-  and the greys are claimed only when something wears them: a ninth track past
-  the end of the palette, and untracked projects if any exist.
+  and the untracked grey is claimed only when something wears it.
+  **The track half of the key is also the track filter** — see below. The stage
+  half is not, and that is the one asymmetry here: the chips above the canvas are
+  where a rung is switched, and a second place to set the same thing would drift
+  from the first. So `cursor: default` is still what the legend's own CSS adds to
+  a *stage* swatch, since it opens nothing.
   A fourth ring for
   `planned` was the alternative and was rejected on cost — ring gaps are the
   tightest budget on the map and `MAX_RING_ASPECT` would have needed re-fitting. Node radius
@@ -1645,35 +1652,101 @@ into one project link.
   hide a tier. Counting off the whole dataset is what the tier chips already
   do, for the same reason. Adding a project never moves a colour; adding a new
   track only moves the tracks after it alphabetically.
-  **Tier is the crowd control.** Above the canvas, `renderMapFilters` draws
-  **two captioned groups** — `Tier` (`T1 T2 T3 untiered`) and `Status` (`done`)
+  **Crowd control is the map's real problem, and there are three filters on it.**
+  Above the canvas, `renderMapFilters` draws
+  **two captioned groups** — `Tier` (`T1 T2 T3 untiered`) and `Status`
+  (`idea done`)
   — kept apart because they answer different questions: how much of the ranking
-  to draw, and whether finished work is on the picture at all. In one row the
-  status chip read as a stray fifth tier.
+  to draw, and which *rungs* are on the picture at all. In one row the
+  status chips read as stray extra tiers.
   Every chip is counted off the whole dataset so it still says what is behind it
   while it is off. Tiers are all on by default because a filter that hides work
-  by default loses it. **`done` is the one that starts off**, and the exception
+  by default loses it. **Both status chips start off**, and the exception
   rests on a different fact rather than overriding that rule: a hidden tier is
-  live work you have stopped looking at, while a hidden `done` project is work
-  there is nothing left to do about. The map answers "where is the team
-  pointed", and finished work has no bearing on the answer. It is not lost —
-  the chip counts it while it is off, so the map says how much it is not
-  showing. It hides the **whole rung**, the green and the grey alike: the nodes
-  tell delivered from closed, the filter has no reason to.
-  A consequence to expect: a track whose only projects are finished leaves the
-  map by default, the same way an emptied tier does. On the real dataset that
-  is `UX`.
+  live work you have stopped looking at, while neither of these rungs bears on
+  the question the map answers, which is where the team is pointed *next*.
+  - `done` — work there is nothing left to do about. It hides the **whole rung**,
+    the green and the grey alike: the nodes tell delivered from closed, the filter
+    has no reason to.
+  - `idea` — work nobody has committed to. **This is the one that was drowning the
+    map**: 16 of the 28 projects on the real file are ideas, all of them on the
+    outermost ring where labels are widest and the arc between slots is thinnest.
+    Measured with `map_sweep.js` over the real payload, hiding them takes the
+    collision count from **134 to 6** across 1000–1530px — the sweep's standing
+    baseline, which had never been beaten by anything, mostly stops existing.
+    And an idea is the one rung that is **fully listed elsewhere on the same
+    tab**: **Future directions**, directly under the canvas, is the whole idea
+    list. So this hides less than any other filter here does.
+  Neither is lost — each chip counts its rung while it is off, so the map says
+  how much it is not showing.
+  **The third is the track filter, and it lives in the legend** — see
+  `renderMapLegend` above and the four bullets below.
+  A consequence to expect: a track whose only projects are finished **or are all
+  ideas** leaves the map by default, the same way an emptied tier does. On the
+  real dataset the `done` half of that is `UX`.
   Filtering happens **before `mapGroups`**, so a
   wedge is sized by what is actually drawn and a track with nothing left in it
   leaves the map entirely — hiding the noise is what widens the room around
   what remains. It does **not** reach `trackPalette`, which is keyed off the
   whole dataset, so hiding finished work never moves a colour.
-  Turning every tier off is allowed and says so on the canvas.
-  Lives in `state.mapTiers` and `state.mapDone`: both survive re-renders and tab
+  Turning every tier off is allowed and says so on the canvas; so does filtering
+  the map empty any other way, and the message names all four filters rather
+  than the two it used to.
+  **All four live in one function, `mapDrawn`.** They were written inline in
+  `renderMap` and **copied** into `map_sweep.js --tree`, which is the tool the map
+  is verified with and has no test suite behind it — a copy that silently goes
+  stale the moment a filter is added, printing a hierarchy the map does not draw.
+  The third filter is what proved that, so the sweep now imports the real one.
+  It also gained `--ideas` beside `--done` and `--tracks a,b` for the new ones,
+  because a filter whose whole argument is "this buys room" needs the thing that
+  measures room to be able to switch it.
+  Lives in `state.mapTiers`, `state.mapDone`, `state.mapIdeas` and
+  `state.mapTracks`: all four survive re-renders and tab
   switches but not a
-  reload, like `timelineMode`, because it is a way of looking rather than a
+  reload, like `timelineMode`, because they are a way of looking rather than a
   setting. A dependency pointing at a filtered-out project simply is not drawn —
   `wireMapFocus` already skipped links whose ends it has no centre for.
+  **The track filter is the legend, clicked.** It is the one filter that is not a
+  chip above the canvas, and that is the point of it: the thing you want to focus
+  on is the thing you are already reading the key to identify, so the key is where
+  the control belongs. It exists for two jobs the requester named together —
+  holding a room's attention on one track while explaining it, and buying the same
+  label room the two status chips buy. Measured on the real payload: the whole map
+  with ideas shown is 134 collisions, `Source Expansion` alone is **0**, and
+  `Source Expansion` + `AI Agent` together are 26.
+  - **Empty means every track** (`state.mapTracks`), which is `laneOpen`'s own
+    stance and is what makes the first click mean *draw only this one* rather than
+    *hide this one*. A set pre-filled with all nine would invert that, and a track
+    invented tomorrow would arrive already hidden. `pickMapTrack` therefore needs
+    no special case at all: "focus" and "add" are the same write, and the whole
+    difference lives in what an empty set means to `trackShown`.
+  - **Three visual states, not two.** With no filter running every row sits
+    plain — dressing nine rows as *selected* would claim a filter was on when
+    none is. Once one is picked the rest go `is-muted` and come back to full on
+    hover, because you have to be able to find the one you want back.
+  - **The way out is a `✕ clear track filter (N of M)` tag at the end of the Track
+    row, and it is only there while a filter is running.** A control that appears
+    and disappears is normally the one you cannot find; it was chosen over a
+    permanent `all` entry on the requester's call, and what it buys back is being
+    the one bordered thing in the key, sitting at the end of the row you just
+    clicked in. Clicking your last pick off empties the set too, so the tag is the
+    findable way back rather than the only one. It renders **before** the
+    canvas's own early returns, so it is still on screen beside an empty map.
+  - **Every root track gets a row, including the ones past the eighth hue.** The
+    key used to collapse those into one `N more` entry, which was fine while it
+    only explained the picture and is wrong now that it filters it: a track with no
+    row is a track you cannot focus, and the real dataset has **nine** roots, so
+    `UIUX` was exactly that. Several grey rows are also the honest drawing of what
+    the map does to them — it paints them all the same grey — and the tooltip is
+    where "the palette ran out" is said. The filter keys on the **root** of the
+    path (`trackRoot`), since roots are what the key lists and what a hue is keyed
+    off; untracked projects collapse onto `UNTRACKED_KEY`, safe as a sentinel for
+    the reason `TEMPLATE_KEY` is — `trackPath` drops empty segments, so no real
+    track can be the empty string.
+  It is **mouse and keyboard both**, unlike the branch hover: these are real
+  `<button>`s in the tab order, because a filter is a control and a hover
+  highlight is not. That is the same distinction `wireTrackFocus` declined to
+  cross — a hover has nothing to press.
   On the node itself, **tier is a number: every ranked project wears its own
   digit** on a pip on its upper-right shoulder, and untiered wears nothing —
   the absence of a decision is not a fourth rank, and `T?` on the label is where
@@ -1885,7 +1958,9 @@ none of those vocabularies — and spends the rest on material, space and type.
   edge, the fortnight's amber today column, the open week's indigo wash, the drag
   pill: all chart, all left alone. A filter chip, a popover, a focus ring, a
   scrollable table's border: all chrome, all tokenised. The test is whether the
-  colour *means* something about the data.
+  colour *means* something about the data — which is why a **picked** track in the
+  map's key wears the accent while its **swatch** keeps the track hue: one is a
+  selection, the other is a value.
 - **Sections are cards.** They used to be separated by a hairline under each
   uppercase grey heading, which did the card's job in the middle of the content
   rather than around it. Headings are sentence case with no rule under them, which

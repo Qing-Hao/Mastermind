@@ -14,6 +14,8 @@
 //   node scripts/map_sweep.js --file graph.json      # a saved payload
 //   node scripts/map_sweep.js --widths 1000,1200     # narrower sweep
 //   node scripts/map_sweep.js --json                 # machine-readable
+//   node scripts/map_sweep.js --ideas --done         # worst case: everything on
+//   node scripts/map_sweep.js --tracks Reporting     # one branch, as the key filters
 //
 // What it cannot tell you: what it looks like. Text width is approximated at
 // 0.55em a character -- the same figure the earlier sweeps used, kept so their
@@ -185,7 +187,7 @@ function loadApp(source) {
   // explicitly rather than relying on which keyword happened to be used.
   const body = `${source.slice(0, boot)}
 ;globalThis.__map_sweep = { state, renderMap, mapGroups, treeDepth, isFinished,
-  trackPath, foldPath, canonicalTrack, trackTree, trackPalette,
+  mapDrawn, trackPath, foldPath, canonicalTrack, trackTree, trackPalette,
   RING_FRACTIONS, MAX_DRAWN_DEPTH, LEVEL_TONES };`;
 
   const context = {
@@ -370,6 +372,8 @@ function argue(argv) {
     widths: DEFAULT_WIDTHS,
     json: false,
     done: false,
+    ideas: false,
+    tracks: [],
   };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
@@ -382,9 +386,19 @@ function argue(argv) {
     // change has to be checked against -- a collision count can stay identical
     // while the tree underneath it is wrong.
     else if (flag === "--tree") options.tree = true;
-    // The map hides finished work by default, so the default sweep measures the
-    // picture you actually get. This puts it back for a worst-case count.
+    // The map hides finished work and ideas by default, so the default sweep
+    // measures the picture you actually get. These two put them back, and
+    // together they are the worst case -- every project on the canvas at once,
+    // which is what the sweep measured by default before either filter existed.
     else if (flag === "--done") options.done = true;
+    else if (flag === "--ideas") options.ideas = true;
+    // The track filter, as the legend writes it: root names, or an empty string
+    // for the untracked group. It is here because the filter's whole argument is
+    // that focusing a branch buys room, and this is the only thing that can say
+    // whether it did. Absent means every track, exactly as the empty set does.
+    else if (flag === "--tracks") {
+      options.tracks = argv[i += 1].split(",").map((name) => name.trim());
+    }
     else throw new Error(`map_sweep: unknown option ${flag}`);
   }
   return options;
@@ -408,15 +422,16 @@ async function main() {
 
   app.state.graph = graph;
   app.state.mapDone = options.done;
+  app.state.mapIdeas = options.ideas;
+  for (const name of options.tracks) app.state.mapTracks.add(name);
 
   if (options.tree) {
-    // The same filter renderMap applies before grouping, so this prints the
-    // hierarchy that is actually drawn -- a track whose only projects are
-    // finished leaves the map by default, and this has to say so too.
-    const drawn = graph.projects.filter((project) =>
-      app.state.mapTiers.has(project.tier ?? 0)
-      && (app.state.mapDone || !app.isFinished(project)));
-    const groups = app.mapGroups(drawn);
+    // `mapDrawn` is renderMap's own filter rather than a copy of it, so this
+    // prints the hierarchy that is actually drawn -- a track whose only projects
+    // are finished, or are all ideas, leaves the map by default and this has to
+    // say so too. It was a copy until a third filter arrived and proved the copy
+    // was the wrong shape.
+    const groups = app.mapGroups(app.mapDrawn(graph.projects));
     const depth = app.treeDepth(groups);
     const rings = app.RING_FRACTIONS[Math.min(depth, app.MAX_DRAWN_DEPTH)];
     console.log(`depth ${depth}, rings at ${rings.join(", ")}`
@@ -457,7 +472,15 @@ async function main() {
     return;
   }
 
-  console.log(`${graph.projects.length} projects, done ${options.done ? "shown" : "hidden"}`);
+  // The header names how many projects the payload holds *and* how many of them
+  // the filters let onto the canvas, because those are now routinely different
+  // numbers and a collision count means nothing without the second one.
+  console.log(`${graph.projects.length} projects, `
+    + `${app.mapDrawn(graph.projects).length} drawn`
+    + ` (ideas ${options.ideas ? "shown" : "hidden"},`
+    + ` done ${options.done ? "shown" : "hidden"},`
+    + ` tracks ${options.tracks.length
+      ? options.tracks.map((name) => name || "untracked").join("+") : "all"})`);
   console.log("");
   console.log("  width  height  labels  circles  lbl×lbl  lbl×circ  circ×circ  off-canvas");
   for (const row of report) {
