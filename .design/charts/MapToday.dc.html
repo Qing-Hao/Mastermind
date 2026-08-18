@@ -1,0 +1,441 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+           color: #18181b; background: #fafafa; }
+    * { box-sizing: border-box; }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+
+    .card { background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; padding: 14px 16px; }
+    .muted { color: #71717a; font-size: 12px; }
+
+    /* --- shipped map rules, lifted verbatim from style.css --- */
+    .map-edge { stroke: var(--track-edge, #d5d5d5); stroke-width: 1.5; }
+    .map-edge-idea { stroke-dasharray: 4 4; stroke: #ddd; }
+    .map-hub circle { fill: #1a1a1a; }
+    .map-hub text { fill: #fff; font-size: 12px; font-weight: 600; }
+    .map-group circle { fill: var(--track-dot, #9e9e9e); }
+    .map-group text { fill: var(--track-text, #555); font-weight: 600; }
+    .map-group.level-1 text { font-size: 11px; }
+    .map-group.level-2 text { font-size: 10px; }
+    .map-group.level-3 text { font-size: 10px; }
+    .map-node circle:not(.map-pip) { fill: #90caf9; stroke: #5c6bc0; stroke-width: 1.5; }
+    .map-node.stage-done circle:not(.map-pip) { fill: #cfd8dc; stroke: #90a4ae; }
+    .map-node.stage-idea circle:not(.map-pip) { fill: #fff; stroke: #bbb; stroke-dasharray: 5 4; }
+    .map-node.stage-planning circle:not(.map-pip) { fill: #fff; stroke: #9fa8da; stroke-width: 2; }
+    .map-node.stage-planned circle:not(.map-pip) { fill: #fff; stroke: #5c6bc0; stroke-width: 2; }
+    .map-node.stage-dated circle:not(.map-pip) { fill: #d5e6f7; stroke: #5c6bc0; }
+    .map-node.stage-overdue circle:not(.map-pip) { fill: #ffccbc; stroke: #d84315; stroke-width: 2.5; }
+    .map-node .map-pip { fill: #3949ab; stroke: #fff; stroke-width: 1.5; }
+    .map-node .map-pip-text { fill: #fff; font-size: 10px; font-weight: 700; }
+    .map-fill { fill: #3949ab; fill-opacity: .28; }
+    .map-percent { fill: #1a1a1a; font-weight: 700; dominant-baseline: central;
+                   paint-order: stroke; stroke: #fff; stroke-width: 2.5px; stroke-linejoin: round; }
+    .map-label { pointer-events: none; }
+    .map-name { fill: #333; font-size: 11px; }
+    .map-meta { fill: #999; font-size: 9px; }
+
+    .filter-caption { color: #aaa; font-size: 10px; font-weight: 600; letter-spacing: .06em;
+                      text-transform: uppercase; }
+    .map-chip { font: inherit; font-size: 12px; padding: 3px 9px; border: 1px solid #d8d8de;
+                border-radius: 999px; background: #fff; color: #71717a; cursor: pointer; }
+    .map-chip.on { background: #eef2ff; border-color: #c7d2fe; color: #4f46e5; font-weight: 600; }
+    .map-chip.tier-0 { font-style: italic; }
+    .legend-item { display: flex; align-items: center; gap: 3px; font-size: 12px; }
+    .legend-name { color: #555; }
+    .legend-note { margin: 2px 0 0; color: #999; font-size: 11px; }
+
+    .side { width: 240px; background: #fff; border-right: 1px solid #e6e6ea; padding: 12px 10px; }
+    .navb { text-align: left; border: 0; background: none; font: inherit; padding: 7px 10px;
+            border-radius: 6px; color: #3f3f46; cursor: pointer; display: block; width: 100%; }
+    .navb.active { background: #eef2ff; color: #4f46e5; font-weight: 600; }
+    .topbar { height: 68px; border-bottom: 1px solid #e6e6ea; background: #fff;
+              padding: 10px 18px; display: flex; align-items: center; }
+
+    .score { display: inline-flex; align-items: baseline; gap: 6px; padding: 3px 10px;
+             border-radius: 999px; background: #fdecea; color: #b00020; font-size: 12px; font-weight: 600; }
+  </style>
+</helmet>
+
+<div style="width: 1700px; min-height: 1080px; display: flex; background: #fafafa;">
+
+  <div class="side">
+    <div style="font-weight: 700; font-size: 15px; padding: 4px 10px 12px;">Mastermind</div>
+    <div style="display: flex; flex-direction: column; gap: 2px;">
+      <button class="navb">Project</button>
+      <button class="navb">Portfolio</button>
+      <button class="navb active">Map</button>
+      <button class="navb">Sprint</button>
+    </div>
+    <div style="margin: 16px 0 6px; padding: 0 10px; font-size: 10px; font-weight: 600;
+                letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa;">Projects</div>
+    <div class="muted" style="padding: 0 10px;">28 projects · filterable list</div>
+  </div>
+
+  <div style="flex: 1 1 0; min-width: 0;">
+    <div class="topbar">
+      <div>
+        <div style="font-weight: 700; font-size: 16px; line-height: 1.2;">Map</div>
+        <div class="muted">Where the department is pointed</div>
+      </div>
+    </div>
+
+    <div style="padding: 16px 18px;">
+      <div class="card">
+        <!-- filters, exactly as they ship: two captioned groups -->
+        <div style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-bottom: 12px;">
+          <div style="display: flex; gap: 4px; align-items: center;">
+            <span class="filter-caption">Tier</span>
+            <button class="map-chip on">T1 3</button>
+            <button class="map-chip on">T2 5</button>
+            <button class="map-chip on">T3 3</button>
+            <button class="map-chip tier-0 on">untiered 17</button>
+          </div>
+          <div style="display: flex; gap: 4px; align-items: center;">
+            <span class="filter-caption">Status</span>
+            <button class="map-chip">done 1</button>
+          </div>
+          <span style="flex: 1;"></span>
+          <span class="score">{{score}} <span style="font-weight: 500; opacity: .8;">overlaps at 1400px</span></span>
+        </div>
+
+        <svg width="1400" height="773" viewBox="0 0 1400 773" style="display: block;">
+          <!-- spokes -->
+          <sc-for list="{{edges}}" as="e" hint-placeholder-count="30">
+            <line class="map-edge {{e.cls}}" x1="{{e.x1}}" y1="{{e.y1}}" x2="{{e.x2}}" y2="{{e.y2}}" style="{{e.style}}"></line>
+          </sc-for>
+
+          <!-- hub -->
+          <g class="map-hub">
+            <circle cx="{{cx}}" cy="{{cy}}" r="54"></circle>
+            <text x="{{cx}}" y="{{cy}}" text-anchor="middle" dominant-baseline="central">Platform Eng.</text>
+          </g>
+
+          <!-- track / subtrack rings -->
+          <sc-for list="{{groups}}" as="g" hint-placeholder-count="16">
+            <g class="map-group {{g.cls}}" style="{{g.style}}">
+              <circle cx="{{g.x}}" cy="{{g.y}}" r="{{g.r}}"></circle>
+              <text x="{{g.tx}}" y="{{g.ty}}" text-anchor="{{g.anchor}}">{{g.name}}</text>
+            </g>
+          </sc-for>
+
+          <!-- projects -->
+          <sc-for list="{{nodes}}" as="n" hint-placeholder-count="27">
+            <g class="map-node {{n.cls}}">
+              <circle cx="{{n.x}}" cy="{{n.y}}" r="{{n.r}}"></circle>
+              <sc-if value="{{n.hasPip}}" hint-placeholder-val="{{true}}">
+                <g>
+                  <circle class="map-pip" cx="{{n.px}}" cy="{{n.py}}" r="8"></circle>
+                  <text class="map-pip-text" x="{{n.px}}" y="{{n.py}}" text-anchor="middle" dominant-baseline="central">{{n.tier}}</text>
+                </g>
+              </sc-if>
+              <g class="map-label">
+                <text class="map-name" x="{{n.lx}}" y="{{n.ly}}" text-anchor="{{n.anchor}}">{{n.name}}</text>
+                <text class="map-meta" x="{{n.lx}}" y="{{n.ly2}}" text-anchor="{{n.anchor}}">{{n.meta}}</text>
+              </g>
+            </g>
+          </sc-for>
+        </svg>
+
+        <!-- legend, as it ships -->
+        <div style="display: flex; flex-wrap: wrap; gap: 6px 20px; align-items: center; margin-top: 8px;
+                    padding-top: 10px; border-top: 1px solid #f1f1f4;">
+          <span class="filter-caption">Stage</span>
+          <sc-for list="{{stageKey}}" as="s" hint-placeholder-count="8">
+            <span class="legend-item">
+              <svg width="20" height="20" viewBox="0 0 20 20"><g class="map-node {{s.cls}}"><circle cx="10" cy="10" r="6"></circle></g></svg>
+              <span class="legend-name">{{s.label}}</span>
+            </span>
+          </sc-for>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px 20px; align-items: center; margin-top: 6px;">
+          <span class="filter-caption">Track</span>
+          <sc-for list="{{trackKey}}" as="t" hint-placeholder-count="9">
+            <span class="legend-item">
+              <svg width="20" height="20" viewBox="0 0 20 20"><g class="map-group" style="{{t.style}}"><circle cx="10" cy="10" r="6"></circle></g></svg>
+              <span class="legend-name" style="{{t.text}}">{{t.name}}</span>
+            </span>
+          </sc-for>
+        </div>
+        <p class="legend-note">Circle size is total effort points. The percentage in a circle — and how far it is
+          filled — counts every phase as an equal share. The numbered pip is the project's tier.</p>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    // The sweep's 1400px step, so the overlap count printed on this artboard is
+    // comparable with the one on "Map — laid out to read".
+    const W = 1400, H = 773, CX = W / 2, CY = H / 2;
+    const MARGIN_X = 170, MARGIN_Y = 92, HUB = 54, MIN_R = 16, MAX_R = 38, LABEL_GAP = 8;
+    const LABEL_LINE = 13, CHAR_EM = 0.55;
+    const textW = (s, size) => s.length * size * CHAR_EM;
+    const RX = W / 2 - MARGIN_X, RY = H / 2 - MARGIN_Y;
+    // Depth 3 in this dataset (Source Expansion / New Metrics / Network).
+    const RING = [0.36, 0.49, 0.625];
+    const PROJECT_RING = 0.74, IDEA_RING = 1.0;
+    const GROUP_R = [0, 6, 4, 3.4];
+
+    const HUES = {
+      "AI Agent": "#CC79A7", "Deployment Script App": "#D55E00",
+      "Expansion of Communication Channel": "#882255", "External Project": "#EE6677",
+      "Mobile": "#0072B2", "Observability": "#009E73", "Reporting": "#332288",
+      "Source Expansion": "#40607A", "UIUX": null,
+    };
+    const TONES = [0, 0.45, 0.62, 0.72];
+    const mix = (hex, t) => {
+      if (!hex) return "#9e9e9e";
+      const n = parseInt(hex.slice(1), 16);
+      const r = Math.round(((n >> 16) & 255) + (255 - ((n >> 16) & 255)) * t);
+      const g = Math.round(((n >> 8) & 255) + (255 - ((n >> 8) & 255)) * t);
+      const b = Math.round((n & 255) + (255 - (n & 255)) * t);
+      return `rgb(${r}, ${g}, ${b})`;
+    };
+
+    // The real dataset. `done` is filtered out by default, so SideBar Revamp
+    // (id 19) is absent — that is the shipped default, not an omission.
+    const P = [
+      ["DT Gen3 Platform Adoption", "Source Expansion", "active", 1, 11, 67],
+      ["Multidatasource Adoption", "Source Expansion", "active", 1, 26, 31],
+      ["Clickhouse Setup and OTel", "Source Expansion", "dated", 2, 5, 0],
+      ["Prometheus Data Integration", "Source Expansion", "idea", 0, 0, null],
+      ["Orchestration Layer of AI Agents", "AI Agent", "idea", 0, 0, null],
+      ["Automated Incident Report", "AI Agent / AI Reporting", "planning", 3, 12, 0],
+      ["Automated Monthly Perf. Report", "AI Agent / AI Reporting", "idea", 0, 0, null],
+      ["Graphiti GraphRAG Memory", "AI Agent / Agent Memory", "planning", 2, 35, 0],
+      ["Internal RAG", "AI Agent / Agent Memory", "idea", 3, 0, null],
+      ["Alerting Agent", "AI Agent / Alerting", "idea", 0, 13, null],
+      ["Mobile App Sentiment Report", "AI Agent / Expansion", "planning", 0, 15, 0],
+      ["Script Enhancement", "Deployment Script App", "active", 2, 6, 0],
+      ["Whatapps", "Expansion of Communication Channel", "idea", 0, 0, null],
+      ["Proactive Alerting", "Expansion of Communication Channel", "idea", 0, 0, null],
+      ["CRM Tool", "External Project", "idea", 0, 0, null],
+      ["CURADE mini Deployment", "Mobile", "active", 1, 8, 0],
+      ["Poller Observability", "Observability / Poller", "idea", 0, 0, null],
+      ["RMiT Report", "Reporting / Expansion", "idea", 0, 0, null],
+      ["Custom Report", "Reporting / Expansion", "idea", 0, 0, null],
+      ["Aggregate Same Transaction", "Reporting / Transaction", "active", 2, 12, 0],
+      ["Other sources for Sentiment", "Source Expansion / New Metrics", "idea", 0, 0, null],
+      ["RUM Metrics", "Source Expansion / New Metrics", "idea", 0, 0, null],
+      ["Gigamon", "Source Expansion / New Metrics / Network", "active", 2, 2, 0],
+      ["ClickHouse MCP", "Source Expansion / MCP", "idea", 0, 0, null],
+      ["Orchestration Layer for MCP", "Source Expansion / MCP", "idea", 0, 0, null],
+      ["Prometheus MCP", "Source Expansion / MCP", "idea", 0, 0, null],
+      ["Transaction Graph Fix", "UIUX", "active", 3, 3, 44],
+    ].map(([name, track, stage, tier, pts, pct]) => ({ name, track, stage, tier, pts, pct }));
+
+    const path = (t) => t.split("/").map((s) => s.trim()).filter(Boolean);
+
+    // --- arc ruler: slots spaced by arc length on the project ellipse, not by
+    // angle. An evenly divided angle packs the flanks at half the spacing of 12
+    // and 6 o'clock, which is exactly where labels are widest.
+    const ax = RX * PROJECT_RING, ay = RY * PROJECT_RING;
+    const SAMPLES = 2400, table = [0];
+    for (let i = 1; i <= SAMPLES; i++) {
+      const a0 = (i - 1) / SAMPLES * 2 * Math.PI, a1 = i / SAMPLES * 2 * Math.PI;
+      const dx = ax * (Math.cos(a1) - Math.cos(a0)), dy = ay * (Math.sin(a1) - Math.sin(a0));
+      table.push(table[i - 1] + Math.hypot(dx, dy));
+    }
+    const total = table[SAMPLES];
+    const angleAt = (dist) => {
+      let lo = 0, hi = SAMPLES;
+      const d = ((dist % total) + total) % total;
+      while (lo < hi) { const m = (lo + hi) >> 1; if (table[m] < d) lo = m + 1; else hi = m; }
+      return lo / SAMPLES * 2 * Math.PI;
+    };
+
+    // --- build the tree, sized by project count, sorted by root name.
+    const roots = new Map();
+    for (const p of P) {
+      const [r] = path(p.track);
+      if (!roots.has(r)) roots.set(r, []);
+      roots.get(r).push(p);
+    }
+    const order = [...roots.keys()].sort();
+
+    // Allocate one slot per project, grouped so a subtrack owns a contiguous run.
+    const slots = [];
+    const groupRuns = [];
+    for (const root of order) {
+      const members = roots.get(root);
+      const direct = members.filter((p) => path(p.track).length === 1);
+      const subs = new Map();
+      for (const p of members) {
+        const seg = path(p.track);
+        if (seg.length === 1) continue;
+        const key = seg.slice(0, 2).join(" / ");
+        if (!subs.has(key)) subs.set(key, []);
+        subs.get(key).push(p);
+      }
+      const from = slots.length;
+      for (const p of direct) slots.push(p);
+      for (const [key, list] of [...subs.entries()].sort()) {
+        const subFrom = slots.length;
+        const deeper = new Map();
+        const shallow = list.filter((p) => path(p.track).length === 2);
+        for (const p of list) {
+          const seg = path(p.track);
+          if (seg.length < 3) continue;
+          const k3 = seg.slice(0, 3).join(" / ");
+          if (!deeper.has(k3)) deeper.set(k3, []);
+          deeper.get(k3).push(p);
+        }
+        for (const p of shallow) slots.push(p);
+        for (const [k3, l3] of [...deeper.entries()].sort()) {
+          const f3 = slots.length;
+          for (const p of l3) slots.push(p);
+          groupRuns.push({ key: k3, level: 3, root, from: f3, to: slots.length - 1,
+                           name: path(k3)[2] });
+        }
+        groupRuns.push({ key, level: 2, root, from: subFrom, to: slots.length - 1,
+                         name: path(key)[1] });
+      }
+      groupRuns.push({ key: root, level: 1, root, from, to: slots.length - 1, name: root });
+    }
+
+    const n = slots.length;
+    const step = total / n;
+    // Rotate so slot 0 starts just past 12 o'clock.
+    const angleOf = (i) => angleAt(step * i - total / 4);
+
+    const pointOn = (frac, angle) => ({
+      x: CX + RX * frac * Math.cos(angle),
+      y: CY + RY * frac * Math.sin(angle),
+    });
+
+    const radius = (pts) => {
+      const largest = 35;
+      return MIN_R + (MAX_R - MIN_R) * Math.sqrt(pts) / Math.sqrt(largest);
+    };
+
+    // --- project nodes
+    const nodes = slots.map((p, i) => {
+      const a = angleOf(i);
+      const ring = p.stage === "idea" ? IDEA_RING : PROJECT_RING;
+      const { x, y } = pointOn(ring, a);
+      const r = radius(p.pts);
+      // Leans across the ring, straight out past the outermost one.
+      const nx = Math.cos(a), ny = Math.sin(a);
+      const lx = x + nx * (r + LABEL_GAP + 4);
+      const ly = y + ny * (r + LABEL_GAP + 4);
+      const anchor = nx > 0.25 ? "start" : nx < -0.25 ? "end" : "middle";
+      return {
+        name: p.name, x, y, r,
+        cls: `stage-${p.stage}`,
+        hasPip: p.tier > 0, tier: String(p.tier),
+        px: x + 0.707 * r, py: y - 0.707 * r,
+        lx, ly: ly + (ny > 0 ? 4 : -4), ly2: ly + (ny > 0 ? 15 : 7),
+        anchor,
+        meta: p.tier ? `T${p.tier} · ${p.pts} pts` : `T? · ${p.pts} pts`,
+      };
+    });
+
+    // --- group nodes, each at the middle of its contiguous run of slots
+    const groups = groupRuns.map((g) => {
+      const mid = (g.from + g.to) / 2;
+      const a = angleOf(mid);
+      const frac = RING[g.level - 1];
+      const { x, y } = pointOn(frac, a);
+      const hue = HUES[g.root];
+      const dotHue = mix(hue, TONES[g.level - 1]);
+      const textHue = hue || "#777";
+      // Leans along the ring: the arc beside an inner node is empty, the gap
+      // between two rings is not.
+      const tx = x, ty = y - GROUP_R[g.level] - 5;
+      return {
+        name: g.name, x, y, r: GROUP_R[g.level],
+        cls: `level-${g.level}`,
+        style: `--track-dot: ${dotHue}; --track-text: ${textHue};`,
+        tx, ty, anchor: "middle",
+      };
+    });
+
+    // --- spokes: hub → level 1 → level 2 → level 3 → project
+    const edges = [];
+    const groupAt = new Map(groupRuns.map((g, i) => [g.key, groups[i]]));
+    for (const g of groupRuns) {
+      const node = groupAt.get(g.key);
+      const parentKey = g.level === 1 ? null : path(g.key).slice(0, g.level - 1).join(" / ");
+      const parent = parentKey ? groupAt.get(parentKey) : { x: CX, y: CY };
+      const hue = HUES[g.root];
+      edges.push({ x1: parent.x, y1: parent.y, x2: node.x, y2: node.y, cls: "",
+                   style: `--track-edge: ${mix(hue, 0.55)};` });
+    }
+    slots.forEach((p, i) => {
+      const seg = path(p.track);
+      const key = seg.slice(0, Math.min(seg.length, 3)).join(" / ");
+      const parent = groupAt.get(key) || { x: CX, y: CY };
+      const node = nodes[i];
+      edges.push({ x1: parent.x, y1: parent.y, x2: node.x, y2: node.y,
+                   cls: p.stage === "idea" ? "map-edge-idea" : "", style: "" });
+    });
+
+    // --- self-measurement on map_sweep.js's rules (CHAR_EM 0.55, LABEL_LINE
+    // 13), identical to the code on the proposed artboard so the two numbers
+    // mean the same thing.
+    const boxOf = (lx, ly, anchor, widths, lines) => {
+      const w = Math.max(...widths);
+      const left = anchor === "end" ? lx - w : anchor === "middle" ? lx - w / 2 : lx;
+      return { l: left, r: left + w, t: ly - 10, b: ly - 10 + lines * LABEL_LINE };
+    };
+    // A label overlapping its OWN circle is the gap arithmetic, not a collision;
+    // owner ids keep it out of the count on both artboards alike.
+    const labels = [
+      ...nodes.map((n, i) => ({ own: `n${i}`,
+        box: boxOf(n.lx, n.ly, n.anchor, [textW(n.name, 11), textW(n.meta, 9)], 2) })),
+      ...groups.map((g, i) => ({ own: `g${i}`, box: boxOf(g.tx, g.ty, g.anchor,
+        [textW(g.name, groupRuns[i].level === 1 ? 11 : 10)], 1) })),
+    ];
+    const circles = [
+      ...nodes.map((n, i) => ({ own: `n${i}`,
+        box: { l: n.x - n.r, r: n.x + n.r, t: n.y - n.r, b: n.y + n.r } })),
+      ...groups.map((g, i) => ({ own: `g${i}`,
+        box: { l: g.x - g.r, r: g.x + g.r, t: g.y - g.r, b: g.y + g.r } })),
+      { own: "hub", box: { l: CX - HUB, r: CX + HUB, t: CY - HUB, b: CY + HUB } },
+    ];
+    const hits = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+    let score = 0;
+    for (let i = 0; i < labels.length; i++) {
+      for (let j = i + 1; j < labels.length; j++) {
+        if (hits(labels[i].box, labels[j].box)) score++;
+      }
+      for (const c of circles) {
+        if (c.own !== labels[i].own && hits(labels[i].box, c.box)) score++;
+      }
+    }
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i], b = nodes[j];
+        if (Math.hypot(a.x - b.x, a.y - b.y) < a.r + b.r) score++;
+      }
+    }
+
+    return {
+      cx: CX, cy: CY, nodes, groups, edges, score: String(score),
+      stageKey: [
+        ["stage-idea", "idea"], ["stage-planning", "planning"], ["stage-planned", "planned"],
+        ["stage-dated", "dated"], ["", "active"], ["stage-overdue", "overdue"],
+        ["stage-done", "done · closed"],
+      ].map(([cls, label]) => ({ cls, label })),
+      trackKey: order.map((name) => ({
+        name: HUES[name] ? name : `${name} (no hue left)`,
+        style: `--track-dot: ${HUES[name] || "#9e9e9e"};`,
+        text: `color: ${HUES[name] || "#9e9e9e"};`,
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>

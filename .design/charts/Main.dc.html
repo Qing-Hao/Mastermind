@@ -1,0 +1,290 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+           color: #18181b; background: #fafafa; }
+    * { box-sizing: border-box; }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+
+    /* --- shipped tokens, lifted from app/static/style.css --- */
+    .ab { --accent: #4f46e5; --accent-soft: #eef2ff; --accent-ring: #c7d2fe;
+          --ink: #18181b; --ink-2: #3f3f46; --ink-3: #52525b;
+          --muted: #71717a; --faint: #a1a1aa;
+          --page: #fafafa; --surface: #fff; --line: #e6e6ea; --line-soft: #f1f1f4;
+          --field: #d8d8de; --hover: #f4f4f5;
+          --radius: 6px; --radius-card: 10px; --week-px: 58px; }
+
+    .card { background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; padding: 14px 16px; }
+    .h { font-size: 14px; font-weight: 600; color: #18181b; margin: 0 0 2px; }
+    .muted { color: #71717a; font-size: 12px; }
+
+    /* --- chart: exact shipped values --- */
+    .ruler-row { display: flex; }
+    .ruler-months { border-bottom: 1px solid #eee; }
+    .ruler-weeks { border-bottom: 1px solid #ddd; }
+    .month { font-size: 11px; font-weight: 600; color: #555; border-left: 1px solid #c8c8c8;
+             padding-left: 4px; overflow: hidden; white-space: nowrap; flex: 0 0 auto; }
+    .week { flex: 0 0 var(--week-px); width: var(--week-px); font-size: 10px; color: #999;
+            text-align: center; border-left: 1px solid #ededed; overflow: hidden; white-space: nowrap; }
+    .week-now { color: #1a1a1a; font-weight: 600; }
+    .ruler-gutter { flex: 0 0 auto; }
+
+    .grid-body { position: relative; padding-left: 160px;
+                 background-origin: content-box; background-clip: content-box;
+                 background-image: repeating-linear-gradient(to right, #ededed 0 1px, transparent 1px var(--week-px)); }
+    .lane { padding: 6px 0; border-bottom: 1px solid #f0f0f0; display: flex; align-items: flex-start; }
+    .lane-name { flex: 0 0 160px; margin-left: -160px; box-sizing: border-box; padding-right: 10px;
+                 min-width: 0; display: flex; align-items: flex-start; gap: 2px; }
+    .lane-rows { flex: 1 1 0; min-width: 0; }
+    .lane-title { font-size: 13px; font-weight: 700; color: #333; line-height: 24px;
+                  text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+                  width: fit-content; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lane-twisty { flex: 0 0 auto; padding: 0 2px; border: 0; background: none; color: #aaa;
+                   font-size: 11px; line-height: 24px; cursor: pointer; }
+
+    .bar { height: 24px; margin-bottom: 4px; padding: 2px 6px; border-radius: 3px; background: #90caf9;
+           white-space: nowrap; overflow: hidden; font-size: 12px; line-height: 20px; }
+    .bar.status-in_progress { background: #a5d6a7; }
+    .bar.status-done { background: #cfd8dc; }
+    .lane-summary { position: relative; background: #eceff1; color: #37474f; }
+    .bar-fill { position: absolute; left: 0; top: 0; bottom: 0; background: #90caf9; border-radius: 3px 0 0 3px; }
+    .bar-text { position: relative; }
+    .today-line { position: absolute; top: 0; bottom: 0; width: 2px; background: #1a1a1a; }
+
+    .mlane { position: relative; height: 20px; margin-bottom: 6px; }
+    .mmark { position: absolute; top: 0; display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+    .mdia { width: 10px; height: 10px; transform: rotate(45deg); border: 1.5px solid #6a1b9a; background: #fff; }
+    .mname { font-size: 11px; color: #6a1b9a; line-height: 10px; }
+
+    .tray-chip { border: 1px solid #d8d8de; border-radius: 6px; background: #fff; padding: 4px 8px;
+                 font-size: 12px; display: flex; flex-direction: column; cursor: grab; }
+    .tray-name { font-weight: 500; }
+
+    /* --- shell --- */
+    .side { width: 240px; background: #fff; border-right: 1px solid #e6e6ea; padding: 12px 10px; }
+    .nav { display: flex; flex-direction: column; gap: 2px; }
+    .navb { text-align: left; border: 0; background: none; font: inherit; padding: 7px 10px;
+            border-radius: 6px; color: #3f3f46; cursor: pointer; }
+    .navb.active { background: #eef2ff; color: #4f46e5; font-weight: 600; }
+    .prow { display: flex; align-items: center; gap: 7px; padding: 4px 8px; border-radius: 6px;
+            font-size: 12.5px; color: #3f3f46; cursor: pointer; }
+    .pdot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 9px; }
+    .ptier { margin-left: auto; font-size: 10px; font-weight: 700; color: #3949ab; }
+    .topbar { height: 68px; border-bottom: 1px solid #e6e6ea; background: #fff;
+              padding: 10px 18px; display: flex; align-items: center; }
+  </style>
+</helmet>
+
+<div class="ab" style="width: 1420px; min-height: 940px; display: flex; background: #fafafa;">
+
+  <!-- sidebar -->
+  <div class="side">
+    <div style="font-weight: 700; font-size: 15px; padding: 4px 10px 12px;">Mastermind</div>
+    <div class="nav">
+      <button class="navb">Project</button>
+      <button class="navb active">Portfolio</button>
+      <button class="navb">Map</button>
+      <button class="navb">Sprint</button>
+    </div>
+    <div style="margin: 16px 0 6px; padding: 0 10px; font-size: 10px; font-weight: 600;
+                letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa;">Projects</div>
+    <sc-for list="{{picker}}" as="p" hint-placeholder-count="6">
+      <div class="prow">
+        <span class="pdot" style="{{p.dot}}"></span>
+        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{p.name}}</span>
+        <span class="ptier">{{p.tier}}</span>
+      </div>
+    </sc-for>
+  </div>
+
+  <!-- main -->
+  <div style="flex: 1 1 0; min-width: 0;">
+    <div class="topbar">
+      <div>
+        <div style="font-weight: 700; font-size: 16px; line-height: 1.2;">Portfolio</div>
+        <div class="muted">Every scheduled phase of every committed project · 9 lanes drawn</div>
+      </div>
+    </div>
+
+    <div style="padding: 16px 18px; max-width: 1100px;">
+
+      <!-- staging tray -->
+      <div class="card" style="margin-bottom: 12px;">
+        <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px;">
+          <p class="h">Unscheduled work</p>
+          <span class="muted">15 phase(s)</span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+          <sc-for list="{{tray}}" as="t" hint-placeholder-count="4">
+            <div class="tray-chip">
+              <span class="tray-name">{{t.name}}</span>
+              <span class="muted">{{t.meta}}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <!-- chart -->
+      <div class="card">
+        <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 10px; font-size: 12px; color: #52525b;">
+          <button style="font: inherit; padding: 3px 8px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff;">◀</button>
+          <button style="font: inherit; padding: 3px 8px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff;">Today</button>
+          <button style="font: inherit; padding: 3px 8px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff;">▶</button>
+          <span>2026-08-03 → 2026-11-23 · 16 weeks</span>
+          <span style="flex: 1;"></span>
+          <button style="font: inherit; padding: 3px 8px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff;">Expand all</button>
+          <span class="muted">9 lane(s) · 0 open</span>
+        </div>
+
+        <div style="overflow: hidden;">
+          <div style="margin-bottom: 6px;">
+            <div class="ruler-row ruler-months">
+              <div class="ruler-gutter" style="width: 160px;"></div>
+              <sc-for list="{{months}}" as="m" hint-placeholder-count="4">
+                <div class="month" style="{{m.style}}">{{m.label}}</div>
+              </sc-for>
+            </div>
+            <div class="ruler-row ruler-weeks">
+              <div class="ruler-gutter" style="width: 160px;"></div>
+              <sc-for list="{{weeks}}" as="w" hint-placeholder-count="16">
+                <div class="week {{w.cls}}">{{w.label}}</div>
+              </sc-for>
+            </div>
+          </div>
+
+          <div class="grid-body">
+            <div class="today-line" style="{{todayStyle}}"></div>
+            <sc-for list="{{lanes}}" as="l" hint-placeholder-count="9">
+              <div class="lane">
+                <div class="lane-name">
+                  <button class="lane-twisty">▸</button>
+                  <div class="lane-title">{{l.name}}</div>
+                </div>
+                <div class="lane-rows">
+                  <div class="bar lane-summary" style="{{l.barStyle}}">
+                    <div class="bar-fill" style="{{l.fillStyle}}"></div>
+                    <span class="bar-text">{{l.text}}</span>
+                  </div>
+                  <sc-if value="{{l.hasMarks}}" hint-placeholder-val="{{true}}">
+                    <div class="mlane">
+                      <sc-for list="{{l.marks}}" as="mk" hint-placeholder-count="1">
+                        <div class="mmark" style="{{mk.style}}">
+                          <div class="mdia"></div><span class="mname">{{mk.name}}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </sc-if>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top: 12px;">
+        <p class="h">Dependencies</p>
+        <p class="muted" style="margin: 2px 0 0;">Links run project to project — listed, never drawn between swimlanes,
+          because a link can point at an idea and an idea has no bar.</p>
+      </div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    const WEEK = 58, GUT = 160, ORIGIN = "2026-08-03", TODAY = "2026-08-18", NWEEKS = 16;
+    const day = (iso) => Date.UTC(+iso.slice(0,4), +iso.slice(5,7)-1, +iso.slice(8,10)) / 86400000;
+    const off = (iso) => day(iso) - day(ORIGIN);
+    const px = (days) => days / 7 * WEEK;
+
+    // Stage colours are the shipped --stage-* tokens.
+    const STAGE = {
+      idea:     ["#fff",    "#bbb"],
+      planning: ["#fff",    "#9fa8da"],
+      planned:  ["#fff",    "#5c6bc0"],
+      dated:    ["#d5e6f7", "#5c6bc0"],
+      active:   ["#90caf9", "#5c6bc0"],
+      overdue:  ["#ffccbc", "#d84315"],
+      done:     ["#cfd8dc", "#90a4ae"],
+    };
+    const dot = (stage) => {
+      const [fill, line] = STAGE[stage] || STAGE.idea;
+      return `background: ${fill}; box-shadow: inset 0 0 0 1.5px ${line};`;
+    };
+
+    // The nine lanes the chart actually draws, from data/roadmap.db.
+    const lanes = [
+      { name: "DT Gen3 Platform Adoption", s: "2026-07-27", e: "2026-08-31", pct: 67, ph: "2/3", dl: "4/6",
+        marks: [{ d: "2026-08-21", n: "Infra and Disk Report Generation" }] },
+      { name: "Multidatasource Adoption",  s: "2026-07-01", e: "2026-09-02", pct: 31, ph: "1/4", dl: "1/4", marks: [] },
+      { name: "CURADE mini Deployment",    s: "2026-08-12", e: "2026-08-26", pct: 0,  ph: "0/2", dl: "0/2", marks: [] },
+      { name: "Transaction Graph Fix",     s: "2026-08-12", e: "2026-08-25", pct: 44, ph: "1/3", dl: "2/2",
+        marks: [{ d: "2026-08-20", n: "Release v2.7.1" }, { d: "2026-08-24", n: "Deploy to AG" }] },
+      { name: "Aggregate Same Transaction Name", s: "2026-08-12", e: "2026-10-07", pct: 0, ph: "0/4", dl: "0/0",
+        marks: [{ d: "2026-08-26", n: "Report with aggregation" }] },
+      { name: "Script Enhancement",        s: "2026-08-12", e: "2026-08-26", pct: 0,  ph: "0/2", dl: "0/3", marks: [] },
+      { name: "Gigamon",                   s: "2026-08-17", e: "2026-08-24", pct: 0,  ph: "0/1", dl: "0/3",
+        marks: [{ d: "2026-08-24", n: "Meeting" }] },
+      { name: "Clickhouse Setup and OTel", s: "2026-09-16", e: "2026-10-14", pct: 0,  ph: "0/3", dl: "0/7", marks: [] },
+      { name: "SideBar Revamp",            s: "2026-08-10", e: "2026-08-17", pct: 100, ph: "2/2", dl: "3/3", marks: [] },
+    ];
+
+    const months = [
+      { label: "Aug", w: 5 }, { label: "Sep", w: 4 }, { label: "Oct", w: 4 }, { label: "Nov", w: 3 },
+    ].map((m) => ({ label: m.label, style: `width: ${m.w * WEEK}px;` }));
+
+    const weeks = [];
+    for (let i = 0; i < NWEEKS; i++) {
+      const d = day(ORIGIN) + i * 7;
+      const dt = new Date(d * 86400000);
+      const jan = Date.UTC(dt.getUTCFullYear(), 0, 1) / 86400000;
+      weeks.push({ label: String(Math.floor((d - jan) / 7) + 1),
+                   cls: (i === 2) ? "week-now" : "" });
+    }
+
+    return {
+      months, weeks,
+      todayStyle: `left: ${GUT + px(off(TODAY))}px;`,
+      picker: [
+        { name: "DT Gen3 Platform Adoption", tier: "1", dot: dot("active") },
+        { name: "Multidatasource Adoption",  tier: "1", dot: dot("active") },
+        { name: "CURADE mini Deployment",    tier: "1", dot: dot("active") },
+        { name: "Transaction Graph Fix",     tier: "3", dot: dot("active") },
+        { name: "Aggregate Same Transaction", tier: "2", dot: dot("active") },
+        { name: "Script Enhancement",        tier: "2", dot: dot("active") },
+        { name: "Clickhouse Setup and OTel", tier: "2", dot: dot("dated") },
+        { name: "Graphiti GraphRAG Memory",  tier: "2", dot: dot("planning") },
+        { name: "Prometheus Data Integration", tier: "?", dot: dot("idea") },
+        { name: "ClickHouse MCP",            tier: "?", dot: dot("idea") },
+        { name: "SideBar Revamp",            tier: "3", dot: dot("done") },
+      ],
+      tray: [
+        { name: "Automated Incident Report", meta: "4 phase(s) · 6w · 12 pts" },
+        { name: "Graphiti GraphRAG Memory",  meta: "5 phase(s) · 12w · 35 pts" },
+        { name: "Mobile App Sentiment Report", meta: "4 phase(s) · 4w · 15 pts" },
+        { name: "Alerting Agent",            meta: "2 phase(s) · 20w · 13 pts" },
+      ],
+      lanes: lanes.map((l) => ({
+        name: l.name,
+        barStyle: `margin-left: ${px(off(l.s))}px; width: ${px(off(l.e) - off(l.s))}px;`,
+        fillStyle: `width: ${l.pct}%;`,
+        text: `${l.pct}% · ${l.ph} phases · ${l.dl} delivered`,
+        hasMarks: l.marks.length > 0,
+        marks: l.marks.map((m) => ({ name: m.n, style: `left: ${px(off(m.d))}px;` })),
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>

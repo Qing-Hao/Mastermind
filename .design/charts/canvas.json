@@ -1,0 +1,39 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1420, "h": 940, "title": "Portfolio — today" },
+    { "file": "PortfolioB.dc.html", "x": 1520, "y": 0, "w": 1420, "h": 1060, "title": "Portfolio — Option B (agreed)" },
+    { "file": "MapToday.dc.html", "x": 0, "y": 1420, "w": 1700, "h": 1120, "title": "Map — today" },
+    { "file": "MapLegible.dc.html", "x": 1800, "y": 1420, "w": 1700, "h": 1120, "title": "Map — laid out to read" }
+  ],
+  "annotations": [
+    {
+      "id": "note-portfolio",
+      "x": 1520,
+      "y": -330,
+      "w": 480,
+      "text": "PORTFOLIO — OPTION B, AGREED\n\nOne page, no second mode. Everything here is already on GET /api/portfolio — no endpoint, no schema, no rule engine.\n\nFOUR TILES: committed 11 · checkpoints in the next 14 days 5 · overdue 0 · ideas 16.\n\nTHE CHECKPOINT HORIZON is what the data actually shouted: all five of your milestones fall between 20 and 26 August and none is reached. Today those are five diamonds scattered across nine lanes.\n\nTRACK RAIL on the name column in the map's own eight hues, so a project reads the same on both tabs.\n\nSTAGE DOT under each name — the derived rung, which today only exists in the tooltip.\n\nSTILL OPEN: the overdue tile reads 0 and will keep reading 0, because the overdue rung only fires once a project's LAST phase end has passed. The signal you actually want is V6, which FR-2 deliberately keeps off this tab. Leave the tile honest and quiet, or reopen FR-2 narrowly as a count with no list. Your call, not a design question."
+    },
+    {
+      "id": "note-maptoday",
+      "x": 0,
+      "y": 1180,
+      "w": 500,
+      "text": "MAP — TODAY\n\nBuilt from the real track tree at the shipped geometry: MAP_MARGIN_X 170, HUB_RADIUS 54, RING_FRACTIONS[3] = 0.36 / 0.49 / 0.625, project ring 0.74, ideas 1.0, radius = 16 + 22·√pts/√35, arc-length slot spacing. done is filtered out by default, so SideBar Revamp is absent — the shipped default, not an omission.\n\nWHAT THE SWEEP SAYS. node scripts/map_sweep.js against the real payload: 134 collisions across the six widths — 33 at 1000px, still 9 at 1530px. The docs' claim of \"clean from 1000px to 1530px\" is not true today.\n\nTHE CAUSE IS STRUCTURAL, not cosmetic. A track's wedge is sized by project count alone. Mobile, External Project, Observability and Deployment Script App hold one project each, so each gets 1/27th of the ring — and spends it at radius 0.36, where the ellipse is ~950px around. The longest text on the map sits in the tightest arc on the map, by construction. Label width is never an input to the layout."
+    },
+    {
+      "id": "note-maplegible",
+      "x": 1800,
+      "y": 1180,
+      "w": 500,
+      "text": "MAP — LAID OUT TO READ\n\nNo information added or removed from the model — same rings, same stage colours, same track hues, same tier pips. Only where things sit and how much text each carries.\n\n1 · THE TRACK NAME MOVES TO THE RIM. Its dot stays on ring 0.36 so the hierarchy still reads from the centre out, but the name is drawn at radius 1.17 where there is roughly twice the arc. This is what kills the External Project × Mobile × Observability chain the sweep names.\n\n2 · THINNER LABELS. An idea gets its name only — \"T? · future direction\" restates the dashed circle, and 16 of the 27 drawn nodes are ideas, so that is half the label ink on the map for nothing. A dated project folds its next date onto the meta line rather than taking a third.\n\n3 · SMOOTHING. Spokes are quadratics bowed toward the hub, so a branch reads as one sweep instead of a fan of chords. Everything a hover touches now eases on one curve — today only opacity transitions, so the stroke snaps while the fade eases. text-rendering is set rather than left to the UA default.\n\nMEASURED, NOT CLAIMED: both map artboards score themselves with map_sweep's own rules (0.55em a character, 13px a line) and print the number in the filter row. 8 → 5 at 1400px.\n\nThe rim radius was swept, not eyeballed: 1.05 → 11, 1.09 → 8, 1.13 → 6, 1.17 onward → 5. 1.17 is the first value on the plateau."
+    },
+    {
+      "id": "note-rejected",
+      "x": 3600,
+      "y": 1180,
+      "w": 460,
+      "text": "WHAT I TRIED AND THREW AWAY\n\nThe obvious fix is to widen a wedge until its label fits. I built it, measured it, and it is wrong: it feeds the long-named single-project tracks by starving Source Expansion, whose ten projects are already the tightest run on the map. Two label collisions recovered, three new circle-on-circle ones created. Net zero.\n\nThe ring has no spare arc to redistribute — so the fix had to be about WHICH RING the text is on, not how the arc is divided.\n\nAlso corrected on the way through: 6 of the 15 overlaps my first measurement reported were a label hitting its OWN circle, which is the gap arithmetic rather than a defect. Owner ids keep that out of both counts now.\n\nWHAT IS LEFT — 5 at 1400px, every one a project label against a neighbour:\n  Automated Incident Report on Automated Monthly Perf. Report\n  Proactive Alerting × Expansion of Communication Channel\n  CURADE mini Deployment on CRM Tool\n  Aggregate Same Transaction × DT Gen3 Platform Adoption\n  Network on Gigamon\n\nThese are what M3 fixes — sweep the placed labels and push a colliding one to a second orbit with a leader line, the radial version of what stackMilestoneLanes already does for checkpoints. It is the expensive one and I would not start it until you have looked at this."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

@@ -1,0 +1,398 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+           color: #18181b; background: #fafafa; }
+    * { box-sizing: border-box; }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+
+    .ab { --accent: #4f46e5; --accent-soft: #eef2ff; --accent-ring: #c7d2fe;
+          --ink: #18181b; --ink-2: #3f3f46; --ink-3: #52525b;
+          --muted: #71717a; --faint: #a1a1aa;
+          --line: #e6e6ea; --line-soft: #f1f1f4; --field: #d8d8de; --hover: #f4f4f5;
+          --week-px: 58px; }
+
+    .card { background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; padding: 14px 16px; }
+    .h { font-size: 14px; font-weight: 600; color: #18181b; margin: 0 0 2px; }
+    .muted { color: #71717a; font-size: 12px; }
+
+    /* --- NEW: the headline band -------------------------------------------
+       Four readings, no new colour vocabulary: ink for the number, the one
+       accent for the live figure, and the existing overdue red used once. */
+    .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .tile { background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; padding: 12px 14px; }
+    .tile-cap { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+                color: #a1a1aa; margin-bottom: 4px; }
+    .tile-num { font-size: 28px; font-weight: 700; line-height: 1.05; letter-spacing: -0.02em; color: #18181b; }
+    .tile-num.is-live { color: #4f46e5; }
+    .tile-num.is-quiet { color: #a1a1aa; }
+    .tile-sub { font-size: 11.5px; color: #71717a; margin-top: 3px; }
+
+    /* --- NEW: the checkpoint horizon --------------------------------------
+       The diamonds already on the chart, pulled onto one dated line. Purple is
+       the shipped checkpoint colour; nothing new is spent. */
+    .horizon { display: flex; align-items: stretch; gap: 0; margin-top: 10px;
+               border: 1px solid #e6e6ea; border-radius: 10px; background: #fff; overflow: hidden; }
+    .horizon-cap { flex: 0 0 160px; padding: 10px 14px; border-right: 1px solid #f1f1f4; }
+    .horizon-days { flex: 1 1 0; display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); }
+    .hday { border-left: 1px solid #f4f4f5; padding: 6px 0 8px; text-align: center; position: relative; min-height: 62px; }
+    .hday.is-weekend { background: #fafafa; }
+    .hday.is-today { background: #fdf1d0; }
+    .hday-n { font-size: 9.5px; color: #a1a1aa; }
+    .hday.is-today .hday-n { color: #8a6a12; font-weight: 600; }
+    .hdia { width: 9px; height: 9px; transform: rotate(45deg); border: 1.5px solid #6a1b9a;
+            background: #fff; margin: 5px auto 0; }
+    .hname { font-size: 9px; color: #6a1b9a; line-height: 1.15; margin-top: 4px; padding: 0 2px;
+             overflow-wrap: anywhere; }
+
+    /* --- chart: shipped values, plus the track rail --- */
+    .ruler-row { display: flex; }
+    .ruler-quarters { border-bottom: 1px solid #f1f1f4; }
+    .ruler-months { border-bottom: 1px solid #eee; }
+    .ruler-weeks { border-bottom: 1px solid #ddd; }
+    .quarter { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+               color: #a1a1aa; border-left: 1px solid #e6e6ea; padding-left: 4px; flex: 0 0 auto; }
+    .month { font-size: 11px; font-weight: 600; color: #555; border-left: 1px solid #c8c8c8;
+             padding-left: 4px; overflow: hidden; white-space: nowrap; flex: 0 0 auto; }
+    .week { flex: 0 0 var(--week-px); width: var(--week-px); font-size: 10px; color: #999;
+            text-align: center; border-left: 1px solid #ededed; overflow: hidden; white-space: nowrap; }
+    .week-now { color: #1a1a1a; font-weight: 600; }
+    .ruler-gutter { flex: 0 0 auto; }
+
+    .grid-body { position: relative; padding-left: 168px;
+                 background-origin: content-box; background-clip: content-box;
+                 background-image: repeating-linear-gradient(to right, #ededed 0 1px, transparent 1px var(--week-px)); }
+    .lane { padding: 6px 0; border-bottom: 1px solid #f0f0f0; display: flex; align-items: flex-start; }
+    .lane-name { flex: 0 0 168px; margin-left: -168px; box-sizing: border-box; padding-right: 10px;
+                 min-width: 0; display: flex; align-items: flex-start; gap: 2px; }
+    /* NEW: the track rail. Track hue is already the map's identity channel; this
+       is the same eight, so one project reads the same on both tabs. */
+    .track-rail { flex: 0 0 3px; align-self: stretch; border-radius: 2px; margin-right: 6px; }
+    .lane-rows { flex: 1 1 0; min-width: 0; }
+    .lane-title { font-size: 13px; font-weight: 700; color: #333; line-height: 24px;
+                  text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+                  width: fit-content; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lane-meta { font-size: 10.5px; color: #a1a1aa; line-height: 1.2; display: flex; align-items: center; gap: 4px; }
+    .lane-twisty { flex: 0 0 auto; padding: 0 2px; border: 0; background: none; color: #aaa;
+                   font-size: 11px; line-height: 24px; cursor: pointer; }
+    .sdot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 7px; }
+
+    .bar { height: 24px; margin-bottom: 4px; padding: 2px 6px; border-radius: 3px; background: #90caf9;
+           white-space: nowrap; overflow: hidden; font-size: 12px; line-height: 20px; }
+    .lane-summary { position: relative; background: #eceff1; color: #37474f; }
+    .bar-fill { position: absolute; left: 0; top: 0; bottom: 0; background: #90caf9; border-radius: 3px 0 0 3px; }
+    .bar-text { position: relative; }
+    .today-line { position: absolute; top: 0; bottom: 0; width: 2px; background: #1a1a1a; }
+
+    .mlane { position: relative; height: 20px; margin-bottom: 6px; }
+    .mmark { position: absolute; top: 0; display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+    .mdia { width: 10px; height: 10px; transform: rotate(45deg); border: 1.5px solid #6a1b9a; background: #fff; }
+    .mname { font-size: 11px; color: #6a1b9a; line-height: 10px; }
+
+    .side { width: 240px; background: #fff; border-right: 1px solid #e6e6ea; padding: 12px 10px; }
+    .navb { text-align: left; border: 0; background: none; font: inherit; padding: 7px 10px;
+            border-radius: 6px; color: #3f3f46; cursor: pointer; display: block; width: 100%; }
+    .navb.active { background: #eef2ff; color: #4f46e5; font-weight: 600; }
+    .topbar { height: 68px; border-bottom: 1px solid #e6e6ea; background: #fff;
+              padding: 10px 18px; display: flex; align-items: center; }
+    .newtag { font-size: 9px; font-weight: 700; letter-spacing: .08em; color: #4f46e5;
+              background: #eef2ff; border-radius: 3px; padding: 1px 5px; vertical-align: 2px; margin-left: 6px; }
+  </style>
+</helmet>
+
+<div class="ab" style="width: 1420px; min-height: 1060px; display: flex; background: #fafafa;">
+
+  <div class="side">
+    <div style="font-weight: 700; font-size: 15px; padding: 4px 10px 12px;">Mastermind</div>
+    <div style="display: flex; flex-direction: column; gap: 2px;">
+      <button class="navb">Project</button>
+      <button class="navb active">Portfolio</button>
+      <button class="navb">Map</button>
+      <button class="navb">Sprint</button>
+    </div>
+    <div style="margin: 16px 0 6px; padding: 0 10px; font-size: 10px; font-weight: 600;
+                letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa;">Projects</div>
+    <sc-for list="{{picker}}" as="p" hint-placeholder-count="6">
+      <div style="display: flex; align-items: center; gap: 7px; padding: 4px 8px; border-radius: 6px;
+                  font-size: 12.5px; color: #3f3f46;">
+        <span style="{{p.dot}} width: 9px; height: 9px; border-radius: 50%; flex: 0 0 9px;"></span>
+        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{p.name}}</span>
+        <span style="margin-left: auto; font-size: 10px; font-weight: 700; color: #3949ab;">{{p.tier}}</span>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="flex: 1 1 0; min-width: 0;">
+    <div class="topbar">
+      <div>
+        <div style="font-weight: 700; font-size: 16px; line-height: 1.2;">Portfolio</div>
+        <div class="muted">Platform Engineering · 28 projects · as of 18 Aug 2026</div>
+      </div>
+    </div>
+
+    <div style="padding: 16px 18px; max-width: 1100px;">
+
+      <!-- ============ NEW: the headline band ============ -->
+      <div class="tiles">
+        <div class="tile">
+          <div class="tile-cap">Committed</div>
+          <div class="tile-num">11</div>
+          <div class="tile-sub">9 on the calendar · 2 waiting for dates</div>
+        </div>
+        <div class="tile">
+          <div class="tile-cap">Checkpoints, next 14 days</div>
+          <div class="tile-num is-live">5</div>
+          <div class="tile-sub">across 4 projects · 0 reached</div>
+        </div>
+        <div class="tile">
+          <div class="tile-cap">Overdue</div>
+          <div class="tile-num is-quiet">0</div>
+          <div class="tile-sub">no project has run past its last phase</div>
+        </div>
+        <div class="tile">
+          <div class="tile-cap">Ideas</div>
+          <div class="tile-num is-quiet">16</div>
+          <div class="tile-sub">captured, not committed to</div>
+        </div>
+      </div>
+
+      <!-- ============ NEW: the checkpoint horizon ============ -->
+      <div class="horizon">
+        <div class="horizon-cap">
+          <div class="h" style="font-size: 12.5px;">Next 14 days</div>
+          <div class="muted" style="font-size: 11px;">What the plans are aiming at</div>
+        </div>
+        <div class="horizon-days">
+          <sc-for list="{{horizon}}" as="d" hint-placeholder-count="14">
+            <div class="hday {{d.cls}}">
+              <div class="hday-n">{{d.label}}</div>
+              <sc-if value="{{d.hit}}" hint-placeholder-val="{{true}}">
+                <div>
+                  <div class="hdia"></div>
+                  <div class="hname">{{d.name}}</div>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <!-- ============ chart ============ -->
+      <div class="card" style="margin-top: 12px;">
+        <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 10px; font-size: 12px; color: #52525b;">
+          <button style="font: inherit; padding: 3px 8px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff;">◀</button>
+          <button style="font: inherit; padding: 3px 8px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff;">Today</button>
+          <button style="font: inherit; padding: 3px 8px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff;">▶</button>
+          <span>2026-08-03 → 2026-11-23 · 16 weeks</span>
+          <span style="flex: 1;"></span>
+          <button style="font: inherit; padding: 3px 8px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff;">Expand all</button>
+          <span class="muted">9 lane(s) · 0 open</span>
+        </div>
+
+        <div style="overflow: hidden;">
+          <div style="margin-bottom: 6px;">
+            <!-- NEW: a quarter band, so the eye lands without reading week numbers -->
+            <div class="ruler-row ruler-quarters">
+              <div class="ruler-gutter" style="width: 168px;"></div>
+              <div class="quarter" style="width: 522px;">Q3 2026</div>
+              <div class="quarter" style="width: 406px;">Q4 2026</div>
+            </div>
+            <div class="ruler-row ruler-months">
+              <div class="ruler-gutter" style="width: 168px;"></div>
+              <sc-for list="{{months}}" as="m" hint-placeholder-count="4">
+                <div class="month" style="{{m.style}}">{{m.label}}</div>
+              </sc-for>
+            </div>
+            <div class="ruler-row ruler-weeks">
+              <div class="ruler-gutter" style="width: 168px;"></div>
+              <sc-for list="{{weeks}}" as="w" hint-placeholder-count="16">
+                <div class="week {{w.cls}}">{{w.label}}</div>
+              </sc-for>
+            </div>
+          </div>
+
+          <div class="grid-body">
+            <div class="today-line" style="{{todayStyle}}"></div>
+            <sc-for list="{{lanes}}" as="l" hint-placeholder-count="9">
+              <div class="lane">
+                <div class="lane-name">
+                  <!-- NEW: the track rail, in the map's own hue -->
+                  <div class="track-rail" style="{{l.railStyle}}"></div>
+                  <button class="lane-twisty">▸</button>
+                  <div style="min-width: 0;">
+                    <div class="lane-title">{{l.name}}</div>
+                    <!-- NEW: the stage the ladder derived, said rather than hidden in a tooltip -->
+                    <div class="lane-meta">
+                      <span class="sdot" style="{{l.dotStyle}}"></span>
+                      <span>{{l.meta}}</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="lane-rows">
+                  <div class="bar lane-summary" style="{{l.barStyle}}">
+                    <div class="bar-fill" style="{{l.fillStyle}}"></div>
+                    <span class="bar-text">{{l.text}}</span>
+                  </div>
+                  <sc-if value="{{l.hasMarks}}" hint-placeholder-val="{{true}}">
+                    <div class="mlane">
+                      <sc-for list="{{l.marks}}" as="mk" hint-placeholder-count="1">
+                        <div class="mmark" style="{{mk.style}}">
+                          <div class="mdia"></div><span class="mname">{{mk.name}}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </sc-if>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <!-- NEW: the track key, so the rail means something -->
+        <div style="display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; margin-top: 10px;
+                    padding-top: 10px; border-top: 1px solid #f1f1f4;">
+          <span style="font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa;">Track</span>
+          <sc-for list="{{trackKey}}" as="t" hint-placeholder-count="5">
+            <span style="display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: #52525b;">
+              <span style="{{t.swatch}} width: 10px; height: 10px; border-radius: 2px;"></span>{{t.name}}
+            </span>
+          </sc-for>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    const WEEK = 58, GUT = 168, ORIGIN = "2026-08-03", TODAY = "2026-08-18", NWEEKS = 16;
+    const day = (iso) => Date.UTC(+iso.slice(0,4), +iso.slice(5,7)-1, +iso.slice(8,10)) / 86400000;
+    const off = (iso) => day(iso) - day(ORIGIN);
+    const px = (days) => days / 7 * WEEK;
+
+    const STAGE = {
+      idea: ["#fff","#bbb"], planning: ["#fff","#9fa8da"], planned: ["#fff","#5c6bc0"],
+      dated: ["#d5e6f7","#5c6bc0"], active: ["#90caf9","#5c6bc0"],
+      overdue: ["#ffccbc","#d84315"], done: ["#cfd8dc","#90a4ae"],
+    };
+    const dot = (s) => {
+      const [f, l] = STAGE[s] || STAGE.idea;
+      return `background: ${f}; box-shadow: inset 0 0 0 1.5px ${l};`;
+    };
+
+    // TRACK_HUES, in the shipped order, assigned by sorted root exactly as
+    // `trackPalette` does over the whole dataset.
+    const HUE = {
+      "AI Agent": "#CC79A7",
+      "Deployment Script App": "#D55E00",
+      "Expansion of Communication Channel": "#882255",
+      "External Project": "#EE6677",
+      "Mobile": "#0072B2",
+      "Observability": "#009E73",
+      "Reporting": "#332288",
+      "Source Expansion": "#40607A",
+      "UIUX": "#9e9e9e",
+    };
+
+    const lanes = [
+      { name: "DT Gen3 Platform Adoption", track: "Source Expansion", stage: "active",
+        s: "2026-07-27", e: "2026-08-31", pct: 67, ph: "2/3", dl: "4/6", meta: "active · 11 pts",
+        marks: [{ d: "2026-08-21", n: "Infra and Disk Report Generation" }] },
+      { name: "Multidatasource Adoption", track: "Source Expansion", stage: "active",
+        s: "2026-07-01", e: "2026-09-02", pct: 31, ph: "1/4", dl: "1/4", meta: "active · 26 pts", marks: [] },
+      { name: "CURADE mini Deployment", track: "Mobile", stage: "active",
+        s: "2026-08-12", e: "2026-08-26", pct: 0, ph: "0/2", dl: "0/2", meta: "active · 8 pts", marks: [] },
+      { name: "Transaction Graph Fix", track: "UIUX", stage: "active",
+        s: "2026-08-12", e: "2026-08-25", pct: 44, ph: "1/3", dl: "2/2", meta: "active · 3 pts",
+        marks: [{ d: "2026-08-20", n: "Release v2.7.1" }, { d: "2026-08-24", n: "Deploy to AG" }] },
+      { name: "Aggregate Same Transaction Name", track: "Reporting", stage: "active",
+        s: "2026-08-12", e: "2026-10-07", pct: 0, ph: "0/4", dl: "0/0", meta: "active · 12 pts",
+        marks: [{ d: "2026-08-26", n: "Report with aggregation" }] },
+      { name: "Script Enhancement", track: "Deployment Script App", stage: "active",
+        s: "2026-08-12", e: "2026-08-26", pct: 0, ph: "0/2", dl: "0/3", meta: "active · 6 pts", marks: [] },
+      { name: "Gigamon", track: "Source Expansion", stage: "active",
+        s: "2026-08-17", e: "2026-08-24", pct: 0, ph: "0/1", dl: "0/3", meta: "active · 2 pts",
+        marks: [{ d: "2026-08-24", n: "Meeting" }] },
+      { name: "Clickhouse Setup and OTel", track: "Source Expansion", stage: "dated",
+        s: "2026-09-16", e: "2026-10-14", pct: 0, ph: "0/3", dl: "0/7", meta: "dated · 5 pts", marks: [] },
+      { name: "SideBar Revamp", track: "UIUX", stage: "done",
+        s: "2026-08-10", e: "2026-08-17", pct: 100, ph: "2/2", dl: "3/3", meta: "closed · 2 pts", marks: [] },
+    ];
+
+    // The five real checkpoints, all unreached, all inside the fortnight.
+    const HITS = {
+      "2026-08-20": "Release v2.7.1",
+      "2026-08-21": "Infra & Disk Report",
+      "2026-08-24": "Deploy to AG · Meeting",
+      "2026-08-26": "Report with aggregation",
+    };
+    const NAMES = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+    const horizon = [];
+    for (let i = 0; i < 14; i++) {
+      const d = day(TODAY) + i;
+      const dt = new Date(d * 86400000);
+      const iso = dt.toISOString().slice(0, 10);
+      const dow = dt.getUTCDay();
+      horizon.push({
+        label: `${NAMES[dow]} ${dt.getUTCDate()}`,
+        cls: [i === 0 ? "is-today" : "", (dow === 0 || dow === 6) ? "is-weekend" : ""].join(" ").trim(),
+        hit: !!HITS[iso], name: HITS[iso] || "",
+      });
+    }
+
+    const months = [{ label: "Aug", w: 5 }, { label: "Sep", w: 4 }, { label: "Oct", w: 4 }, { label: "Nov", w: 3 }]
+      .map((m) => ({ label: m.label, style: `width: ${m.w * WEEK}px;` }));
+
+    const weeks = [];
+    for (let i = 0; i < NWEEKS; i++) {
+      const d = day(ORIGIN) + i * 7;
+      const dt = new Date(d * 86400000);
+      const jan = Date.UTC(dt.getUTCFullYear(), 0, 1) / 86400000;
+      weeks.push({ label: String(Math.floor((d - jan) / 7) + 1), cls: i === 2 ? "week-now" : "" });
+    }
+
+    return {
+      months, weeks, horizon,
+      todayStyle: `left: ${GUT + px(off(TODAY))}px;`,
+      picker: [
+        { name: "DT Gen3 Platform Adoption", tier: "1", dot: dot("active") },
+        { name: "Multidatasource Adoption", tier: "1", dot: dot("active") },
+        { name: "CURADE mini Deployment", tier: "1", dot: dot("active") },
+        { name: "Transaction Graph Fix", tier: "3", dot: dot("active") },
+        { name: "Aggregate Same Transaction", tier: "2", dot: dot("active") },
+        { name: "Script Enhancement", tier: "2", dot: dot("active") },
+        { name: "Clickhouse Setup and OTel", tier: "2", dot: dot("dated") },
+        { name: "Graphiti GraphRAG Memory", tier: "2", dot: dot("planning") },
+        { name: "Prometheus Data Integration", tier: "?", dot: dot("idea") },
+        { name: "ClickHouse MCP", tier: "?", dot: dot("idea") },
+        { name: "SideBar Revamp", tier: "3", dot: dot("done") },
+      ],
+      trackKey: ["Source Expansion", "Mobile", "Reporting", "UIUX", "Deployment Script App"]
+        .map((n) => ({ name: n === "UIUX" ? "UIUX (9th — no hue left)" : n,
+                       swatch: `background: ${HUE[n]};` })),
+      lanes: lanes.map((l) => ({
+        name: l.name, meta: l.meta,
+        railStyle: `background: ${HUE[l.track] || "#9e9e9e"};`,
+        dotStyle: dot(l.stage),
+        barStyle: `margin-left: ${px(off(l.s))}px; width: ${px(off(l.e) - off(l.s))}px;`,
+        fillStyle: `width: ${l.pct}%;`,
+        text: `${l.pct}% · ${l.ph} phases · ${l.dl} delivered`,
+        hasMarks: l.marks.length > 0,
+        marks: l.marks.map((m) => ({ name: m.n, style: `left: ${px(off(m.d))}px;` })),
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>

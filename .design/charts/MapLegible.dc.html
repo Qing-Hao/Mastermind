@@ -1,0 +1,474 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+           color: #18181b; background: #fafafa; }
+    * { box-sizing: border-box; }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+
+    .card { background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; padding: 14px 16px; }
+    .muted { color: #71717a; font-size: 12px; }
+
+    /* --- shipped map rules, colours untouched --- */
+    .map-edge { stroke: var(--track-edge, #d5d5d5); stroke-width: 1.5; fill: none; }
+    .map-edge-idea { stroke-dasharray: 4 4; stroke: #ddd; }
+    .map-hub circle { fill: #1a1a1a; }
+    .map-hub text { fill: #fff; font-size: 12px; font-weight: 600; }
+    .map-group circle { fill: var(--track-dot, #9e9e9e); }
+    .map-group text { fill: var(--track-text, #555); font-weight: 600; }
+    .map-group.level-1 text { font-size: 11px; }
+    .map-group.level-2 text { font-size: 10px; }
+    .map-group.level-3 text { font-size: 10px; }
+    .map-node circle:not(.map-pip) { fill: #90caf9; stroke: #5c6bc0; stroke-width: 1.5; }
+    .map-node.stage-done circle:not(.map-pip) { fill: #cfd8dc; stroke: #90a4ae; }
+    .map-node.stage-idea circle:not(.map-pip) { fill: #fff; stroke: #bbb; stroke-dasharray: 5 4; }
+    .map-node.stage-planning circle:not(.map-pip) { fill: #fff; stroke: #9fa8da; stroke-width: 2; }
+    .map-node.stage-planned circle:not(.map-pip) { fill: #fff; stroke: #5c6bc0; stroke-width: 2; }
+    .map-node.stage-dated circle:not(.map-pip) { fill: #d5e6f7; stroke: #5c6bc0; }
+    .map-node .map-pip { fill: #3949ab; stroke: #fff; stroke-width: 1.5; }
+    .map-node .map-pip-text { fill: #fff; font-size: 10px; font-weight: 700; }
+    .map-name { fill: #333; font-size: 11px; }
+    .map-meta { fill: #999; font-size: 9px; }
+
+    /* --- M4: the smoothing pass ------------------------------------------
+       Today only opacity transitions, so a hover snaps the stroke and eases the
+       fade. Everything a hover touches eases, on one curve. Text rendering is
+       set once here rather than being left to the UA default, which is what
+       makes 9px meta lines look furry on a 1400px canvas. */
+    .map svg, .map text { text-rendering: geometricPrecision; }
+    .map-node circle, .map-group circle, .map-edge, .map-node text, .map-group text {
+      transition: opacity .16s cubic-bezier(.4, 0, .2, 1),
+                  stroke-width .16s cubic-bezier(.4, 0, .2, 1),
+                  stroke .16s cubic-bezier(.4, 0, .2, 1);
+    }
+    .map-edge { stroke-linecap: round; }
+
+    .filter-caption { color: #aaa; font-size: 10px; font-weight: 600; letter-spacing: .06em;
+                      text-transform: uppercase; }
+    .map-chip { font: inherit; font-size: 12px; padding: 3px 9px; border: 1px solid #d8d8de;
+                border-radius: 999px; background: #fff; color: #71717a; cursor: pointer; }
+    .map-chip.on { background: #eef2ff; border-color: #c7d2fe; color: #4f46e5; font-weight: 600; }
+    .map-chip.tier-0 { font-style: italic; }
+    .legend-item { display: flex; align-items: center; gap: 3px; font-size: 12px; }
+    .legend-name { color: #555; }
+    .legend-note { margin: 2px 0 0; color: #999; font-size: 11px; }
+
+    .side { width: 240px; background: #fff; border-right: 1px solid #e6e6ea; padding: 12px 10px; }
+    .navb { text-align: left; border: 0; background: none; font: inherit; padding: 7px 10px;
+            border-radius: 6px; color: #3f3f46; cursor: pointer; display: block; width: 100%; }
+    .navb.active { background: #eef2ff; color: #4f46e5; font-weight: 600; }
+    .topbar { height: 68px; border-bottom: 1px solid #e6e6ea; background: #fff;
+              padding: 10px 18px; display: flex; align-items: center; }
+
+    .score { display: inline-flex; align-items: baseline; gap: 6px; padding: 3px 10px;
+             border-radius: 999px; background: #eef2ff; color: #4f46e5; font-size: 12px; font-weight: 600; }
+  </style>
+</helmet>
+
+<div style="width: 1700px; min-height: 1080px; display: flex; background: #fafafa;">
+
+  <div class="side">
+    <div style="font-weight: 700; font-size: 15px; padding: 4px 10px 12px;">Mastermind</div>
+    <div style="display: flex; flex-direction: column; gap: 2px;">
+      <button class="navb">Project</button>
+      <button class="navb">Portfolio</button>
+      <button class="navb active">Map</button>
+      <button class="navb">Sprint</button>
+    </div>
+    <div style="margin: 16px 0 6px; padding: 0 10px; font-size: 10px; font-weight: 600;
+                letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa;">Projects</div>
+    <div class="muted" style="padding: 0 10px;">28 projects · filterable list</div>
+  </div>
+
+  <div style="flex: 1 1 0; min-width: 0;">
+    <div class="topbar">
+      <div>
+        <div style="font-weight: 700; font-size: 16px; line-height: 1.2;">Map</div>
+        <div class="muted">Where the department is pointed</div>
+      </div>
+    </div>
+
+    <div style="padding: 16px 18px;">
+      <div class="card map">
+        <div style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-bottom: 12px;">
+          <div style="display: flex; gap: 4px; align-items: center;">
+            <span class="filter-caption">Tier</span>
+            <button class="map-chip on">T1 3</button>
+            <button class="map-chip on">T2 5</button>
+            <button class="map-chip on">T3 3</button>
+            <button class="map-chip tier-0 on">untiered 17</button>
+          </div>
+          <div style="display: flex; gap: 4px; align-items: center;">
+            <span class="filter-caption">Status</span>
+            <button class="map-chip">done 1</button>
+          </div>
+          <span style="flex: 1;"></span>
+          <span class="score">{{score}} <span style="font-weight: 500; opacity: .8;">overlaps at 1400px</span></span>
+        </div>
+
+        <svg width="1400" height="773" viewBox="0 0 1400 773" style="display: block;">
+          <sc-for list="{{edges}}" as="e" hint-placeholder-count="30">
+            <path class="map-edge {{e.cls}}" d="{{e.d}}" style="{{e.style}}"></path>
+          </sc-for>
+
+          <g class="map-hub">
+            <circle cx="{{cx}}" cy="{{cy}}" r="54"></circle>
+            <text x="{{cx}}" y="{{cy}}" text-anchor="middle" dominant-baseline="central">Platform Eng.</text>
+          </g>
+
+          <sc-for list="{{groups}}" as="g" hint-placeholder-count="16">
+            <g class="map-group {{g.cls}}" style="{{g.style}}">
+              <circle cx="{{g.x}}" cy="{{g.y}}" r="{{g.r}}"></circle>
+              <text x="{{g.tx}}" y="{{g.ty}}" text-anchor="{{g.anchor}}">{{g.name}}</text>
+            </g>
+          </sc-for>
+
+          <sc-for list="{{nodes}}" as="n" hint-placeholder-count="27">
+            <g class="map-node {{n.cls}}">
+              <circle cx="{{n.x}}" cy="{{n.y}}" r="{{n.r}}"></circle>
+              <sc-if value="{{n.hasPip}}" hint-placeholder-val="{{true}}">
+                <g>
+                  <circle class="map-pip" cx="{{n.px}}" cy="{{n.py}}" r="8"></circle>
+                  <text class="map-pip-text" x="{{n.px}}" y="{{n.py}}" text-anchor="middle" dominant-baseline="central">{{n.tier}}</text>
+                </g>
+              </sc-if>
+              <g>
+                <text class="map-name" x="{{n.lx}}" y="{{n.ly}}" text-anchor="{{n.anchor}}">{{n.name}}</text>
+                <sc-if value="{{n.hasMeta}}" hint-placeholder-val="{{true}}">
+                  <text class="map-meta" x="{{n.lx}}" y="{{n.ly2}}" text-anchor="{{n.anchor}}">{{n.meta}}</text>
+                </sc-if>
+              </g>
+            </g>
+          </sc-for>
+        </svg>
+
+        <div style="display: flex; flex-wrap: wrap; gap: 6px 20px; align-items: center; margin-top: 8px;
+                    padding-top: 10px; border-top: 1px solid #f1f1f4;">
+          <span class="filter-caption">Stage</span>
+          <sc-for list="{{stageKey}}" as="s" hint-placeholder-count="7">
+            <span class="legend-item">
+              <svg width="20" height="20" viewBox="0 0 20 20"><g class="map-node {{s.cls}}"><circle cx="10" cy="10" r="6"></circle></g></svg>
+              <span class="legend-name">{{s.label}}</span>
+            </span>
+          </sc-for>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px 20px; align-items: center; margin-top: 6px;">
+          <span class="filter-caption">Track</span>
+          <sc-for list="{{trackKey}}" as="t" hint-placeholder-count="9">
+            <span class="legend-item">
+              <svg width="20" height="20" viewBox="0 0 20 20"><g class="map-group" style="{{t.style}}"><circle cx="10" cy="10" r="6"></circle></g></svg>
+              <span class="legend-name" style="{{t.text}}">{{t.name}}</span>
+            </span>
+          </sc-for>
+        </div>
+        <p class="legend-note">Circle size is total effort points. The numbered pip is the project's tier.
+          A dashed circle is a future direction — it needs no caption saying so.</p>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    // Same canvas the sweep measures at its 1400px step, so the overlap count
+    // printed on this artboard is comparable with the one on "Map — today".
+    const W = 1400, H = 773, CX = W / 2, CY = H / 2;
+    const MARGIN_X = 170, MARGIN_Y = 92, MIN_R = 16, MAX_R = 38;
+    const LABEL_GAP = 8, LABEL_LINE = 13, CHAR_EM = 0.55;
+    const RX = W / 2 - MARGIN_X, RY = H / 2 - MARGIN_Y;
+    const RING = [0.36, 0.49, 0.625];
+    const PROJECT_RING = 0.74, IDEA_RING = 1.0;
+    const GROUP_R = [0, 6, 4, 3.4];
+
+    const HUES = {
+      "AI Agent": "#CC79A7", "Deployment Script App": "#D55E00",
+      "Expansion of Communication Channel": "#882255", "External Project": "#EE6677",
+      "Mobile": "#0072B2", "Observability": "#009E73", "Reporting": "#332288",
+      "Source Expansion": "#40607A", "UIUX": null,
+    };
+    const TONES = [0, 0.45, 0.62, 0.72];
+    const mix = (hex, t) => {
+      if (!hex) return "#9e9e9e";
+      const n = parseInt(hex.slice(1), 16);
+      const c = (sh) => Math.round(((n >> sh) & 255) + (255 - ((n >> sh) & 255)) * t);
+      return `rgb(${c(16)}, ${c(8)}, ${c(0)})`;
+    };
+
+    const P = [
+      ["DT Gen3 Platform Adoption", "Source Expansion", "active", 1, 11],
+      ["Multidatasource Adoption", "Source Expansion", "active", 1, 26],
+      ["Clickhouse Setup and OTel", "Source Expansion", "dated", 2, 5],
+      ["Prometheus Data Integration", "Source Expansion", "idea", 0, 0],
+      ["Orchestration Layer of AI Agents", "AI Agent", "idea", 0, 0],
+      ["Automated Incident Report", "AI Agent / AI Reporting", "planning", 3, 12],
+      ["Automated Monthly Perf. Report", "AI Agent / AI Reporting", "idea", 0, 0],
+      ["Graphiti GraphRAG Memory", "AI Agent / Agent Memory", "planning", 2, 35],
+      ["Internal RAG", "AI Agent / Agent Memory", "idea", 3, 0],
+      ["Alerting Agent", "AI Agent / Alerting", "idea", 0, 13],
+      ["Mobile App Sentiment Report", "AI Agent / Expansion", "planning", 0, 15],
+      ["Script Enhancement", "Deployment Script App", "active", 2, 6],
+      ["Whatapps", "Expansion of Communication Channel", "idea", 0, 0],
+      ["Proactive Alerting", "Expansion of Communication Channel", "idea", 0, 0],
+      ["CRM Tool", "External Project", "idea", 0, 0],
+      ["CURADE mini Deployment", "Mobile", "active", 1, 8],
+      ["Poller Observability", "Observability / Poller", "idea", 0, 0],
+      ["RMiT Report", "Reporting / Expansion", "idea", 0, 0],
+      ["Custom Report", "Reporting / Expansion", "idea", 0, 0],
+      ["Aggregate Same Transaction", "Reporting / Transaction", "active", 2, 12],
+      ["Other sources for Sentiment", "Source Expansion / New Metrics", "idea", 0, 0],
+      ["RUM Metrics", "Source Expansion / New Metrics", "idea", 0, 0],
+      ["Gigamon", "Source Expansion / New Metrics / Network", "active", 2, 2],
+      ["ClickHouse MCP", "Source Expansion / MCP", "idea", 0, 0],
+      ["Orchestration Layer for MCP", "Source Expansion / MCP", "idea", 0, 0],
+      ["Prometheus MCP", "Source Expansion / MCP", "idea", 0, 0],
+      ["Transaction Graph Fix", "UIUX", "active", 3, 3],
+    ].map(([name, track, stage, tier, pts]) => ({ name, track, stage, tier, pts }));
+
+    const path = (t) => t.split("/").map((s) => s.trim()).filter(Boolean);
+    const textW = (s, size) => s.length * size * CHAR_EM;
+
+    // --- arc ruler over the project ellipse, as shipped.
+    const ax = RX * PROJECT_RING, ay = RY * PROJECT_RING;
+    const N = 3000, table = [0];
+    for (let i = 1; i <= N; i++) {
+      const a0 = (i - 1) / N * 2 * Math.PI, a1 = i / N * 2 * Math.PI;
+      table.push(table[i - 1] + Math.hypot(ax * (Math.cos(a1) - Math.cos(a0)),
+                                           ay * (Math.sin(a1) - Math.sin(a0))));
+    }
+    const TOTAL = table[N];
+    const angleAt = (d0) => {
+      const d = ((d0 % TOTAL) + TOTAL) % TOTAL;
+      let lo = 0, hi = N;
+      while (lo < hi) { const m = (lo + hi) >> 1; if (table[m] < d) lo = m + 1; else hi = m; }
+      return lo / N * 2 * Math.PI;
+    };
+
+    // --- group the dataset
+    const roots = new Map();
+    for (const p of P) {
+      const [r] = path(p.track);
+      if (!roots.has(r)) roots.set(r, []);
+      roots.get(r).push(p);
+    }
+    const order = [...roots.keys()].sort();
+
+    // ===== M1: the track name moves to the rim, and the wedge keeps meaning
+    // "how much work is in here".
+    //
+    // Widening a wedge to fit its label was the obvious fix and it is wrong:
+    // measured, it feeds the long-named single-project tracks by starving
+    // Source Expansion, whose ten projects are already the tightest run on the
+    // map — three new circle-on-circle overlaps for two label ones recovered.
+    // The ring has no spare arc to redistribute.
+    //
+    // The real problem is *which ring the text is on*. Track names live at
+    // radius 0.36, where the ellipse is ~950px around; the rim is ~2100px. So
+    // the longest text on the map currently sits in the tightest arc on the
+    // map, by construction. Moving the name outward roughly doubles the room
+    // it has without taking a pixel from anything else — the dot stays on its
+    // ring, so the hierarchy still reads from the centre out.
+    const share = order.map((root) => roots.get(root).length / P.length * TOTAL);
+
+    // --- lay the slots out inside each wedge
+    const slots = [], groupRuns = [];
+    let cursor = -TOTAL / 4;
+    order.forEach((root, wi) => {
+      const members = roots.get(root);
+      const wedgeFrom = cursor, wedgeTo = cursor + share[wi];
+
+      const direct = members.filter((p) => path(p.track).length === 1);
+      const subs = new Map();
+      for (const p of members) {
+        const seg = path(p.track);
+        if (seg.length === 1) continue;
+        const key = seg.slice(0, 2).join(" / ");
+        if (!subs.has(key)) subs.set(key, []);
+        subs.get(key).push(p);
+      }
+
+      const ordered = [...direct];
+      const subEntries = [...subs.entries()].sort();
+      for (const [, list] of subEntries) ordered.push(...list);
+
+      const step = (wedgeTo - wedgeFrom) / ordered.length;
+      const at = new Map();
+      ordered.forEach((p, i) => {
+        at.set(p, wedgeFrom + step * (i + 0.5));
+        slots.push({ p, dist: wedgeFrom + step * (i + 0.5) });
+      });
+
+      for (const [key, list] of subEntries) {
+        const ds = list.map((p) => at.get(p));
+        const deeper = new Map();
+        for (const p of list) {
+          const seg = path(p.track);
+          if (seg.length < 3) continue;
+          const k3 = seg.slice(0, 3).join(" / ");
+          if (!deeper.has(k3)) deeper.set(k3, []);
+          deeper.get(k3).push(p);
+        }
+        for (const [k3, l3] of [...deeper.entries()].sort()) {
+          const d3 = l3.map((p) => at.get(p));
+          groupRuns.push({ key: k3, level: 3, root, name: path(k3)[2],
+                           dist: d3.reduce((a, b) => a + b, 0) / d3.length });
+        }
+        groupRuns.push({ key, level: 2, root, name: path(key)[1],
+                         dist: ds.reduce((a, b) => a + b, 0) / ds.length });
+      }
+      groupRuns.push({ key: root, level: 1, root, name: root,
+                       dist: (wedgeFrom + wedgeTo) / 2 });
+      cursor = wedgeTo;
+    });
+
+    const pointOn = (frac, a) => ({ x: CX + RX * frac * Math.cos(a), y: CY + RY * frac * Math.sin(a) });
+    const radius = (pts) => MIN_R + (MAX_R - MIN_R) * Math.sqrt(pts) / Math.sqrt(35);
+
+    // ===== M2: thinner labels.
+    //   * An idea gets its NAME only. "T? · future direction" restates the
+    //     dashed circle, and 16 of the 27 drawn nodes are ideas — so this is
+    //     half the label ink on the map for nothing.
+    //   * A dated project folds its next date onto the meta line instead of
+    //     taking a third. Three lines is 39px of label block, and every
+    //     clearance on the map is sized against that height.
+    const nodes = slots.map(({ p, dist }) => {
+      const a = angleAt(dist);
+      const { x, y } = pointOn(p.stage === "idea" ? IDEA_RING : PROJECT_RING, a);
+      const r = radius(p.pts);
+      const nx = Math.cos(a), ny = Math.sin(a);
+      const ly = y + ny * (r + LABEL_GAP + 4);
+      const hasMeta = p.stage !== "idea";
+      return {
+        name: p.name, x, y, r, cls: `stage-${p.stage}`,
+        hasPip: p.tier > 0, tier: String(p.tier),
+        px: x + 0.707 * r, py: y - 0.707 * r,
+        lx: x + nx * (r + LABEL_GAP + 4),
+        ly: ly + (ny > 0 ? 5 : (hasMeta ? -7 : -1)),
+        ly2: ly + (ny > 0 ? 5 + LABEL_LINE : 6),
+        anchor: nx > 0.25 ? "start" : nx < -0.25 ? "end" : "middle",
+        hasMeta, meta: `T${p.tier || "?"} · ${p.pts} pts`,
+        lines: hasMeta ? 2 : 1,
+      };
+    });
+
+    // A track's dot stays on its ring; its NAME is placed out at TRACK_LABEL_RING
+    // on the same bearing, where there is roughly twice the arc. A subtrack is
+    // short enough to keep its label beside its dot, as today.
+    // Chosen by sweeping it: 1.05 → 11 overlaps, 1.09 → 8, 1.13 → 6, and 1.17
+    // onwards → 5. The first value on the plateau, so no radius is spent for
+    // nothing.
+    const TRACK_LABEL_RING = 1.17;
+    const groups = groupRuns.map((g) => {
+      const a = angleAt(g.dist);
+      const { x, y } = pointOn(RING[g.level - 1], a);
+      const hue = HUES[g.root];
+      const base = {
+        name: g.name, x, y, r: GROUP_R[g.level], cls: `level-${g.level}`,
+        style: `--track-dot: ${mix(hue, TONES[g.level - 1])}; --track-text: ${hue || "#777"};`,
+        size: g.level === 1 ? 12 : 10,
+      };
+      if (g.level !== 1) {
+        return { ...base, tx: x, ty: y - GROUP_R[g.level] - 5, anchor: "middle" };
+      }
+      const rim = pointOn(TRACK_LABEL_RING, a);
+      const nx = Math.cos(a), ny = Math.sin(a);
+      return {
+        ...base,
+        tx: rim.x, ty: rim.y + (ny > 0 ? 9 : -3),
+        anchor: nx > 0.25 ? "start" : nx < -0.25 ? "end" : "middle",
+      };
+    });
+
+    // ===== M4: spokes are curved rather than straight. A quadratic bowed
+    // towards the hub follows the ring geometry the picture is built on, so a
+    // branch reads as one sweep instead of a fan of chords.
+    const groupAt = new Map(groupRuns.map((g, i) => [g.key, groups[i]]));
+    const curve = (from, to) => {
+      const mx = (from.x + to.x) / 2, my = (from.y + to.y) / 2;
+      const dx = mx - CX, dy = my - CY, len = Math.hypot(dx, dy) || 1;
+      const pull = Math.hypot(to.x - from.x, to.y - from.y) * 0.07;
+      return `M ${from.x} ${from.y} Q ${mx - dx / len * pull} ${my - dy / len * pull} ${to.x} ${to.y}`;
+    };
+    const edges = [];
+    for (const g of groupRuns) {
+      const node = groupAt.get(g.key);
+      const parent = g.level === 1
+        ? { x: CX, y: CY }
+        : groupAt.get(path(g.key).slice(0, g.level - 1).join(" / "));
+      edges.push({ d: curve(parent, node), cls: "",
+                   style: `--track-edge: ${mix(HUES[g.root], 0.55)};` });
+    }
+    slots.forEach(({ p }, i) => {
+      const seg = path(p.track);
+      const parent = groupAt.get(seg.slice(0, Math.min(seg.length, 3)).join(" / ")) || { x: CX, y: CY };
+      edges.push({ d: curve(parent, nodes[i]), cls: p.stage === "idea" ? "map-edge-idea" : "", style: "" });
+    });
+
+    // --- self-measurement, on map_sweep.js's own rules (CHAR_EM 0.55,
+    // LABEL_LINE 13): label box against label box, and label box against
+    // circle box. Printed on the artboard so the claim is checkable.
+    const boxOf = (lx, ly, anchor, widths, lines) => {
+      const w = Math.max(...widths);
+      const left = anchor === "end" ? lx - w : anchor === "middle" ? lx - w / 2 : lx;
+      return { l: left, r: left + w, t: ly - 10, b: ly - 10 + lines * LABEL_LINE };
+    };
+    // A label sitting on its OWN circle is not a collision — it is the gap
+    // arithmetic, and every label overlaps its own node's box by a pixel or two
+    // at the small end of the radius clamp. Owner ids are what keep that out of
+    // the count.
+    const labels = [
+      ...nodes.map((n, i) => ({ own: `n${i}`, box: boxOf(n.lx, n.ly, n.anchor,
+        n.hasMeta ? [textW(n.name, 11), textW(n.meta, 9)] : [textW(n.name, 11)], n.lines) })),
+      ...groups.map((g, i) => ({ own: `g${i}`,
+        box: boxOf(g.tx, g.ty, g.anchor, [textW(g.name, g.size)], 1) })),
+    ];
+    const circles = [
+      ...nodes.map((n, i) => ({ own: `n${i}`,
+        box: { l: n.x - n.r, r: n.x + n.r, t: n.y - n.r, b: n.y + n.r } })),
+      ...groups.map((g, i) => ({ own: `g${i}`,
+        box: { l: g.x - g.r, r: g.x + g.r, t: g.y - g.r, b: g.y + g.r } })),
+      { own: "hub", box: { l: CX - 54, r: CX + 54, t: CY - 54, b: CY + 54 } },
+    ];
+    const hits = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+    let score = 0;
+    for (let i = 0; i < labels.length; i++) {
+      for (let j = i + 1; j < labels.length; j++) {
+        if (hits(labels[i].box, labels[j].box)) score++;
+      }
+      for (const c of circles) {
+        if (c.own !== labels[i].own && hits(labels[i].box, c.box)) score++;
+      }
+    }
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i], b = nodes[j];
+        if (Math.hypot(a.x - b.x, a.y - b.y) < a.r + b.r) score++;
+      }
+    }
+
+    return {
+      cx: CX, cy: CY, nodes, groups, edges, score: String(score),
+      stageKey: [
+        ["stage-idea", "idea"], ["stage-planning", "planning"], ["stage-planned", "planned"],
+        ["stage-dated", "dated"], ["", "active"], ["stage-overdue", "overdue"],
+        ["stage-done", "done · closed"],
+      ].map(([cls, label]) => ({ cls, label })),
+      trackKey: order.map((name) => ({
+        name: HUES[name] ? name : `${name} (no hue left)`,
+        style: `--track-dot: ${HUES[name] || "#9e9e9e"};`,
+        text: `color: ${HUES[name] || "#9e9e9e"};`,
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>
