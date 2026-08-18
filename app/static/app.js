@@ -2751,6 +2751,15 @@ const openSprintWindow = () => state.sprint.files.find(
 // exactly when the answer can have changed.
 const scopeKey = (window) => `${window.start}#${state.roadmapRevision}`;
 
+function scopeSilence() {
+  if (state.sprint.number === null) return "No sprint file open.";
+  if (isTemplate(state.sprint.number)) {
+    return "The template covers no fortnight — its heading is filled in when a "
+      + "sprint is created from it.";
+  }
+  return "This file's first line names no dates, so there is no fortnight to look up.";
+}
+
 function renderSprintScope() {
   const panel = $("sprint-scope");
   if (!panel) return;
@@ -2760,12 +2769,13 @@ function renderSprintScope() {
   panel.appendChild(element("h3", "sprint-scope-head", "Deliverables in scope"));
 
   if (!window) {
-    // Two different silences, and they are worth telling apart: nothing open, or
-    // a heading whose dates cannot be read. Neither is guessed at -- inventing a
-    // fortnight is exactly what the server refuses to do for the overlap check.
-    panel.appendChild(element("p", "muted", state.sprint.number === null
-      ? "No sprint file open."
-      : "This file's first line names no dates, so there is no fortnight to look up."));
+    // Three different silences, and they are worth telling apart: nothing open,
+    // the template, or a heading whose dates cannot be read. None of them is
+    // guessed at -- inventing a fortnight is exactly what the server refuses to
+    // do for the overlap check. The template's heading is a *placeholder* for the
+    // dates the server fills in on create, so it has no fortnight by design
+    // rather than by an edit that went wrong.
+    panel.appendChild(element("p", "muted", scopeSilence()));
     return;
   }
 
@@ -4703,7 +4713,13 @@ function bindEvents() {
     await refreshView();
   };
 
-  $("sprint-select").onchange = (event) => switchSprintFile(Number(event.target.value));
+  // `sprintFileKey` rather than `Number`: the last row of the picker is the
+  // template, whose key is a string.
+  $("sprint-select").onchange = (event) => switchSprintFile(sprintFileKey(event.target.value));
+  // The template opens in this same editor. `switchSprintFile` is what gets used
+  // rather than a path of its own, so unsaved work in the file being left is
+  // flushed first and a write that will not land still refuses to move.
+  $("sprint-template").onclick = () => switchSprintFile(TEMPLATE_KEY);
   $("sprint-new").onclick = createSprintFile;
   $("sprint-view-doc").onclick = () => setSprintView("doc");
   $("sprint-view-raw").onclick = () => setSprintView("raw");

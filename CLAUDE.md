@@ -27,7 +27,7 @@ step: it is a prebuilt bundle served as a static file.
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000   # http://127.0.0.1:8000
-.\.venv\Scripts\python.exe -m pytest -q                                   # 315 tests, ~11s
+.\.venv\Scripts\python.exe -m pytest -q                                   # 342 tests, ~7s
 
 node scripts\map_sweep.js            # map: label/circle collisions, 1000-1530px
 node scripts\map_sweep.js --tree     # map: the track hierarchy as drawn
@@ -64,7 +64,7 @@ Type checking is pyright, `basic` mode, config in `pyrightconfig.json`.
 | `tests/test_markdown.py` | The block model, mirroring `app/markdown.py`. The round trip is the gate. |
 | `tests/test_api.py` | Acceptance criteria, via `TestClient` + `tmp_path` db. |
 | `tests/test_sprint_review.py` | Sprint script — pure helpers + one `TestModel` run. Offline. |
-| `templates/sprint.md` | The sprint template. Copied to `sprints/NN.md` (gitignored). |
+| `templates/sprint.md` | The sprint template. Copied to `sprints/NN.md` (gitignored), and editable in the Sprint tab like a sprint file. |
 | `scripts/sprint_review.py` | Post-sprint LLM review. Optional dep, lazy import, CLI only. |
 | `scripts/map_sweep.js` | The map's collision sweep and tree dump. Node, no deps — loads the real `app.js` behind a stub DOM and measures the SVG `renderMap()` emits. **The map has no test suite; this is its verification.** |
 | `scripts/wire_check.js` | Runs `bindEvents()` behind a stub DOM and names every id the frontend asks for that `index.html` does not define. Node, no deps. **The frontend has no test suite either; this is the part of it a machine can check.** |
@@ -388,7 +388,8 @@ DELETE · `/api/projects/{id}/layout` POST · `/api/projects/{id}/phases` POST �
 `/api/milestones/{id}` PUT DELETE · `/api/dependencies` POST ·
 `/api/dependencies/{id}` DELETE · `/api/portfolio` GET · `/api/fortnight` GET ·
 `/api/sprints` GET POST · `/api/sprints/{number}` GET PUT ·
-`/api/sprints/split` POST · `/api/sprints/table` POST · `/api/graph` GET ·
+`/api/sprints/split` POST · `/api/sprints/table` POST · `/api/template` GET PUT ·
+`/api/graph` GET ·
 `/api/export` GET · `/api/import` POST.
 
 The five sprint routes are the sprint editor; see "Sprint planning lives in
@@ -400,7 +401,9 @@ handover day is not one); `GET`/`PUT
 `/split` re-splits one edited block, which may have become several or changed
 type; `/table` turns an edited grid back into aligned markdown, which is why the
 frontend never writes a pipe. `PUT` never creates — a missing number is a 404,
-and `POST /api/sprints` is the only thing that makes a file.
+and `POST /api/sprints` is the only thing that makes a file. `GET`/`PUT
+/api/template` are the sixth and seventh, and the same two verbs on the one file
+that is not a sprint — see below.
 
 `GET /api/projects` returns each project with a derived **`derived_stage`** (see
 above), alongside the stored `stage` and never overwriting it — the stored value
@@ -474,6 +477,15 @@ and fills in the heading. It writes a file rather than a row, and it has **two
 callers**: the drawer's `Plan this fortnight →` and the Sprint tab's `New
 sprint`. They share `state.plannedSprints`, so one fortnight does not get two
 files from one session.
+
+`GET`/`PUT /api/template` are that template, read and written **exactly as a
+sprint file is** — same payload shape, same mtime guard, same atomic write —
+because the editor opens it with the same code. Its own pair of routes rather
+than a number: it lives outside `sprints/`, `sprint_files` cannot see it, and
+giving it a number would put a name into a sequence `next_sprint_number` would
+then have to skip. Editing it changes what the **next** `POST /api/sprints`
+copies and touches no file already on disk. It is a **tracked** file, unlike
+every other file the editor opens, so a save here shows up in `git status`.
 
 ## Schema changes and export versions
 
@@ -1184,6 +1196,28 @@ into one project link.
     a landed create, which is what re-offers the new handover day; only an empty
     box is ever prefilled, since this runs on every render and would otherwise
     undo a date you had just picked.
+  - **`Edit template` opens `templates/sprint.md` in this same editor**, beside
+    the picker and as the picker's last row. It is the one openable file that is
+    not a sprint, and the point of it is that the format is now yours to change
+    without leaving the app — a new sprint copies whatever is in it at the moment
+    `New sprint` is pressed, and no file already on disk is touched.
+    It costs no second editor: the template is a **key** where a number goes
+    (`TEMPLATE_KEY`, the string `"template"`), `sprintEndpoint` turns that key
+    into `/api/template` instead of `/api/sprints/NN`, and everything else —
+    blocks, grids, autosave, the mtime guard, `Raw file` — is the code that was
+    already there. A string cannot collide with a number, which is what makes the
+    sentinel safe in `select.value`, in the width store and in the mid-flight
+    `sprint.number !== number` guards.
+    **It is not in `state.sprint.files`**, deliberately: that list is the picker's
+    order, the overlap check and `latestSprintHandover`, and a template has no
+    fortnight to offer any of them. Two consequences follow. `loadSprints` has to
+    ask `isTemplate` as well as searching the list, or a tab switch would decide
+    nothing was open and pull a sprint file over the top of it. And the scope
+    panel says the template covers no fortnight rather than reading its heading
+    as broken — the placeholder dates in line 1 are what the server *fills in* on
+    create, so having no window is the correct state rather than a bad edit.
+    **The file is tracked by git**, unlike `sprints/` and `data/`, so an edit here
+    is the one thing the editor does that shows up in `git status`.
   - **Grids become markdown inside the save, not on cell blur.** Blur would leave
     a window where the autosave fires first and writes a stale table; as the
     save's first step it cannot be written stale, and it costs one request per
@@ -1633,7 +1667,8 @@ file is the one record**: the editor is a view over the file, not a second store
 and replaces the first line with `# Sprint N · YYYY-MM-DD → YYYY-MM-DD`.
 `SPRINTS_DIR` and `SPRINT_TEMPLATE` are module level in `main.py` so a test can
 point them at `tmp_path`, the same shape as `db.set_db_path` — **no test may
-reach the real `sprints/`**, which holds work actually done.
+reach the real `sprints/`**, which holds work actually done, **or the real
+`templates/sprint.md`**, which is now written to as well as read.
 
 - **The window is the date you asked for, and it ends on the handover day.**
   `sprint_window` in `main.py` — **nothing snaps.** The cadence is the team's own
@@ -1743,29 +1778,44 @@ The test a future reader can run: no string from `templates/sprint.md` appears i
 that happens to open sprint files, and **sprint 4 still decides the storage
 question with nothing committed to it**.
 
+**One exception, added when the template became editable: `editor.js` names the
+*path* `templates/sprint.md`, in the picker's last row.** That is a location, not
+a sprint concept — the editor still does not know what a capacity table is, what
+a category list is, or that §3 holds points. The gate is about the second kind of
+knowledge, and the whole template being replaceable from the UI without a line of
+code changing is the demonstration that it holds.
+
 What is still deferred to that decision: a sprint table, a `sprint_goal` column,
 export v10, and anything that allocates deliverables into sprints.
 
-**Capacity is two independent numbers that never correct each other**, the same
-shape as V1 cross-checking weeks against points:
+**The template was replaced wholesale on 2026-08-18**, at the requester's
+direction, with the six-section format they wrote: Sprint Goal · Capacity &
+Constraints · Product Work · Enablement / Platform Work · Unplanned / Interrupt
+Work · Sprint Summary, then Status and Definition of Done as reference. Line 1 is
+still the heading placeholder the server fills in, and nothing else in the app
+reads a byte of it.
 
-- **Declared** — bottom-up, per person, a *judgement*. The coding-days column
-  beside it is evidence for the judgement, not a multiplier. There is no
-  points-per-day constant anywhere and there must not be one.
-- **Baseline** — top-down, the last three sprints' delivered points scaled by
-  available person-days.
+Two designs the previous template carried went with it, and both were dropped
+knowingly rather than lost:
 
-Take the lower unless you write down why not. **There is no focus factor**, and
-that is the point: a lead who codes 35% of the time already shows up in what the
-team delivered, so declaring a fraction would be inventing a number the history
-already contains. Sprints 1–3 have no history and say so in the file.
+- **Capacity was two independent numbers that never corrected each other** —
+  declared (bottom-up, per person, a *judgement*, with coding days as evidence
+  and never a multiplier) cross-checked against baseline (top-down, the last
+  three sprints' delivered points scaled by person-days), taking the lower unless
+  you wrote down why not. §2 is now availability and a velocity reference line.
+  **The rule the design existed to protect still stands**: there is no
+  points-per-day constant anywhere in this repo and there must not be one, and
+  there is no focus factor — a lead who codes 35% of the time already shows up in
+  what the team delivered.
+- **Unplanned work had a fixed eight-value category list**, because the whole
+  payoff of writing interruptions down is counting them across sprints and a
+  category invented once counts for nothing. §5 has a free-text **Purpose**
+  column instead. `scripts/sprint_review.py` reads across files looking for the
+  same thing showing up sprint after sprint, so free text is what it now has to
+  find a pattern in; if that stops working, a fixed list under §5 is the cheap
+  fix and this paragraph is the argument for it.
 
-The **unplanned work** table carries review and management alongside customer
-requests, ops and deployment. Categories are a fixed eight-value list because
-they are counted across sprints, and a category invented once counts for
-nothing. Work that recurs but needs a human (review) is a reason to declare
-fewer coding days; work that recurs and is automatable (deploys) is the thing
-the table exists to find.
+Both are recoverable from `git log` — the old template is one `git show` away.
 
 `scripts/sprint_review.py` reads the last few sprint files and asks a model to
 read them — structured output (`SprintReview`), not prose, with

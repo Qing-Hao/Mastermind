@@ -1976,6 +1976,93 @@ def test_line_endings_survive_a_save(client, sprints):
         assert handle.read() == text
 
 
+# --- the template ------------------------------------------------------------
+#
+# The one openable file that is not a sprint. Same two verbs and the same mtime
+# guard, on `templates/sprint.md` -- which is checked into git and edited by hand
+# as well, so **no test may go near the real one**: the fixture below points the
+# module-level path at `tmp_path`, the same shape the `sprints` fixture uses.
+
+TEMPLATE_FILE = """# Sprint N · YYYY-MM-DD → YYYY-MM-DD
+
+## 1. Sprint Goal
+
+**Sprint Goal:**
+"""
+
+
+@pytest.fixture
+def template(tmp_path, monkeypatch):
+    path = tmp_path / "template" / "sprint.md"
+    path.parent.mkdir()
+    with open(path, "w", encoding="utf-8", newline="") as handle:
+        handle.write(TEMPLATE_FILE)
+    monkeypatch.setattr(main, "SPRINT_TEMPLATE", str(path))
+    return path
+
+
+def read_template(client):
+    response = client.get("/api/template")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_reading_the_template_returns_its_text_and_its_blocks(client, template):
+    payload = read_template(client)
+    assert payload["text"] == TEMPLATE_FILE
+    assert payload["path"] == "templates/sprint.md"
+    assert [block["type"] for block in payload["blocks"]] == [
+        "heading",
+        "heading",
+        "paragraph",
+    ]
+    assert payload["mtime"] > 0
+
+
+def test_saving_the_template_persists_it_and_returns_a_new_mtime(client, template):
+    payload = read_template(client)
+    edited = TEMPLATE_FILE.replace("Sprint Goal", "Goal")
+
+    response = client.put("/api/template", json={"text": edited, "mtime": payload["mtime"]})
+    assert response.status_code == 200, response.text
+    with open(template, encoding="utf-8", newline="") as handle:
+        assert handle.read() == edited
+    assert response.json()["mtime"] == os.path.getmtime(template)
+
+
+def test_a_stale_template_mtime_is_a_409_and_the_file_is_untouched(client, template):
+    """The template is checked in and hand-edited, so the app does not decide
+    whose version wins here either."""
+    response = client.put("/api/template", json={"text": "clobbered", "mtime": 1.0})
+    assert response.status_code == 409
+    assert response.json()["detail"]["mtime"] == os.path.getmtime(template)
+    with open(template, encoding="utf-8", newline="") as handle:
+        assert handle.read() == TEMPLATE_FILE
+
+
+def test_a_missing_template_is_a_500_at_both_verbs(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(main, "SPRINT_TEMPLATE", str(tmp_path / "gone.md"))
+    assert client.get("/api/template").status_code == 500
+    assert client.put("/api/template", json={"text": "x", "mtime": 0.0}).status_code == 500
+    assert not (tmp_path / "gone.md").exists()
+
+
+def test_editing_the_template_changes_what_the_next_sprint_copies(client, sprints, template):
+    """The whole point of the route: a new file is a copy of whatever is in the
+    template *now*, and no file already on disk is touched by the edit."""
+    first = start_sprint(client, "2026-08-03")
+    payload = read_template(client)
+    client.put("/api/template", json={
+        "text": TEMPLATE_FILE + "\n## 7. Anything else\n",
+        "mtime": payload["mtime"],
+    })
+
+    start_sprint(client, "2026-08-17")
+    assert "## 7. Anything else" in (sprints / "02.md").read_text(encoding="utf-8")
+    # The sprint written before the edit still says what it said.
+    assert "## 7. Anything else" not in (sprints / first["name"]).read_text(encoding="utf-8")
+
+
 def test_split_turns_one_edited_block_into_several(client):
     blocks = client.post(
         "/api/sprints/split", json={"text": "one\n\ntwo\n\nthree"}

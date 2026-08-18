@@ -996,6 +996,64 @@ def save_sprint(number: int, body: SprintSave):
     return {"mtime": os.path.getmtime(path)}
 
 
+# The one file the editor can open that is not a sprint: `templates/sprint.md`,
+# the thing every new sprint file is a copy of. Editing it changes what the
+# *next* `POST /api/sprints` writes and touches no file already on disk. Same two verbs as a sprint file, same
+# mtime guard, same atomic write: it is a tracked file you also edit by hand.
+#
+# Its own pair of routes rather than a number, because it has no number: it is
+# not in `sprints/`, `sprint_files` cannot see it, and giving it one would put a
+# name into the numbering that `next_sprint_number` would then have to skip.
+
+
+def found_template():
+    """The template's path, or a 500 saying where it should be.
+
+    The same message `add_sprint` gives, for the same reason: a missing template
+    is a broken checkout rather than anything a request did wrong.
+    """
+    if not os.path.isfile(SPRINT_TEMPLATE):
+        raise HTTPException(
+            status_code=500,
+            detail=f"No sprint template at {SPRINT_TEMPLATE}.",
+        )
+    return SPRINT_TEMPLATE
+
+
+@app.get("/api/template")
+def read_template():
+    """The sprint template, in the shape the editor reads a sprint file in."""
+    path = found_template()
+    text = read_sprint_file(path)
+    return {
+        "name": os.path.basename(path),
+        "path": f"templates/{os.path.basename(path)}",
+        "text": text,
+        "mtime": os.path.getmtime(path),
+        "blocks": document_blocks(text),
+    }
+
+
+@app.put("/api/template")
+def save_template(body: SprintSave):
+    """Overwrite the template, unless it changed on disk since it was read.
+
+    A stale `mtime` is a 409 carrying the disk value, exactly as a sprint file's
+    is: this one is checked into git and edited in an editor as often as in the
+    app, so the app is no more entitled to decide whose version wins here.
+    """
+    path = found_template()
+    current = os.path.getmtime(path)
+    if current != body.mtime:
+        raise HTTPException(
+            status_code=409,
+            detail={"error": f"{os.path.basename(path)} changed on disk.", "mtime": current},
+        )
+
+    write_sprint_file(path, body.text)
+    return {"mtime": os.path.getmtime(path)}
+
+
 @app.get("/api/graph")
 def read_graph():
     """The map view: the department at the centre, every project around it.

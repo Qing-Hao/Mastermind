@@ -313,8 +313,10 @@ def test_a_cell_holding_a_break_survives_the_round_trip():
 
 
 def test_raw_html_survives_rendering():
-    # The template wraps deliverable headings in <u> and hides its worked
-    # example in <details>, so html=True is load-bearing rather than lax.
+    # A sprint file wraps deliverable headings in <u> and hides reference
+    # material in <details>, so html=True is load-bearing rather than lax. The
+    # template carried both until it was replaced on 2026-08-18; the files
+    # written from it still may, and this is the guarantee they rely on.
     assert "<u>Project</u>" in render_block({"raw": "**<u>Project</u>**"})
     assert render_block({"raw": "<details>\n<summary>Filled example</summary>"}).startswith(
         "<details>"

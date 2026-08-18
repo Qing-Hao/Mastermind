@@ -354,8 +354,12 @@
         <div class="row">
           <label>File
             <select id="sprint-select"
-              title="Newest first. One file per fortnight, in sprints/"></select>
+              title="Newest first. One file per fortnight, in sprints/ — plus the template every one of them is a copy of"></select>
           </label>
+          <!-- The template opens in this same editor. It is the last row of the
+               picker as well; the button is the way in you can see. -->
+          <button id="sprint-template" type="button"
+            title="Edit templates/sprint.md — what the next New sprint copies. No file already on disk changes.">Edit template</button>
           <span class="spacer"></span>
           <span id="sprint-view-switch" class="mode-switch"
                 title="The document, or the whole file as text (Esc returns)">
@@ -396,7 +400,7 @@
 
         <div id="sprint-raw-pane" class="sprint-raw-pane" hidden>
           <p class="hint sprint-raw-note">
-            The whole file, exactly as it sits in <code>sprints/</code>. Edit it
+            The whole file, exactly as it sits on disk. Edit it
             here and click away &mdash; the document re-splits from it. The file
             is the record; the document is a view of it.
           </p>

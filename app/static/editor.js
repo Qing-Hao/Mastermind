@@ -42,6 +42,28 @@ const SPRINT_UNSAVED = new Set(["dirty", "saving", "failed", "conflict"]);
 
 let sprintSaveTimer = null;
 
+// The one openable file that is not a sprint: `templates/sprint.md`, which every
+// sprint file is a copy of. It stands where a number stands, because the editor
+// only ever needed a *key* to say which file is open -- a string cannot collide
+// with one, and it survives `select.value` and the width store untranslated.
+//
+// **It is not in `sprint.files`**, deliberately: that list is what the picker,
+// the overlap check and `latestSprintHandover` read, and the template has no
+// fortnight to contribute to any of them.
+const TEMPLATE_KEY = "template";
+const TEMPLATE_LABEL = "templates/sprint.md · the template a new sprint copies";
+
+const isTemplate = (key) => key === TEMPLATE_KEY;
+
+// Where a key reads and writes. The template has its own pair of routes rather
+// than a number, since it lives outside `sprints/` and has none.
+const sprintEndpoint = (key) =>
+  (isTemplate(key) ? "/api/template" : `/api/sprints/${key}`);
+
+// A `<select>` hands back strings. Everything else here compares a key with
+// `===`, so a sprint number has to come back a number.
+const sprintFileKey = (value) => (isTemplate(value) ? TEMPLATE_KEY : Number(value));
+
 // --- loading ----------------------------------------------------------------
 
 // Refresh the picker, and open a file only if none is open. A tab switch must
@@ -51,7 +73,10 @@ async function loadSprints() {
   const sprint = state.sprint;
   sprint.files = (await api("/api/sprints")).slice().reverse();  // newest first
 
-  const open = sprint.files.some((file) => file.number === sprint.number);
+  // The template is open on its own account and is in no listing, so a refresh
+  // must not decide nothing is open and pull a sprint file over the top of it.
+  const open = isTemplate(sprint.number)
+    || sprint.files.some((file) => file.number === sprint.number);
   if (!open) {
     const first = sprint.files[0];
     if (first) await loadSprintFile(first.number);
@@ -65,10 +90,12 @@ async function loadSprints() {
 // swapping in a fresh object would leave it writing an edit into a dead one --
 // the block splices and never appears, and no error says so.
 async function loadSprintFile(number) {
-  const payload = await api(`/api/sprints/${number}`);
+  const payload = await api(sprintEndpoint(number));
   clearTimeout(sprintSaveTimer);
   Object.assign(state.sprint, {
-    number: payload.number,
+    // The template answers with no number of its own -- it has none -- so the key
+    // asked for is the key kept.
+    number: isTemplate(number) ? TEMPLATE_KEY : payload.number,
     name: payload.name,
     blocks: payload.blocks,
     mtime: payload.mtime,
@@ -141,12 +168,25 @@ function renderSprintPicker() {
     option.value = file.number;
     select.appendChild(option);
   }
+
+  // Last, and always: the template is not a fortnight, so it belongs after every
+  // file rather than in the newest-first order they are sorted by. It is a row
+  // here as well as a button so that leaving it is the same gesture as reaching
+  // any other file -- and so `select.value` has something to be while it is open.
+  const template = element("option", null, TEMPLATE_LABEL);
+  template.value = TEMPLATE_KEY;
+  select.appendChild(template);
+
   if (sprint.number !== null) select.value = sprint.number;
 
+  // The list is never empty now, so what hides it is having no *sprint* to pick:
+  // the button beside it is the way to the template in that state.
   const none = sprint.files.length === 0;
   select.hidden = none;
   $("sprint-empty").hidden = !none;
-  $("sprint-view-switch").hidden = none;
+  // The two views are of whatever is open, which may be the template with no
+  // sprint file on disk at all.
+  $("sprint-view-switch").hidden = sprint.number === null;
 }
 
 // --- starting one ------------------------------------------------------------
@@ -286,7 +326,8 @@ function renderSprintOverlaps() {
 function renderSprintMode() {
   const sprint = state.sprint;
   const raw = sprint.view === "raw";
-  const none = sprint.files.length === 0;
+  // Nothing open, rather than no sprint files: the template opens with none.
+  const none = sprint.number === null;
 
   $("sprint-view-doc").classList.toggle("active", !raw);
   $("sprint-view-raw").classList.toggle("active", raw);
@@ -2417,7 +2458,7 @@ async function saveSprint() {
     await serialiseEditedTables();
     if (sprint.number !== number) return;
     const text = joinSprintBlocks(sprint.blocks);
-    const saved = await api(`/api/sprints/${number}`, {
+    const saved = await api(sprintEndpoint(number), {
       method: "PUT",
       body: JSON.stringify({ text, mtime: sprint.mtime }),
     });
