@@ -27,35 +27,38 @@
 
     <!-- Same four ids the tab strip carried, so `refreshView` still toggles
          `active` on them and nothing in app.js knows the shape changed. -->
+    <!-- The label is a span so the collapsed rail can drop it and keep the icon.
+         Each button carries its own `title` for the same reason: collapsed, the
+         icon is all there is. -->
     <div class="nav-group">
-      <button id="tab-project" class="nav-item active">
+      <button id="tab-project" class="nav-item active" title="Project">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
              stroke-linecap="round" aria-hidden="true">
           <rect x="4" y="3" width="16" height="18" rx="2"></rect>
           <path d="M8 8h8M8 12h8M8 16h5"></path>
-        </svg>Project
+        </svg><span class="nav-label">Project</span>
       </button>
-      <button id="tab-portfolio" class="nav-item">
+      <button id="tab-portfolio" class="nav-item" title="Portfolio">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
              stroke-linecap="round" aria-hidden="true">
           <path d="M3 20h18"></path><rect x="5" y="12" width="4" height="6"></rect>
           <rect x="11" y="7" width="4" height="11"></rect>
           <rect x="17" y="14" width="3" height="4"></rect>
-        </svg>Portfolio
+        </svg><span class="nav-label">Portfolio</span>
       </button>
-      <button id="tab-map" class="nav-item">
+      <button id="tab-map" class="nav-item" title="Map">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
              stroke-linecap="round" aria-hidden="true">
           <circle cx="12" cy="12" r="2.5"></circle><circle cx="12" cy="12" r="8.5"></circle>
           <path d="M12 3.5v3M12 17.5v3M3.5 12h3M17.5 12h3"></path>
-        </svg>Map
+        </svg><span class="nav-label">Map</span>
       </button>
-      <button id="tab-sprint" class="nav-item">
+      <button id="tab-sprint" class="nav-item" title="Sprint">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
              stroke-linecap="round" aria-hidden="true">
           <rect x="3" y="5" width="18" height="16" rx="2"></rect>
           <path d="M3 10h18M8 3v4M16 3v4"></path>
-        </svg>Sprint
+        </svg><span class="nav-label">Sprint</span>
       </button>
     </div>
 
@@ -86,6 +89,10 @@
        `--topbar-h` in the stylesheet is its height -- `.sprint-scope` parks
        below it. -->
   <header class="topbar">
+    <!-- Lives here rather than in the sidebar, because collapsed there is no
+         sidebar to put it back from. One control, one place, both directions. -->
+    <button id="sidebar-toggle" class="btn-ghost sidebar-toggle"
+            aria-expanded="true">☰</button>
     <div class="topbar-what">
       <div class="topbar-title-row">
         <h1 id="view-title">Project</h1>

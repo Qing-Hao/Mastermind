@@ -634,6 +634,48 @@ async function loadProjectList() {
   refreshTrackPickers();
 }
 
+// Whether the sidebar is folded to its icon rail. **In `localStorage`, not in
+// `state`**, which is the one place this app keeps a way of looking across a
+// reload: the standing `mapTiers` and `timelineMode` have is "gone on reload",
+// because they are pinned for the plan in front of you. This is not -- you fold
+// the sidebar to get 184px back for a wide table and you want it to stay folded
+// next time. Same reasoning, and the same key prefix, as the sprint editor's
+// column widths, which is the other thing here worth keeping.
+//
+// Both directions are guarded: `localStorage` *throws* when it is disabled rather
+// than returning nothing, and the cost of failing is a sidebar that does not
+// remember, never an app that does not start.
+const SIDEBAR_KEY = "roadmap.sidebar-collapsed";
+
+function sidebarCollapsed() {
+  try {
+    return localStorage.getItem(SIDEBAR_KEY) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function applySidebar(collapsed) {
+  document.querySelector(".app").classList.toggle("sidebar-collapsed", collapsed);
+  const button = $("sidebar-toggle");
+  // `aria-expanded` reads off the class rather than being tracked separately, for
+  // the reason the ⋯ menu's does: one truth, so the two cannot disagree.
+  button.setAttribute("aria-expanded", String(!collapsed));
+  button.title = collapsed
+    ? "Show the project list"
+    : "Fold the sidebar to its icons — the project list needs the width";
+  try {
+    localStorage.setItem(SIDEBAR_KEY, collapsed ? "1" : "0");
+  } catch (_) { /* no storage: it folded, it just will not be remembered */ }
+  // Folding changes the container's width, and `weekGrid` fits its columns to
+  // that -- so a chart drawn before the fold is fitted to the wrong width until
+  // something re-renders it. `redraw` is guarded on every branch, so calling it
+  // from the boot path costs nothing and the two stay in step wherever this is
+  // called from. The Sprint tab needs no branch: its tables are auto-layout HTML
+  // and re-fit themselves.
+  redraw();
+}
+
 // The sidebar's project list, and the app's picker. It replaced a native
 // `<select>` whose only possible badge was an emoji in the option's text, because
 // an `<option>` holds no markup: here the rung is a dot in the map's own colours,
@@ -4871,6 +4913,9 @@ function bindEvents() {
     renderProjectList();
   };
 
+  $("sidebar-toggle").onclick = () => applySidebar(
+    !document.querySelector(".app").classList.contains("sidebar-collapsed"));
+
   // The ⋯ menu: rename, the global settings, delete. `aria-expanded` is on the
   // button rather than tracked in `state`, because the panel's own `hidden` is
   // already the truth and a second copy of it could disagree.
@@ -5148,4 +5193,8 @@ window.addEventListener("resize", () => {
 });
 
 bindEvents();
+// Before the first load, so the sidebar is already the width it was left at when
+// the charts measure their container -- `weekGrid` fits its columns to that
+// width, so applying it after would fit them to the wrong one and need a redraw.
+applySidebar(sidebarCollapsed());
 loadProjects();

@@ -560,6 +560,24 @@ into one project link.
   attribute, and a class setting `display` outranks the UA sheet's `[hidden]` —
   the trap this file counts. The gap-and-flex the artboard draws round the cards
   lives on wrappers (`.project-top`, `.app`) for exactly that reason.
+  **The sidebar folds to a 56px icon rail**, from `#sidebar-toggle` at the left of
+  the top bar — there rather than in the sidebar, because folded there is no
+  sidebar to put it back from. **Folded is narrower, not absent:** hiding it
+  outright would take the navigation with it and leave the four views reachable
+  only by putting it back, so the icons stay and the *project list* is what goes,
+  which is where the 240px was being spent. It exists because the fold was
+  measured: the Sprint tab's table columns go 92px → 112px at a 1440px window, and
+  that tab's own width cap was removed precisely because its tables want every
+  column visible.
+  It is the **second thing in this app kept in `localStorage`**, beside the sprint
+  editor's column widths, and for the same reason: `mapTiers` and `timelineMode`
+  are pinned for the plan in front of you and are meant to go on a reload, while a
+  folded sidebar is a working width you want back next time. Both directions are
+  guarded — `localStorage` throws when disabled rather than returning nothing, and
+  failing means it is not remembered, never that the app does not start.
+  `applySidebar` calls `redraw`, because folding changes the container width and
+  `weekGrid` fits its columns to that; the Sprint tab needs no branch there, its
+  tables being auto-layout HTML that re-fits itself.
   The top bar's meta line prints `track · starts DATE · N phases · M pts`, and
   **carries no derived end date on purpose**: `validation.project_span` owns a
   project's dates, `main.with_project_span` puts them on the portfolio payload

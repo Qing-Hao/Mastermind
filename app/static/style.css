@@ -107,6 +107,42 @@
 
 .main-col { flex: 1 1 auto; min-width: 0; }
 
+/* --- the collapsed rail --------------------------------------------------
+   **Collapsed is a narrower sidebar, not an absent one.** Hiding it outright
+   would take the navigation with it, and then the four views would only be
+   reachable by putting it back; at 56px the icons stay and it is the *project
+   list* that goes, which is where the 240px was being spent anyway.
+   It recovers 184px, which is what the Sprint tab wanted: measured, its table
+   columns go 92px -> 112px at a 1440px window. That tab's own width cap was
+   removed because its tables want every column visible, and the sidebar had
+   quietly taken a fifth of that back.
+   Overriding the token is the whole mechanism -- `.sidebar` sizes itself from
+   `--sidebar-w`, so nothing else has to know. */
+.app.sidebar-collapsed { --sidebar-w: 56px; }
+.app.sidebar-collapsed .sidebar { padding: 16px 8px; }
+.app.sidebar-collapsed .brand { justify-content: center; padding: 0 0 16px; }
+.app.sidebar-collapsed .nav-item { justify-content: center; padding: 8px 0; }
+/* The list needs names, and 56px cannot hold one. Everything below the nav goes,
+   including Export/Import: they are two words, and the rail is for getting back
+   to a view rather than for doing anything. None of these is toggled with the
+   `hidden` attribute, so none of it is that trap -- the state is a class on
+   `.app`. */
+.app.sidebar-collapsed .brand strong,
+.app.sidebar-collapsed .nav-label,
+.app.sidebar-collapsed .sidebar-rule,
+.app.sidebar-collapsed .sidebar-head,
+.app.sidebar-collapsed .sidebar-filter,
+.app.sidebar-collapsed .project-list,
+.app.sidebar-collapsed .sidebar-foot { display: none; }
+
+.sidebar-toggle {
+  flex: none;
+  width: var(--control-h);
+  padding: 0;
+  font-size: 15px;
+  line-height: 1;
+}
+
 .brand {
   display: flex;
   align-items: center;
