@@ -57,7 +57,7 @@ Type checking is pyright, `basic` mode, config in `pyrightconfig.json`.
 | `app/db.py` | Schema, CRUD, `migrate`, export/import. Rows in/out as plain dicts. |
 | `app/markdown.py` | Splits a markdown file into blocks, renders one to HTML, serialises a table back. **Pure functions, no I/O** — the `validation.py` genre. Knows nothing about sprints. |
 | `app/main.py` | FastAPI routes. Thin — no business logic beyond the V3 block. |
-| `app/static/{index.html,app.js,style.css}` | Frontend. Four tabs: Project / Portfolio / Map / Sprint. |
+| `app/static/{index.html,app.js,style.css}` | Frontend. A sidebar + top bar shell around four views: Project / Portfolio / Map / Sprint. |
 | `app/static/vendor/mermaid.min.js` | The one vendored file. Pinned 11.16.1, loaded on demand by the Sprint tab. Nothing else in the repo is third-party JS. |
 | `app/static/editor.js` | The Sprint tab's block editor. Its own file because `app.js` is already 2,800 lines; it reads `state`, `api`, `$` and `element` from there. |
 | `tests/test_validation.py` | Rules, pure. |
@@ -68,6 +68,7 @@ Type checking is pyright, `basic` mode, config in `pyrightconfig.json`.
 | `scripts/sprint_review.py` | Post-sprint LLM review. Optional dep, lazy import, CLI only. |
 | `scripts/map_sweep.js` | The map's collision sweep and tree dump. Node, no deps — loads the real `app.js` behind a stub DOM and measures the SVG `renderMap()` emits. **The map has no test suite; this is its verification.** |
 | `scripts/wire_check.js` | Runs `bindEvents()` behind a stub DOM and names every id the frontend asks for that `index.html` does not define. Node, no deps. **The frontend has no test suite either; this is the part of it a machine can check.** |
+| `.design/*.dc.html` | The UI as artboards — `Current`, `Option 1 — Reskin`, `Option 2 — Reskin + shell rebuild` — plus `canvas.json`, which holds their layout and the notes arguing each one. What shipped is Option 2; see **The look**. Source only: the 2.2MB published canvas beside them is gitignored. |
 | `data/roadmap.db` | The dataset. Gitignored. `.bak` is the pre-migration copy. |
 
 Keep this shape. Extend an existing module rather than adding a file; propose a
@@ -543,25 +544,70 @@ into one project link.
 
 ## Views
 
-- **Picker** — the project `<select>` above the tabs. Each option is
-  `badge Name` — **one mark per row**, so the badges form a single column you
-  scan. The mark comes straight off `derived_stage` via `STAGE_BADGE`
-  (💡 idea, ⚪ planning, 🟡 planned, 🔵 dated, 🟢 active, 🔴 overdue, ✅ done),
-  so 💡 is simply the ladder's first rung rather than a separate rule — the old
-  `IDEA_BADGE`/`READINESS_BADGE` split is gone. The ramp is not decoration: the
-  cool marks are plan-building, colour warms once the calendar takes over, and
-  **red appears exactly once in the vocabulary**, which is what keeps it worth
-  noticing. The dependency and Future-directions pickers still mark ideas with
-  the same 💡 (`IDEA_BADGE`, now an alias) — they list projects rather than
-  states, so committed-versus-idea is the only distinction worth drawing there.
-  They are
-  **emoji, not CSS** — an `<option>` holds no markup
-  and cannot be styled portably, so a coloured glyph is the only badge a native
-  `<select>` can carry; a real pill would mean hand-rolling a dropdown. The
-  legend lives in the select's `title`. `loadPlan` re-reads `/api/projects`
-  after every edit so naming a deliverable or ticking the last milestone
-  retags the option immediately; that costs one localhost query and keeps the
-  ladder out of the frontend.
+- **Shell** — a sidebar and a top bar, wrapping all four views. The sidebar
+  (`--sidebar-w`, 240px) holds navigation *and* the project list, sticky at full
+  height with its own scroller; the top bar names what you are looking at and
+  carries what you can do to it. It replaced a single row holding a strong, four
+  tabs, the picker, New project, Delete and Export/Import — eight controls of
+  which two were navigation, one was a picker, one was destructive and two were
+  file I/O at navigation weight.
+  The four nav buttons keep the **`tab-*` ids the tab strip carried**, so
+  `refreshView` still toggles `active` on them and nothing else in `app.js` knows
+  the shape changed. `--topbar-h` is **68px** now, not 52: the bar is two lines, a
+  title over a meta line. `.sprint-scope` is still the one thing reading it.
+  **`display: flex` is on the shell and never on a view.** `#workspace`,
+  `#portfolio-view`, `#map-view` and `#sprint-view` are toggled with the `hidden`
+  attribute, and a class setting `display` outranks the UA sheet's `[hidden]` —
+  the trap this file counts. The gap-and-flex the artboard draws round the cards
+  lives on wrappers (`.project-top`, `.app`) for exactly that reason.
+  The top bar's meta line prints `track · starts DATE · N phases · M pts`, and
+  **carries no derived end date on purpose**: `validation.project_span` owns a
+  project's dates, `main.with_project_span` puts them on the portfolio payload
+  only, and deriving the pair in JS would be a second copy of that arithmetic in
+  the frontend — the mistake `laneSummary`'s comment documents not making. Putting
+  the pair on `/api/projects/{id}` is a one-line server change and is open, not
+  done.
+- **Picker** — the project list in the sidebar, one row per project:
+  `dot Name tier`. It **replaced a native `<select>` whose only possible badge was
+  an emoji in the option's text** — an `<option>` holds no markup, so a coloured
+  glyph was the only mark it could carry, and this file used to add that a real
+  pill would mean hand-rolling a dropdown. A sidebar list is not a dropdown, so
+  that cost is not paid: the three things the select could not do are the three
+  this needed — a status dot, a tier digit, and a filter.
+  - The dot's colours are the **map's**, lifted into `--stage-*` custom properties
+    that both surfaces read. The map draws a rung as a circle and the list draws
+    it as a dot; the shapes differ and the colours must not. Only the *shape* of a
+    rung is left in the map's own rules — the stroke widths, and the dash on an
+    idea, neither of which 9px can carry. An idea instead sits back by having its
+    name greyed, which is what `.project-row.is-idea` is for.
+  - **The list is one step less precise than the map, deliberately.** The map
+    splits `done` into delivered (green, every checkpoint reached) and closed
+    (grey) off the milestone tally on `GET /api/graph`; `/api/projects` carries no
+    tally, so a finished project is grey here. That is *less* detail, not
+    different detail — the two never disagree about a project, one of them simply
+    says more — and deriving the split in the frontend would be a second copy of a
+    rule that lives in `validation`.
+  - The tier digit is the map's pip (`--tier-pip`), one indigo for all three ranks
+    because the digit is the cue; untiered wears `?` in the quiet greys, since the
+    absence of a decision is not a fourth rank.
+  - **The filter narrows and nothing else.** `state.projectFilter` is a way of
+    looking, like `mapTiers` — no fetch, nothing stored, and the open project
+    stays open while filtered out of view.
+  - The words the marks stand for are on each **row's** tooltip (`name`, rung,
+    tier), which is where the legend went: the select carried one legend for the
+    whole control in its `title`, and a dot cannot say "planned, needs dates".
+  - `loadPlan` re-reads `/api/projects` after every edit so naming a deliverable
+    or ticking the last milestone retags the row immediately; that costs one
+    localhost query and keeps the ladder out of the frontend.
+  - **`STAGE_BADGE` is still there and still used.** The dependency and
+    Future-directions pickers are native `<select>`s and still mark ideas with
+    💡 (`IDEA_BADGE`, its alias) — they list projects rather than states, so
+    committed-versus-idea is the only distinction worth drawing there, and the
+    "an `<option>` can only carry a glyph" argument holds for them unchanged. The
+    portfolio lane tooltip prints the badge too. The ramp is not decoration: the
+    cool marks are plan-building, colour warms once the calendar takes over, and
+    **red appears exactly once in the vocabulary**, which is what keeps it worth
+    noticing.
 - **Track picker** — the Track field on Project, and the one on the Map's
   Future directions row, share `trackPicker` in `app.js`. It is the **one
   hand-rolled control in the codebase**, and the exception is deliberate: a
@@ -590,12 +636,42 @@ into one project link.
     control. Renaming a track is still per-project by hand.
   - Committing dispatches `change` itself rather than waiting for blur, because
     the field's existing `onchange` is what saves the project.
-- **Project** — goal, fields (including **Tier**, the only place it is set),
-  warnings, unscheduled list, timeline, **the plan sequence** — phases and
+- **Project** — **warnings**, then goal and fields side by side (including
+  **Tier**, the only place it is set), unscheduled list, timeline, **the plan
+  sequence** — phases and
   checkpoints in one table, with expandable deliverables (`3/5` tally on the phase
   row) — then dependencies. The
   dependency panel lists both directions (`← waits on X`, `→ Y waits on this`)
   and links by picking another project plus a direction.
+  Four things about that order and shape are decisions rather than layout:
+  - **Warnings are first**, where they were third, and are a **banner rather than
+    a card**: what the plan is telling you comes before what you can change about
+    it. It goes *quiet* rather than away when there is nothing to report —
+    `renderWarnings` sets `is-clear`, which drops the amber, the border, the icon
+    and the aside and turns the count into the sentence. It keeps its slot, so the
+    page does not jump the moment the last warning clears. Neither state uses
+    `hidden`, so none of it is the `[hidden]` trap.
+  - **Goal and Details sit side by side** (`.project-top`), because both are short
+    and stacked they pushed the timeline off the first screen. Details is a
+    **grid**, not a wrapping `.row`: a row re-flowed into ragged lines as the
+    window moved, which is fine for a toolbar and wrong for a form read down.
+  - **The two adder rows fold behind `+ Phase` and `+ Checkpoint`.** Nine fields
+    and two buttons sat open under the table permanently, on a tab that is mostly
+    for reading a plan back. The rows are unchanged, ids and all. The top bar's
+    primary `Add phase` is a third caller and **only ever opens** — a primary
+    button that sometimes closes the thing it names is a toggle wearing the wrong
+    label — and it scrolls the row into view, since the bar is sticky.
+    `.row[hidden]` in the CSS is what makes any of this work, and it is written at
+    the class rather than at these two call sites so the next folded `.row` is
+    covered before it exists.
+  - **Name, the three global settings and Delete live behind the `⋯` menu** in the
+    top bar. Renaming and three global numbers were more controls in a row of
+    eight; Delete looked exactly like New project, which is the one pair in this
+    app that must not look alike. The `<details>Settings</details>` disclosure is
+    gone with it. `aria-expanded` follows the panel's own `hidden` rather than
+    being tracked in `state`, because a second copy of that truth could disagree.
+    `Lay out sequentially` moved to the bar as well, out of a `<label>&nbsp;</label>`
+    it was wearing to line up with the fields beside it.
   The **deliverable list is typed straight through**: adding one keeps the
   cursor in the adder, and Enter on a name already in the list lands there too.
   Adding reloads the whole plan — that is what retags the picker badge — so the
@@ -1299,7 +1375,15 @@ into one project link.
     text, successes and failures alike, so re-rendering the document redraws
     nothing: a fixed diagram is a different key, and nothing needs invalidating.
     The `<pre>` is **replaced, never `[hidden]`** — the sixth time that trap has
-    come up. Clicking a diagram opens its fence like any other block; the rail
+    come up. (**The running total is nine.** The three that took it there had all
+    been wrong from the start and were invisible until a check went looking:
+    `.window-bar`, so the date controls never hid in Weeks mode; `.undo-bar`, so an
+    empty ruled strip sat on Portfolio permanently; and `.mode-switch`, so the
+    Rendered|Raw switch never hid with no sprint file open. `.row[hidden]`,
+    `.menu-panel[hidden]`, `.topbar-actions[hidden]`, `.stage-badge[hidden]` and
+    `.topbar-meta[hidden]` were written correctly the first time. Each count above
+    is right for when it was written; do not renumber them.)
+    Clicking a diagram opens its fence like any other block; the rail
     reads `mmd`, because the server types every fence `code` and `mermaid`
     measures wider than the 46px gutter.
 - **Map** — hand-rolled radial SVG, deterministic layout. Department hub → one
@@ -1320,6 +1404,12 @@ into one project link.
   reached, grey where it is not**. Overdue keeps a live project's
   filled body and spends its difference on the stroke, rather than inventing a
   fifth fill.
+  **Those colours are now `--stage-*` tokens rather than hex in these rules**, and
+  the sidebar's project dots read the same eight. The map draws a rung as a circle
+  and the list draws it as a dot; the shapes differ and the colours must not, so
+  the palette has one definition and each surface adds only its own shape. What is
+  still only here: the stroke widths, and the dash on an idea — a 9px dot can carry
+  neither. See the Picker under "Views" for what the list deliberately leaves out.
   **Green is the one place the map splits a rung in two.** `done` is reached
   two ways — every milestone achieved, or the manual close — and the data model
   is explicit that the stored close is *"not delivered but closed without
@@ -1650,6 +1740,52 @@ used to run through the project names.
 being special-cased: it counts weeks from the project start, so it has no
 calendar to place a date on, and it swaps in `relativeRuler`.
 
+## The look
+
+Written down because it is the kind of thing a later change undoes by accident.
+The design was drawn as artboards first — `.design/` holds them, and the published
+canvas is `.design/mastermind-ui-options.html`: `Current`, `Option 1 — Reskin`,
+`Option 2 — Reskin + shell rebuild`. **Option 2 is what shipped.** Option 3, the
+one that restyles the charts, was left undecided and is not started.
+
+**The constraint that shaped all of it: the colour budget was already spent on
+data.** Eight track hues, a seven-step stage ramp with exactly one red, blue for a
+planned phase, green for delivered, grey for done, purple for a checkpoint, amber
+for today. So the chrome takes **one accent** — indigo `--accent`, deliberately in
+none of those vocabularies — and spends the rest on material, space and type.
+
+- **Everything above the first chart rule in `style.css` is designed; everything
+  from `.bar` down is not.** That split is the file's own comment at the top and it
+  is the line to keep: a phase bar's blue is a value, not a decision about looks,
+  and every chart colour has an argument written against it elsewhere in this file.
+- **Tokens, not hex.** `--accent*`, four weights of ink, `--page` / `--surface` /
+  `--line` / `--line-soft` / `--field` / `--hover`, two radii, `--sidebar-w`,
+  `--topbar-h`, and `--control-h`. The last is **not applied as a `height`
+  anywhere**: a global one makes a checkbox 33px. It is there for the few glyph
+  buttons that must match a row of real ones, and for the arithmetic behind
+  `--topbar-h`.
+- **The control rules exclude a checkbox by type**
+  (`input:not([type="checkbox"]):not([type="radio"])`). A bare `input` rule reaches
+  the deliverable tick, the checkpoint tick, the read-only tick in the fortnight
+  panel and the one inside a sprint table cell — and two of those reset only
+  `min-width`. Solved once here instead of at each call site.
+- **`.sprint-table th` undoes every one of the app's `th` declarations**, and that
+  one is a correctness rule rather than a style: a sprint table's header row is
+  *content*, the words are in the file in the case they were typed, so uppercasing
+  it would have the grid showing `PERSON` while the file said `Person`.
+- **Three button weights** — plain, `.btn-primary`, `.btn-ghost` — because there
+  were none, and `Delete` looked exactly like `New project`.
+- **Sections are cards.** They used to be separated by a hairline under each
+  uppercase grey heading, which did the card's job in the middle of the content
+  rather than around it. Headings are sentence case with no rule under them, which
+  is what let `.section-head` stop being an absolutely-positioned aside.
+- **No webfont, no `@import`, no off-machine `url()`.** The app works offline and
+  `test_the_frontend_loads_nothing_from_off_this_machine` is what holds that.
+- **`display` is never set on an element some code toggles with the `hidden`
+  attribute** unless a `[hidden]` guard sits beside it. Nine features have been
+  broken invisibly by that; see the mermaid note under the Sprint view for the
+  count and the list.
+
 ## Sprint planning lives in markdown files, not in the schema
 
 Third step after Project and Portfolio. `templates/sprint.md` is copied to
@@ -1863,9 +1999,12 @@ mobile layouts.
 
 ## Working style here
 
-- **Usable before pretty.** The UI has had zero design attention on purpose. If
-  choosing between a working feature and a better-looking one, ship the working
-  one.
+- **Usable before pretty**, still — but "the UI has had zero design attention on
+  purpose", which is what this line used to say, expired on 2026-08-18. It has had
+  one deliberate pass: see **The look** above for what was decided and why. The
+  rule the sentence was protecting is unchanged: if choosing between a working
+  feature and a better-looking one, ship the working one, and **the charts are
+  still untouched** because their colours are data.
 - Python is `snake_case`; the JS follows JS convention (camelCase).
 - Answer questions before changing code — ask for confirmation before editing.
 - **Verify a destructive operation before it reaches the disk, not after.** The

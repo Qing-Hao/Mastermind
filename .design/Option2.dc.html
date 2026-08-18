@@ -1,0 +1,313 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: #18181b; background: #fafafa; }
+    * { box-sizing: border-box; }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+    .o2-card { background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; padding: 20px; }
+    .o2-h2 { font-size: 15px; font-weight: 600; color: #18181b; margin: 0 0 2px; letter-spacing: -0.01em; }
+    .o2-hint { color: #71717a; font-size: 12.5px; margin: 0 0 14px; }
+    .o2-lbl { display: flex; flex-direction: column; font-size: 12px; color: #52525b; gap: 5px; font-weight: 500; }
+    .o2-ctl { font: inherit; height: 32px; padding: 0 10px; border: 1px solid #d8d8de; border-radius: 6px;
+              background: #fff; color: #18181b; width: 100%; }
+    .o2-ctl:focus { outline: 2px solid #c7d2fe; outline-offset: -1px; border-color: #4f46e5; }
+    .o2-btn { font: inherit; font-size: 13px; height: 32px; padding: 0 12px; cursor: pointer; border-radius: 6px;
+              border: 1px solid #d8d8de; background: #fff; color: #3f3f46; font-weight: 500; }
+    .o2-btn:hover { background: #f4f4f5; }
+    .o2-btn-primary { border-color: #4f46e5; background: #4f46e5; color: #fff; }
+    .o2-btn-primary:hover { background: #4338ca; }
+    .o2-btn-ghost { border-color: transparent; background: transparent; color: #71717a; }
+    .o2-btn-ghost:hover { background: #f4f4f5; color: #18181b; }
+    .o2-nav { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 7px; cursor: pointer;
+              color: #52525b; font-size: 13.5px; font-weight: 500; }
+    .o2-nav:hover { background: #f4f4f5; }
+    .o2-nav-active { background: #eef2ff; color: #4338ca; }
+    .o2-proj { display: flex; align-items: center; gap: 9px; padding: 6px 10px; border-radius: 7px; cursor: pointer; font-size: 13px; }
+    .o2-proj:hover { background: #f4f4f5; }
+    .o2-proj-active { background: #f4f4f5; font-weight: 600; }
+    .o2-dot { width: 8px; height: 8px; border-radius: 999px; flex: none; }
+    .o2-tier { font-size: 10.5px; font-weight: 700; color: #6366f1; background: #eef2ff; border-radius: 4px;
+               padding: 0 4px; flex: none; }
+    .o2-tbl { border-collapse: collapse; width: 100%; }
+    .o2-tbl th { text-align: left; padding: 0 10px 8px; font-size: 11px; color: #a1a1aa; font-weight: 600;
+                 text-transform: uppercase; letter-spacing: 0.05em; }
+    .o2-tbl td { text-align: left; padding: 7px 10px; border-top: 1px solid #f1f1f4; }
+    .o2-rule { display: inline-block; background: #fee2e2; color: #991b1b; border-radius: 4px; padding: 1px 6px;
+               font-size: 11px; font-weight: 600; margin-right: 8px; }
+    .o2-bar { height: 24px; margin-bottom: 4px; padding: 2px 6px; border-radius: 3px; background: #90caf9;
+              white-space: nowrap; overflow: hidden; font-size: 12px; line-height: 20px; }
+    .o2-week { flex: 0 0 42px; width: 42px; font-size: 10px; color: #999; text-align: center; border-left: 1px solid #ededed; }
+    .o2-month { font-size: 11px; font-weight: 600; color: #555; border-left: 1px solid #c8c8c8; padding-left: 4px; }
+    .o2-grip { color: #d4d4d8; user-select: none; cursor: grab; }
+    .o2-seg { display: inline-flex; gap: 2px; background: #f4f4f5; border-radius: 7px; padding: 3px; }
+    .o2-segb { border: 0; background: transparent; padding: 3px 12px; font: inherit; font-size: 12px; font-weight: 500;
+               cursor: pointer; border-radius: 5px; color: #52525b; }
+    .o2-segb-active { background: #fff; color: #18181b; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+  </style>
+</helmet>
+
+<div style="display: flex; min-height: 1100px; background: #fafafa;">
+
+  <!-- ---- sidebar: navigation + project list ---- -->
+  <div style="width: 240px; flex: none; background: #fff; border-right: 1px solid #e6e6ea; display: flex; flex-direction: column; padding: 16px 12px;">
+    <div style="display: flex; align-items: center; gap: 8px; padding: 0 8px 16px;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" stroke-width="2" stroke-linecap="round">
+        <circle cx="12" cy="12" r="3"></circle><path d="M12 2v4M12 18v4M2 12h4M18 12h4"></path>
+      </svg>
+      <strong style="font-size: 15px; letter-spacing: -0.02em;">Mastermind</strong>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 2px;">
+      <div class="o2-nav o2-nav-active">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M8 8h8M8 12h8M8 16h5"></path>
+        </svg>Project
+      </div>
+      <div class="o2-nav">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M3 20h18"></path><rect x="5" y="12" width="4" height="6"></rect><rect x="11" y="7" width="4" height="11"></rect><rect x="17" y="14" width="3" height="4"></rect>
+        </svg>Portfolio
+      </div>
+      <div class="o2-nav">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <circle cx="12" cy="12" r="2.5"></circle><circle cx="12" cy="12" r="8.5"></circle><path d="M12 3.5v3M12 17.5v3M3.5 12h3M17.5 12h3"></path>
+        </svg>Map
+      </div>
+      <div class="o2-nav">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18M8 3v4M16 3v4"></path>
+        </svg>Sprint
+      </div>
+    </div>
+
+    <div style="height: 1px; background: #f1f1f4; margin: 16px 8px;"></div>
+
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 0 8px 8px;">
+      <span style="font-size: 11px; font-weight: 600; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.05em;">Projects</span>
+      <button class="o2-btn o2-btn-ghost" style="height: 24px; width: 24px; padding: 0; font-size: 16px; line-height: 1;">+</button>
+    </div>
+    <input class="o2-ctl" type="text" placeholder="Filter…" style="height: 30px; margin: 0 4px 8px; width: calc(100% - 8px);">
+    <div style="display: flex; flex-direction: column; gap: 1px;">
+      <div class="o2-proj o2-proj-active"><span class="o2-dot" style="background: #16a34a;"></span><span style="flex: 1;">Transaction Graph Fix</span><span class="o2-tier">1</span></div>
+      <div class="o2-proj"><span class="o2-dot" style="background: #dc2626;"></span><span style="flex: 1;">Source Registry v2</span><span class="o2-tier">1</span></div>
+      <div class="o2-proj"><span class="o2-dot" style="background: #2563eb;"></span><span style="flex: 1;">Network Metrics</span><span class="o2-tier">2</span></div>
+      <div class="o2-proj"><span class="o2-dot" style="background: #eab308;"></span><span style="flex: 1;">Retention Signals</span><span class="o2-tier">2</span></div>
+      <div class="o2-proj"><span class="o2-dot" style="background: #d4d4d8;"></span><span style="flex: 1; color: #71717a;">Partner API sketch</span><span class="o2-tier" style="color: #a1a1aa; background: #f4f4f5;">?</span></div>
+      <div class="o2-proj"><span class="o2-dot" style="background: #d4d4d8;"></span><span style="flex: 1; color: #71717a;">Cohort explorer</span><span class="o2-tier" style="color: #a1a1aa; background: #f4f4f5;">?</span></div>
+    </div>
+
+    <div style="flex: 1;"></div>
+    <div style="display: flex; gap: 6px; padding: 8px;">
+      <button class="o2-btn o2-btn-ghost" style="flex: 1; font-size: 12px;">Export</button>
+      <button class="o2-btn o2-btn-ghost" style="flex: 1; font-size: 12px;">Import</button>
+    </div>
+  </div>
+
+  <!-- ---- main column ---- -->
+  <div style="flex: 1; min-width: 0; display: flex; flex-direction: column;">
+
+    <!-- top bar: what you are looking at, and what you can do to it -->
+    <div style="display: flex; align-items: center; gap: 12px; padding: 14px 24px; background: #fff; border-bottom: 1px solid #e6e6ea;">
+      <div style="min-width: 0;">
+        <div style="display: flex; align-items: center; gap: 9px;">
+          <h1 style="font-size: 19px; font-weight: 650; margin: 0; letter-spacing: -0.02em;">Transaction Graph Fix</h1>
+          <span style="display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px; background: #dcfce7; color: #166534; font-size: 11.5px; font-weight: 600;">
+            <span class="o2-dot" style="background: #16a34a;"></span>active
+          </span>
+        </div>
+        <div style="font-size: 12.5px; color: #a1a1aa; margin-top: 1px;">Source Expansion / New Metrics · 2026-09-01 → 2026-12-15 · 3 phases · 95 pts</div>
+      </div>
+      <span style="flex: 1;"></span>
+      <button class="o2-btn">Lay out sequentially</button>
+      <button class="o2-btn o2-btn-primary">Add phase</button>
+      <button class="o2-btn o2-btn-ghost" style="width: 32px; padding: 0; font-size: 16px;">⋯</button>
+    </div>
+
+    <div style="padding: 20px 24px; display: flex; flex-direction: column; gap: 16px;">
+
+      <!-- warnings surfaced at the top, compact -->
+      <div style="border: 1px solid #fde68a; background: #fffbeb; border-radius: 10px; padding: 12px 16px;">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#b45309" stroke-width="2" stroke-linecap="round">
+            <path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path>
+          </svg>
+          <strong style="font-size: 13px; color: #92400e;">3 warnings</strong>
+          <span style="flex: 1;"></span>
+          <span style="font-size: 12px; color: #b45309;">Every rule reports; nothing repairs.</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 5px; font-size: 13px;">
+          <div><span class="o2-rule">V1</span>Ingest rewrite — 6.0 weeks entered, 5.5 implied by 55 pts at velocity 20 <span style="color: #a16207;">(8.3% off)</span></div>
+          <div><span class="o2-rule">V6</span>Schema discussion ended 2026-07-21 and is not done</div>
+          <div><span class="o2-rule">V7</span>Backfill is done but names no deliverables</div>
+        </div>
+      </div>
+
+      <!-- goal + fields side by side: both are short, and the stack was making the page long -->
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px;">
+        <div class="o2-card">
+          <h2 class="o2-h2">Goal</h2>
+          <p class="o2-hint">Your north star. Re-read it whenever the plan starts drifting.</p>
+          <textarea class="o2-ctl" rows="4" style="height: auto; padding: 10px; resize: vertical; line-height: 1.5;">Cut graph rebuild time so downstream metrics land the same day, not the next morning.</textarea>
+        </div>
+        <div class="o2-card">
+          <h2 class="o2-h2">Details</h2>
+          <p class="o2-hint">Dates are optional — estimate first, commit later.</p>
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;">
+            <label class="o2-lbl">Start date <input class="o2-ctl" type="text" value="2026-09-01"></label>
+            <label class="o2-lbl">Stage <select class="o2-ctl"><option>committed</option></select></label>
+            <label class="o2-lbl">Tier <select class="o2-ctl"><option>1</option></select></label>
+            <label class="o2-lbl">Velocity override <input class="o2-ctl" type="text" placeholder="global"></label>
+            <label class="o2-lbl" style="grid-column: span 2;">Track <input class="o2-ctl" type="text" value="Source Expansion / New Metrics"></label>
+          </div>
+        </div>
+      </div>
+
+      <div class="o2-card">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px;">
+          <h2 class="o2-h2">Timeline</h2>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 12.5px; color: #a1a1aa;">2026-08-31 → 2026-12-21 · 16 weeks</span>
+            <span class="o2-seg">
+              <button class="o2-segb o2-segb-active">Dates</button>
+              <button class="o2-segb">Weeks</button>
+            </span>
+          </div>
+        </div>
+        <p class="o2-hint">Real dates on a calendar. Only phases with a start date appear.</p>
+        <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 12px;">
+          <button class="o2-btn" style="width: 32px; padding: 0;">◀</button>
+          <button class="o2-btn">Today</button>
+          <button class="o2-btn">Fit</button>
+          <button class="o2-btn" style="width: 32px; padding: 0;">▶</button>
+        </div>
+        <!-- chart internals untouched here too: same colours, same grid, same metrics -->
+        <div style="overflow: hidden; border: 1px solid #eee; border-radius: 8px; padding: 12px;">
+          <div style="margin-bottom: 6px;">
+            <div style="display: flex; border-bottom: 1px solid #eee;">
+              <div class="o2-month" style="width: 210px;">Sep</div>
+              <div class="o2-month" style="width: 210px;">Oct</div>
+              <div class="o2-month" style="width: 168px;">Nov</div>
+              <div class="o2-month" style="width: 210px;">Dec</div>
+            </div>
+            <div style="display: flex; border-bottom: 1px solid #ddd;">
+              <div class="o2-week">36</div><div class="o2-week">37</div><div class="o2-week">38</div><div class="o2-week">39</div>
+              <div class="o2-week">40</div><div class="o2-week">41</div><div class="o2-week">42</div><div class="o2-week">43</div>
+              <div class="o2-week">44</div><div class="o2-week">45</div><div class="o2-week">46</div><div class="o2-week">47</div>
+              <div class="o2-week">48</div><div class="o2-week">49</div><div class="o2-week">50</div><div class="o2-week">51</div>
+            </div>
+          </div>
+          <div>
+            <div class="o2-bar" style="width: 252px;">Ingest rewrite · 6w · 55pts</div>
+            <div style="position: relative; height: 20px; margin-bottom: 6px;">
+              <div style="position: absolute; left: 246px; top: 0; display: flex; align-items: center; gap: 4px; white-space: nowrap;">
+                <div style="width: 10px; height: 10px; transform: rotate(45deg); border: 1.5px solid #6a1b9a; background: #fff;"></div>
+                <span style="font-size: 11px; color: #6a1b9a; line-height: 10px;">Graph parity signed off</span>
+              </div>
+            </div>
+            <div class="o2-bar" style="width: 168px; margin-left: 252px; background: #a5d6a7;">Schema discussion · 4w</div>
+            <div class="o2-bar" style="width: 210px; margin-left: 420px; background: #cfd8dc;">Backfill · 5w · 40pts</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="o2-card">
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+          <h2 class="o2-h2">Phases, checkpoints &amp; deliverables</h2>
+          <span style="font-size: 12.5px; color: #71717a;">1/2 reached</span>
+        </div>
+        <p class="o2-hint">Phases are the work; a ◆ row is a checkpoint the plan is aiming at. Drag a ⠿ grip to put either where it belongs.</p>
+        <table class="o2-tbl">
+          <thead>
+            <tr><th style="width: 22px;"></th><th style="width: 22px;"></th><th>Name</th><th style="width: 130px;">Start / target</th>
+                <th style="width: 70px;">Weeks</th><th style="width: 70px;">Points</th><th style="width: 130px;">Status</th>
+                <th style="width: 100px;">Ends</th><th style="width: 40px;"></th></tr>
+          </thead>
+          <tbody>
+            <tr style="background: #fffbeb;">
+              <td class="o2-grip">⠿</td><td style="color: #a1a1aa;">▸</td>
+              <td><input class="o2-ctl" type="text" value="Ingest rewrite"></td>
+              <td><input class="o2-ctl" type="text" value="2026-09-01"></td>
+              <td><input class="o2-ctl" type="text" value="6"></td>
+              <td><input class="o2-ctl" type="text" value="55"></td>
+              <td><select class="o2-ctl"><option>planned</option></select></td>
+              <td style="color: #a1a1aa; font-size: 12.5px;">2026-10-13</td>
+              <td><button class="o2-btn o2-btn-ghost" style="width: 28px; padding: 0;">✕</button></td>
+            </tr>
+            <tr>
+              <td class="o2-grip">⠿</td><td style="color: #6a1b9a;">◆</td>
+              <td><input class="o2-ctl" type="text" value="Graph parity signed off"></td>
+              <td><input class="o2-ctl" type="text" value="2026-10-14"></td>
+              <td colspan="4" style="color: #a1a1aa; font-size: 12px;">checkpoint</td>
+              <td><button class="o2-btn o2-btn-ghost" style="width: 28px; padding: 0;">✕</button></td>
+            </tr>
+            <tr>
+              <td class="o2-grip">⠿</td><td style="color: #a1a1aa;">▾</td>
+              <td><input class="o2-ctl" type="text" value="Schema discussion"></td>
+              <td><input class="o2-ctl" type="text" value="2026-10-13"></td>
+              <td><input class="o2-ctl" type="text" value="4"></td>
+              <td><input class="o2-ctl" type="text" value="0"></td>
+              <td><select class="o2-ctl"><option>in_progress</option></select></td>
+              <td style="color: #a1a1aa; font-size: 12.5px;">2026-11-10</td>
+              <td><button class="o2-btn o2-btn-ghost" style="width: 28px; padding: 0;">✕</button></td>
+            </tr>
+            <tr>
+              <td colspan="9" style="background: #fafafa; padding: 10px 10px 10px 54px;">
+                <div style="display: flex; align-items: center; gap: 10px; padding: 5px 0;">
+                  <span class="o2-grip">⠿</span><input type="checkbox" checked>
+                  <span style="text-decoration: line-through; color: #a1a1aa; flex: 1;">Column mapping agreed</span>
+                  <button class="o2-btn o2-btn-ghost" style="width: 28px; padding: 0;">✕</button>
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px; padding: 5px 0;">
+                  <span class="o2-grip">⠿</span><input type="checkbox">
+                  <span style="flex: 1;">Retention policy written down</span>
+                  <button class="o2-btn o2-btn-ghost" style="width: 28px; padding: 0;">✕</button>
+                </div>
+                <div style="display: flex; gap: 8px; margin-top: 8px;">
+                  <input class="o2-ctl" type="text" placeholder="New deliverable" style="width: 260px;">
+                  <button class="o2-btn">Add</button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <!-- the two adder rows collapse behind one affordance -->
+        <div style="display: flex; gap: 8px; margin-top: 14px;">
+          <button class="o2-btn">+ Phase</button>
+          <button class="o2-btn">+ Checkpoint</button>
+        </div>
+      </div>
+
+      <div class="o2-card">
+        <h2 class="o2-h2">Dependencies</h2>
+        <p class="o2-hint">Links run project to project — which whole piece of work has to land before another can start.</p>
+        <div style="display: flex; align-items: center; gap: 10px; padding: 9px 12px; background: #fafafa; border-radius: 6px; margin-bottom: 12px;">
+          <span style="color: #71717a; font-size: 12.5px;">← waits on</span>
+          <strong>Source Registry v2</strong>
+          <span style="flex: 1;"></span>
+          <button class="o2-btn o2-btn-ghost" style="width: 28px; padding: 0;">✕</button>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <select class="o2-ctl" style="width: 220px;"><option>💡 Network Metrics</option></select>
+          <select class="o2-ctl" style="width: 280px;"><option>must finish before this project</option></select>
+          <button class="o2-btn">Link</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

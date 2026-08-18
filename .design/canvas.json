@@ -1,0 +1,31 @@
+{
+  "artboards": [
+    { "file": "Current.dc.html", "x": 0, "y": 0, "w": 1180, "h": 1180, "title": "Today — what it looks like now" },
+    { "file": "Main.dc.html", "x": 1280, "y": 0, "w": 1180, "h": 1180, "title": "Option 1 — Reskin" },
+    { "file": "Option2.dc.html", "x": 2560, "y": 0, "w": 1420, "h": 1180, "title": "Option 2 — Reskin + shell rebuild" }
+  ],
+  "annotations": [
+    {
+      "id": "note-today",
+      "x": 0,
+      "y": -190,
+      "w": 420,
+      "text": "TODAY\n\nThe Project tab, recreated from index.html and style.css at the values actually in the file.\n\nWhat dates it: raw browser controls (the whole control styling is `padding: 4px 6px`), a grey #f7f7f7 chrome bar, uppercase letter-spaced grey headings on hairline underlines, and everything separated by a 1px line rather than by space.\n\nNo accent colour exists anywhere. Delete looks exactly like New project."
+    },
+    {
+      "id": "note-opt1",
+      "x": 1280,
+      "y": -190,
+      "w": 420,
+      "text": "OPTION 1 — RESKIN\n\nSame structure, same section order, same table columns, same header contents. Only the skin changes: design tokens, styled controls, one indigo accent, cards and space instead of hairlines, sentence-case headings, and a real button hierarchy (primary / secondary / ghost).\n\nWHY: most of the visual gain for almost none of the risk — no geometry is touched, so no chart can break.\n\nTRADEOFF: the information architecture is untouched. The header is still eight controls in one row, and Export/Import still sit at navigation weight."
+    },
+    {
+      "id": "note-opt2",
+      "x": 2560,
+      "y": -190,
+      "w": 460,
+      "text": "OPTION 2 — RESKIN + SHELL REBUILD\n\nOption 1's skin, plus a rebuilt shell: a sidebar takes navigation AND the project list (so the picker becomes a filterable list with real status dots and tier digits, instead of a native <select> carrying emoji). A top bar names what you are looking at and carries its actions. Warnings move to the top. Goal and Details sit side by side. Export/Import are demoted to the sidebar foot.\n\nWHY: this is where ease of use actually comes from — the header stops being a junk drawer.\n\nTRADEOFF: it edits index.html structure, so `node scripts/wire_check.js` becomes mandatory, and --topbar-h (published, read by .sprint-scope) has to move with it.\n\nNOTE: charts are untouched in BOTH options — same bar colours, same week grid, same metrics. Restyling those is Option 3, still undecided."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

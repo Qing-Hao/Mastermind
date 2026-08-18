@@ -20,6 +20,11 @@ PLAN-*.md
 # committed part; sprints/NN.md is what you actually ran.
 sprints/
 
+# The published design canvas: 2.2MB, and most of it is the canvas editor's own
+# bundle rather than the design. The four .dc.html artboards beside it are the
+# source and are committed; this is the rendered page, one Artifact fetch away.
+.design/mastermind-ui-options.html
+
 # Provider keys live in the environment. Never in the database - /api/export
 # writes the whole file to JSON and would carry a key straight back out.
 .env

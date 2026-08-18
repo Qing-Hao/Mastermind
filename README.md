@@ -25,7 +25,8 @@ Then open <http://127.0.0.1:8000>.
 ## Data
 
 Everything lives in `data/roadmap.db` (gitignored). To back up, copy that file,
-or use **Export JSON** in the header. **Import JSON** replaces the entire dataset.
+or use **Export** at the foot of the sidebar. **Import** replaces the entire
+dataset.
 
 ## Layout
 

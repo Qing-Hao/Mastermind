@@ -1,0 +1,250 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: #18181b; background: #fafafa; }
+    * { box-sizing: border-box; }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+    .o1-card { background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; padding: 20px; margin-bottom: 16px; }
+    .o1-h2 { font-size: 15px; font-weight: 600; color: #18181b; margin: 0 0 2px; letter-spacing: -0.01em; }
+    .o1-hint { color: #71717a; font-size: 12.5px; margin: 0 0 14px; }
+    .o1-lbl { display: flex; flex-direction: column; font-size: 12px; color: #52525b; gap: 5px; font-weight: 500; }
+    .o1-ctl { font: inherit; height: 32px; padding: 0 10px; border: 1px solid #d8d8de; border-radius: 6px;
+              background: #fff; color: #18181b; }
+    .o1-ctl:focus { outline: 2px solid #c7d2fe; outline-offset: -1px; border-color: #4f46e5; }
+    .o1-btn { font: inherit; font-size: 13px; height: 32px; padding: 0 12px; cursor: pointer; border-radius: 6px;
+              border: 1px solid #d8d8de; background: #fff; color: #3f3f46; font-weight: 500; }
+    .o1-btn:hover { background: #f4f4f5; }
+    .o1-btn-primary { border-color: #4f46e5; background: #4f46e5; color: #fff; }
+    .o1-btn-primary:hover { background: #4338ca; }
+    .o1-btn-ghost { border-color: transparent; background: transparent; color: #71717a; }
+    .o1-btn-ghost:hover { background: #f4f4f5; color: #18181b; }
+    .o1-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+    .o1-tbl { border-collapse: collapse; width: 100%; }
+    .o1-tbl th { text-align: left; padding: 0 10px 8px; font-size: 11px; color: #a1a1aa; font-weight: 600;
+                 text-transform: uppercase; letter-spacing: 0.05em; }
+    .o1-tbl td { text-align: left; padding: 7px 10px; border-top: 1px solid #f1f1f4; }
+    .o1-pill { display: inline-block; padding: 1px 8px; border-radius: 999px; background: #f4f4f5; color: #52525b;
+               font-size: 11.5px; font-weight: 600; }
+    .o1-rule { display: inline-block; background: #fee2e2; color: #991b1b; border-radius: 4px; padding: 1px 6px;
+               font-size: 11px; font-weight: 600; margin-right: 8px; }
+    .o1-bar { height: 24px; margin-bottom: 4px; padding: 2px 6px; border-radius: 3px; background: #90caf9;
+              white-space: nowrap; overflow: hidden; font-size: 12px; line-height: 20px; }
+    .o1-week { flex: 0 0 42px; width: 42px; font-size: 10px; color: #999; text-align: center; border-left: 1px solid #ededed; }
+    .o1-month { font-size: 11px; font-weight: 600; color: #555; border-left: 1px solid #c8c8c8; padding-left: 4px; }
+    .o1-grip { color: #d4d4d8; user-select: none; cursor: grab; }
+    .o1-tab { border: 0; background: transparent; padding: 5px 14px; font: inherit; font-size: 13px; font-weight: 500;
+              cursor: pointer; border-radius: 6px; color: #52525b; }
+    .o1-tab-active { background: #fff; color: #18181b; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+  </style>
+</helmet>
+
+<div style="min-height: 1100px; background: #fafafa;">
+
+  <!-- header: same contents, same order, restyled -->
+  <div style="display: flex; gap: 10px; align-items: center; padding: 12px 20px; border-bottom: 1px solid #e6e6ea; background: #fff;">
+    <strong style="font-size: 15px; letter-spacing: -0.02em;">Mastermind</strong>
+    <span style="display: inline-flex; gap: 2px; background: #f4f4f5; border-radius: 8px; padding: 3px; margin-left: 6px;">
+      <button class="o1-tab o1-tab-active">Project</button>
+      <button class="o1-tab">Portfolio</button>
+      <button class="o1-tab">Map</button>
+      <button class="o1-tab">Sprint</button>
+    </span>
+    <select class="o1-ctl" style="max-width: 260px; margin-left: 6px;">
+      <option>🟢 Transaction Graph Fix</option>
+    </select>
+    <button class="o1-btn o1-btn-primary">New project</button>
+    <button class="o1-btn o1-btn-ghost">Delete</button>
+    <span style="flex: 1;"></span>
+    <button class="o1-btn">Export JSON</button>
+    <button class="o1-btn">Import JSON</button>
+  </div>
+
+  <div style="padding: 20px; max-width: 1068px;">
+
+    <div class="o1-card">
+      <h2 class="o1-h2">Goal</h2>
+      <p class="o1-hint">Your north star for this project. Re-read it whenever the plan starts drifting.</p>
+      <textarea class="o1-ctl" rows="3" style="width: 100%; height: auto; padding: 10px; resize: vertical; line-height: 1.5;">Cut graph rebuild time so downstream metrics land the same day, not the next morning.</textarea>
+    </div>
+
+    <div class="o1-card">
+      <h2 class="o1-h2">Project</h2>
+      <p class="o1-hint">Dates are optional. Estimate in weeks and points first; leave start dates empty until the plan settles.</p>
+      <div class="o1-row">
+        <label class="o1-lbl">Name <input class="o1-ctl" type="text" value="Transaction Graph Fix" style="width: 210px;"></label>
+        <label class="o1-lbl">Start date <input class="o1-ctl" type="text" value="2026-09-01" style="width: 130px;"></label>
+        <label class="o1-lbl">Stage <select class="o1-ctl" style="width: 130px;"><option>committed</option></select></label>
+        <label class="o1-lbl">Tier <select class="o1-ctl" style="width: 100px;"><option>1</option></select></label>
+        <label class="o1-lbl">Track <input class="o1-ctl" type="text" value="Source Expansion / New Metrics" style="width: 230px;"></label>
+        <label class="o1-lbl">Velocity override <input class="o1-ctl" type="text" placeholder="global" style="width: 100px;"></label>
+        <button class="o1-btn">Lay out sequentially</button>
+      </div>
+      <div style="cursor: pointer; color: #71717a; font-size: 12.5px; margin-top: 14px;">▸ Settings</div>
+    </div>
+
+    <div class="o1-card">
+      <div style="display: flex; align-items: baseline; gap: 8px;">
+        <h2 class="o1-h2">Warnings</h2>
+        <span class="o1-pill" style="background: #fef3c7; color: #92400e;">3</span>
+      </div>
+      <p class="o1-hint">Every rule reports; nothing repairs. A plan may sit in a warning state forever.</p>
+      <div style="display: flex; flex-direction: column; gap: 1px;">
+        <div style="padding: 9px 12px; background: #fffbeb; border-radius: 6px;"><span class="o1-rule">V1</span>Ingest rewrite — 6.0 weeks entered, 5.5 implied by 55 pts at velocity 20 <span style="color: #71717a;">(8.3% off)</span></div>
+        <div style="padding: 9px 12px; background: #fffbeb; border-radius: 6px;"><span class="o1-rule">V6</span>Schema discussion ended 2026-07-21 and is not done</div>
+        <div style="padding: 9px 12px; background: #fffbeb; border-radius: 6px;"><span class="o1-rule">V7</span>Backfill is done but names no deliverables</div>
+      </div>
+    </div>
+
+    <div class="o1-card">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px;">
+        <h2 class="o1-h2">Timeline</h2>
+        <span style="display: inline-flex; gap: 2px; background: #f4f4f5; border-radius: 7px; padding: 3px;">
+          <button class="o1-tab o1-tab-active" style="padding: 3px 12px; font-size: 12px;">Dates</button>
+          <button class="o1-tab" style="padding: 3px 12px; font-size: 12px;">Weeks</button>
+        </span>
+      </div>
+      <p class="o1-hint">Real dates on a calendar. Only phases with a start date appear.</p>
+      <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 12px;">
+        <button class="o1-btn" style="width: 32px; padding: 0;">◀</button>
+        <button class="o1-btn">Today</button>
+        <button class="o1-btn">Fit</button>
+        <button class="o1-btn" style="width: 32px; padding: 0;">▶</button>
+        <span style="font-size: 12.5px; color: #71717a; margin-left: 4px;">2026-08-31 → 2026-12-21 · 16 weeks</span>
+      </div>
+      <!-- chart internals untouched: same bar colours, same week grid, same metrics -->
+      <div style="overflow: hidden; border: 1px solid #eee; border-radius: 8px; padding: 12px;">
+        <div style="margin-bottom: 6px;">
+          <div style="display: flex; border-bottom: 1px solid #eee;">
+            <div class="o1-month" style="width: 210px;">Sep</div>
+            <div class="o1-month" style="width: 210px;">Oct</div>
+            <div class="o1-month" style="width: 168px;">Nov</div>
+            <div class="o1-month" style="width: 210px;">Dec</div>
+          </div>
+          <div style="display: flex; border-bottom: 1px solid #ddd;">
+            <div class="o1-week">36</div><div class="o1-week">37</div><div class="o1-week">38</div><div class="o1-week">39</div>
+            <div class="o1-week">40</div><div class="o1-week">41</div><div class="o1-week">42</div><div class="o1-week">43</div>
+            <div class="o1-week">44</div><div class="o1-week">45</div><div class="o1-week">46</div><div class="o1-week">47</div>
+            <div class="o1-week">48</div><div class="o1-week">49</div><div class="o1-week">50</div><div class="o1-week">51</div>
+          </div>
+        </div>
+        <div>
+          <div class="o1-bar" style="width: 252px;">Ingest rewrite · 6w · 55pts</div>
+          <div style="position: relative; height: 20px; margin-bottom: 6px;">
+            <div style="position: absolute; left: 246px; top: 0; display: flex; align-items: center; gap: 4px; white-space: nowrap;">
+              <div style="width: 10px; height: 10px; transform: rotate(45deg); border: 1.5px solid #6a1b9a; background: #fff;"></div>
+              <span style="font-size: 11px; color: #6a1b9a; line-height: 10px;">Graph parity signed off</span>
+            </div>
+          </div>
+          <div class="o1-bar" style="width: 168px; margin-left: 252px; background: #a5d6a7;">Schema discussion · 4w</div>
+          <div class="o1-bar" style="width: 210px; margin-left: 420px; background: #cfd8dc;">Backfill · 5w · 40pts</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="o1-card">
+      <div style="display: flex; align-items: center; justify-content: space-between;">
+        <h2 class="o1-h2">Phases, checkpoints &amp; deliverables</h2>
+        <span style="font-size: 12.5px; color: #71717a;">1/2 reached</span>
+      </div>
+      <p class="o1-hint">Phases are the work; a ◆ row is a checkpoint the plan is aiming at. Drag a ⠿ grip to put either where it belongs.</p>
+      <table class="o1-tbl">
+        <thead>
+          <tr><th style="width: 22px;"></th><th style="width: 22px;"></th><th>Name</th><th style="width: 130px;">Start / target</th>
+              <th style="width: 70px;">Weeks</th><th style="width: 70px;">Points</th><th style="width: 130px;">Status</th>
+              <th style="width: 100px;">Ends</th><th style="width: 40px;"></th></tr>
+        </thead>
+        <tbody>
+          <tr style="background: #fffbeb;">
+            <td class="o1-grip">⠿</td><td style="color: #a1a1aa;">▸</td>
+            <td><input class="o1-ctl" type="text" value="Ingest rewrite" style="width: 100%;"></td>
+            <td><input class="o1-ctl" type="text" value="2026-09-01" style="width: 100%;"></td>
+            <td><input class="o1-ctl" type="text" value="6" style="width: 100%;"></td>
+            <td><input class="o1-ctl" type="text" value="55" style="width: 100%;"></td>
+            <td><select class="o1-ctl" style="width: 100%;"><option>planned</option></select></td>
+            <td style="color: #a1a1aa; font-size: 12.5px;">2026-10-13</td>
+            <td><button class="o1-btn o1-btn-ghost" style="width: 28px; padding: 0;">✕</button></td>
+          </tr>
+          <tr>
+            <td class="o1-grip">⠿</td><td style="color: #6a1b9a;">◆</td>
+            <td><input class="o1-ctl" type="text" value="Graph parity signed off" style="width: 100%;"></td>
+            <td><input class="o1-ctl" type="text" value="2026-10-14" style="width: 100%;"></td>
+            <td colspan="4" style="color: #a1a1aa; font-size: 12px;">checkpoint</td>
+            <td><button class="o1-btn o1-btn-ghost" style="width: 28px; padding: 0;">✕</button></td>
+          </tr>
+          <tr>
+            <td class="o1-grip">⠿</td><td style="color: #a1a1aa;">▾</td>
+            <td><input class="o1-ctl" type="text" value="Schema discussion" style="width: 100%;"></td>
+            <td><input class="o1-ctl" type="text" value="2026-10-13" style="width: 100%;"></td>
+            <td><input class="o1-ctl" type="text" value="4" style="width: 100%;"></td>
+            <td><input class="o1-ctl" type="text" value="0" style="width: 100%;"></td>
+            <td><select class="o1-ctl" style="width: 100%;"><option>in_progress</option></select></td>
+            <td style="color: #a1a1aa; font-size: 12.5px;">2026-11-10</td>
+            <td><button class="o1-btn o1-btn-ghost" style="width: 28px; padding: 0;">✕</button></td>
+          </tr>
+          <tr>
+            <td colspan="9" style="background: #fafafa; padding: 10px 10px 10px 54px; border-radius: 0 0 8px 8px;">
+              <div style="display: flex; align-items: center; gap: 10px; padding: 5px 0;">
+                <span class="o1-grip">⠿</span><input type="checkbox" checked>
+                <span style="text-decoration: line-through; color: #a1a1aa; flex: 1;">Column mapping agreed</span>
+                <button class="o1-btn o1-btn-ghost" style="width: 28px; padding: 0;">✕</button>
+              </div>
+              <div style="display: flex; align-items: center; gap: 10px; padding: 5px 0;">
+                <span class="o1-grip">⠿</span><input type="checkbox">
+                <span style="flex: 1;">Retention policy written down</span>
+                <button class="o1-btn o1-btn-ghost" style="width: 28px; padding: 0;">✕</button>
+              </div>
+              <div style="display: flex; gap: 8px; margin-top: 8px;">
+                <input class="o1-ctl" type="text" placeholder="New deliverable" style="width: 260px;">
+                <button class="o1-btn">Add</button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div style="display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap;">
+        <input class="o1-ctl" type="text" placeholder="New phase name" style="width: 200px;">
+        <input class="o1-ctl" type="text" placeholder="yyyy-mm-dd" style="width: 130px;">
+        <input class="o1-ctl" type="text" value="2" style="width: 70px;">
+        <input class="o1-ctl" type="text" value="20" style="width: 70px;">
+        <button class="o1-btn">Add phase</button>
+      </div>
+      <div style="display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap;">
+        <input class="o1-ctl" type="text" placeholder="New checkpoint name" style="width: 200px;">
+        <input class="o1-ctl" type="text" placeholder="yyyy-mm-dd" style="width: 130px;">
+        <button class="o1-btn">Add checkpoint</button>
+      </div>
+    </div>
+
+    <div class="o1-card">
+      <h2 class="o1-h2">Dependencies</h2>
+      <p class="o1-hint">Links run project to project — which whole piece of work has to land before another can start.</p>
+      <div style="display: flex; align-items: center; gap: 10px; padding: 9px 12px; background: #fafafa; border-radius: 6px; margin-bottom: 12px;">
+        <span style="color: #71717a; font-size: 12.5px;">← waits on</span>
+        <strong>Source Registry v2</strong>
+        <span style="flex: 1;"></span>
+        <button class="o1-btn o1-btn-ghost" style="width: 28px; padding: 0;">✕</button>
+      </div>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <select class="o1-ctl" style="width: 220px;"><option>💡 Network Metrics</option></select>
+        <select class="o1-ctl" style="width: 280px;"><option>must finish before this project</option></select>
+        <button class="o1-btn">Link</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
