@@ -70,7 +70,7 @@ async def lifespan(_app):
     yield
 
 
-app = FastAPI(title="Roadmap Planner", lifespan=lifespan)
+app = FastAPI(title="Mastermind", lifespan=lifespan)
 
 
 # --- request bodies ---------------------------------------------------------

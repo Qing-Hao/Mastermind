@@ -1,4 +1,4 @@
-// Roadmap Planner frontend. Vanilla JS, no build step.
+// Mastermind frontend. Vanilla JS, no build step.
 // camelCase here because that is the JS ecosystem standard; the Python side
 // uses snake_case. API payload keys stay snake_case end to end.
 

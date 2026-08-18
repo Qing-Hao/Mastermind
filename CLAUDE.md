@@ -1,4 +1,4 @@
-# Roadmap Planner
+# Mastermind
 
 Single-user internal tool for planning software delivery from roadmap → phases →
 deliverables. Localhost only. All data in one SQLite file.
