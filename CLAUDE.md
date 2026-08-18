@@ -418,7 +418,17 @@ carrying `derived_stage`, unlike the readiness it replaced — the milestone lis
 lives in this view, and a checkpoint whose effect on the stage you cannot see is
 a checkpoint you have to guess at), phases
 (with derived dates, `offset_weeks` + deliverables), **milestones**,
-dependencies, warnings, settings. Its
+dependencies, warnings, settings.
+The project also carries **its own derived facts** — `span_start`, `span_end`,
+`phase_count`, `total_points`, `phases_done`, the two deliverable tallies and
+`completion` — from the **same `with_project_span`** the portfolio route uses, so
+the two routes cannot disagree about one project. The top bar prints the span, and
+it is here rather than derived in the frontend because
+`validation.project_span` owns that arithmetic. The flat deliverable list is read
+once and used twice on this route — for the ladder and for the span — the same
+shape the portfolio route has; those rows are `deliverable.*` off a join, so they
+carry `phase_id` and `completion_fraction` can regroup them.
+Its
 `dependencies` are every link the project sits at **either** end of, each
 carrying `predecessor_name` and `successor_name` so the view needs no second
 fetch. `GET /api/portfolio` carries the same list for the whole dataset plus
@@ -578,13 +588,14 @@ into one project link.
   `applySidebar` calls `redraw`, because folding changes the container width and
   `weekGrid` fits its columns to that; the Sprint tab needs no branch there, its
   tables being auto-layout HTML that re-fits itself.
-  The top bar's meta line prints `track · starts DATE · N phases · M pts`, and
-  **carries no derived end date on purpose**: `validation.project_span` owns a
-  project's dates, `main.with_project_span` puts them on the portfolio payload
-  only, and deriving the pair in JS would be a second copy of that arithmetic in
-  the frontend — the mistake `laneSummary`'s comment documents not making. Putting
-  the pair on `/api/projects/{id}` is a one-line server change and is open, not
-  done.
+  The top bar's meta line prints `track · span · N phases · M pts`, and **the span
+  is read off the payload rather than derived in the frontend**:
+  `validation.project_span` owns a project's dates and `main.with_project_span` is
+  what puts them on both the portfolio and the project's own payload, so the
+  swimlane title and this line cannot disagree. A `max` over the phases sitting
+  right there in `state.plan` would be a second copy of that arithmetic, which is
+  the mistake `laneSummary`'s comment documents not making. An undated project says
+  `no dates yet` rather than printing half a range, the swimlane's own rule.
 - **Picker** — the project list in the sidebar, one row per project:
   `dot Name tier`. It **replaced a native `<select>` whose only possible badge was
   an emoji in the option's text** — an `<option>` holds no markup, so a coloured

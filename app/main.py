@@ -494,6 +494,14 @@ def read_project_plan(project_id: int):
     weeks from the start rather than on a calendar. That is what lets the
     timeline draw a project nobody has dated yet; it is derived here and never
     stored, the same as `end_date`.
+
+    The project also carries its own derived facts -- `span_start`, `span_end`,
+    `phase_count`, `total_points`, the two deliverable tallies and `completion` --
+    from the same `with_project_span` the portfolio route uses, so the two cannot
+    disagree about one project. The top bar prints the span, and it is on the
+    payload rather than derived in the frontend for the reason `laneSummary`'s
+    comment gives: `validation.project_span` owns that arithmetic, and a second
+    copy of it in JS would be free to drift.
     """
     project = require_project(project_id)
     phases = db.list_phases(project_id)
@@ -505,15 +513,18 @@ def read_project_plan(project_id: int):
     warnings = validate_plan(project, phases, settings, grouped, today)
     warnings += warnings_touching(project_id, portfolio_warnings())
     offsets = relative_layout(phases)
+    # Read once and used twice, the shape the portfolio route already has. The
+    # rows are `deliverable.*` off a join, so they carry `phase_id` and
+    # `with_project_span` can regroup them for `completion_fraction`.
+    flat_deliverables = [item for items in grouped.values() for item in items]
     # The ladder does ride on this payload, unlike the readiness it replaced:
     # the milestone list lives in this view, and a checkpoint whose effect on
     # the stage you cannot see is a checkpoint you have to guess at.
     project["derived_stage"] = project_stage(
-        project, phases,
-        [item for items in grouped.values() for item in items],
-        milestones,
-        today,
+        project, phases, flat_deliverables, milestones, today,
     )
+    with_project_span(
+        [project], {project_id: phases}, {project_id: flat_deliverables})
 
     enriched = []
     for phase in phases:

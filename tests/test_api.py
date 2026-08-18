@@ -675,6 +675,38 @@ def test_portfolio_carries_each_project_span_and_totals(client):
     assert lane["total_points"] == 95
 
 
+def test_a_project_payload_carries_the_same_span_the_portfolio_reports(client):
+    """The top bar prints a project's dates, and it must be the portfolio's answer.
+
+    Both routes run `with_project_span`, so this is really asserting that neither
+    one grew its own copy of the arithmetic. The frontend reads `span_end` rather
+    than taking a `max` over the phases it already holds for the same reason.
+    """
+    project = make_project(client, "Payments", "2026-01-05")
+    make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+    make_phase(client, project["id"], "Build", "2026-02-02", 6, 55)
+
+    plan = client.get(f"/api/projects/{project['id']}").json()["project"]
+    lane = client.get("/api/portfolio").json()["projects"][0]
+
+    assert plan["span_start"] == lane["span_start"] == "2026-01-05"
+    assert plan["span_end"] == lane["span_end"] == "2026-03-16"
+    assert plan["phase_count"] == lane["phase_count"] == 2
+    assert plan["total_points"] == lane["total_points"] == 95
+    assert plan["completion"] == lane["completion"]
+
+
+def test_an_undated_project_reports_no_span_on_its_own_payload_either(client):
+    """Half a range is worse than none, so the unscheduled convention holds here."""
+    project = make_project(client, "Payments", start="")
+    make_phase(client, project["id"], "Design", "", 4, 40)
+
+    plan = client.get(f"/api/projects/{project['id']}").json()["project"]
+    assert plan["span_start"] == ""
+    assert plan["span_end"] == ""
+    assert plan["phase_count"] == 1
+
+
 def test_a_swimlane_carries_its_deliverable_tally(client):
     """What the collapsed lane's progress bar fills from. Display only.
 

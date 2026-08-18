@@ -770,12 +770,13 @@ async function loadProjects() {
 // open project, its rung and a line of its own facts; on the other three it is
 // the view's name, and the project actions are not there to press.
 //
-// **The meta line carries no derived end date, and that is deliberate.**
+// **The span is read off the payload, never derived here.**
 // `validation.project_span` owns a project's dates and `main.with_project_span`
-// puts them on the portfolio payload; `/api/projects/{id}` does not carry them,
-// and deriving the pair here would be a second copy of that arithmetic living in
-// the frontend -- which is the mistake `laneSummary` documents not making. So
-// this prints the *stored* start date and counts what is in front of it.
+// is what puts them on both the portfolio and this project's own payload, so the
+// swimlane title and this line cannot disagree. Deriving the pair in JS would be
+// a second copy of that arithmetic, which is the mistake `laneSummary`'s comment
+// documents not making -- and it is why this reads `span_end` rather than taking
+// a `max` over the phases sitting right there in `state.plan`.
 const VIEW_TITLE = {
   project: "Project",
   portfolio: "Portfolio",
@@ -814,13 +815,17 @@ function renderTopbar() {
   badge.title = "Worked out from the plan and today's date. Only idea, committed"
     + " and closed are yours to set.";
 
-  const phases = state.plan.phases;
-  const points = phases.reduce((sum, phase) => sum + (phase.effort_points || 0), 0);
+  // An undated project says so rather than printing blanks or half a range --
+  // the swimlane title's own rule, and `span_*` is `""` on whichever half is
+  // unscheduled, so a half-dated project still reports the half it has.
+  const dates = project.span_start && project.span_end
+    ? `${project.span_start} → ${project.span_end}`
+    : "no dates yet";
   const facts = [
     project.track || "no track",
-    project.start_date ? `starts ${project.start_date}` : "no start date",
-    `${phases.length} phase${phases.length === 1 ? "" : "s"}`,
-    `${points} pts`,
+    dates,
+    `${project.phase_count} phase${project.phase_count === 1 ? "" : "s"}`,
+    `${project.total_points} pts`,
   ];
   meta.hidden = false;
   meta.textContent = facts.join(" · ");
