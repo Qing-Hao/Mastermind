@@ -33,6 +33,7 @@ node scripts\map_sweep.js            # map: label/circle collisions, 1000-1530px
 node scripts\map_sweep.js --tree     # map: the track hierarchy as drawn
 
 node scripts\wire_check.js           # frontend: ids the JS asks for, index.html lacks
+node scripts\css_check.js            # frontend: the [hidden] trap, dead tokens, dead ids
 
 .\.venv\Scripts\python.exe -m pip install -r requirements-ai.txt          # optional, sprint review only
 .\.venv\Scripts\python.exe scripts\sprint_review.py --history 3
@@ -68,6 +69,7 @@ Type checking is pyright, `basic` mode, config in `pyrightconfig.json`.
 | `scripts/sprint_review.py` | Post-sprint LLM review. Optional dep, lazy import, CLI only. |
 | `scripts/map_sweep.js` | The map's collision sweep and tree dump. Node, no deps — loads the real `app.js` behind a stub DOM and measures the SVG `renderMap()` emits. **The map has no test suite; this is its verification.** |
 | `scripts/wire_check.js` | Runs `bindEvents()` behind a stub DOM and names every id the frontend asks for that `index.html` does not define. Node, no deps. **The frontend has no test suite either; this is the part of it a machine can check.** |
+| `scripts/css_check.js` | Four things a stylesheet gets wrong silently: the `[hidden]`-versus-`display` trap, a `var()` with neither a definition nor a fallback, a rule for an id nothing creates, and brace balance. Node, no deps. Every check is there because it fired; each was proved to fail on an injected fault, against a copy, before being trusted. **No theme-parity check — this app has one theme.** |
 | `.design/*.dc.html` | The UI as artboards — `Current`, `Option 1 — Reskin`, `Option 2 — Reskin + shell rebuild` — plus `canvas.json`, which holds their layout and the notes arguing each one. What shipped is Option 2; see **The look**. Source only: the 2.2MB published canvas beside them is gitignored. |
 | `data/roadmap.db` | The dataset. Gitignored. `.bak` is the pre-migration copy. |
 
@@ -1813,7 +1815,9 @@ none of those vocabularies — and spends the rest on material, space and type.
 - **`display` is never set on an element some code toggles with the `hidden`
   attribute** unless a `[hidden]` guard sits beside it. Nine features have been
   broken invisibly by that; see the mermaid note under the Sprint view for the
-  count and the list.
+  count and the list. **`node scripts\css_check.js` is what catches the tenth** —
+  run it after touching `style.css`, the way `wire_check.js` follows a change to
+  `index.html`.
 
 ## Sprint planning lives in markdown files, not in the schema
 
@@ -2048,6 +2052,11 @@ mobile layouts.
   including the boot call, which is the last statement in `app.js`. Run
   `node scripts\wire_check.js`. The tests are API-level and never load the page,
   and `map_sweep.js` cannot see a null by construction.
+- **Editing `style.css` is the same kind of migration**, and quieter still: a
+  class that sets `display` on an element something hides never hides it, a
+  mistyped token resolves to nothing, and a rule for a deleted id just sits there.
+  Run `node scripts\css_check.js`. Both scripts together are the only automated
+  reading of the frontend there is — after them, look at the page.
 - **Back the data file up before schema work**, under a name that does not
   overwrite an existing backup. `data/roadmap.db.bak` is an old one and is not
   a scratch slot.
