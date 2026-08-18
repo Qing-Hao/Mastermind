@@ -1,29 +1,72 @@
-﻿/* Deliberately minimal. Layout and legibility only -- visual design comes
-   after the tool proves useful. */
+﻿/* The chrome is designed; the charts are not. Everything above the first chart
+   rule -- tokens, controls, buttons, cards, headings, tables -- is a deliberate
+   skin. Everything from `.bar` down keeps the colours and metrics it was drawn
+   with, because a phase bar's blue, a checkpoint's purple, the eight track hues
+   and the seven-step stage ramp are all *data* rather than decoration, and every
+   one of them has an argument written against it in CLAUDE.md.
+
+   That split is the whole design constraint here: the colour budget is spent on
+   the data, so the chrome gets exactly one accent and spends the rest on
+   material, space and type. */
 
 * { box-sizing: border-box; }
+
+/* --- tokens --------------------------------------------------------------
+   One accent, and it is indigo rather than any of the chart colours: blue is a
+   planned phase, green is delivered, red is late, amber is today, purple is a
+   checkpoint. An accent drawn from that set would be read as a state. */
+:root {
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-soft: #eef2ff;      /* selected rows, quiet accent fills */
+  --accent-ring: #c7d2fe;      /* the focus ring, and nothing else */
+
+  /* Ink, in four weights. `--ink` is text, `--muted` is a hint or a readout,
+     `--faint` is a column heading or a placeholder -- never body text. */
+  --ink: #18181b;
+  --ink-2: #3f3f46;
+  --ink-3: #52525b;
+  --muted: #71717a;
+  --faint: #a1a1aa;
+
+  --page: #fafafa;             /* the ground a card sits on */
+  --surface: #fff;             /* the card itself */
+  --line: #e6e6ea;             /* a card's edge */
+  --line-soft: #f1f1f4;        /* a row divider inside one */
+  --field: #d8d8de;            /* a control's edge */
+  --hover: #f4f4f5;            /* any hover wash on a light surface */
+
+  --radius: 6px;               /* controls */
+  --radius-card: 10px;
+
+  /* A text control's height, which is the browser's rather than ours: 14px/1.5
+     is 21px of line, plus 5px of padding and a 1px border either side. Not
+     applied as a `height` anywhere -- a global one would make a checkbox 33px --
+     so this is here for the few glyph buttons that have to match a row of real
+     ones, and for the arithmetic below. */
+  --control-h: 33px;
+
+  /* The navbar's own height, published so anything else that sticks can park
+     below it rather than under it: 11px of padding either side of a control,
+     plus the bottom border. Erring high only widens the gap under the bar.
+     `.sprint-scope` is the one thing reading it. */
+  --topbar-h: 56px;
+}
 
 body {
   margin: 0;
   font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
-  color: #1a1a1a;
-  background: #fff;
+  color: var(--ink);
+  background: var(--page);
 }
-
-/* The navbar's own height, published so anything else that sticks can park
-   below it rather than under it. A control's height is the browser's, not
-   ours -- 14px/1.5 text plus 4px padding and a border either side -- so this
-   is measured rather than derived, and erring high only widens the gap under
-   the bar. `.sprint-scope` is the one thing reading it. */
-:root { --topbar-h: 52px; }
 
 header {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
-  padding: 10px 16px;
-  border-bottom: 1px solid #ddd;
-  background: #f7f7f7;
+  padding: 11px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
   position: sticky;
   top: 0;
   z-index: 10;
@@ -36,7 +79,7 @@ header {
    line gets longer. The map is one picture of the whole department, so it takes
    the window instead; its own cap is only there to stop the rings stretching
    flat on an ultrawide, and it is paired with MAX_RING_ASPECT in app.js. */
-main { padding: 16px; }
+main { padding: 20px; }
 /* 1068, not 1100: the cap used to sit on `main`, so it included the 16px of
    padding either side. Subtracting it keeps these three views the exact width
    they have always been rather than quietly gaining 32px. */
@@ -45,35 +88,50 @@ main { padding: 16px; }
 /* Prose does not want the extra width even where the map does. */
 #map-view .hint, #map-view .directions li { max-width: 900px; }
 
-section { margin-bottom: 28px; }
-
-h2 {
-  font-size: 15px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #555;
-  border-bottom: 1px solid #eee;
-  padding-bottom: 4px;
+/* Every section is a card. The sections used to be separated by a hairline
+   under each heading and 28px of air; a card says the same thing with an edge
+   and space, and stops a page of eight sections reading as one long column of
+   rules. Nothing sets a `display` here, deliberately: `#workspace`,
+   `#portfolio-view`, `#map-view` and `#sprint-view` are all toggled with the
+   `hidden` attribute, and a class setting `display` outranks the UA sheet's
+   `[hidden]` -- the trap CLAUDE.md counts, and the reason the shell's own
+   flex-and-gap lives on a wrapper instead. */
+section {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: 20px;
+  margin-bottom: 16px;
 }
 
-/* A heading with a readout on its right. The h2 keeps the underline for the
-   whole width, so the readout has to sit inside the same box rather than
-   beside it -- hence the wrapper and the negative pull, not a flex h2. */
-.section-head { position: relative; }
+/* Sentence case, no rule under it. The uppercase letter-spaced grey heading on a
+   hairline was doing the card's job -- separating one section from the next --
+   and doing it in the middle of the content rather than around it. */
+h2 {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin: 0 0 2px;
+}
+h3 { font-size: 13px; font-weight: 600; margin: 0 0 2px; }
+
+/* A heading with a readout on its right. This was an absolutely-positioned aside
+   pulled up over the heading, because the h2's underline ran the whole width and
+   left nowhere beside it to sit. With the underline gone the obvious thing works,
+   which is the simplification the reskin buys rather than a change of its own. */
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
 .section-head > .section-aside {
-  position: absolute;
-  right: 0;
-  top: -4px;
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  text-transform: none;
-  letter-spacing: normal;
 }
-/* Disabled rather than absent while an idea has no checkpoint: the gate is the
-   thing worth teaching, and a button that is not there teaches nothing. */
-.section-aside button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .row {
   display: flex;
@@ -83,44 +141,124 @@ h2 {
   margin: 8px 0;
 }
 
-label { display: flex; flex-direction: column; font-size: 12px; color: #666; gap: 2px; }
+label { display: flex; flex-direction: column; font-size: 12px; color: var(--ink-3); gap: 5px; font-weight: 500; }
 
-input, select, button { font: inherit; padding: 4px 6px; }
+/* --- controls -------------------------------------------------------------
+   The whole of the old control styling was `padding: 4px 6px`, so every field
+   in the app was the browser's own. These are the same controls with an edge, a
+   radius and a focus ring of their own.
+
+   **The checkbox exclusion is load-bearing.** A bare `input` rule reaches the
+   deliverable tick, the checkpoint tick, the read-only tick in the fortnight
+   panel and the one inside a sprint table cell -- none of which want a text
+   field's padding, and two of which reset only `min-width`. That is the same
+   trap `table.deliverables td.tick input` already existed to solve; excluding
+   the type here solves it once instead of at each call site. */
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea {
+  font: inherit;
+  padding: 5px 9px;
+  border: 1px solid var(--field);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+}
+input:not([type="checkbox"]):not([type="radio"]):focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: -1px;
+  border-color: var(--accent);
+}
+input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 input[type="number"] { width: 90px; }
-button { cursor: pointer; }
+
+/* Three weights, which the app had none of: the plain button, the one action a
+   surface is actually for, and a button whose job is to be findable but not
+   read as an offer. `Delete` looked exactly like `New project` before this. */
+button {
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 5px 12px;
+  border: 1px solid var(--field);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-weight: 500;
+}
+button:hover { background: var(--hover); }
+button:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 1px; }
+/* Disabled rather than absent -- `#promote-project` is the case that set this:
+   an idea with no checkpoint cannot be promoted, and the gate is the thing worth
+   teaching, which a button that is not there teaches nothing about. */
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+button:disabled:hover { background: var(--surface); }
+
+.btn-primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn-primary:disabled:hover { background: var(--accent); }
+
+.btn-ghost { border-color: transparent; background: transparent; color: var(--muted); }
+.btn-ghost:hover { background: var(--hover); color: var(--ink); }
 
 table { border-collapse: collapse; width: 100%; }
-th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #eee; }
-th { font-size: 12px; color: #666; }
+/* `border-top` rather than `border-bottom`, so a table inside a card does not
+   draw a line under its last row a few pixels above the card's own edge. */
+th, td { text-align: left; padding: 7px 10px; border-top: 1px solid var(--line-soft); }
+th {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-top: 0;
+  padding: 0 10px 8px;
+}
 td input { width: 100%; min-width: 80px; }
 
-.muted { color: #888; }
+.muted { color: var(--muted); }
 .error { color: #b00020; }
 .ok { color: #2e7d32; }
 
 .pill {
   display: inline-block;
   min-width: 20px;
-  padding: 0 6px;
-  border-radius: 10px;
-  background: #e0e0e0;
-  font-size: 12px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--hover);
+  color: var(--ink-3);
+  font-size: 11.5px;
+  font-weight: 600;
   text-align: center;
 }
-.pill-warn { background: #ffd54f; }
+.pill-warn { background: #fef3c7; color: #92400e; }
 
-.warnings, .deps { list-style: none; padding: 0; margin: 8px 0; }
-.warnings li, .deps li { padding: 4px 0; border-bottom: 1px solid #f2f2f2; }
-.deps li button { margin-left: 10px; }
+.warnings, .deps { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 2px; }
+/* A warning is a row on its own wash rather than a line in a ruled list: this is
+   the one place in the app that reports, and a stack of hairlines read as a
+   table of nothing. The colour is the pill's, one step quieter. */
+.warnings li { padding: 9px 12px; border-radius: var(--radius); background: #fffbeb; }
+.deps li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius);
+  background: var(--page);
+}
+.deps li button { margin-left: auto; }
 
 .rule {
   display: inline-block;
-  background: #b00020;
-  color: #fff;
-  border-radius: 3px;
-  padding: 0 5px;
+  background: #fee2e2;
+  color: #991b1b;
+  border-radius: 4px;
+  padding: 1px 6px;
   font-size: 11px;
-  margin-right: 6px;
+  font-weight: 600;
+  margin-right: 8px;
 }
 
 #timeline-scroll { overflow-x: auto; border: 1px solid #eee; padding: 10px; }
@@ -197,29 +335,74 @@ td input { width: 100%; min-width: 80px; }
 tr.row-warn td { background: #fff8e1; }
 
 /* --- tabs --- */
-.tabs { display: inline-flex; border: 1px solid #ccc; border-radius: 4px; overflow: hidden; }
-.tab { border: 0; background: #fff; padding: 4px 12px; }
-.tab.active { background: #1a1a1a; color: #fff; }
+/* A segmented control: a tray with the active segment lifted out of it, rather
+   than a bordered strip with one cell inverted to near-black. Same shape as the
+   mode switch below, one size up. */
+.tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--hover);
+}
+.tab {
+  border: 0;
+  background: transparent;
+  padding: 5px 14px;
+  border-radius: var(--radius);
+  color: var(--ink-3);
+}
+.tab:hover { background: rgba(255, 255, 255, 0.6); }
+.tab.active {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
 
 /* --- timeline mode switch --- */
 /* Same shape as the tabs, sized down: it picks which timeline the section
    below is drawing, not which page you are on. */
 .mode-switch {
   display: inline-flex;
+  gap: 2px;
   margin-left: 10px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  overflow: hidden;
+  padding: 3px;
+  border-radius: 7px;
+  background: var(--hover);
   vertical-align: middle;
 }
-.mode { border: 0; background: #fff; padding: 2px 10px; font-size: 12px; }
-.mode.active { background: #1a1a1a; color: #fff; }
+/* Load-bearing, and a bug fix rather than housekeeping: `#sprint-view-switch` is
+   hidden whenever no sprint file is open, and the rule above sets `display`,
+   which outranks the UA sheet's `[hidden] { display: none }`. So the
+   Rendered|Raw switch has never hidden. Same trap as `.fortnight-drawer[hidden]`
+   and `.track-crumb[hidden]`; see also `.window-bar` and `.undo-bar` below,
+   which were both wrong for the same reason. */
+.mode-switch[hidden] { display: none; }
+.mode {
+  border: 0;
+  background: transparent;
+  padding: 3px 12px;
+  border-radius: 5px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.mode:hover { background: rgba(255, 255, 255, 0.6); }
+.mode.active {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
 
 /* --- goal --- */
-#project-goal { width: 100%; font: inherit; padding: 8px; }
-.hint { color: #888; font-size: 12px; margin: 4px 0 0; }
+#project-goal { width: 100%; padding: 10px; line-height: 1.5; resize: vertical; }
+.hint { color: var(--muted); font-size: 12.5px; margin: 6px 0 0; }
+/* A hint sitting directly under its heading is the heading's subtitle, so it
+   takes the space between it and the content rather than trailing the content
+   above it. Both positions exist in the markup, which is why this is a sibling
+   rule and not a change to `.hint` itself. */
+h2 + .hint, .section-head + .hint { margin: 2px 0 14px; }
 
-details summary { cursor: pointer; color: #666; font-size: 12px; margin-top: 8px; }
+details summary { cursor: pointer; color: var(--muted); font-size: 12.5px; margin-top: 8px; }
 
 /* --- deliverables --- */
 .toggle { border: 0; background: none; font-size: 13px; padding: 2px 4px; }
@@ -372,13 +555,26 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   gap: 6px;
   align-items: center;
   flex-wrap: wrap;
-  margin: 8px 0;
+  margin: 8px 0 12px;
 }
-.window-bar .nav { width: 28px; font-size: 15px; line-height: 1; }
-.window-sep { font-size: 12px; color: #888; }
+/* Load-bearing, and the second of the three: `#timeline-window` is hidden in
+   Weeks mode, which has no calendar to page through, and the rule above sets
+   `display`. So the date controls have never hidden there. See
+   `.mode-switch[hidden]` for the trap. */
+.window-bar[hidden] { display: none; }
+/* Square, and sized to the row of real buttons beside it rather than to its own
+   glyph -- `padding: 0` because a 33px box with 12px of side padding has nothing
+   left for a `◀`. */
+.window-bar .nav {
+  width: var(--control-h);
+  padding: 0;
+  font-size: 15px;
+  line-height: 1;
+}
+.window-sep { font-size: 12px; color: var(--muted); }
 .window-range {
-  font-size: 12px;
-  color: #666;
+  font-size: 12.5px;
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
   margin-left: 4px;
 }
@@ -514,11 +710,11 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   justify-content: space-between;
   gap: 16px;
   max-width: 480px;
-  padding: 5px 8px;
+  padding: 6px 10px;
   border: 1px dashed #ccc;
-  border-radius: 3px;
+  border-radius: var(--radius);
   margin-bottom: 4px;
-  background: #fcfcfc;
+  background: var(--page);
 }
 .unscheduled-name { font-weight: 500; }
 
@@ -535,8 +731,8 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   gap: 2px;
   padding: 6px 10px;
   border: 1px dashed #bbb;
-  border-radius: 3px;
-  background: #fcfcfc;
+  border-radius: var(--radius);
+  background: var(--page);
   cursor: grab;
   /* Without this a drag selects the label text instead of moving the chip. */
   user-select: none;
@@ -554,12 +750,17 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   align-items: center;
   flex-wrap: wrap;
   margin: 8px 0;
-  padding: 6px 10px;
-  border: 1px solid #ffe082;
-  border-radius: 3px;
-  background: #fffde7;
+  padding: 8px 12px;
+  border: 1px solid #fde68a;
+  border-radius: var(--radius);
+  background: #fffbeb;
   font-size: 13px;
 }
+/* Load-bearing, and the third of the three: this element starts `hidden` in
+   index.html and is only shown after a drop, so with the `display` above and no
+   guard an empty ruled strip has sat on the Portfolio tab permanently. See
+   `.mode-switch[hidden]`. */
+.undo-bar[hidden] { display: none; }
 
 /* The bar that follows the cursor while a chip is being placed. Dashed and
    pale: nothing is written until you let go, and it is a whole project's run
@@ -797,10 +998,12 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   flex-direction: column;
   gap: 8px;
   margin: 12px 0;
-  padding: 10px 12px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  background: #fcfcfd;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  /* The page ground rather than white: the drawer opens inside the chart's own
+     card, so an inset panel is what says it belongs to the chart above it. */
+  background: var(--page);
 }
 
 /* Load-bearing, for the same reason as `.direction-link-form[hidden]` and
@@ -810,11 +1013,10 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 .fortnight-drawer[hidden] { display: none; }
 
 .drawer-head { display: flex; align-items: center; gap: 8px; }
-.drawer-head h3 { margin: 0; font-size: 13px; text-transform: uppercase;
-                  letter-spacing: 0.04em; color: #555; }
+.drawer-head h3 { margin: 0; font-size: 13px; color: var(--ink); }
 .drawer-close { margin-left: auto; border: 0; background: none; cursor: pointer;
-                font-size: 14px; color: #888; padding: 2px 6px; }
-.drawer-close:hover { color: #1a1a1a; }
+                font-size: 14px; color: var(--muted); padding: 2px 6px; }
+.drawer-close:hover { color: var(--ink); background: var(--hover); }
 .drawer-foot {
   display: flex;
   gap: 10px;
@@ -921,10 +1123,10 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   top: calc(var(--topbar-h) + 12px);
   max-height: calc(100vh - var(--topbar-h) - 24px);
   overflow-y: auto;
-  padding: 10px 12px;
-  border: 1px solid #e4e4e8;
-  border-radius: 6px;
-  background: #fbfbfd;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
 }
 .sprint-scope-head { margin: 0 0 4px; font-size: 13px; }
 .sprint-scope-window { margin: 0 0 8px; font-size: 12px; color: #555; font-weight: 600; }
@@ -960,15 +1162,13 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 .sprint-block table { font-size: 13px; }
 .sprint-block h1 { font-size: 20px; }
 .sprint-block h2 {
-  /* The document's own headings, not the app's section headings, which are
-     uppercased and ruled off. A sprint file's `## Capacity` is a heading in a
-     document you are reading. */
+  /* The document's own headings, a size up from the app's: a sprint file's
+     `## Capacity` is a heading in something you are reading, not a section label
+     in the UI around it. It used to have four more declarations here, undoing the
+     uppercase, letter-spacing and rule the app's `h2` carried; those are gone
+     from `h2` itself now, so only the size is left to say. */
   font-size: 16px;
-  text-transform: none;
-  letter-spacing: 0;
-  color: #1a1a1a;
-  border-bottom: 0;
-  padding: 0;
+  margin: 0;
 }
 .sprint-block h3 { font-size: 14px; }
 .sprint-block pre {
@@ -1107,15 +1307,15 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   box-sizing: border-box;
 }
 
-.grip-glyph { color: #aaa; }
+.grip-glyph { color: var(--faint); }
 kbd {
   font: 11px ui-monospace, SFMono-Regular, Consolas, monospace;
-  background: #f6f6f6;
-  border: 1px solid #ddd;
+  background: var(--hover);
+  border: 1px solid var(--field);
   border-bottom-width: 2px;
-  border-radius: 3px;
+  border-radius: 4px;
   padding: 0 4px;
-  color: #555;
+  color: var(--ink-3);
 }
 
 /* Two sprints covering one day, which the app refuses to create and therefore only
@@ -1148,7 +1348,18 @@ kbd {
   width: 100%;
 }
 .sprint-table th, .sprint-table td { border: 1px solid #e0e0e0; padding: 0; }
-.sprint-table th { background: #f6f6f6; }
+/* The app's own `th` is a small uppercase column heading. A sprint table's header
+   row is *content* -- the words are in the file, in whatever case they were typed
+   -- so every one of those declarations has to come back off. Without this,
+   `| Person |` renders as `PERSON` in the grid and the file still says `Person`,
+   which is the one thing this editor must never do. */
+.sprint-table th {
+  background: #f6f6f6;
+  font: inherit;
+  color: inherit;
+  text-transform: none;
+  letter-spacing: normal;
+}
 
 /* Auto-sized until a column is dragged, and fixed from then on. Under auto layout
    a width is a suggestion the browser re-fits to the content, so a drag would not
@@ -1267,11 +1478,12 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 .sprint-cell-line a:hover { text-decoration: none; }
 
 /* The one control a cell can hold. Sized and nudged to sit on the text's baseline
-   rather than above it, since the line beside it is the label. `min-width` and
-   `padding` are reset because `td input { width: 100%; min-width: 80px }` and the
-   global `input { padding: 4px 6px }` both reach it — an 80px checkbox, which is
-   exactly the trap `table.deliverables td.tick input` already solves for the
-   deliverable tick. A class does not outrank a `min-width` nobody else sets. */
+   rather than above it, since the line beside it is the label. `min-width` is
+   reset because `td input { width: 100%; min-width: 80px }` reaches it — an 80px
+   checkbox, the same trap `table.deliverables td.tick input` solves for the
+   deliverable tick, and a class does not outrank a `min-width` nobody else sets.
+   The padding reset is belt and braces now that the control rules exclude a
+   checkbox by type; it was load-bearing when they did not. */
 .sprint-cell-todo {
   width: 12px;
   min-width: 0;
@@ -1397,9 +1609,7 @@ body.resizing-column { cursor: col-resize; user-select: none; }
   margin-left: 10px;
   font-size: 12px;
   font-weight: 400;
-  text-transform: none;
-  letter-spacing: 0;
-  color: #888;
+  color: var(--muted);
 }
 .save-saved { color: #2e7d32; }
 .save-failed, .save-conflict { color: #b00020; }
@@ -1646,11 +1856,11 @@ body.resizing-column { cursor: col-resize; user-select: none; }
   flex-wrap: wrap;
   gap: 10px;
   max-width: 620px;
-  padding: 5px 8px;
+  padding: 6px 10px;
   border: 1px dashed #ccc;
-  border-radius: 3px;
+  border-radius: var(--radius);
   margin-bottom: 4px;
-  background: #fcfcfc;
+  background: var(--page);
 }
 .direction-name { font-weight: 500; flex: 1; }
 
@@ -1663,9 +1873,9 @@ body.resizing-column { cursor: col-resize; user-select: none; }
   align-items: center;
   gap: 2px;
   padding: 1px 4px 1px 8px;
-  border-radius: 10px;
-  background: #f0f0f0;
-  color: #555;
+  border-radius: 999px;
+  background: var(--hover);
+  color: var(--ink-3);
   font-size: 11px;
   white-space: nowrap;
 }
@@ -1716,15 +1926,18 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 .track-picker input {
   width: 100%;
   padding-right: 24px;
-  border: 1px solid #999;
-  border-radius: 3px;
-  background: #fff;
+  border: 1px solid var(--field);
+  border-radius: var(--radius);
+  background: var(--surface);
 }
-.track-picker input:hover { border-color: #6d6d6d; }
+.track-picker input:hover { border-color: #b9b9c2; }
+/* Its own focus treatment rather than the app's ring, because this input owns a
+   panel below it: the glow reads as the two being one control, where a 2px inset
+   outline would draw a hard edge between the field and what it opened. */
 .track-picker input:focus {
   outline: none;
-  border-color: #5c6bc0;
-  box-shadow: 0 0 0 2px rgba(92, 107, 192, .18);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-ring);
 }
 
 /* The caret sits on the wrapper: an <input> takes no pseudo-elements. It never
@@ -1732,7 +1945,9 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 .track-picker::after {
   content: "";
   position: absolute;
-  top: 12px;
+  /* Centred on the control's 33px, not derived from it: the caret is a 7px box
+     rotated about its own centre, so half of it sits above the anchor. */
+  top: 15px;
   right: 9px;
   width: 7px;
   height: 7px;
