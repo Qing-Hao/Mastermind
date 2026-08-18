@@ -1025,7 +1025,7 @@ function milestoneRow(milestone) {
   line.appendChild(spanCell);
 
   const actionCell = element("td");
-  const remove = element("button", null, "✕");
+  const remove = element("button", "btn-ghost", "✕");
   remove.title = "Delete checkpoint";
   remove.onclick = async () => {
     await api(`/api/milestones/${milestone.id}`, { method: "DELETE" });
@@ -1796,7 +1796,12 @@ function phaseRow(phase, warned) {
   row.appendChild(element("td", "muted", phase.end_date || "unscheduled"));
 
   const actionCell = element("td");
-  const remove = element("button", null, "Delete");
+  // The same ✕ the checkpoint row beside it has always used, rather than the word
+  // "Delete": one table, one row-removal mark, and the label was the widest thing
+  // in a column that holds nothing else. The confirm is what makes it safe to be
+  // small, and the title is what makes it readable.
+  const remove = element("button", "btn-ghost", "✕");
+  remove.title = "Delete phase";
   remove.onclick = async () => {
     if (!confirm(`Delete phase "${phase.name}" and its deliverables?`)) return;
     await api(`/api/phases/${phase.id}`, { method: "DELETE" });
@@ -1859,7 +1864,7 @@ function deliverableRow(phase) {
     line.appendChild(nameCell);
 
     const actionCell = element("td");
-    const remove = element("button", null, "✕");
+    const remove = element("button", "btn-ghost", "✕");
     remove.title = "Delete deliverable";
     remove.onclick = async () => {
       await api(`/api/deliverables/${deliverable.id}`, { method: "DELETE" });
@@ -2015,7 +2020,9 @@ function renderDependencies() {
     const item = element("li", null, waitsOnThis
       ? `→ ${dep.successor_name} waits on this project`
       : `← waits on ${dep.predecessor_name}`);
-    const remove = element("button", null, "Unlink");
+    // Ghost, because the row is a fact being read and the button is the exception
+    // you occasionally want -- the same weight the ✕ carries in the plan table.
+    const remove = element("button", "btn-ghost", "Unlink");
     remove.onclick = async () => {
       await api(`/api/dependencies/${dep.id}`, { method: "DELETE" });
       await loadPlan();
@@ -4453,7 +4460,9 @@ function renderDirections() {
     item.appendChild(linkChips(idea, links));
 
     const form = linkForm(idea);
-    const link = element("button", null, "Link…");
+    // Ghost, so the row reads as an idea with one action on it: promoting is what
+    // this list is for, and three buttons of equal weight said otherwise.
+    const link = element("button", "btn-ghost", "Link…");
     link.title = "Tie this idea to another project without opening it";
     link.onclick = () => { form.hidden = !form.hidden; };
 
@@ -4470,7 +4479,7 @@ function renderDirections() {
       await loadProjects();
     };
 
-    const remove = element("button", null, "✕");
+    const remove = element("button", "btn-ghost", "✕");
     remove.title = "Delete this direction";
     remove.onclick = async () => {
       if (!confirm(`Delete the direction "${idea.name}"?`)) return;

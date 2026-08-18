@@ -1805,7 +1805,27 @@ none of those vocabularies — and spends the rest on material, space and type.
   *content*, the words are in the file in the case they were typed, so uppercasing
   it would have the grid showing `PERSON` while the file said `Person`.
 - **Three button weights** — plain, `.btn-primary`, `.btn-ghost` — because there
-  were none, and `Delete` looked exactly like `New project`.
+  were none, and `Delete` looked exactly like `New project`. A row that is a *fact
+  being read* puts its action in ghost: the `✕` on a phase, checkpoint,
+  deliverable or idea row, `Unlink` on a dependency, `Link…` beside
+  `Promote to project`. One bordered button per row is what makes the row's own
+  action findable.
+- **A focus ring is chrome wherever it lands.** Every `:focus-visible` outline is
+  `--accent-ring`, including the ones on chart elements — a lane title, a ruler
+  week, a sprint block. They used to be `#5c6bc0`, which is
+  `--stage-planned-line`: a *data* colour, borrowed for an affordance that means
+  nothing about the data. Same for the editor's own marks — the drop rails, the
+  column-resize line, a focused cell, an open track picker's caret, a selected
+  menu row — all `--accent` now, so the grid's affordances and the app's agree.
+- **One popover vocabulary**: `--radius-card`, a `--line` edge and the
+  tight-plus-soft shadow pair, shared by the `⋯` menu, the sprint insert menu, the
+  track panel and the ruler's day strip. A thing floating over the page should
+  always look like the same kind of thing.
+- **The chart-versus-chrome line is not "SVG versus HTML".** A clipped bar's dotted
+  edge, the fortnight's amber today column, the open week's indigo wash, the drag
+  pill: all chart, all left alone. A filter chip, a popover, a focus ring, a
+  scrollable table's border: all chrome, all tokenised. The test is whether the
+  colour *means* something about the data.
 - **Sections are cards.** They used to be separated by a hairline under each
   uppercase grey heading, which did the card's job in the middle of the content
   rather than around it. Headings are sentence case with no rule under them, which

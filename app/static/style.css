@@ -1,4 +1,4 @@
-﻿/* The chrome is designed; the charts are not. Everything above the first chart
+/* The chrome is designed; the charts are not. Everything above the first chart
    rule -- tokens, controls, buttons, cards, headings, tables -- is a deliberate
    skin. Everything from `.bar` down keeps the colours and metrics it was drawn
    with, because a phase bar's blue, a checkpoint's purple, the eight track hues
@@ -758,14 +758,14 @@ table.deliverables tr.done input[type="text"] { color: #999; text-decoration: li
 table.deliverables td.grip { width: 1%; text-align: center; }
 .grip-handle { cursor: grab; color: #bbb; padding: 0 2px; user-select: none; }
 .grip-handle:hover { color: #555; }
-table.deliverables tr.dragging { background: #eef3fb; opacity: 0.85; }
+table.deliverables tr.dragging { background: var(--accent-soft); opacity: 0.85; }
 table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 
 /* The phase table's own furniture. Both row kinds carry a grip, because both are
    in one sequence; the rules are on the table rather than on a row class so a
    checkpoint row and a phase row cannot drift apart. */
 #phase-table td.grip { width: 1%; text-align: center; }
-#phase-table tr.dragging { background: #eef3fb; opacity: 0.85; }
+#phase-table tr.dragging { background: var(--accent-soft); opacity: 0.85; }
 #phase-table tr.dragging .grip-handle { cursor: grabbing; }
 /* A date input has an intrinsic width and no need for the 100% every other cell
    input takes, which would otherwise push the name column narrow. */
@@ -983,7 +983,7 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   white-space: nowrap;
 }
 .lane-title:hover { color: #3949ab; }
-.lane-title:focus-visible { outline: 2px solid #5c6bc0; outline-offset: 2px; }
+.lane-title:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 2px; }
 
 /* --- the collapsed lane -------------------------------------------------
    A lane is one row per phase plus one per dated checkpoint, so the tab that
@@ -1005,7 +1005,7 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   cursor: pointer;
 }
 .lane-twisty:hover { color: #3949ab; }
-.lane-twisty:focus-visible { outline: 2px solid #5c6bc0; outline-offset: 1px; }
+.lane-twisty:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 1px; }
 
 /* Not a phase, so it wears none of the `status-` colours: the track is neutral
    and the fill is how much of the work is ticked off. A project naming no
@@ -1070,7 +1070,7 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   /* Without this a drag selects the label text instead of moving the chip. */
   user-select: none;
 }
-.tray-chip:hover { border-color: #5c6bc0; background: #f5f6ff; }
+.tray-chip:hover { border-color: var(--accent); background: var(--accent-soft); }
 .tray-chip.dragging { cursor: grabbing; opacity: 0.5; }
 .tray-name { font-weight: 500; }
 .tray-note { font-size: 11px; color: #b26a00; }
@@ -1370,7 +1370,7 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
    to look like something you can press -- and be reachable without a mouse. */
 .week-target { cursor: pointer; position: relative; }
 .week-target:hover { background: #eef1ff; color: #3949ab; }
-.week-target:focus-visible { outline: 2px solid #5c6bc0; outline-offset: -2px; }
+.week-target:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: -2px; }
 .week.week-open { background: #e8eaf6; color: #3949ab; font-weight: 600; }
 
 /* The seven days inside a week column, revealed on hover. The column prints its
@@ -1390,11 +1390,12 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   left: 0;
   z-index: 6;
   grid-template-columns: repeat(7, 21px);
-  padding: 2px;
-  background: #fff;
-  border: 1px solid #c8c8c8;
-  border-radius: 3px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.14);
+  padding: 3px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  /* The app's popover vocabulary -- see `.sprint-menu`. */
+  border-radius: var(--radius);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 8px 24px rgba(0, 0, 0, 0.16);
   cursor: default;
 }
 .week-target:hover .week-days { display: grid; }
@@ -1488,8 +1489,8 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   border-radius: 3px;
   cursor: text;
 }
-.sprint-block:hover { background: #fafafa; border-left-color: #ddd; }
-.sprint-block:focus-visible { outline: 2px solid #5c6bc0; outline-offset: -2px; }
+.sprint-block:hover { background: var(--page); border-left-color: var(--field); }
+.sprint-block:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: -2px; }
 .sprint-block > :first-child { margin-top: 4px; }
 .sprint-block > :last-child { margin-bottom: 4px; }
 .sprint-block table { font-size: 13px; }
@@ -1565,7 +1566,7 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 
 .sprint-tag {
   font: 10px/1 ui-monospace, SFMono-Regular, Consolas, monospace;
-  color: #bbb;
+  color: var(--faint);
   letter-spacing: 0.03em;
 }
 .sprint-rail .grip-handle {
@@ -1586,7 +1587,7 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   left: 0;
   right: 0;
   height: 2px;
-  background: #5c6bc0;
+  background: var(--accent);
   border-radius: 2px;
 }
 .sprint-row.drop-above::before { top: -3px; }
@@ -1594,15 +1595,19 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 
 /* --- the insert menu --- */
 /* On `body`, positioned against the textarea, so nothing clips it. */
+/* One popover vocabulary across the app: card radius, a `--line` edge and the
+   tight-plus-soft shadow pair -- shared with `.menu-panel`, `.track-panel` and the
+   ruler's `.week-days`, so a thing that floats over the page always looks like the
+   same kind of thing. */
 .sprint-menu {
   position: absolute;
   z-index: 60;
   width: 230px;
   padding: 4px;
-  background: #fff;
-  border: 1px solid #ccc;
-  border-radius: 5px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.13);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 8px 24px rgba(0, 0, 0, 0.16);
 }
 .sprint-menu[hidden] { display: none; }
 .sprint-menu-item {
@@ -1614,17 +1619,17 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   font-size: 13px;
   cursor: pointer;
 }
-.sprint-menu-item[aria-selected="true"] { background: #eef1ff; color: #3949ab; }
+.sprint-menu-item[aria-selected="true"] { background: var(--accent-soft); color: var(--accent-hover); }
 /* Shown rather than dropped: an entry that vanishes when it does not apply makes
    the menu a different shape every time you open it. */
-.sprint-menu-item[aria-disabled="true"] { color: #bbb; cursor: default; background: none; }
+.sprint-menu-item[aria-disabled="true"] { color: var(--faint); cursor: default; background: none; }
 .sprint-menu-key {
   margin-left: auto;
   font: 10.5px ui-monospace, SFMono-Regular, Consolas, monospace;
-  color: #aaa;
+  color: var(--faint);
 }
-.sprint-menu-item[aria-selected="true"] .sprint-menu-key { color: #5c6bc0; }
-.sprint-menu-empty { padding: 6px 8px; font-size: 12.5px; color: #888; }
+.sprint-menu-item[aria-selected="true"] .sprint-menu-key { color: var(--accent); }
+.sprint-menu-empty { padding: 6px 8px; font-size: 12.5px; color: var(--muted); }
 
 /* --- the raw file view --- */
 .sprint-raw-pane[hidden] { display: none; }
@@ -1680,14 +1685,14 @@ kbd {
   font-variant-numeric: tabular-nums;
   width: 100%;
 }
-.sprint-table th, .sprint-table td { border: 1px solid #e0e0e0; padding: 0; }
+.sprint-table th, .sprint-table td { border: 1px solid var(--line); padding: 0; }
 /* The app's own `th` is a small uppercase column heading. A sprint table's header
    row is *content* -- the words are in the file, in whatever case they were typed
    -- so every one of those declarations has to come back off. Without this,
    `| Person |` renders as `PERSON` in the grid and the file still says `Person`,
    which is the one thing this editor must never do. */
 .sprint-table th {
-  background: #f6f6f6;
+  background: var(--hover);
   font: inherit;
   color: inherit;
   text-transform: none;
@@ -1734,7 +1739,7 @@ kbd {
   bottom: 1px;
   left: 3px;
   width: 1px;
-  background: #5c6bc0;
+  background: var(--accent);
 }
 .sprint-table-block:hover .col-resize,
 .sprint-table-block:focus-within .col-resize { opacity: 0.55; }
@@ -1807,7 +1812,7 @@ body.resizing-column { cursor: col-resize; user-select: none; }
   padding: 0 2px;
   border-radius: 2px;
 }
-.sprint-cell-line a { color: #3949ab; }
+.sprint-cell-line a { color: var(--accent); }
 .sprint-cell-line a:hover { text-decoration: none; }
 
 /* The one control a cell can hold. Sized and nudged to sit on the text's baseline
@@ -1826,13 +1831,13 @@ body.resizing-column { cursor: col-resize; user-select: none; }
   vertical-align: -1px;
   cursor: pointer;
 }
-.sprint-cell-todo:hover { outline: 1px solid #5c6bc0; }
+.sprint-cell-todo:hover { outline: 1px solid var(--accent); }
 .sprint-table th .sprint-cell,
 .sprint-table th .sprint-cell-view { font-weight: 600; }
 .sprint-cell:focus {
   outline: none;
-  background: #eef1ff;
-  box-shadow: inset 0 0 0 1px #5c6bc0;
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 /* --- the row and column grips --- */
@@ -1866,19 +1871,19 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 }
 .sprint-table-block:hover .grip-handle,
 .sprint-table-block:focus-within .grip-handle { opacity: 1; }
-.sprint-table .grip-handle:focus { opacity: 1; outline: 1px solid #5c6bc0; }
+.sprint-table .grip-handle:focus { opacity: 1; outline: 1px solid var(--accent); }
 
 /* The row or column being dragged, and the edge it will land on. Drawn with an
    inset shadow rather than a border, which would move the cells it sits beside. */
 .sprint-table tr.dragging > *, .sprint-table th.dragging { opacity: 0.4; }
 .sprint-table tr.drop-before > td, .sprint-table tr.drop-before > th {
-  box-shadow: inset 0 2px 0 -1px #5c6bc0;
+  box-shadow: inset 0 2px 0 -1px var(--accent);
 }
 .sprint-table tr.drop-after > td, .sprint-table tr.drop-after > th {
-  box-shadow: inset 0 -2px 0 -1px #5c6bc0;
+  box-shadow: inset 0 -2px 0 -1px var(--accent);
 }
-.sprint-table th.drop-before { box-shadow: inset 2px 0 0 -1px #5c6bc0; }
-.sprint-table th.drop-after { box-shadow: inset -2px 0 0 -1px #5c6bc0; }
+.sprint-table th.drop-before { box-shadow: inset 2px 0 0 -1px var(--accent); }
+.sprint-table th.drop-after { box-shadow: inset -2px 0 0 -1px var(--accent); }
 
 /* Three short entries against a grip, not nine against a caret, so it wants none
    of the insert menu's width. */
@@ -1907,14 +1912,14 @@ body.resizing-column { cursor: col-resize; user-select: none; }
   font: 13px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
   width: 100%;
   padding: 6px 8px;
-  border: 1px solid #5c6bc0;
-  border-radius: 3px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
   resize: vertical;
   overflow: hidden;
   box-sizing: border-box;
 }
 
-.sprint-placeholder { color: #888; cursor: text; padding: 8px; }
+.sprint-placeholder { color: var(--muted); cursor: text; padding: 8px; }
 
 /* The foot of a file that already has content. Quiet until it is wanted: a
    permanent click target under every document should read as room to type, not as
@@ -1922,14 +1927,14 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 .sprint-foot {
   margin: 2px 0 0;
   border: 1px dashed transparent;
-  border-radius: 3px;
+  border-radius: var(--radius);
   font-size: 12.5px;
-  color: #bbb;
+  color: var(--faint);
   transition: color 0.12s ease, border-color 0.12s ease;
 }
 .sprint-foot:hover, .sprint-foot:focus {
-  color: #5c6bc0;
-  border-color: #c5cae9;
+  color: var(--accent);
+  border-color: var(--accent-ring);
   outline: none;
 }
 
@@ -2161,16 +2166,26 @@ body.resizing-column { cursor: col-resize; user-select: none; }
   text-transform: uppercase;
 }
 .map-chip {
-  padding: 3px 8px;
-  border: 1px solid #ddd;
-  border-radius: 10px;
-  background: #fafafa;
-  color: #999;
+  padding: 3px 9px;
+  border: 1px solid var(--field);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--faint);
   font-size: 12px;
 }
-.map-chip.on { border-color: #5c6bc0; background: #eef0ff; color: #333; }
+.map-chip:hover { background: var(--hover); }
+/* On is the accent's quiet fill, the same pair `.nav-item.active` uses: this is a
+   chip that is *selected*, which is the one thing the accent means in the chrome.
+   The indigo it used to use was `#5c6bc0`, a chart colour -- the stage ramp's own
+   outline -- which put a filter control into the vocabulary the nodes speak. */
+.map-chip.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  font-weight: 600;
+}
 /* Tier 1's chip carries the same ring the node does. */
-.map-chip.tier-1.on { box-shadow: 0 0 0 2px #eef0ff, 0 0 0 3px #c5cae9; }
+.map-chip.tier-1.on { box-shadow: 0 0 0 2px var(--accent-soft), 0 0 0 3px var(--accent-ring); }
 .map-chip.tier-0 { font-style: italic; }
 
 /* --- the legend ---------------------------------------------------------
@@ -2310,7 +2325,7 @@ body.resizing-column { cursor: col-resize; user-select: none; }
   pointer-events: none;
 }
 .track-picker[data-open="true"]::after {
-  border-color: #3949ab;
+  border-color: var(--accent);
   transform: translateY(1px) rotate(-135deg);
 }
 
@@ -2323,9 +2338,9 @@ body.resizing-column { cursor: col-resize; user-select: none; }
   left: 0;
   width: max(100%, 288px);
   max-width: 380px;
-  background: #fff;
-  border: 1px solid #c9c9c9;
-  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
   /* Two shadows: a tight one to seat the edge, a soft one to lift the panel off
      the form behind it. Without the lift it reads as part of the page. */
   box-shadow: 0 1px 2px rgba(0, 0, 0, .08), 0 8px 24px rgba(0, 0, 0, .16);
@@ -2383,8 +2398,8 @@ body.resizing-column { cursor: col-resize; user-select: none; }
   cursor: pointer;
 }
 .track-opt[data-active="true"] {
-  background: #eef1fa;
-  border-left-color: #5c6bc0;
+  background: var(--accent-soft);
+  border-left-color: var(--accent);
 }
 .track-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The run your typing caught. */
