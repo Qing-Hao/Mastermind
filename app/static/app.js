@@ -2053,7 +2053,13 @@ function renderDependencies() {
 // tooltip it already had. Sized rather than fitted to the longest name on
 // purpose: the calendar beside it would then be a different width per dataset,
 // and the column is meant to be a straight edge you scan down.
-const LANE_NAME_PX = 160;
+// 168 rather than 160 since the cell gained a track rail and a second line: the
+// rail and its gap take 9px off the text, and the rung underneath needs the
+// name not to be clipped tighter than it already is. It is spent before
+// `weekGrid` fits the columns, so every bar on this chart moves 8px right and
+// the calendar loses 8px of width -- at the 26-week cap that is a third of a
+// pixel per column.
+const LANE_NAME_PX = 168;
 
 // The name column of a lane. A cell of its own with the clickable title inside
 // it, rather than the title being the cell: the title stays `fit-content`, so
@@ -2064,10 +2070,39 @@ const LANE_NAME_PX = 160;
 // name column is the one part of a lane that is always in the same place --
 // the rows start wherever the project's dates put them, which on a paged window
 // can be the far right of the chart or nowhere at all.
-function laneName(title, twisty) {
+// The rail is identity, never meaning: which track this project belongs to, in
+// the same hue the map paints that track's rings. The bar's fill still says how
+// far along the work is and the dot below still says which rung it is on, so no
+// vocabulary is spent -- what it buys is being able to see that three of the
+// lanes are one programme, which a column of names cannot say.
+//
+// `trackPalette` is keyed off the whole dataset on both surfaces, so a project
+// takes the same colour here as on the map. Untracked, and anything past the
+// eighth track, take the grey it hands back rather than a hue nobody could tell
+// from another.
+function laneName(title, twisty, hue, meta) {
   const cell = element("div", "lane-name");
-  cell.append(twisty, title);
+  const rail = element("div", "track-rail");
+  rail.style.background = hue || "var(--faint)";
+  // The name and the rung it is on, stacked, so the twisty and the rail keep
+  // their own widths while the name still shrinks to its ellipsis.
+  const text = element("div", "lane-name-text");
+  text.append(title, meta);
+  cell.append(rail, twisty, text);
   return cell;
+}
+
+// The rung the ladder put this project on, said on the lane rather than left in
+// the title's tooltip. The dot is the sidebar's own `.project-dot`, class and
+// all: the map draws a rung as a circle, the picker as a dot, and this is the
+// picker's dot -- one colour table, and this surface adds only its size.
+function laneMeta(project) {
+  const meta = element("div", "lane-meta");
+  meta.appendChild(element("span", `project-dot stage-${project.derived_stage}`));
+  const track = trackPath(project.track);
+  meta.appendChild(element("span", "lane-rung",
+    track.length ? `${project.derived_stage} · ${track[0]}` : project.derived_stage));
+  return meta;
 }
 
 // Open this lane, or fold it back to one bar. A `<button>` rather than a div
@@ -2152,7 +2187,141 @@ function completionNote(project) {
     + `${project.deliverables_done}/${project.deliverables_total} deliverables ticked`;
 }
 
+// How far ahead the checkpoint strip looks. A fortnight because that is the
+// cadence everything else here is planned on -- the sprint length, the drawer,
+// the slice -- not because two weeks is a natural horizon for a roadmap.
+const HORIZON_DAYS = 14;
+
+// The four readings a chart of bars cannot give you: how much is committed, what
+// the plans are aiming at next, whether anything has run past its dates, and how
+// much has never been committed to at all.
+//
+// Every figure is read off a payload already in hand. Three come from
+// `/api/portfolio`; **ideas come from `state.projects`**, and that is not an
+// oversight -- `/api/portfolio` omits them deliberately ("an idea nobody has
+// committed to does not belong on a delivery timeline"), so the count of what is
+// *not* on this tab has to come from the list that holds everything. That list is
+// the sidebar's and is loaded before any view renders.
+//
+// Nothing here derives a stage or reads a rule: `derived_stage` is the ladder's
+// own answer, arriving on the payload.
+function renderPortfolioHeadline() {
+  const band = $("portfolio-headline");
+  band.innerHTML = "";
+
+  const tile = (caption, value, sub, tone) => {
+    const box = element("div", `tile${tone ? ` tile-${tone}` : ""}`);
+    box.appendChild(element("div", "tile-cap", caption));
+    box.appendChild(element("div", "tile-num", String(value)));
+    box.appendChild(element("div", "tile-sub", sub));
+    return box;
+  };
+
+  // Committed is every project on this payload the ladder has not called done --
+  // the payload is already every stage but `idea`, so this is the second half of
+  // "committed and not finished".
+  const live = state.portfolio.projects.filter(
+    (project) => project.derived_stage !== "done");
+  const dated = live.filter((project) => project.span_start && project.span_end);
+  band.appendChild(tile("Committed", live.length,
+    `${dated.length} on the calendar · ${live.length - dated.length} waiting for dates`));
+
+  const soon = checkpointsAhead();
+  const reached = soon.filter((mark) => mark.achieved).length;
+  const projects = new Set(soon.map((mark) => mark.project_id)).size;
+  band.appendChild(tile(`Checkpoints, next ${HORIZON_DAYS} days`, soon.length,
+    soon.length
+      ? `across ${projects} project(s) · ${reached} reached`
+      : "nothing is being aimed at this fortnight",
+    soon.length ? "live" : "quiet"));
+
+  // The `overdue` rung, not V6 -- a rule about one project's phases belongs in
+  // the project view, which is the standing decision in FR-2. So this counts
+  // projects whose *last* phase end has passed with phases still open, and it
+  // will read 0 on a plan whose late work is all mid-project. That is the honest
+  // reading of the field rather than a second copy of a rule.
+  const overdue = state.portfolio.projects.filter(
+    (project) => project.derived_stage === "overdue");
+  band.appendChild(tile("Overdue", overdue.length,
+    overdue.length
+      ? "past the last phase end, still open"
+      : "nothing has run past its last phase",
+    overdue.length ? "warn" : "quiet"));
+
+  const ideas = state.projects.filter(
+    (project) => project.derived_stage === "idea");
+  band.appendChild(tile("Ideas", ideas.length, "captured, not committed to", "quiet"));
+}
+
+// The dated checkpoints falling inside the horizon, in date order. Read off the
+// portfolio payload, which already carries every dated checkpoint on a committed
+// project -- so an undated one is absent here for the same reason it draws no
+// diamond on the chart.
+function checkpointsAhead() {
+  const from = formatDate(new Date());
+  const to = shiftDate(from, HORIZON_DAYS);
+  return (state.portfolio.milestones || [])
+    .filter((mark) => mark.target_date >= from && mark.target_date < to)
+    .sort((a, b) => a.target_date.localeCompare(b.target_date));
+}
+
+// The fortnight ahead as a day strip, one diamond per checkpoint.
+//
+// The chart below already draws every one of these, spread across as many lanes
+// as there are projects -- which is exactly why they are hard to read as a set.
+// This is the same marks on one dated line, and it is the one question a plan
+// gets asked most often: what is supposed to land next.
+//
+// Read-only, like the fortnight drawer: a checkpoint is reached in the project
+// view, where the record is kept.
+function renderCheckpointHorizon() {
+  const strip = $("checkpoint-horizon");
+  const marks = checkpointsAhead();
+  // `.horizon` sets `display`, so the attribute alone would not hide it -- the
+  // stylesheet carries the `[hidden]` guard that makes this work.
+  strip.hidden = marks.length === 0;
+  strip.innerHTML = "";
+  if (!marks.length) return;
+
+  const named = new Map(state.portfolio.projects.map(
+    (project) => [project.id, project.name]));
+  const byDate = new Map();
+  for (const mark of marks) {
+    if (!byDate.has(mark.target_date)) byDate.set(mark.target_date, []);
+    byDate.get(mark.target_date).push(mark);
+  }
+
+  const caption = element("div", "horizon-cap");
+  caption.appendChild(element("div", "horizon-title", `Next ${HORIZON_DAYS} days`));
+  caption.appendChild(element("div", "hint", "What the plans are aiming at"));
+  strip.appendChild(caption);
+
+  const days = element("div", "horizon-days");
+  const today = formatDate(new Date());
+  for (let index = 0; index < HORIZON_DAYS; index += 1) {
+    const iso = shiftDate(today, index);
+    const date = parseDate(iso);
+    const weekend = date.getDay() === 0 || date.getDay() === 6;
+    const cell = element("div", `horizon-day${weekend ? " is-weekend" : ""}`
+      + `${index === 0 ? " is-today" : ""}`);
+    cell.appendChild(element("div", "horizon-date", weekdayDate(iso)));
+
+    for (const mark of byDate.get(iso) || []) {
+      const hit = element("div", `horizon-mark${mark.achieved ? " reached" : ""}`);
+      hit.appendChild(element("div", "milestone-diamond"));
+      hit.appendChild(element("div", "horizon-name", mark.name));
+      hit.title = `${mark.name}\n${named.get(mark.project_id) || ""}\n`
+        + `${weekdayDate(iso)} — ${mark.achieved ? "reached" : "not reached yet"}`;
+      cell.appendChild(hit);
+    }
+    days.appendChild(cell);
+  }
+  strip.appendChild(days);
+}
+
 function renderPortfolio() {
+  renderPortfolioHeadline();
+  renderCheckpointHorizon();
   renderWindowBar($("portfolio-window"));
   renderPortfolioDependencies();
   const chart = $("portfolio-chart");
@@ -2193,6 +2362,12 @@ function renderPortfolio() {
     checkpoints.get(milestone.project_id).push(milestone);
   }
 
+  // Keyed off `state.projects` -- every project there is, ideas included -- and
+  // not off the projects this chart draws. Same rule the map follows and for the
+  // same reason: a colour must not move because a project got dated, left the
+  // window, or was filtered out somewhere else.
+  const palette = trackPalette(state.projects);
+
   const drawn = [];
   for (const project of projects) {
     const own = visible.filter((phase) => phase.project_id === project.id);
@@ -2218,7 +2393,8 @@ function renderPortfolio() {
     };
     const open = state.laneOpen.has(project.id);
     lane.classList.toggle("open", open);
-    lane.appendChild(laneName(title, laneTwisty(project, open)));
+    lane.appendChild(laneName(title, laneTwisty(project, open),
+      palette.get(trackPath(project.track)[0]), laneMeta(project)));
     // One row per plan row inside the lane, the same shape and the same
     // components as the project timeline: a bar for a phase, a one-mark lane for
     // a checkpoint, interleaved on the shared `sort_order`. Every checkpoint in
@@ -2258,6 +2434,9 @@ function renderPortfolio() {
     body.appendChild(lane);
   }
 
+  // The lanes actually on screen, not every committed project: a track whose
+  // work is all off-window has no rail here to explain.
+  renderTrackKey(palette, projects.filter((project) => drawn.includes(project.id)));
   renderLaneControls(drawn);
   // Every lane at once, now that they are all attached and have a layout.
   stackMilestoneLanes(chart);
@@ -2266,6 +2445,45 @@ function renderPortfolio() {
   // Redrawn from the slice already in hand: the chart moving underneath it
   // does not change which fortnight you opened.
   renderFortnightDrawer();
+}
+
+// What the rails stand for. Only the tracks with a lane on this chart are
+// listed -- the map's legend keys the whole dataset because the map draws the
+// whole dataset, while a rail here belongs to a swimlane and a track with no
+// swimlane has no rail to explain.
+//
+// The colours still come from the whole-dataset palette, so this narrows what is
+// *listed* without moving what anything is *painted*. The greys are claimed only
+// when something is wearing one.
+function renderTrackKey(palette, drawnProjects) {
+  const key = $("track-key");
+  key.innerHTML = "";
+
+  const roots = [...new Set(drawnProjects
+    .map((project) => trackPath(project.track)[0]))];
+  const named = roots.filter(Boolean).sort();
+  if (!named.length && !roots.length) return;
+
+  key.appendChild(element("span", "filter-caption", "Track"));
+  const entry = (name, hue, tooltip) => {
+    const item = element("span", "track-key-item");
+    const swatch = element("span", "track-key-swatch");
+    swatch.style.background = hue || "var(--faint)";
+    item.append(swatch, element("span", "track-key-name", name));
+    item.title = tooltip;
+    key.appendChild(item);
+  };
+
+  for (const name of named) {
+    const hue = palette.get(name);
+    entry(name, hue, hue
+      ? `${name} — the same colour this track wears on the map.`
+      : `${name} — past the eighth track, so it takes the grey rather than a `
+        + "hue nobody could tell from another.");
+  }
+  if (roots.some((root) => !root)) {
+    entry("untracked", null, "Projects with no track written down.");
+  }
 }
 
 // One button for the whole chart, beside the count of what it is showing.
@@ -3122,8 +3340,42 @@ function fortnightFooter(window) {
 // The portfolio's own ruler: the shared one plus a click target per week. Kept
 // separate rather than flagged on, so the project timeline's ruler is untouched
 // and nothing there has to know the drawer exists.
+// A quarter band above the months, so a window can be placed at a glance without
+// reading week numbers or counting month blocks. Only this ruler grows one:
+// `weekGrid` takes the ruler as an argument, so the project timeline is untouched
+// by every line of it, and `relativeRuler` has no calendar to put quarters on.
+//
+// Prepended rather than built inside `weekRuler`, and after `weekRuler` has run,
+// so the `.week` cells this function goes on to index are unaffected -- and the
+// gutter spacer `weekGrid` inserts into every `.ruler-row` finds this row like
+// any other.
+function quarterRow(view) {
+  const row = element("div", "ruler-row ruler-quarters");
+  let block = null;
+  let key = null;
+  let weeks = 0;
+
+  for (let index = 0; index < view.weeks; index += 1) {
+    const monday = addDays(view.origin, index * 7);
+    // A week belongs to the quarter of its Monday, the same rule the month row
+    // follows, so the two can never disagree about where a boundary falls.
+    const stamp = `${monday.getFullYear()}-${Math.floor(monday.getMonth() / 3)}`;
+    if (stamp !== key) {
+      key = stamp;
+      weeks = 0;
+      block = element("div", "quarter",
+        `Q${Math.floor(monday.getMonth() / 3) + 1} ${monday.getFullYear()}`);
+      row.appendChild(block);
+    }
+    weeks += 1;
+    block.style.width = `${weeks * view.pxPerWeek}px`;
+  }
+  return row;
+}
+
 function portfolioRuler(view) {
   const ruler = weekRuler(view);
+  ruler.insertBefore(quarterRow(view), ruler.firstChild);
   const open = state.fortnight.start;
   const second = open ? shiftDate(open, 7) : null;
 

@@ -336,6 +336,16 @@
           Click a week number on the ruler to read that fortnight day by day;
           the drawer that opens is read-only.
         </p>
+
+        <!-- What the chart cannot say between its bars: how much is committed,
+             what is being aimed at next, and how much has never been committed
+             to at all. Both are read off payloads already on the wire and
+             neither writes anything. The horizon hides itself when the
+             fortnight ahead holds no checkpoint -- with a `[hidden]` guard in
+             the stylesheet, since `.horizon` sets `display`. -->
+        <div id="portfolio-headline" class="headline"></div>
+        <div id="checkpoint-horizon" class="horizon" hidden></div>
+
         <div id="portfolio-window" class="window-bar"></div>
 
         <div id="tray-section" hidden>
@@ -365,6 +375,11 @@
         <div id="portfolio-scroll">
           <div id="portfolio-chart"></div>
         </div>
+
+        <!-- Outside the scroll box: the chart is as wide as its window and
+             scrolls sideways, and a key that scrolled away from what it
+             explains would be worse than none. -->
+        <div id="track-key" class="track-key"></div>
 
         <!-- Reads only, including file creation. Click a week on the ruler
              above to open the fortnight starting that Monday. -->

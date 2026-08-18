@@ -838,6 +838,58 @@ into one project link.
   stage but `idea`; committed is committed, whatever rung the ladder then puts
   it on). Drag a bar to move **only** that phase; snaps to a
   week, `Alt` for single days. No resize.
+  **Above the chart sits a headline band and a fortnight of checkpoints**, and
+  both exist because a chart of bars cannot say how much is committed, what is
+  being aimed at next, or how much has never been committed to at all. Neither
+  costs an endpoint, a schema change or a line of Python.
+  - `renderPortfolioHeadline` draws four tiles: **committed** (the payload's own
+    projects less the ones the ladder calls `done`, split into dated and
+    awaiting dates), **checkpoints in the next 14 days**, **overdue**, and
+    **ideas**.
+  - **Three of the four read `/api/portfolio`; ideas read `state.projects`**,
+    and that split is the point rather than an oversight. This route omits ideas
+    deliberately — *"an idea nobody has committed to does not belong on a
+    delivery timeline"* — so the count of what is **not** on this tab has to come
+    from the list that holds everything, which is the sidebar's and is loaded
+    before any view renders.
+  - **The overdue tile counts the `overdue` rung, never V6.** A rule about one
+    project's phases belongs in the project view — FR-2, still a won't-build — so
+    this reads a field the payload already carries. The honest consequence,
+    worth knowing before it reads as a bug: **the rung only fires once a
+    project's *last* phase end has passed**, so a plan whose late work is all
+    mid-project reads 0. On the real dataset it does. V6 is the rule that finds
+    that work and it is deliberately not here.
+  - `renderCheckpointHorizon` is the same diamonds the chart already draws,
+    pulled onto one dated line — `HORIZON_DAYS` (14), weekends and today shaded
+    on the fortnight slice's own vocabulary, `.milestone-diamond` reused so
+    hollow-until-reached cannot drift into a third spelling. **Read-only**, like
+    the drawer: a checkpoint is reached in the project view. The strip hides
+    itself when the fortnight ahead holds none, which is why `.horizon[hidden]`
+    is in the stylesheet — `.horizon` sets `display`.
+  **Each lane name carries a track rail and the rung it is on.** The rail is
+  `trackPalette` over **`state.projects`** — the whole dataset, the same keying
+  the map uses, so one project is the same colour on both tabs and no colour
+  moves because a project got dated or left the window. It is **identity, never
+  meaning**: the bar's fill still says how far along, and the dot below still
+  says which rung. That dot is the sidebar's own `.project-dot.stage-*`, class
+  and all, so the stage palette keeps one definition and this surface adds only
+  its size. `.lane-name` gained `align-self: stretch` so the rail runs the length
+  of an open lane rather than the length of the name — a dozen rows, and the rail
+  is what says they are one project.
+  **`LANE_NAME_PX` is 168, not 160**, for the rail and the second line. It is
+  spent before `weekGrid` fits the columns, so every bar moved 8px right and the
+  calendar lost 8px — a third of a pixel per column at the 26-week cap.
+  **The ruler gained a quarter band** (`quarterRow`), so a window can be placed
+  without reading week numbers. Portfolio only: `weekGrid` takes its ruler as an
+  argument, so nothing in it can reach the project timeline, and `relativeRuler`
+  has no calendar to put quarters on. A week belongs to the quarter of its
+  Monday, the month row's own rule, so the two cannot disagree about a boundary.
+  **A track key sits under the chart** (`renderTrackKey`), outside
+  `#portfolio-scroll` because the chart scrolls sideways and a key that scrolled
+  away from what it explains would be worse than none. It lists only the tracks
+  with a **lane drawn** — a rail belongs to a swimlane — while the colours still
+  come from the whole-dataset palette, so it narrows what is *listed* without
+  moving what anything is *painted*.
   **A lane is folded by default, and opens on a `▸` beside its name.** A lane is
   one row per phase plus one per dated checkpoint, which is the right shape for
   reading one project and the wrong one for reading a dozen: on the real file the
@@ -1411,8 +1463,9 @@ into one project link.
     `.window-bar`, so the date controls never hid in Weeks mode; `.undo-bar`, so an
     empty ruled strip sat on Portfolio permanently; and `.mode-switch`, so the
     Rendered|Raw switch never hid with no sprint file open. `.row[hidden]`,
-    `.menu-panel[hidden]`, `.topbar-actions[hidden]`, `.stage-badge[hidden]` and
-    `.topbar-meta[hidden]` were written correctly the first time. Each count above
+    `.menu-panel[hidden]`, `.topbar-actions[hidden]`, `.stage-badge[hidden]`,
+    `.topbar-meta[hidden]` and `.horizon[hidden]` were written correctly the first
+    time. Each count above
     is right for when it was written; do not renumber them.)
     Clicking a diagram opens its fence like any other block; the rail
     reads `mmd`, because the server types every fence `code` and `mermaid`
@@ -1789,6 +1842,13 @@ none of those vocabularies — and spends the rest on material, space and type.
   from `.bar` down is not.** That split is the file's own comment at the top and it
   is the line to keep: a phase bar's blue is a value, not a decision about looks,
   and every chart colour has an argument written against it elsewhere in this file.
+  **The portfolio headline is the last designed block**, sitting immediately above
+  `#timeline-scroll`. It invents nothing: the figure is ink, `is-live` is the one
+  accent the chrome already owns, `is-warn` is the overdue red the stage ramp
+  spends exactly once, and a tile worth nothing today is greyed rather than
+  dressed up — **a tile that reads 0 should look like a tile that reads 0.** The
+  checkpoint horizon below it is on the *chart* side of the line, because its
+  purple, its weekend wash and its amber today are all values.
 - **Tokens, not hex.** `--accent*`, four weights of ink, `--page` / `--surface` /
   `--line` / `--line-soft` / `--field` / `--hover`, two radii, `--sidebar-w`,
   `--topbar-h`, and `--control-h`. The last is **not applied as a `height`

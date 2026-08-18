@@ -561,6 +561,102 @@ td input { width: 100%; min-width: 80px; }
   margin-right: 8px;
 }
 
+/* --- the portfolio headline ------------------------------------------------
+   Four readings above the chart. This is the last designed block in the file:
+   everything from `.bar` down is chart, where a colour is a value rather than a
+   decision about looks.
+
+   Nothing here invents a colour. The number is ink, `is-live` is the one accent
+   the chrome already owns, `is-warn` is the overdue red the stage ramp spends
+   exactly once, and a figure worth nothing today is greyed rather than dressed
+   up. A tile that reads 0 should look like a tile that reads 0. */
+.headline {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+.tile {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: 12px 14px;
+}
+.tile-cap {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 4px;
+}
+.tile-num {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+.tile-live .tile-num { color: var(--accent); }
+.tile-warn .tile-num { color: var(--stage-overdue-line); }
+.tile-quiet .tile-num { color: var(--faint); }
+.tile-sub { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+
+/* --- the checkpoint horizon ------------------------------------------------
+   The fortnight ahead on one dated line. The diamonds are the chart's own
+   `.milestone-diamond`, so the hollow-until-reached vocabulary cannot drift
+   into a third spelling; what this adds is the day columns under them.
+
+   `display: flex` on `.horizon` is why the `[hidden]` guard below has to exist:
+   a class setting `display` outranks the UA sheet's `[hidden]`, and the strip
+   is hidden whenever the fortnight holds no checkpoint. Written with the guard
+   the first time rather than found by `css_check.js` afterwards, so it joins
+   the correct-first-time list in CLAUDE.md rather than the tally of features
+   that trap has broken. */
+.horizon {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  overflow: hidden;
+  margin: 12px 0;
+}
+.horizon[hidden] { display: none; }
+.horizon-cap { flex: 0 0 168px; padding: 10px 14px; border-right: 1px solid var(--line-soft); }
+.horizon-title { font-size: 13px; font-weight: 600; color: var(--ink); }
+.horizon-cap .hint { margin: 2px 0 0; }
+.horizon-days {
+  flex: 1 1 0;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(14, minmax(0, 1fr));
+}
+.horizon-day {
+  border-left: 1px solid var(--line-soft);
+  padding: 7px 2px 9px;
+  text-align: center;
+  min-height: 64px;
+}
+/* The strip's own shading vocabulary, lifted from the fortnight slice so the
+   two pictures of a fortnight agree: weekends recede, today is amber because
+   every other meaning in these charts is spoken for. */
+.horizon-day.is-weekend { background: var(--page); }
+.horizon-day.is-today { background: #fdf1d0; }
+.horizon-date { font-size: 9.5px; color: var(--faint); }
+.horizon-day.is-today .horizon-date { color: #8a6a12; font-weight: 600; }
+.horizon-mark { margin-top: 5px; }
+.horizon-mark .milestone-diamond { margin: 0 auto; }
+.horizon-name {
+  font-size: 9.5px;
+  line-height: 1.2;
+  color: #6a1b9a;
+  margin-top: 3px;
+  padding: 0 2px;
+  overflow-wrap: anywhere;
+}
+.horizon-mark.reached .horizon-name { color: #4a148c; }
+
 #timeline-scroll { overflow-x: auto; border: 1px solid #eee; padding: 10px; }
 #timeline { min-height: 20px; }
 
@@ -624,7 +720,10 @@ td input { width: 100%; min-width: 80px; }
 /* Hollow until reached, filled once it is -- the same vocabulary the map uses
    for a project node, where hollow is shaped-but-not-started and filled is
    under way. Nothing here is derived: this is the stored tick. */
-.milestone-mark.reached .milestone-diamond { background: #6a1b9a; }
+/* The horizon strip joins this rather than spelling the fill a second time:
+   hollow until reached is one rule, wherever a diamond is drawn. */
+.milestone-mark.reached .milestone-diamond,
+.horizon-mark.reached .milestone-diamond { background: #6a1b9a; }
 .milestone-label {
   font-size: 11px;
   color: #6a1b9a;
@@ -806,6 +905,24 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 .ruler-months { border-bottom: 1px solid #eee; }
 .ruler-weeks { border-bottom: 1px solid #ddd; }
 
+/* The quarter band, portfolio only -- `weekGrid` takes its ruler as an argument,
+   so nothing here can reach the project timeline. Quiet on purpose: it is there
+   to be found when you are placing a window, not to be read on the way past, and
+   the months below it are the row doing the work. */
+.ruler-quarters { border-bottom: 1px solid var(--line-soft); }
+.quarter {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--faint);
+  border-left: 1px solid var(--line);
+  padding-left: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
 .month {
   font-size: 11px;
   font-weight: 600;
@@ -947,16 +1064,68 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   box-sizing: border-box;
   padding-right: 10px;
   min-width: 0;
+  /* Full lane height, against `.lane`'s own `flex-start`, so the track rail
+     inside can run the length of the lane rather than the length of the name.
+     An open lane is a dozen rows and the rail is what says they are one
+     project; the contents still sit at the top, which is what the cell's own
+     `align-items` below is for. */
+  align-self: stretch;
   /* The twisty then the name. `min-width: 0` above is what still lets the name
      shrink to its ellipsis with the twisty holding its own width. */
   display: flex;
   align-items: flex-start;
   gap: 2px;
 }
+/* The track's colour, as a rail down the whole cell. `align-self: stretch` is
+   what makes it the height of the lane rather than of the first line, so an open
+   lane gets a rail as tall as its phases -- which is what groups the rows as
+   belonging to one project as much as the name does.
+
+   Identity, not meaning: the hue says which track, the bar fill still says how
+   far along, and the dot below still says which rung. The colour comes from
+   `trackPalette` over the whole dataset, the same call the map makes, so a
+   project is the same colour on both tabs. */
+.track-rail {
+  flex: 0 0 3px;
+  align-self: stretch;
+  border-radius: 2px;
+  margin-right: 6px;
+}
+
+/* The name over its rung. `min-width: 0` so the title still shrinks to its
+   ellipsis with the rail and the twisty holding their own widths. */
+.lane-name-text { min-width: 0; }
+.lane-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  line-height: 1.2;
+  color: var(--faint);
+  margin-top: -2px;
+}
+/* The sidebar's dot, at the size this surface wants. Geometry only -- every
+   colour it wears is `.project-dot.stage-*`, defined once, up with the picker. */
+.lane-meta .project-dot { width: 7px; height: 7px; border-width: 1.5px; }
+.lane-rung { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* `0` basis rather than `auto`: the bars inside are wider than the box (one of
    them is 26 weeks long if the phase is), and an auto basis would size the column
    to that before shrinking it back. */
 .lane-rows { flex: 1 1 0; min-width: 0; }
+
+/* What the rails stand for, under the chart rather than in it: the chart is as
+   wide as its window and scrolls sideways, and a key that scrolled away from
+   what it explains would be worse than none. */
+.track-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  align-items: center;
+  margin: 10px 0 0;
+}
+.track-key-item { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--ink-3); }
+.track-key-swatch { width: 10px; height: 10px; border-radius: 2px; flex: 0 0 10px; }
 
 /* The project's name, and the heaviest thing in the swimlane: it is what you
    are looking for when scanning a chart of a dozen lanes, and the bars beside
