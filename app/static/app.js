@@ -3348,7 +3348,13 @@ async function loadSprintScope(window, key) {
 
 // Kept in step with `DELIVERABLE_REF` in `main.py`, which is what decides whether
 // a row is linked at all. This one only decides where the chip is drawn.
-const DELIVERABLE_REF = /\bD-(\d+)\b/;
+//
+// Two spellings, one written: `[#D-42]` is what the picker writes, `D-42` is what
+// the files already on disk say. See the argument in `main.py`.
+const DELIVERABLE_REF = /\[#D-(\d+)\]|\bD-(\d+)\b/;
+
+// The id out of whichever spelling matched.
+const referencedId = (match) => Number(match[1] || match[2]);
 
 // The deliverable a chip draws: the file's read links when they are in hand, the
 // roadmap's own list when they are not.
@@ -3392,13 +3398,15 @@ function sprintLink(id) {
 // matched alone. So an unresolved `D-42` is the characters you typed, which is
 // also exactly what it is in the file.
 function deliverableChip(match) {
-  const id = Number(match[1]);
+  const id = referencedId(match);
   const link = sprintLink(id);
   if (!link) return null;
 
   const chip = element("span", link.missing ? "cell-ref cell-ref-dead" : "cell-ref");
   if (link.missing) {
-    chip.textContent = `D-${id}`;
+    // The characters you typed, in the spelling you typed them: a dead reference
+    // is a typo to find in the file, so the file's own text is what to show.
+    chip.textContent = match[0];
     chip.title = `No deliverable ${id} in the roadmap — check the reference.`;
     return chip;
   }
@@ -3452,7 +3460,7 @@ function deliverableMenuEntries(filter) {
   return state.allDeliverables.map((one) => ({
     key: `d${one.id}`,
     label: one.name,
-    markdown: `D-${one.id} `,
+    markdown: `[#D-${one.id}] `,
     rowUnique: DELIVERABLE_REF,
   }));
 }

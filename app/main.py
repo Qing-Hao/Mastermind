@@ -943,58 +943,100 @@ def add_sprint(body: SprintIn):
 
 # --- deliverable links ------------------------------------------------------
 
-# **`D-42` in a sprint row means deliverable 42.** The reference lives in the
+# **`[#D-42]` in a sprint file means deliverable 42.** The reference lives in the
 # markdown, as text you can type, and nothing else stores it: no link table, no
 # sidecar, nothing for `migrate` to do and no export version to bump.
 #
 # The split it rests on: the file records what the sprint *is*, the deliverable
-# records whether it is *done*. That is what makes the link work in both
-# directions without a sync between them. A linked row's Status cell is never
-# read here and never written here -- it stays your five-state note -- and the
-# tick drawn beside it is the deliverable's own, so clearing it on the Project
-# tab shows through immediately and no value has ever to be invented to write
-# back into a file you also edit by hand. Two places owning "is this done" is
-# what made the reverse direction impossible to define; one owner deletes the
-# question rather than answering it.
+# records whether it is *done*. A linked row's Status cell is never read here and
+# never written here -- it stays your five-state note -- and the tick drawn beside
+# a reference is the deliverable's own, so clearing it on the Project tab shows
+# through immediately.
 #
-# Nothing below knows what a sprint section is: any pipe table is a table and any
-# row in one may carry a reference. That is the same ignorance `split_blocks`
-# has, and the reason `markdown.py` needed no change for this feature.
+# Nothing below knows what a sprint section is: any pipe table is a table, any
+# bulleted line is a line, and either may carry a reference. That is the same
+# ignorance `split_blocks` has, and the reason `markdown.py` needs no change for
+# this feature.
 
-DELIVERABLE_REF = re.compile(r"\bD-(\d+)\b")
+# **Two spellings read, one written.** `[#D-42]` is what the picker writes and
+# what a reference is from now on: the brackets make it a thing on the page
+# rather than something that might be a word, and they give the reference an end
+# a reader can see. `D-42` is what every sprint file on disk already says, and
+# rewriting those to catch up would be the app editing documents it does not own.
+# The editor makes the same bargain with `- [ ]` and `☐`.
+DELIVERABLE_REF = re.compile(r"\[#D-(\d+)\]|\bD-(\d+)\b")
+
+# A bulleted, numbered or task line, and the body after its marker. Quoted lines
+# are lines too -- `> - [ ] Ship` is a task inside a quote, which is what the
+# editor draws it as.
+_LIST_LINE = re.compile(r"^[ \t]*(?:>[ \t]*)*(?:[-*+]|\d+[.)])[ \t]+(.*)$")
+_TASK_MARK = re.compile(r"^\[[ xX]\][ \t]+")
+
+
+def _ref_id(found):
+    """The id out of whichever of the two spellings matched."""
+    return int(found.group(1) or found.group(2))
 
 
 def row_reference(cells):
     """The deliverable a table row names as `(id, label)`, or None.
 
     Read from anywhere in the row rather than from a named column: `Auth API
-    (D-42)` and a reference parked in Remarks are both things people write, and a
-    fixed column would silently ignore one of them. The label is the row's first
-    non-empty cell, which is the task name in every table in the template.
+    [#D-42]` and a reference parked in Remarks are both things people write, and
+    a fixed column would silently ignore one of them. The label is the row's
+    first non-empty cell, which is the task name in every table in the template.
     """
     for cell in cells:
         found = DELIVERABLE_REF.search(cell)
         if found:
             label = next((one.strip() for one in cells if one.strip()), "")
-            return int(found.group(1)), label
+            return _ref_id(found), label
     return None
 
 
-def sprint_task_refs(text):
-    """Every deliverable a document's tables name, in file order, repeats kept.
+def line_reference(line):
+    """The deliverable a list line names as `(id, label)`, or None.
 
-    One entry per *row*. A deliverable named twice -- carried over within one
-    file, or planned in one table and reported in another -- is two rows, and
-    what that means is the caller's to decide rather than something to collapse
-    here.
+    A line rather than a row, and the two are the same unit to everything
+    downstream: one link, at most, from the first reference on it. The label is
+    the line with its marker and its reference taken out -- what you would call
+    the task if asked.
+    """
+    item = _LIST_LINE.match(line)
+    if not item:
+        return None
+    body = _TASK_MARK.sub("", item.group(1))
+    found = DELIVERABLE_REF.search(body)
+    if not found:
+        return None
+    return _ref_id(found), " ".join(DELIVERABLE_REF.sub("", body).split())
+
+
+def sprint_task_refs(text):
+    """Every deliverable a document names, in file order, repeats kept.
+
+    One entry per table *row* and per list *line*. A deliverable named twice --
+    carried over within one file, or planned in one table and reported in
+    another -- is two entries, and what that means is the caller's to decide
+    rather than something to collapse here.
+
+    A list line counts because a fortnight is as often planned as a checklist as
+    it is as a table, and a reference that draws a chip but reaches no reader is
+    a link only on screen.
     """
     found = []
     for block in split_blocks(text):
         table = block.get("table")
-        if not table:
+        if table:
+            for row in table["rows"]:
+                reference = row_reference(row)
+                if reference:
+                    found.append({"deliverable_id": reference[0], "label": reference[1]})
             continue
-        for row in table["rows"]:
-            reference = row_reference(row)
+        if block["type"] not in ("list", "quote"):
+            continue
+        for line in block["raw"].splitlines():
+            reference = line_reference(line)
             if reference:
                 found.append({"deliverable_id": reference[0], "label": reference[1]})
     return found

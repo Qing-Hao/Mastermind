@@ -2531,11 +2531,13 @@ def test_ticking_a_milestone_stores_a_flag_and_deleting_a_project_takes_it(tmp_p
 
 # --- deliverable links --------------------------------------------------------
 
-# `D-42` in a sprint row means deliverable 42. The reference is text in the file
-# and the tick is the deliverable's, which is the whole design: there is nothing
-# stored in between for these tests to check, and the thing worth pinning is that
-# **the app never writes the file back**. Ticking through a link and finding the
-# markdown byte-for-byte unchanged is the acceptance test for the whole feature.
+# `[#D-42]` in a sprint file means deliverable 42, in a table row or on a list
+# line. The reference is text in the file and the tick is the deliverable's, which
+# is the whole design: there is nothing stored in between for these tests to
+# check.
+#
+# `D-42` without the brackets is the older spelling and is still read, because
+# every file written before the brackets says it. Nothing writes it any more.
 
 
 def make_deliverable(client, phase_id, name):
@@ -2653,9 +2655,81 @@ def test_a_reference_outside_a_table_is_not_a_link(client, sprints):
         f"We should finish D-{first['id']} this fortnight.\n"
     ))
 
-    # Prose is prose. The reference is a planning row's, and a paragraph mentioning
-    # one is not a row of work with a tick to draw.
+    # Prose is prose. The reference belongs to a unit of planned work -- a row or a
+    # line -- and a paragraph mentioning one is neither.
     assert client.get("/api/sprints/1/links").json() == []
+
+
+def test_both_spellings_of_a_reference_are_read(client, sprints):
+    _, _, first, second = linked_plan(client)
+    stage_sprint(sprints, 1, (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        "| Task | Status |\n"
+        "| --- | --- |\n"
+        f"| Auth API [#D-{first['id']}] | Development |\n"
+        f"| Audit log D-{second['id']} | Development |\n"
+    ))
+
+    links = client.get("/api/sprints/1/links").json()
+    assert [one["deliverable_id"] for one in links] == [first["id"], second["id"]]
+    assert [one["missing"] for one in links] == [False, False]
+
+
+def test_a_reference_on_a_checkbox_line_is_a_link(client, sprints):
+    _, _, first, second = linked_plan(client)
+    stage_sprint(sprints, 1, (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        f"- [ ] Ship the auth API [#D-{first['id']}]\n"
+        "- [x] Write the migration note\n"
+        f"- [ ] Audit log D-{second['id']}\n"
+    ))
+
+    links = client.get("/api/sprints/1/links").json()
+    assert [one["deliverable_id"] for one in links] == [first["id"], second["id"]]
+    # The label is the line without its marker and without the reference: what you
+    # would call the task if asked.
+    assert links[0]["label"] == "Ship the auth API"
+    assert links[0]["name"] == "Auth API"
+
+
+def test_a_quoted_checkbox_line_is_a_link_too(client, sprints):
+    _, _, first, _ = linked_plan(client)
+    stage_sprint(sprints, 1, (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        f"> - [ ] Carried over: ship the auth API [#D-{first['id']}]\n"
+    ))
+
+    # A quote is where a carried-over plan gets parked. The editor draws it as a
+    # task line, so it is one here as well.
+    assert client.get("/api/sprints/1/links").json()[0]["deliverable_id"] == first["id"]
+
+
+def test_a_line_and_a_row_naming_one_deliverable_count_together(client, sprints):
+    _, _, first, _ = linked_plan(client)
+    stage_sprint(sprints, 1, (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        f"- [ ] Ship the auth API [#D-{first['id']}]\n\n"
+        "| Task | Status |\n"
+        "| --- | --- |\n"
+        f"| Auth API [#D-{first['id']}] | Development |\n"
+    ))
+
+    links = client.get("/api/sprints/1/links").json()
+    assert len(links) == 1
+    assert links[0]["rows"] == 2
+
+
+def test_a_line_carrying_two_references_links_only_the_first(client, sprints):
+    _, _, first, second = linked_plan(client)
+    stage_sprint(sprints, 1, (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        f"- [ ] Both at once [#D-{first['id']}] [#D-{second['id']}]\n"
+    ))
+
+    # The same "first one wins" a row has, and the reason the picker moves a line's
+    # reference rather than adding a second beside it.
+    links = client.get("/api/sprints/1/links").json()
+    assert [one["deliverable_id"] for one in links] == [first["id"]]
 
 
 def test_links_of_a_sprint_that_is_not_there_is_a_404(client, sprints):
