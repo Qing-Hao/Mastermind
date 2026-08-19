@@ -2147,6 +2147,44 @@ body.resizing-column { cursor: col-resize; user-select: none; }
   box-sizing: border-box;
 }
 
+/* The surface prose is typed into: a `contenteditable` that draws its own inline
+   markdown, so the difference between reading a block and editing it is a caret and
+   a tinted background. A left edge rather than a box, because a border around the
+   text would move it -- the thing hoisting the markers exists to avoid.
+
+   `white-space: pre-wrap` is load-bearing: the file's own spacing is content, and a
+   collapsing surface would quietly eat the two spaces you typed. */
+.sprint-inline {
+  padding: 2px 8px;
+  border-left: 2px solid var(--accent);
+  border-radius: 3px;
+  background: var(--page);
+  min-height: 20px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  outline: none;
+}
+
+/* Paragraph prose: the app's own text, said explicitly because this surface sits
+   where a textarea used to and must not read as a form field. */
+.sprint-prose { font: inherit; }
+
+/* What the surface draws, at the same metrics as the rendered block above it -- a
+   run that changed height on click would make editing feel like another document.
+   `u` is spelled out because underline has no markdown, so the file writes it as the
+   raw `<u>` the sprint template already relies on. */
+.sprint-inline code,
+.sprint-line-label code {
+  font: 12.5px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  background: #f0f0f3;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+.sprint-inline a { color: var(--accent); }
+.sprint-inline u { text-decoration: underline; }
+.sprint-inline del, .sprint-inline s, .sprint-inline strike,
+.sprint-line-label del { color: var(--muted); }
+
 /* A heading edited at its own size, because its `##` is not in the box: the text
    must not change size when you click into it. The sizes mirror
    `.sprint-block h1/h2/h3` above and have to be kept in step with them. */
@@ -2174,6 +2212,17 @@ body.resizing-column { cursor: col-resize; user-select: none; }
   padding-left: calc(var(--line-depth, 0) * 16px);
 }
 
+/* A quote line carries its own bar, so a quote of any length draws one continuous
+   edge and the block never has to know how many lines it has. The indent is added
+   to the bar's padding rather than replacing it -- a `> - x` line is quoted *and*
+   indented. Colours are `.sprint-block blockquote`'s, so a quote reads the same
+   whether it is being edited or not. */
+.sprint-line-quote {
+  border-left: 3px solid #e0e0e0;
+  padding-left: calc(8px + var(--line-depth, 0) * 16px);
+  color: #555;
+}
+
 /* • ◦ ▪ by depth, or the number as the file writes it. Fixed width, so the text
    of every item at one depth starts in the same place. */
 .sprint-line-marker {
@@ -2188,14 +2237,9 @@ body.resizing-column { cursor: col-resize; user-select: none; }
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-/* The constructs `renderCellInline` draws, sized so a rendered line is the same
-   height as the box it swaps to -- the same reason `.sprint-cell-line` does it. */
-.sprint-line-label code {
-  font: inherit;
-  background: #f0f0f3;
-  padding: 0 2px;
-  border-radius: 2px;
-}
+/* The label and the surface that replaces it draw the same constructs the same
+   way -- see `.sprint-inline code` above, which both share -- so clicking a line
+   changes nothing about its height. */
 .sprint-line-label a { color: var(--accent); }
 .sprint-line-label a:hover { text-decoration: none; }
 

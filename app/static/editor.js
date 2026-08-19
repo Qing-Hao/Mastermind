@@ -48,6 +48,11 @@ let sprintSaveTimer = null;
 // for one render and never a setting.
 let sprintCaret = null;
 
+// The two shapes an open editor can be: a `contenteditable` for prose, a textarea
+// where the source is the content. Named once because three things ask "what is
+// open" -- the blur guard, the focus pass and a row's own click.
+const SPRINT_EDITING = ".sprint-raw, .sprint-inline";
+
 // The one openable file that is not a sprint: `templates/sprint.md`, which every
 // sprint file is a copy of. It stands where a number stands, because the editor
 // only ever needed a *key* to say which file is open -- a string cannot collide
@@ -397,7 +402,7 @@ function renderSprintDocument() {
   // render is about to draw. A node on its way out has no opinion about
   // committing, so its handler goes first. Found by instrumenting a tab switch
   // mid-edit: the commit arrived before the mousedown that caused it.
-  const leaving = doc.querySelector(".sprint-raw");
+  const leaving = doc.querySelector(SPRINT_EDITING);
   if (leaving) leaving.onblur = null;
   doc.innerHTML = "";
 
@@ -406,13 +411,14 @@ function renderSprintDocument() {
     row.appendChild(sprintRail(block, index, row));
 
     // A table is edited as a grid and never as raw pipes, so it has no reveal
-    // gesture at all -- the cells *are* the editor. A list is the same answer to
-    // the same problem one dimension down: a checkbox is an element, so the line
-    // it sits on cannot be a textarea. Everything else swaps between rendered
-    // HTML and its own markdown, with the block's marker hoisted out of the box.
+    // gesture at all -- the cells *are* the editor. A list and a quote are the same
+    // answer to the same problem one dimension down: their marker is on every line,
+    // and a checkbox is an element, so the line it sits on cannot be a box.
+    // Everything else is one surface: prose drawn as itself, source where the
+    // source is the content.
     if (block.type === "table" && block.table) {
       row.appendChild(sprintTable(block, index));
-    } else if (block.type === "list") {
+    } else if (block.type === "list" || block.type === "quote") {
       row.appendChild(sprintList(block, index));
     } else {
       row.appendChild(index === sprint.editing
@@ -452,11 +458,14 @@ function renderSprintDocument() {
   const wanted = sprintCaret;
   sprintCaret = null;
 
-  const area = doc.querySelector(".sprint-raw");
-  if (area) {
+  // The end of the surface, unless an edit asked for somewhere else -- a merged line
+  // wants the caret at the join, not past what the join produced.
+  const area = doc.querySelector(SPRINT_EDITING);
+  if (area && area.value === undefined) {
     area.focus();
-    // The end of the box, unless an edit asked for somewhere else -- a merged
-    // line wants the caret at the join, not past what the join produced.
+    setInlineCaret(area, wanted === null ? Infinity : Math.max(0, wanted));
+  } else if (area) {
+    area.focus();
     const at = wanted === null
       ? area.value.length
       : Math.max(0, Math.min(wanted, area.value.length));
@@ -499,6 +508,325 @@ function sprintBlock(block, index) {
     editSprintBlock(index);
   };
   return node;
+}
+
+// --- inline, drawn as itself --------------------------------------------------
+
+// **The surface you type prose into draws its own markdown.** `**bold**` becomes
+// bold as the closing marker lands, `Ctrl`+`B` wraps a selection, and neither the
+// asterisks nor the tags are ever in the box.
+//
+// This is the half of one-way editing a textarea cannot do at all: a textarea's
+// content is characters, so nothing can be *drawn* inside it. The surface is a
+// `contenteditable`, and that brings one obligation with it -- **the DOM has to be
+// writable back to markdown**, which is what `inlineMarkdown` is.
+//
+// The discipline that keeps that honest is the grid's, already stated in
+// `renderCellInline`: **the inventory of what can be drawn is the inventory of what
+// can be written back.** `inlineMarkdown` is that renderer's inverse and must stay
+// its inverse -- a construct added to one goes into the other in the same commit.
+//
+// What this costs, stated plainly because it is the one thing here that widens a
+// documented invariant: `markdown.py` promises prose is never rewritten, with a
+// table's grid as the single exception. A block you **type in** now joins that
+// exception -- its inline source is written back from the DOM, so `<b>x</b>` typed
+// by `Ctrl`+`B` comes back `**x**`. Blocks you never touch are untouched, and the
+// splitter's own round trip is unaffected.
+//
+// What does **not** change, and is the reason the cost is narrow: anything this
+// renderer does not know stays a plain text node and is written back character for
+// character. `_em_`, an image, a footnote, a raw `<span>` -- all pass straight
+// through. Only constructs it actually draws can be respelled, and it draws each of
+// them in the same spelling it reads.
+
+// The tags that can be re-derived from the DOM, and the markdown to wrap them in.
+// `b`/`i`/`u`/`strike` are here because that is what `execCommand` produces; the
+// file gets one spelling of each either way.
+const INLINE_WRAP = {
+  STRONG: "**", B: "**",
+  EM: "*", I: "*",
+  DEL: "~~", S: "~~", STRIKE: "~~",
+};
+
+// Underline has no markdown, so it is written as the HTML the file already relies
+// on -- `templates/sprint.md` puts `<u>` around deliverable headings, which is why
+// `markdown.py` renders with `html=True`. See the note there before "fixing" it.
+const INLINE_UNDERLINE = ["<u>", "</u>"];
+
+// Every tag `inlineMarkdown` knows how to write. A node with a tag outside this
+// set is a rule's own widget: it cannot be re-derived, so it carries its source.
+const INLINE_KNOWN = new Set(
+  [...Object.keys(INLINE_WRAP), "U", "CODE", "A", "BR"]);
+
+// A node whose insides cannot be re-derived carries the markdown it was built
+// from, and is not editable. The deliverable chip is the case: one span holding a
+// tick, an arrow and a label, none of which is the `D-42` that produced it.
+//
+// **Structural constructs are deliberately left unmarked.** A `<strong>` is
+// re-derived from its tag, so it stays editable -- recording `**bold**` on it would
+// mean typing inside the bold run left the old source behind, and the file would
+// keep the word you had just deleted.
+function markInlineSource(node, source) {
+  if (node.nodeType !== 1 || INLINE_KNOWN.has(node.tagName)) return;
+  node.dataset.md = source;
+  node.contentEditable = "false";
+}
+
+// What a run of text is worth in the file. Two characters the surface puts there
+// itself never reach it: the non-breaking space a `contenteditable` writes when you
+// type two spaces -- which is not the character you typed -- and the caret anchor
+// below. Nothing else is touched, and in particular nothing is escaped: what is in
+// the file is what is on the screen.
+const inlineText = (value) => String(value)
+  .replace(/\u00a0/g, " ")
+  .replace(/\u200b/g, "");
+
+// The DOM back to markdown. Takes anything with `childNodes`, so a cloned range
+// works as well as an element.
+function inlineMarkdown(host) {
+  let out = "";
+  for (const child of host.childNodes) out += inlineNodeMarkdown(child);
+  return out;
+}
+
+function inlineNodeMarkdown(node) {
+  if (node.nodeType === 3) return inlineText(node.nodeValue);
+  if (node.nodeType !== 1) return "";
+
+  // A widget's recorded source wins over anything structural: it is the only thing
+  // that knows what those children were written as.
+  const recorded = node.dataset && node.dataset.md;
+  if (recorded !== undefined && recorded !== null) return recorded;
+
+  const tag = node.tagName;
+  if (tag === "BR") return "\n";
+  // A fence cannot live inline, so the content of a `code` is literal by
+  // definition -- `textContent`, not a recursion.
+  if (tag === "CODE") return `\`${inlineText(node.textContent)}\``;
+  if (tag === "U") return `${INLINE_UNDERLINE[0]}${inlineMarkdown(node)}${INLINE_UNDERLINE[1]}`;
+  if (tag === "A") {
+    const label = inlineMarkdown(node);
+    const href = node.getAttribute("href") || "";
+    // `[](url)` renders its own url as the label, so an unfilled link written by
+    // the menu round-trips as what it was rather than gaining a label.
+    return label === href ? `[](${href})` : `[${label}](${href})`;
+  }
+
+  const wrap = INLINE_WRAP[tag];
+  const inner = inlineMarkdown(node);
+  // An unknown tag with no recorded source keeps its text and loses its tag. That
+  // is the safe direction: a `<div>` Chrome slipped in is not content.
+  return wrap ? `${wrap}${inner}${wrap}` : inner;
+}
+
+// Markdown typed into an inline surface, applied as its closing marker lands.
+// Every rule is anchored at the caret and mirrors one `CELL_INLINE` rule.
+//
+// Order matters twice over. Code first, because whatever is inside backticks is
+// literal. Bold before italic, because `**x*` must not italicise mid-word -- and
+// `keep` is the second half of that guard: the character before the opening `*` is
+// matched so it can be checked, then left where it was.
+const INLINE_TYPED = [
+  { mark: /`([^`\n]+)`$/, render: (found) => cellCode(found[1]) },
+  { mark: /\*\*([^\s*](?:[^*]*[^\s*])?)\*\*$/, render: (found) => cellSpan("strong", found[1]) },
+  { mark: /~~([^\s~](?:[^~]*[^\s~])?)~~$/, render: (found) => cellSpan("del", found[1]) },
+  {
+    mark: /(^|[^*])\*([^\s*](?:[^*]*[^\s*])?)\*$/,
+    render: (found) => cellSpan("em", found[2]),
+    keep: 1,
+  },
+  { mark: /\[([^\]\n]*)\]\(([^()\s]+)\)$/, render: (found) => cellLinkNode(found[1], found[2]) },
+];
+
+// **Chrome takes the style of what you type next from what is behind the caret**,
+// so a caret parked straight after a fresh `<strong>` keeps typing bold -- the
+// construct you just closed swallows the rest of the sentence, which is exactly what
+// `say **this** now` coming out as `say **this now**` was. The fix is a zero-width
+// space outside the element for the caret to sit in.
+//
+// Nothing downstream ever sees it: `inlineNodeMarkdown` strips it on the way to the
+// file, the surface is rebuilt from markdown the moment it is left, and a Backspace
+// aimed at it takes it out first so the key never feels dead.
+const INLINE_ANCHOR = "\u200b";
+
+// Fired from `input`. Only the caret's own text node can hold a construct that has
+// just completed, and only the part of it before the caret -- so that is all this
+// reads, and a surface with a hundred words in it costs nothing per keystroke.
+function applyInlineTyped(host) {
+  const selection = window.getSelection();
+  if (!selection || !selection.rangeCount) return false;
+  const caret = selection.getRangeAt(0);
+  const node = caret.endContainer;
+  if (node.nodeType !== 3 || !host.contains(node)) return false;
+
+  const at = caret.endOffset;
+  const before = node.nodeValue.slice(0, at);
+  for (const rule of INLINE_TYPED) {
+    const found = rule.mark.exec(before);
+    if (!found) continue;
+    const built = rule.render(found);
+    if (!built) continue;
+
+    // Split the text node at the construct, drop the characters, put the element
+    // where they were, and leave the caret in an anchor of its own after it.
+    const from = found.index + (rule.keep ? found[rule.keep].length : 0);
+    const tail = node.splitText(from);
+    tail.nodeValue = tail.nodeValue.slice(at - from);
+    const anchor = document.createTextNode(INLINE_ANCHOR);
+    node.parentNode.insertBefore(built, tail);
+    node.parentNode.insertBefore(anchor, tail);
+
+    const after = document.createRange();
+    after.setStart(anchor, INLINE_ANCHOR.length);
+    after.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(after);
+    return true;
+  }
+  return false;
+}
+
+// The caret as a count of characters from the start of the surface -- **rendered**
+// characters, not markdown ones, because what a person sees is what the count is
+// of. Survives the surface being rebuilt around it, which a node and an offset do
+// not.
+function inlineCaret(host) {
+  const selection = window.getSelection();
+  if (!selection || !selection.rangeCount) return 0;
+  const caret = selection.getRangeAt(0);
+  if (!host.contains(caret.endContainer)) return 0;
+  const upto = document.createRange();
+  upto.setStart(host, 0);
+  upto.setEnd(caret.endContainer, caret.endOffset);
+  return upto.toString().length;
+}
+
+function setInlineCaret(host, at) {
+  const selection = window.getSelection();
+  const place = (range) => {
+    selection.removeAllRanges();
+    selection.addRange(range);
+  };
+  const walk = document.createTreeWalker(host, NodeFilter.SHOW_TEXT);
+  let seen = 0;
+  for (let node = walk.nextNode(); node; node = walk.nextNode()) {
+    if (seen + node.nodeValue.length >= at) {
+      const range = document.createRange();
+      range.setStart(node, at - seen);
+      range.collapse(true);
+      place(range);
+      return;
+    }
+    seen += node.nodeValue.length;
+  }
+  // Past the end, or nothing to be in: the end of the surface is the honest answer.
+  const range = document.createRange();
+  range.selectNodeContents(host);
+  range.collapse(false);
+  place(range);
+}
+
+// The surface's markdown either side of the caret. **Cloned rather than sliced**,
+// because a caret inside a bold run has to leave both halves bold -- which a range
+// does for free and a string split cannot do at all.
+function inlineHalves(host) {
+  const selection = window.getSelection();
+  if (!selection || !selection.rangeCount) return { before: inlineMarkdown(host), after: "" };
+  const caret = selection.getRangeAt(0);
+  if (!host.contains(caret.endContainer)) return { before: inlineMarkdown(host), after: "" };
+
+  const before = document.createRange();
+  before.setStart(host, 0);
+  before.setEnd(caret.endContainer, caret.endOffset);
+  const after = document.createRange();
+  after.setStart(caret.endContainer, caret.endOffset);
+  after.setEnd(host, host.childNodes.length);
+  return {
+    before: inlineMarkdown(before.cloneContents()),
+    after: inlineMarkdown(after.cloneContents()),
+  };
+}
+
+// The shortcuts, and why `execCommand`: it is deprecated, and it is also the only
+// thing that wraps a selection spanning element boundaries correctly. This is a
+// localhost tool driven in one browser, so the trade is worth making. `styleWithCSS`
+// off is load-bearing -- with it on the browser writes `<span style>`, which is not
+// markdown and would be serialised away as plain text.
+const INLINE_COMMAND = { b: "bold", i: "italic", u: "underline" };
+let inlineCommandsReady = false;
+
+function inlineCommandKey(event) {
+  if (!(event.ctrlKey || event.metaKey)) return false;
+  const key = event.key.toLowerCase();
+  const command = event.shiftKey ? (key === "x" ? "strikeThrough" : null) : INLINE_COMMAND[key];
+  if (!command) return false;
+
+  event.preventDefault();
+  if (!inlineCommandsReady) {
+    document.execCommand("styleWithCSS", false, false);
+    inlineCommandsReady = true;
+  }
+  document.execCommand(command);
+  return true;
+}
+
+// Take the caret anchor out from behind the caret, so the browser's own Backspace
+// then deletes the character the person actually meant. Without it the first
+// Backspace after typing `**bold**` appears to do nothing at all.
+function dropInlineAnchor(host) {
+  const selection = window.getSelection();
+  if (!selection || !selection.rangeCount || !selection.isCollapsed) return;
+  const caret = selection.getRangeAt(0);
+  const node = caret.endContainer;
+  if (node.nodeType !== 3 || !host.contains(node)) return;
+
+  const at = caret.endOffset;
+  if (at === 0 || node.nodeValue[at - 1] !== INLINE_ANCHOR) return;
+  node.nodeValue = node.nodeValue.slice(0, at - 1) + node.nodeValue.slice(at);
+
+  const back = document.createRange();
+  back.setStart(node, at - 1);
+  back.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(back);
+}
+
+// How long a piece of markdown is once drawn -- what a caret offset into it counts.
+// Measured by rendering it rather than by subtracting markers, so it cannot drift
+// from what the surface actually shows.
+function inlineLength(markdown) {
+  const measure = element("span");
+  renderCellInline(measure, markdown);
+  return measure.textContent.length;
+}
+
+// One inline surface. The caller wires its own keys and its own commit; what is
+// shared is the element, the typing rules, and a paste that cannot smuggle markup
+// in -- a paste from a browser carries `<span style>` and `<div>`, and none of that
+// is markdown.
+function inlineEditable(className, markdown, onInput) {
+  const host = element("div", `sprint-inline ${className}`);
+  host.contentEditable = "true";
+  host.spellcheck = false;
+  renderCellInline(host, markdown ?? "");
+
+  host.oninput = () => {
+    applyInlineTyped(host);
+    if (onInput) onInput();
+  };
+  host.onpaste = (event) => {
+    event.preventDefault();
+    const text = (event.clipboardData || window.clipboardData).getData("text");
+    // Through `execCommand` so the browser's own undo still knows about it.
+    if (text) document.execCommand("insertText", false, text);
+  };
+  // A listener rather than `onkeydown`, because the caller owns that property. It is
+  // registered here and therefore runs first, which is what lets the caller's own
+  // "Backspace at the head of the line" see the caret where the person sees it.
+  host.addEventListener("keydown", (event) => {
+    if (event.key === "Backspace") dropInlineAnchor(host);
+  });
+  return host;
 }
 
 // --- one way: a marker is chrome, never text ---------------------------------
@@ -586,12 +914,12 @@ const PROMOTE = /^([ \t]{0,3})(#{1,6}|[-*+]|\d{1,9}[.)])[ \t]+/;
 // says. Guarded on the text actually changing: a block whose marker is not hoisted
 // holds its own `> ` in the box, and committing that unchanged would close the
 // editor under the cursor on the first keystroke.
-function promoteSprintBlock(index, area) {
+function promoteSprintBlock(index, typed) {
   const block = state.sprint.blocks[index];
-  const found = PROMOTE.exec(area.value);
+  const found = PROMOTE.exec(typed);
   if (!block || !found) return false;
 
-  const text = `${found[1]}${found[2]} ${area.value.slice(found[0].length)}`;
+  const text = `${found[1]}${found[2]} ${typed.slice(found[0].length)}`;
   if (text === block.raw) return false;
   applySprintPromotion(index, text);
   return true;
@@ -622,23 +950,97 @@ function demoteSprintBlock(index) {
   scheduleSprintSave();
 }
 
+// Which whole-block types are **inline content**, and so are edited as themselves.
+// A fence and an HTML island are the opposite: their markup *is* the content, so
+// drawing it would be deleting it, and they keep the box that shows source. A rule
+// has no text at all. A list, a quote and a table are edited a line or a cell at a
+// time and never reach here.
+const INLINE_BLOCKS = new Set(["paragraph", "heading"]);
+
 function sprintEditor(block, index) {
-  const sprint = state.sprint;
-  const hoist = hoistBlock(block, sprint.draft);
+  const hoist = hoistBlock(block, state.sprint.draft);
+  return INLINE_BLOCKS.has(block.type)
+    ? sprintProseEditor(block, index, hoist)
+    : sprintSourceEditor(block, index, hoist);
+}
+
+// A paragraph or a heading, drawn as itself while you type it. The marker is
+// hoisted (see above) and the inline markdown is rendered (see `inlineEditable`),
+// so **nothing in this box is a character you did not mean to read**.
+function sprintProseEditor(block, index, hoist) {
+  // The heading wears its own size, so clicking into one does not resize the line
+  // you are reading. Sizes are `.sprint-head-raw` in style.css.
+  const dressing = hoist.level ? `sprint-head-raw level-${hoist.level}` : "sprint-prose";
+  const host = inlineEditable(dressing, hoist.body, () => {
+    // Converted and reopened: nothing below runs against a box that is going.
+    if (promoteSprintBlock(index, inlineMarkdown(host))) return;
+    maybeOpenSprintMenu(host, index);
+  });
+
+  const written = () => hoist.prefix + inlineMarkdown(host) + hoist.suffix;
+
+  host.onblur = () => {
+    closeSprintMenu();
+    commitSprintBlock(index, written());
+  };
+
+  host.onkeydown = (event) => {
+    if (sprintMenu.open && sprintMenuKey(event)) return;
+    if (inlineCommandKey(event)) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      host.blur();
+      return;
+    }
+    // Enter with nothing after the caret ends this block and opens an empty one
+    // below -- **the only thing that makes the insert menu reachable**, since `/`
+    // needs an empty block to be typed into. With text after the caret it is a line
+    // break within the block instead, and `insertLineBreak` is how that stays a
+    // `<br>`: left to itself a `contenteditable` would put a `<div>` in, which is
+    // not inline content and would be serialised away.
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const halves = inlineHalves(host);
+      if (event.shiftKey || halves.after.trim() || !halves.before.trim()) {
+        document.execCommand("insertLineBreak");
+        return;
+      }
+      insertSprintBlockAfter(index, hoist.prefix + halves.before + hoist.suffix);
+      return;
+    }
+    // Backspace in a block you have emptied removes it, rather than leaving a blank
+    // one behind for the commit to tidy up invisibly -- unless it is wearing a
+    // hoisted marker, where the marker is what you are backing over.
+    if (event.key === "Backspace" && !host.textContent) {
+      if (hoist.prefix || hoist.suffix) {
+        event.preventDefault();
+        demoteSprintBlock(index);
+        return;
+      }
+      if (state.sprint.blocks.length > 1) {
+        event.preventDefault();
+        removeSprintBlock(index);
+      }
+    }
+  };
+  return host;
+}
+
+// A fence, an HTML island or a rule: the block whose source is its content. This is
+// the editor every block used to have, kept for the three types where showing the
+// markdown is the point rather than the problem.
+function sprintSourceEditor(block, index, hoist) {
   const area = element("textarea", "sprint-raw");
   area.value = hoist.body;
-  // The box wears the heading's own size, so clicking into one does not resize
-  // the line you are reading. Sizes are `.sprint-head-raw` in style.css.
-  if (hoist.level) area.classList.add("sprint-head-raw", `level-${hoist.level}`);
   // One row before the autosize, so the box is the height of its text: a textarea's
-  // default is two, and a heading opening twice as tall as the line it replaces
-  // moves the document under you -- the thing hoisting the marker exists to avoid.
+  // default is two, and a box opening twice as tall as the line it replaces moves
+  // the document under you.
   area.rows = 1;
   area.spellcheck = false;
   area.oninput = () => {
     autosizeSprintArea(area);
     // Converted and reopened: nothing below runs against a box that is going.
-    if (promoteSprintBlock(index, area)) return;
+    if (promoteSprintBlock(index, area.value)) return;
     maybeOpenSprintMenu(area, index);
   };
   area.onblur = () => {
@@ -660,10 +1062,9 @@ function sprintEditor(block, index) {
       return;
     }
     // Enter with nothing after the cursor ends this block and opens an empty one
-    // below. **This is what makes the insert menu reachable at all** -- `/` needs
-    // an empty block to be typed into, and nothing else in the editor makes one.
-    // Not in a fence, where a newline is a newline you meant. A list never
-    // reaches here: it has its own `Enter`, which carries the list on.
+    // below -- and **not in a fence or an island**, where a newline is a newline you
+    // meant. So this is only ever a rule in practice, and it is kept because `/` on
+    // the empty block it makes is how anything else gets inserted.
     if (event.key === "Enter" && !event.shiftKey
       && block.type !== "code" && block.type !== "html"
       && area.value.trim() && !area.value.slice(area.selectionEnd).trim()) {
@@ -673,19 +1074,10 @@ function sprintEditor(block, index) {
       return;
     }
     // Backspace in a block you have emptied removes it, rather than leaving a
-    // blank one behind for the commit to tidy up invisibly -- unless it is
-    // wearing a hoisted marker, where the marker is the thing you are backing
-    // over and the block stays.
-    if (event.key === "Backspace" && !area.value) {
-      if (hoist.prefix || hoist.suffix) {
-        event.preventDefault();
-        demoteSprintBlock(index);
-        return;
-      }
-      if (state.sprint.blocks.length > 1) {
-        event.preventDefault();
-        removeSprintBlock(index);
-      }
+    // blank one behind for the commit to tidy up invisibly.
+    if (event.key === "Backspace" && !area.value && state.sprint.blocks.length > 1) {
+      event.preventDefault();
+      removeSprintBlock(index);
     }
   };
   return area;
@@ -746,10 +1138,12 @@ function removeSprintBlock(index) {
   scheduleSprintSave();
 }
 
-// --- a list, a line at a time ------------------------------------------------
+// --- a list or a quote, a line at a time -------------------------------------
 
-// The block type that could not be one way inside a textarea: a checkbox is an
-// element and a textarea's content is text, so a box drawn in one cannot be hit.
+// The block types whose marker is on **every line**, so hoisting it is a per-line
+// job. A list was the type that could not be one way inside a textarea at all: a
+// checkbox is an element and a textarea's content is text, so a box drawn in one
+// cannot be hit.
 // That is the wall the grid hit, and this is the same answer one dimension down --
 // **every line is a view that can hold a real control, and only the line you are
 // in is a box** -- with the line's own head (indent, marker, checkbox) hoisted out
@@ -777,26 +1171,39 @@ function removeSprintBlock(index) {
 // byte -- `*` stays `*`, `1)` stays `1)`, two spaces stay two spaces.
 const LIST_HEAD = /^([ \t]*)([-*+]|\d{1,9}[.)])([ \t]+)(?:\[([ xX])\]([ \t]+))?/;
 
+// A quote's own `>`, read **before** the list head so `> - [ ] x` is a task inside
+// a quote rather than a line of text beginning with a bracket. One level only: a
+// `>>` keeps its second marker as text, which is honest about what this draws.
+const QUOTE_HEAD = /^([ \t]{0,3}>[ \t]?)/;
+
 // `[ ] ` typed at the head of a line, which is the gesture that makes it a task.
 // `[]` counts: it is what typing the pair and then a space produces.
 const LINE_BOX = /^\[([ xX]?)\][ \t]+/;
 
+// A marker typed at the head of a line that has none -- inside a quote, or on a
+// continuation line. The line-level twin of `PROMOTE`.
+const LINE_MARKER = /^([-*+]|\d{1,9}[.)])([ \t]+)/;
+
 // The block's lines, split into what is drawn and what is typed. A line with no
 // marker of its own is a continuation of the item above it and keeps its indent.
 // The line ending rides on the line, so a CRLF file stays a CRLF file.
-function sprintListLines(raw) {
+function sprintListLines(raw, quoted) {
   return raw.split("\n").map((whole) => {
     const end = whole.endsWith("\r") ? "\r" : "";
-    const line = end ? whole.slice(0, -1) : whole;
+    const bare = end ? whole.slice(0, -1) : whole;
+    const quote = quoted ? (QUOTE_HEAD.exec(bare) || [""])[0] : "";
+    const line = bare.slice(quote.length);
+
     const found = LIST_HEAD.exec(line);
     if (!found) {
       const indent = /^[ \t]*/.exec(line)[0];
       return {
-        indent, marker: "", gap: "", box: null, boxGap: " ",
+        quote, indent, marker: "", gap: "", box: null, boxGap: " ",
         text: line.slice(indent.length), end,
       };
     }
     return {
+      quote,
       indent: found[1],
       marker: found[2],
       gap: found[3],
@@ -812,7 +1219,7 @@ function sprintListLines(raw) {
 function listLineText(line) {
   const marker = line.marker ? `${line.marker}${line.gap}` : "";
   const box = line.box === null ? "" : `[${line.box}]${line.boxGap}`;
-  return `${line.indent}${marker}${box}${line.text}${line.end}`;
+  return `${line.quote || ""}${line.indent}${marker}${box}${line.text}${line.end}`;
 }
 
 const joinListLines = (lines) => lines.map(listLineText).join("\n");
@@ -825,11 +1232,13 @@ function writeSprintList(block, lines) {
   scheduleSprintSave();
 }
 
+const isQuoteBlock = (block) => block.type === "quote";
+
 function sprintList(block, index) {
   const sprint = state.sprint;
   const node = element("div", "sprint-block sprint-list-block");
   // The draft is what a failed commit kept, so it is what the lines come off.
-  const lines = sprintListLines(sprint.draft ?? block.raw);
+  const lines = sprintListLines(sprint.draft ?? block.raw, isQuoteBlock(block));
 
   lines.forEach((_, position) => {
     const editing = sprint.editing === index && sprint.editingLine === position;
@@ -848,7 +1257,7 @@ function listMarkerGlyph(line) {
 
 function sprintListRow(block, index, lines, position, editing) {
   const line = lines[position];
-  const row = element("div", "sprint-line");
+  const row = element("div", `sprint-line${line.quote ? " sprint-line-quote" : ""}`);
   // Indent as padding, so wrapped text hangs under the text and not under the
   // glyph -- `.sprint-cell-line`'s trick, and the same custom property shape.
   row.style.setProperty("--line-depth", cellDepth(line.indent));
@@ -904,43 +1313,40 @@ function toggleSprintListLine(block, lines, position) {
   writeSprintList(block, lines);
 }
 
-// The one line you are in. A `<textarea>` rather than an `<input>` so it grows
-// with wrapped text, and one line of the block rather than the block because the
-// line beside it holds a control.
+// The one line you are in, and it draws its own inline markdown: the difference
+// between this and the label it replaces is a caret and nothing else. One line of
+// the block rather than the block, because the control beside it has to stay
+// clickable and a box cannot hold one.
 function sprintLineEditor(block, index, lines, position) {
-  const area = element("textarea", "sprint-raw sprint-line-raw");
-  area.value = lines[position].text;
-  area.rows = 1;
-  area.spellcheck = false;
-
-  area.oninput = () => {
-    lines[position].text = area.value;
-    // A box has to appear, which is the one thing a line edit cannot do in place.
-    if (promoteSprintLine(area, block, lines, position)) return;
+  const host = inlineEditable("sprint-line-raw", lines[position].text, () => {
+    lines[position].text = inlineMarkdown(host);
+    // A box or a bullet has to appear, which is the one thing a line edit cannot do
+    // in place.
+    if (promoteSprintLine(block, lines, position)) return;
     writeSprintList(block, lines);
-    autosizeSprintArea(area);
-  };
+  });
 
-  // Back to the view, so this line's inline markdown reads as what it means and
-  // the box beside it is clickable again. The child is swapped rather than the
-  // document re-rendered: a click on another row is in flight during this blur,
-  // and rebuilding the document under it is how that click gets lost.
-  area.onblur = () => {
+  // Back to the label, so the box beside it is clickable again. The child is
+  // swapped rather than the document re-rendered: a click on another row is in
+  // flight during this blur, and rebuilding the document under it is how that
+  // click gets lost.
+  host.onblur = () => {
     const sprint = state.sprint;
     if (sprint.editing === index && sprint.editingLine === position) {
       sprint.editing = null;
       sprint.editingLine = null;
     }
-    if (!area.isConnected) return;
+    if (!host.isConnected) return;
     const label = element("span", "sprint-line-label");
     renderCellInline(label, lines[position].text);
-    area.replaceWith(label);
+    host.replaceWith(label);
   };
 
-  area.onkeydown = (event) => {
+  host.onkeydown = (event) => {
+    if (inlineCommandKey(event)) return;
     if (event.key === "Escape") {
       event.preventDefault();
-      area.blur();
+      host.blur();
       return;
     }
 
@@ -948,7 +1354,7 @@ function sprintLineEditor(block, index, lines, position) {
     // step `CELL_INDENT` already chose, so a file does not end up mixing both.
     if (event.key === "Tab") {
       event.preventDefault();
-      indentSprintLine(block, lines, position, event.shiftKey ? -1 : 1, area);
+      indentSprintLine(block, lines, position, event.shiftKey ? -1 : 1, host);
       return;
     }
 
@@ -957,7 +1363,7 @@ function sprintLineEditor(block, index, lines, position) {
     // the way out, and without it the only exit is deleting what Enter wrote.
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      if (lines[position].text.trim()) splitSprintLine(block, index, lines, position, area);
+      if (lines[position].text.trim()) splitSprintLine(block, index, lines, position, host);
       else endSprintList(block, index, lines, position);
       return;
     }
@@ -965,7 +1371,8 @@ function sprintLineEditor(block, index, lines, position) {
     // Backspace at the head of a line joins it to the one above, which is what
     // the key does in every editor. The first line has nothing above it: emptied,
     // it takes the block with it; typed in, it stays put.
-    if (event.key === "Backspace" && !area.selectionStart && !area.selectionEnd) {
+    if (event.key === "Backspace" && inlineCaret(host) === 0
+      && window.getSelection().isCollapsed) {
       if (position > 0) {
         event.preventDefault();
         mergeSprintLine(block, index, lines, position);
@@ -978,21 +1385,27 @@ function sprintLineEditor(block, index, lines, position) {
     }
   };
 
-  return area;
+  return host;
 }
 
-// `[ ] ` at the head of a line makes it a task there and then. Only on a line that
-// has a marker of its own and no box yet: a continuation line is not an item, and
-// a line that already has one is a line you are typing text into.
-function promoteSprintLine(area, block, lines, position) {
+// A marker typed at the head of a line, applied there and then -- `[ ] ` for a task
+// and `- ` for a bullet, which is `PROMOTE`'s job one level down. A box only goes on
+// a line that is already an item: a continuation line is not one, and a line that
+// already has a box is a line you are typing text into.
+function promoteSprintLine(block, lines, position) {
   const line = lines[position];
-  if (line.box !== null || !line.marker) return false;
-  const found = LINE_BOX.exec(area.value);
-  if (!found) return false;
+  const box = line.box === null && line.marker ? LINE_BOX.exec(line.text) : null;
+  const marker = !line.marker ? LINE_MARKER.exec(line.text) : null;
+  if (!box && !marker) return false;
 
-  line.box = found[1].toLowerCase() === "x" ? "x" : " ";
-  line.boxGap = " ";
-  line.text = area.value.slice(found[0].length);
+  if (box) {
+    line.box = box[1].toLowerCase() === "x" ? "x" : " ";
+    line.boxGap = " ";
+    line.text = line.text.slice(box[0].length);
+  } else {
+    [, line.marker, line.gap] = marker;
+    line.text = line.text.slice(marker[0].length);
+  }
   writeSprintList(block, lines);
   // The editing line has not moved, so the render reopens this same box -- with a
   // checkbox now sitting beside it and the caret back at the head of the text.
@@ -1001,7 +1414,7 @@ function promoteSprintLine(area, block, lines, position) {
   return true;
 }
 
-function indentSprintLine(block, lines, position, direction, area) {
+function indentSprintLine(block, lines, position, direction, host) {
   const line = lines[position];
   // The first line carries the block's own identity: indent it four spaces and the
   // list stops being a list. Nesting the first item means nothing anyway.
@@ -1012,22 +1425,24 @@ function indentSprintLine(block, lines, position, direction, area) {
   writeSprintList(block, lines);
   // Redrawn because the glyph is chosen by depth, so the bullet changes with the
   // indent. The caret keeps its place in the line rather than jumping to the end.
-  sprintCaret = area.selectionStart;
+  sprintCaret = inlineCaret(host);
   renderSprintDocument();
 }
 
 // Enter mid-item: what is after the caret becomes the next line, carrying this
 // one's indent and marker. A task carries the box across unticked -- the new item
 // is not done because the one it came from was.
-function splitSprintLine(block, index, lines, position, area) {
+//
+// The split is `inlineHalves`, not a string slice: a caret inside a bold run has to
+// leave both halves bold, and the range knows what the string cannot.
+function splitSprintLine(block, index, lines, position, host) {
   const line = lines[position];
-  const at = area.selectionStart;
-  const rest = area.value.slice(at);
-  line.text = area.value.slice(0, at);
+  const halves = inlineHalves(host);
+  line.text = halves.before;
   lines.splice(position + 1, 0, {
     ...line,
     box: line.box === null ? null : " ",
-    text: rest,
+    text: halves.after,
   });
 
   writeSprintList(block, lines);
@@ -1053,9 +1468,13 @@ function endSprintList(block, index, lines, position) {
 
 // Join a line to the one above it and put the caret at the join. Only ever called
 // with a line above to join to.
+//
+// The caret is counted in **rendered** characters, because that is what
+// `sprintCaret` means to an inline surface: `**bold**` is four characters on screen
+// and eight in the file, and the join is where the words meet.
 function mergeSprintLine(block, index, lines, position) {
   const above = lines[position - 1];
-  const joined = above.text.length;
+  const joined = inlineLength(above.text);
   above.text += lines[position].text;
   lines.splice(position, 1);
 
@@ -1618,8 +2037,11 @@ const sprintMenu = {
   open: false, node: null, items: [], selected: 0, area: null, index: 0, pick: null,
 };
 
+// `area` is a textarea for a fence and a `contenteditable` for prose, so what was
+// typed is read off whichever one it is. The menu itself needs no more than that
+// and a box to position against.
 function maybeOpenSprintMenu(area, index) {
-  const text = area.value;
+  const text = area.value === undefined ? area.textContent : area.value;
   // A slash first and nothing but the filter after it. Any whitespace closes the
   // menu, so a line that genuinely starts with a slash is only a menu until you
   // type the next character.
