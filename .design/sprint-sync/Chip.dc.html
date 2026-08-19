@@ -1,0 +1,143 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #18181b;
+      background: #fafafa;
+    }
+    a { color: #4f46e5; }
+    a:hover { color: #4338ca; }
+    .cb { width: 12px; height: 12px; min-width: 0; padding: 0; margin: 4px 2px 0 0; flex: none; cursor: pointer; }
+    .chip { display: inline-flex; align-items: baseline; gap: 3px; padding: 0 4px; border-radius: 3px; background: #eef2ff; white-space: nowrap; }
+    .chip-id { font-size: 11px; color: #71717a; }
+    .head { font-size: 11px; font-weight: 600; color: #555; text-transform: uppercase; letter-spacing: 0.04em; }
+    .line { display: flex; align-items: flex-start; gap: 4px; min-height: 20px; }
+    .note { font-size: 12.5px; color: #71717a; }
+    .card { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1px solid #e6e6ea; border-radius: 10px; background: #fff; }
+  </style>
+</helmet>
+
+<div style="padding: 24px; display: flex; flex-direction: column; gap: 18px;">
+
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <div class="head" style="color: #4338ca;">Settled — one box on the line, and it is the deliverable's</div>
+    <div class="note">The chip hands its tick to the line and keeps only the reference and the way through. A synced line therefore looks like every other line in the file: one box, at the front, where your thumb already is.</div>
+  </div>
+
+  <div style="display: flex; gap: 28px;">
+    <div class="card" style="min-width: 280px;">
+      <div class="head">Before — two boxes, two owners</div>
+      <div class="line">
+        <input class="cb" type="checkbox">
+        <span>Token refresh on the auth API
+          <span class="chip"><input class="cb" style="margin: 0;" type="checkbox"><span class="chip-id">D-9</span><span class="chip-id">↗</span></span>
+        </span>
+      </div>
+      <div class="note">The line's own <span style="font: 12px ui-monospace, SFMono-Regular, Consolas, monospace;">[ ]</span> was a note to yourself; the chip's was the roadmap. Nothing said which one you meant.</div>
+    </div>
+
+    <div class="card" style="min-width: 280px; border-color: #c7d2fe;">
+      <div class="head" style="color: #4338ca;">After — one box, the roadmap's</div>
+      <div class="line">
+        <input class="cb" type="checkbox">
+        <span>Token refresh on the auth API
+          <span class="chip"><span class="chip-id">D-9</span><span class="chip-id">↗</span></span>
+        </span>
+      </div>
+      <div class="note">Tick it and the deliverable is done on the Project tab. Tick it there and this box follows — see the write-through artboard for what that costs.</div>
+    </div>
+  </div>
+
+  <div style="height: 1px; background: #e6e6ea;"></div>
+
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <div class="head">Still open — what the chip's label says</div>
+    <div class="note">The file now holds six characters where it held three.</div>
+  </div>
+
+  <div style="display: flex; gap: 28px;">
+    <div class="card" style="min-width: 280px;">
+      <div class="head">Variant A — drop the brackets</div>
+      <div class="line">
+        <input class="cb" type="checkbox">
+        <span>Token refresh on the auth API <span class="chip"><span class="chip-id">D-9</span><span class="chip-id">↗</span></span></span>
+      </div>
+      <div class="note">The brackets are syntax, so the chip drops them the way a heading drops its <span style="font: 12px ui-monospace, SFMono-Regular, Consolas, monospace;">##</span>.</div>
+    </div>
+
+    <div class="card" style="min-width: 280px;">
+      <div class="head">Variant B — show what is in the file</div>
+      <div class="line">
+        <input class="cb" type="checkbox">
+        <span>Token refresh on the auth API <span class="chip"><span class="chip-id">[#D-9]</span><span class="chip-id">↗</span></span></span>
+      </div>
+      <div class="note">Keeps the promise literally: what is on screen is what is in the file.</div>
+    </div>
+  </div>
+
+  <div style="height: 1px; background: #e6e6ea;"></div>
+
+  <div style="display: flex; gap: 28px;">
+    <div style="display: flex; flex-direction: column; gap: 6px; min-width: 280px;">
+      <div class="head">A reference to nothing</div>
+      <div class="line">
+        <input class="cb" type="checkbox">
+        <span>Device sign-out <span style="color: #b00020; text-decoration: underline wavy #b00020; text-underline-offset: 2px;">[#D-99]</span></span>
+      </div>
+      <div class="note">Left as the characters you typed, and the line's box goes back to being its own — there is no deliverable to hand it to.</div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 6px; min-width: 280px;">
+      <div class="head">Syncing a line that is already synced</div>
+      <div class="line">
+        <input class="cb" type="checkbox">
+        <span>Token refresh on the auth API
+          <span class="chip" style="outline: 1px dashed #4f46e5;"><span class="chip-id">D-9</span><span class="chip-id">↗</span></span>
+        </span>
+      </div>
+      <div class="note">Picking again <strong>moves</strong> the reference. One per line — a second one would draw a tick the file's own reader ignores.</div>
+    </div>
+  </div>
+
+  <div style="height: 1px; background: #e6e6ea;"></div>
+
+  <div style="display: flex; flex-direction: column; gap: 8px;">
+    <div class="head">The other end, on the Project tab</div>
+    <div style="padding: 10px 12px; border: 1px solid #e6e6ea; border-radius: 10px; background: #fff; width: 470px;">
+      <table style="border-collapse: collapse; font-size: 13px; width: 100%;">
+        <tr>
+          <th style="text-align: left; font-size: 11px; font-weight: 600; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.04em; padding: 4px 6px; border-bottom: 1px solid #f1f1f4;">Done</th>
+          <th style="text-align: left; font-size: 11px; font-weight: 600; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.04em; padding: 4px 6px; border-bottom: 1px solid #f1f1f4;">Deliverable</th>
+        </tr>
+        <tr>
+          <td style="padding: 5px 6px; border-bottom: 1px solid #f1f1f4;"><input class="cb" style="margin: 0;" type="checkbox"></td>
+          <td style="padding: 5px 6px; border-bottom: 1px solid #f1f1f4;">Token refresh endpoint <a href="#" style="font-size: 11.5px; text-decoration: none;">↗ 03</a></td>
+        </tr>
+        <tr>
+          <td style="padding: 5px 6px;"><input class="cb" style="margin: 0;" type="checkbox" checked="checked"></td>
+          <td style="padding: 5px 6px; color: #999; text-decoration: line-through;">Token issuing, first cut</td>
+        </tr>
+      </table>
+    </div>
+    <div class="note" style="width: 470px;">The <span style="font: 12px ui-monospace, SFMono-Regular, Consolas, monospace;">↗ 03</span> badge is the part that does not work today for a checkbox line: <span style="font: 12px ui-monospace, SFMono-Regular, Consolas, monospace;">sprint_task_refs</span> walks table blocks only, so a reference on a list line never reaches the links API.</div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

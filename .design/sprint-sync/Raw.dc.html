@@ -1,0 +1,72 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #18181b;
+      background: #fafafa;
+    }
+    a { color: #4f46e5; }
+    a:hover { color: #4338ca; }
+    .mark { background: #eef2ff; border-radius: 2px; padding: 0 2px; color: #4338ca; }
+    .old { background: #fff7e6; border-radius: 2px; padding: 0 2px; color: #8a6100; }
+  </style>
+</helmet>
+
+<div style="padding: 24px; display: flex; flex-direction: column; gap: 12px;">
+
+  <div style="font-size: 11px; font-weight: 600; color: #555; text-transform: uppercase; letter-spacing: 0.04em;">The raw file — what the sync writes</div>
+
+  <div style="padding: 8px 0 8px 8px; border-left: 2px solid #e0a800; font-size: 12.5px; color: #3f3f46;">
+    The markdown is still the one record. A sync writes six characters into your line and nothing else — no link table, no sidecar, nothing for <span style="font: 12px ui-monospace, SFMono-Regular, Consolas, monospace;">migrate</span> to do.
+  </div>
+
+  <div style="font: 13px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; padding: 12px 14px; border: 1px solid #ccc; border-radius: 4px; background: #fff; white-space: pre-wrap;"># Sprint 03
+
+## Committed this fortnight
+
+- [x] Rate limiter behind the gateway <span class="mark">[#D-14]</span>
+- [ ] Token refresh on the auth API <span class="mark">[#D-9]</span>
+- [ ] Write up the migration note
+- [ ] Session store swap <span class="mark">[#D-21]</span>
+
+## Capacity
+
+| Task          | Status      | Days |
+| ---           | ---         | ---  |
+| Rate limiter <span class="mark">[#D-14]</span> | Testing     | 3    |
+| Token refresh | In progress | 2    |
+
+## Carried over from 02
+
+- [ ] Device sign-out <span class="old">D-11</span></div>
+
+  <div style="display: flex; gap: 16px; font-size: 12.5px; color: #3f3f46;">
+    <div style="display: flex; align-items: baseline; gap: 6px;">
+      <span class="mark" style="font: 12px ui-monospace, SFMono-Regular, Consolas, monospace;">[#D-9]</span>
+      <span>written by the picker, and by hand</span>
+    </div>
+    <div style="display: flex; align-items: baseline; gap: 6px;">
+      <span class="old" style="font: 12px ui-monospace, SFMono-Regular, Consolas, monospace;">D-11</span>
+      <span>the old spelling — still read, never written (option A)</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

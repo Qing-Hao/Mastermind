@@ -1,0 +1,110 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #18181b;
+      background: #fafafa;
+    }
+    a { color: #4f46e5; }
+    a:hover { color: #4338ca; }
+    .cb { width: 12px; height: 12px; min-width: 0; padding: 0; margin: 4px 2px 0 0; flex: none; cursor: pointer; }
+    .chip { display: inline-flex; align-items: baseline; gap: 3px; padding: 0 4px; border-radius: 3px; background: #eef2ff; white-space: nowrap; }
+    .chip-id { font-size: 11px; color: #71717a; }
+    .head { font-size: 11px; font-weight: 600; color: #555; text-transform: uppercase; letter-spacing: 0.04em; }
+    .card { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border: 1px solid #e6e6ea; border-radius: 10px; background: #fff; }
+    .note { font-size: 12.5px; color: #71717a; }
+    .mono { font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .line { display: flex; align-items: flex-start; gap: 4px; min-height: 20px; }
+    .step { display: flex; align-items: baseline; gap: 8px; font-size: 13px; }
+    .num { flex: none; width: 17px; height: 17px; border-radius: 9px; background: #eef2ff; color: #4338ca; font-size: 10.5px; font-weight: 600; text-align: center; line-height: 17px; }
+  </style>
+</helmet>
+
+<div style="padding: 24px; display: flex; flex-direction: column; gap: 16px;">
+
+  <div style="display: flex; flex-direction: column; gap: 4px;">
+    <div class="head" style="color: #4338ca;">Write-through — the deliverable owns the tick, the file follows</div>
+    <div class="note" style="max-width: 620px;">Both directions write. That is the ask, and it is also the first time this tool edits your markdown without you typing in it — so the guard rails are part of the design, not an afterthought.</div>
+  </div>
+
+  <div style="display: flex; gap: 20px; align-items: stretch;">
+
+    <div class="card" style="flex: 1;">
+      <div class="head">Direction 1 — tick in the sprint file</div>
+      <div class="line">
+        <input class="cb" type="checkbox" checked="checked">
+        <span>Token refresh on the auth API <span class="chip"><span class="chip-id">D-9</span><span class="chip-id">↗</span></span></span>
+      </div>
+      <div class="step"><span class="num">1</span><span>the line's markdown becomes <span class="mono">- [x] …</span>, the way any tick already works</span></div>
+      <div class="step"><span class="num">2</span><span><span class="mono">PUT /api/deliverables/9</span> with <span class="mono">done: true</span></span></div>
+      <div class="step"><span class="num">3</span><span>Project tab, scope panel and both charts redraw</span></div>
+      <div class="note">Nearly free — this path exists today as the chip's own tick.</div>
+    </div>
+
+    <div class="card" style="flex: 1; border-color: #e0a800;">
+      <div class="head" style="color: #8a6100;">Direction 2 — tick on the Project tab</div>
+      <div class="line">
+        <input class="cb" style="margin: 4px 6px 0 0;" type="checkbox" checked="checked">
+        <span>Token refresh endpoint <a href="#" style="font-size: 11.5px; text-decoration: none;">↗ 03, 04</a></span>
+      </div>
+      <div class="step"><span class="num">1</span><span>the deliverable is saved, as it always was</span></div>
+      <div class="step"><span class="num">2</span><span>every sprint file naming <span class="mono">[#D-9]</span> is re-read, the marker on that line flipped, the file written back through <span class="mono">markdown.py</span></span></div>
+      <div class="step"><span class="num">3</span><span>the open editor reloads, or its draft is flipped in place</span></div>
+      <div class="note" style="color: #8a6100;">New writer, new failure modes. Everything below is about this arrow.</div>
+    </div>
+  </div>
+
+  <div style="display: flex; gap: 20px; align-items: stretch;">
+
+    <div class="card" style="flex: 1;">
+      <div class="head">It is rarely one file</div>
+      <div style="display: flex; flex-direction: column; gap: 3px; font-size: 13px;">
+        <div style="display: flex; gap: 8px;"><span class="mono" style="color: #4f46e5;">sprints/03.md</span><span class="note">line 12 — planned</span></div>
+        <div style="display: flex; gap: 8px;"><span class="mono" style="color: #4f46e5;">sprints/04.md</span><span class="note">line 6 — carried over</span></div>
+        <div style="display: flex; gap: 8px;"><span class="mono" style="color: #a1a1aa;">templates/sprint.md</span><span class="note">never touched — it plans no fortnight</span></div>
+      </div>
+      <div class="note">A carried-over line means one tick rewrites two files. The count belongs in what the app says it did.</div>
+    </div>
+
+    <div class="card" style="flex: 1;">
+      <div class="head">The file you are editing right now</div>
+      <div style="padding: 8px 10px; border-radius: 6px; background: #fafafa; border: 1px solid #e6e6ea; font-size: 12.5px;">
+        <strong>Rule drawn here:</strong> if the Sprint tab has that file open with an unsaved draft, the flip is applied to the <em>draft in the browser</em> and rides out on the next autosave. The server never writes a file the editor is holding.
+      </div>
+      <div class="note">The alternative — server writes, editor reloads — throws away whatever you had half-typed. There is no third answer that keeps both.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="head">And it says so</div>
+    <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid #e6e6ea; border-radius: 8px; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.12); width: 420px;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M14 3v4a1 1 0 0 0 1 1h4"></path>
+        <path d="M5 8V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-3"></path>
+        <path d="m9 14 2 2 4-4"></path>
+      </svg>
+      <span style="font-size: 13px;">Token refresh endpoint ticked — <strong>03.md</strong> and <strong>04.md</strong> updated.</span>
+      <a href="#" style="margin-left: auto; font-size: 12.5px; text-decoration: none;">Undo</a>
+    </div>
+    <div class="note">A file changing without you typing in it is the thing to be loud about. Undo puts the marker back in both files and unticks the deliverable — one gesture, one reversal.</div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

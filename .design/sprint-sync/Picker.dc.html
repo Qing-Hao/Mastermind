@@ -1,0 +1,115 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #18181b;
+      background: #fafafa;
+    }
+    a { color: #4f46e5; }
+    a:hover { color: #4338ca; }
+    .cb { width: 12px; height: 12px; min-width: 0; padding: 0; margin: 3px 0 0; flex: none; cursor: default; }
+    .row { display: flex; align-items: flex-start; gap: 7px; padding: 4px 8px; border-radius: 4px; font-size: 13px; }
+    .ref { font: 10.5px ui-monospace, SFMono-Regular, Consolas, monospace; color: #a1a1aa; margin-left: auto; padding-left: 8px; }
+  </style>
+</helmet>
+
+<div style="padding: 24px; display: flex; flex-direction: column; gap: 14px;">
+
+  <div style="font-size: 11px; font-weight: 600; color: #555; text-transform: uppercase; letter-spacing: 0.04em;">The sync picker, filtered</div>
+
+  <div style="width: 420px; padding: 6px; background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.16);">
+
+    <!-- search -->
+    <div style="display: flex; align-items: center; gap: 7px; padding: 6px 8px; border-bottom: 1px solid #f1f1f4;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="7"></circle>
+        <path d="m20 20-3.5-3.5"></path>
+      </svg>
+      <span style="font-size: 13px;">token</span>
+      <span style="width: 1px; height: 15px; background: #18181b;"></span>
+      <span style="margin-left: auto; font-size: 11.5px; color: #a1a1aa;">3 of 33</span>
+    </div>
+
+    <!-- group: project -> phase -->
+    <div style="padding: 6px 0 2px;">
+      <div style="display: flex; align-items: baseline; gap: 6px; padding: 2px 8px; border-left: 3px solid #26a69a; margin-left: 5px;">
+        <span style="font-size: 12px; font-weight: 600; color: #26a69a;">Auth rebuild</span>
+        <span style="font-size: 11.5px; color: #a1a1aa;">API · in this fortnight</span>
+      </div>
+
+      <div class="row" style="background: #eef2ff; color: #4338ca; margin: 2px 5px 0;">
+        <input class="cb" type="checkbox" disabled="disabled">
+        <span>Token refresh endpoint</span>
+        <span class="ref" style="color: #4f46e5;">D-9</span>
+      </div>
+
+      <div class="row" style="margin: 0 5px;">
+        <input class="cb" type="checkbox" checked="checked" disabled="disabled">
+        <span style="color: #999; text-decoration: line-through;">Token issuing, first cut</span>
+        <span class="ref">D-7</span>
+      </div>
+    </div>
+
+    <div style="padding: 2px 0 4px;">
+      <div style="display: flex; align-items: baseline; gap: 6px; padding: 2px 8px; border-left: 3px solid #5c6bc0; margin-left: 5px;">
+        <span style="font-size: 12px; font-weight: 600; color: #5c6bc0;">Platform</span>
+        <span style="font-size: 11.5px; color: #a1a1aa;">Hardening · outside this fortnight</span>
+      </div>
+
+      <div class="row" style="margin: 0 5px;">
+        <input class="cb" type="checkbox" disabled="disabled">
+        <span>Rotate the signing token</span>
+        <span class="ref">D-30</span>
+      </div>
+    </div>
+
+    <!-- footer: what the list is drawn from -->
+    <div style="display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-top: 1px solid #f1f1f4;">
+      <div style="display: flex; padding: 2px; background: #f4f4f5; border-radius: 6px;">
+        <span style="font-size: 11.5px; padding: 2px 8px; border-radius: 4px; background: #fff; color: #18181b; font-weight: 600; box-shadow: 0 1px 1px rgba(0,0,0,0.06);">In scope (7)</span>
+        <span style="font-size: 11.5px; padding: 2px 8px; color: #71717a;">Whole roadmap (33)</span>
+      </div>
+      <span style="margin-left: auto; font: 10.5px ui-monospace, SFMono-Regular, Consolas, monospace; color: #a1a1aa;">↑↓ ⏎ · esc</span>
+    </div>
+  </div>
+
+  <!-- the empty state, same frame -->
+  <div style="font-size: 11px; font-weight: 600; color: #555; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 6px;">Nothing matches</div>
+
+  <div style="width: 420px; padding: 6px; background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.16);">
+    <div style="display: flex; align-items: center; gap: 7px; padding: 6px 8px; border-bottom: 1px solid #f1f1f4;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="7"></circle>
+        <path d="m20 20-3.5-3.5"></path>
+      </svg>
+      <span style="font-size: 13px;">tokne</span>
+      <span style="width: 1px; height: 15px; background: #18181b;"></span>
+    </div>
+    <div style="padding: 8px; font-size: 12.5px; color: #71717a;">No deliverable in scope matches. Widen to the whole roadmap, or name it on the Project tab first — this picker only ever writes a reference, never a deliverable.</div>
+    <div style="display: flex; align-items: center; padding: 6px 8px; border-top: 1px solid #f1f1f4;">
+      <div style="display: flex; padding: 2px; background: #f4f4f5; border-radius: 6px;">
+        <span style="font-size: 11.5px; padding: 2px 8px; border-radius: 4px; background: #fff; color: #18181b; font-weight: 600; box-shadow: 0 1px 1px rgba(0,0,0,0.06);">In scope (0)</span>
+        <span style="font-size: 11.5px; padding: 2px 8px; color: #71717a;">Whole roadmap (0)</span>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,48 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1180, "h": 680, "title": "The gesture — the handle on a checkbox line" },
+    { "file": "Picker.dc.html", "x": 1240, "y": 0, "w": 470, "h": 640, "title": "The sync picker" },
+    { "file": "Raw.dc.html", "x": 0, "y": 760, "w": 680, "h": 560, "title": "The raw file — [#D-9]" },
+    { "file": "Chip.dc.html", "x": 740, "y": 760, "w": 700, "h": 1080, "title": "One box on the line, and what the chip keeps" },
+    { "file": "Trigger.dc.html", "x": 1500, "y": 760, "w": 660, "h": 820, "title": "How the picker is reached — B chosen" },
+    { "file": "Writeback.dc.html", "x": 0, "y": 1900, "w": 1180, "h": 840, "title": "Write-through, both directions" }
+  ],
+  "annotations": [
+    {
+      "id": "brief",
+      "x": 0,
+      "y": -300,
+      "w": 460,
+      "text": "WHAT THIS IS AIMING AT\n\n1. The reference in the file becomes [#D-9] instead of a bare D-9.\n\n2. Hovering a checkbox line shows a Sync handle, which opens a searchable picker grouped by project — instead of typing / inside a table cell.\n\n3. A synced line carries ONE box, and it is the deliverable's. Ticking it ticks the Project tab; ticking the Project tab writes the marker back into the file.\n\nSETTLED SO FAR: scope means this fortnight first (widen in one press); the trigger is the hover handle, not a selection popup; the deliverable owns the tick and the file follows.\n\nSTILL OPEN: what the chip's label reads, and whether the old bare D-42 keeps being read."
+    },
+    {
+      "id": "note-scope",
+      "x": 1240,
+      "y": -300,
+      "w": 460,
+      "text": "\"ALL THE DELIVERABLES IN SCOPE\" — CONFIRMED\n\nThis fortnight's first, the whole roadmap one press away, counts on both.\n\nIn scope = what the panel on the right of the Sprint tab already lists: deliverables in phases overlapping the sprint's dates. 7 of them in a typical fortnight, against 33 in the roadmap.\n\nGrouped by project, sub-labelled by phase, in the same lane colours the scope panel uses."
+    },
+    {
+      "id": "note-tick",
+      "x": 2220,
+      "y": 760,
+      "w": 460,
+      "text": "WHY THE SECOND BOX GOES\n\nToday a synced line draws two: the line's own [ ] and the chip's, which is the deliverable's. Nothing said which one you meant, and the near one — the one at the front of the line, where your thumb is — was the one that meant nothing outside the file.\n\nSo the chip hands its tick to the line. A table row is the exception and keeps the chip's box: a row has no box of its own to hand it to."
+    },
+    {
+      "id": "note-migration",
+      "x": 0,
+      "y": 1370,
+      "w": 680,
+      "text": "STILL OPEN — THE FILES ALREADY ON DISK\n\nsprints/*.md contain bare D-42 today.\n\nA (drawn here, recommended). Read both spellings, write only [#D-9]. Nothing on disk is touched. Matches the editor's own precedent — it reads both \"- [ ]\" and \"☐\" and writes only the first.\n\nB. Hard switch plus a one-off rewrite of sprints/*.md. One spelling; it edits your gitignored files, so it runs once, against a backup.\n\nC. New spelling only, old stops linking. Least code, silent breakage.\n\nThe amber D-11 at the foot of the file is an old reference still being read — that is A."
+    },
+    {
+      "id": "note-gap",
+      "x": 1500,
+      "y": 1900,
+      "w": 660,
+      "text": "THE PART THAT IS NOT BUILT YET\n\nA reference on a checkbox line already DRAWS a chip — the renderer is shared with table cells. But sprint_task_refs in main.py walks table blocks only, so that reference never reaches /api/sprints/{n}/links.\n\nConsequence today: no \"↗ 03\" badge on the Project tab, and the \"named in N rows\" count misses it.\n\nWith the tick moved onto the line, this stops being cosmetic: direction 2 of the write-through needs to know which line of which file to flip, and only the links reader can say.\n\nSo main.py reading list lines is the foundation of the whole feature, not a nicety."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

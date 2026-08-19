@@ -1,0 +1,90 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #18181b;
+      background: #fafafa;
+    }
+    a { color: #4f46e5; }
+    a:hover { color: #4338ca; }
+    .cb { width: 12px; height: 12px; min-width: 0; padding: 0; margin: 4px 2px 0 0; flex: none; cursor: pointer; }
+    .head { font-size: 11px; font-weight: 600; color: #555; text-transform: uppercase; letter-spacing: 0.04em; }
+    .card { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border: 1px solid #e6e6ea; border-radius: 10px; background: #fff; }
+    .line { display: flex; align-items: flex-start; gap: 4px; min-height: 20px; position: relative; }
+    .note { font-size: 12.5px; color: #71717a; }
+    .pop { padding: 4px; background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.16); }
+    .item { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 4px; font-size: 13px; white-space: nowrap; }
+  </style>
+</helmet>
+
+<div style="padding: 24px; display: flex; flex-direction: column; gap: 16px;">
+
+  <div class="head">Settled — how the picker is reached</div>
+
+  <div class="card" style="opacity: 0.55;">
+    <div class="head">Option A — highlight the text, popup offers it (not taken)</div>
+    <div style="height: 42px;"></div>
+    <div class="line">
+      <input class="cb" type="checkbox">
+      <span><span style="background: #b4d5fe;">Token refresh on the auth API</span></span>
+      <div class="pop" style="position: absolute; left: 6px; top: -44px;">
+        <div class="item" style="background: #eef2ff; color: #4338ca;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+            <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+          </svg>
+          <span>Sync to a deliverable</span>
+        </div>
+      </div>
+    </div>
+    <div class="note">What you asked for. Also the natural home for Bold, which is a keystroke with nothing on screen today. Cost: a selection popup is new machinery in a file whose whole discipline is that a marker is chrome — and a selection over a chip has to be handled.</div>
+  </div>
+
+  <div class="card" style="border-color: #c7d2fe;">
+    <div class="head" style="color: #4338ca;">Option B — a press on the line's own handle · CHOSEN</div>
+    <div class="line" style="background: #fafafa; border-radius: 4px; padding: 2px 4px;">
+      <input class="cb" type="checkbox">
+      <span style="flex: 1 1 auto;">Token refresh on the auth API</span>
+      <span style="display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff; font-size: 11.5px; color: #52525b;">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+          <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+        </svg>
+        Sync
+      </span>
+    </div>
+    <div class="note">Appears on hover at the end of the line, like the block rail's grip. No selection to manage and it works with the caret anywhere. Cost: it is a button on a surface that so far has none, and it says nothing on a touch screen until you press.</div>
+  </div>
+
+  <div class="card">
+    <div class="head">Option C — what is there today, and stays</div>
+    <div class="line">
+      <input class="cb" type="checkbox">
+      <span>Token refresh on the auth API /aut<span style="display: inline-block; width: 1px; height: 15px; background: #18181b; vertical-align: -2px;"></span></span>
+    </div>
+    <div class="pop" style="width: 230px;">
+      <div class="item" style="background: #eef2ff; color: #4338ca;"><span>Token refresh endpoint</span><span style="margin-left: auto; font: 10.5px ui-monospace, SFMono-Regular, Consolas, monospace; color: #4f46e5;">d9</span></div>
+      <div class="item"><span>Authoriser rewrite</span><span style="margin-left: auto; font: 10.5px ui-monospace, SFMono-Regular, Consolas, monospace; color: #a1a1aa;">d12</span></div>
+    </div>
+    <div class="note">Already built, and flat — one list, no grouping, and only inside a table cell. Keeping it costs nothing; it is the fallback for anyone who would rather type than point.</div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

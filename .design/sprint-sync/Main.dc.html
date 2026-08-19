@@ -1,0 +1,153 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #18181b;
+      background: #fafafa;
+    }
+    a { color: #4f46e5; }
+    a:hover { color: #4338ca; }
+    .cb {
+      width: 12px; height: 12px; min-width: 0; padding: 0;
+      margin: 4px 2px 0 0; flex: none; cursor: pointer;
+    }
+    .chip { display: inline-flex; align-items: baseline; gap: 3px; padding: 0 4px; border-radius: 3px; background: #eef2ff; white-space: nowrap; }
+    .chip-id { font-size: 11px; color: #71717a; }
+    .line { display: flex; align-items: flex-start; gap: 4px; min-height: 20px; }
+  </style>
+</helmet>
+
+<div style="display: flex; flex-direction: column; height: 100%; background: #fafafa;">
+
+  <!-- top bar, --topbar-h: 68px -->
+  <div style="display: flex; align-items: center; gap: 12px; height: 68px; padding: 12px 20px; background: #fff; border-bottom: 1px solid #e6e6ea; flex: none;">
+    <div style="display: flex; flex-direction: column; gap: 1px;">
+      <div style="font-size: 19px; font-weight: 600; line-height: 1.2;">Sprint 03</div>
+      <div style="font-size: 12.5px; color: #71717a;">18 Aug – 29 Aug 2026 · sprints/03.md</div>
+    </div>
+    <div style="flex: 1;"></div>
+    <div style="display: flex; gap: 8px;">
+      <button style="font: inherit; font-size: 13px; padding: 5px 10px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff; color: #3f3f46;">Raw file</button>
+      <button style="font: inherit; font-size: 13px; padding: 5px 10px; border: 1px solid #4f46e5; border-radius: 6px; background: #4f46e5; color: #fff;">Save</button>
+    </div>
+  </div>
+
+  <div style="display: flex; gap: 20px; padding: 20px; align-items: flex-start; flex: 1; min-height: 0;">
+
+    <!-- the document column -->
+    <div style="flex: 1 1 auto; min-width: 0; padding: 14px 16px 14px 46px; border: 1px solid #e6e6ea; border-radius: 10px; background: #fff; position: relative;">
+
+      <div style="padding: 2px 8px;">
+        <div style="font-size: 16px; font-weight: 600; margin: 4px 0;">Committed this fortnight</div>
+      </div>
+
+      <!-- the list block: one line per row, .sprint-line -->
+      <div style="padding: 2px 8px;">
+
+        <!-- synced, and done: ONE box, and it is the deliverable's -->
+        <div class="line">
+          <input class="cb" type="checkbox" checked="checked">
+          <span style="flex: 1 1 auto;">Rate limiter behind the gateway
+            <span class="chip"><span class="chip-id">D-14</span><span class="chip-id">↗</span></span>
+          </span>
+        </div>
+
+        <!-- not synced, hovered: the handle is the way in -->
+        <div class="line" style="background: #fafafa; border-left: 2px solid #d8d8de; border-radius: 3px; padding: 0 4px 0 2px; margin-left: -6px;">
+          <input class="cb" type="checkbox">
+          <span style="flex: 1 1 auto;">Token refresh on the auth API</span>
+          <span style="display: inline-flex; align-items: center; gap: 4px; padding: 0 6px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff; font-size: 11.5px; color: #52525b; flex: none;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+              <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+            </svg>
+            Sync
+          </span>
+        </div>
+
+        <div class="line">
+          <input class="cb" type="checkbox">
+          <span style="flex: 1 1 auto;">Write up the migration note (no deliverable — a chore, and its tick is its own)</span>
+        </div>
+
+        <div class="line">
+          <input class="cb" type="checkbox">
+          <span style="flex: 1 1 auto;">Session store swap
+            <span class="chip"><span class="chip-id">D-21</span><span class="chip-id">↗</span></span>
+          </span>
+        </div>
+      </div>
+
+      <div style="padding: 2px 8px; margin-top: 10px;">
+        <div style="font-size: 16px; font-weight: 600; margin: 4px 0;">Capacity</div>
+      </div>
+
+      <div style="padding: 2px 8px;">
+        <table style="border-collapse: collapse; font-size: 13px; width: 100%;">
+          <tr>
+            <th style="text-align: left; font-weight: 600; padding: 5px 7px; border: 1px solid #e6e6ea; background: #fafafa;">Task</th>
+            <th style="text-align: left; font-weight: 600; padding: 5px 7px; border: 1px solid #e6e6ea; background: #fafafa;">Status</th>
+            <th style="text-align: left; font-weight: 600; padding: 5px 7px; border: 1px solid #e6e6ea; background: #fafafa;">Days</th>
+          </tr>
+          <tr>
+            <td style="padding: 5px 7px; border: 1px solid #e6e6ea;">Rate limiter
+              <span class="chip"><input class="cb" style="margin: 0;" type="checkbox" checked="checked"><span class="chip-id">D-14</span><span class="chip-id">↗</span></span>
+            </td>
+            <td style="padding: 5px 7px; border: 1px solid #e6e6ea;">Testing</td>
+            <td style="padding: 5px 7px; border: 1px solid #e6e6ea; font-variant-numeric: tabular-nums;">3</td>
+          </tr>
+          <tr>
+            <td style="padding: 5px 7px; border: 1px solid #e6e6ea;">Token refresh</td>
+            <td style="padding: 5px 7px; border: 1px solid #e6e6ea;">In progress</td>
+            <td style="padding: 5px 7px; border: 1px solid #e6e6ea; font-variant-numeric: tabular-nums;">2</td>
+          </tr>
+        </table>
+      </div>
+
+      <div style="padding: 6px 8px; margin-top: 8px; font-size: 12.5px; color: #71717a;">
+        A table row has no box of its own, so the chip keeps carrying one there. A checkbox line has one already — the chip hands its tick over rather than drawing a second.
+      </div>
+    </div>
+
+    <!-- the scope panel, as it is today -->
+    <div style="flex: 0 0 260px; padding: 12px 14px; border: 1px solid #e6e6ea; border-radius: 10px; background: #fff;">
+      <div style="margin: 0 0 4px; font-size: 13px; font-weight: 600;">Deliverables in scope</div>
+      <div style="margin: 0 0 8px; font-size: 12px; color: #555; font-weight: 600;">18 Aug – 29 Aug</div>
+
+      <div style="margin-top: 6px; border-left: 3px solid #5c6bc0; padding-left: 6px;">
+        <div style="font-size: 12px; color: #5c6bc0; font-weight: 600;">Platform · Hardening</div>
+        <ul style="margin: 2px 0 0; padding-left: 2px; font-size: 12px; list-style: none;">
+          <li style="display: flex; align-items: flex-start; gap: 5px; color: #999; text-decoration: line-through;"><input class="cb" style="margin: 2px 0 0; cursor: default;" type="checkbox" checked="checked" disabled="disabled"><span>Rate limiter behind the gateway</span></li>
+          <li style="display: flex; align-items: flex-start; gap: 5px;"><input class="cb" style="margin: 2px 0 0; cursor: default;" type="checkbox" disabled="disabled"><span>Session store swap</span></li>
+        </ul>
+      </div>
+
+      <div style="margin-top: 6px; border-left: 3px solid #26a69a; padding-left: 6px;">
+        <div style="font-size: 12px; color: #26a69a; font-weight: 600;">Auth rebuild · API</div>
+        <ul style="margin: 2px 0 0; padding-left: 2px; font-size: 12px; list-style: none;">
+          <li style="display: flex; align-items: flex-start; gap: 5px;"><input class="cb" style="margin: 2px 0 0; cursor: default;" type="checkbox" disabled="disabled"><span>Token refresh endpoint</span></li>
+          <li style="display: flex; align-items: flex-start; gap: 5px;"><input class="cb" style="margin: 2px 0 0; cursor: default;" type="checkbox" disabled="disabled"><span>Device sign-out</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
