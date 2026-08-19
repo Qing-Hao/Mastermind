@@ -2032,13 +2032,24 @@ function renderCellInline(parent, text) {
 // what puts code ahead of emphasis when both start at the same character. A rule
 // that matches but declines to build a node (an unsafe URL) is skipped and the
 // text it matched is left alone.
+//
+// Every node built here is stamped with the text it was built from, because this
+// renderer also draws the surface you type into and `inlineMarkdown` has to write
+// that surface back. Without the stamp a widget is written back as whatever its
+// children happen to be -- the deliverable chip came back `D-42[↗](#)`, its own
+// jump arrow re-derived as a markdown link, so the cell grew a second link on
+// every keystroke. `markInlineSource` leaves the structural tags alone, so
+// `<strong>` and a real `<a>` stay re-derived and stay editable.
 function firstCellInline(text) {
   let best = null;
   for (const rule of CELL_INLINE) {
     const found = rule.mark.exec(text);
     if (!found || (best && found.index >= best.at)) continue;
     const node = rule.render(found);
-    if (node) best = { at: found.index, length: found[0].length, node };
+    if (node) {
+      markInlineSource(node, found[0]);
+      best = { at: found.index, length: found[0].length, node };
+    }
   }
   return best;
 }
