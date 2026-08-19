@@ -1379,12 +1379,19 @@ function listMarkerGlyph(line) {
 // Both are offered a line's text and nothing else. A provider that has nothing to
 // say returns null, and the line is an ordinary line.
 //
-// A **cell-line action** is the same seam inside a table: a cell may hold a
-// checklist, and each of its lines is a unit of work in its own right. It is
-// offered that one line's text and hands back that one line's text -- the cell
-// around it, and the row around that, are none of its business.
+// A **cell-line owner** and a **cell-line action** are the same two seams inside a
+// table: a cell may hold a checklist, and each of its lines is a unit of work in
+// its own right. Both are offered that one line's text and hand back that one
+// line's text -- the cell around it, and the row around that, are none of their
+// business.
+//
+// An action is also told the state of the box beside the line, and may set it
+// through the write it is given: linking a line to something that already
+// disagrees about being done is a question only the caller can answer, and it
+// needs both the answer and a way to apply it.
 const LINE_OWNERS = [];
 const LINE_ACTIONS = [];
+const CELL_LINE_OWNERS = [];
 const CELL_LINE_ACTIONS = [];
 
 function registerLineOwner(provider) {
@@ -1393,6 +1400,10 @@ function registerLineOwner(provider) {
 
 function registerLineAction(provider) {
   LINE_ACTIONS.push(provider);
+}
+
+function registerCellLineOwner(provider) {
+  CELL_LINE_OWNERS.push(provider);
 }
 
 function registerCellLineAction(provider) {
@@ -1447,7 +1458,11 @@ function sprintListRow(block, index, lines, position, editing) {
   }
 
   const action = line.box === null ? null : firstOf(LINE_ACTIONS, line.text);
-  if (action) row.appendChild(sprintLineAction(block, index, lines, position, action));
+  if (action) {
+    // The state the box is showing, owner and all -- see `sprintCellView`.
+    row.appendChild(sprintLineAction(block, index, lines, position, action,
+      owner ? owner.done : line.box.toLowerCase() === "x"));
+  }
 
   row.onclick = (event) => {
     // A link is there to be followed and a control to be operated, the same two
@@ -1484,7 +1499,7 @@ function toggleSprintListLine(block, lines, position, done, owner) {
 // block's grip is: `mousedown` is refused so the press does not take the caret
 // out of a line you are typing in, and the write goes through `writeSprintList`
 // like every other list edit.
-function sprintLineAction(block, index, lines, position, action) {
+function sprintLineAction(block, index, lines, position, action, done) {
   const press = element("button", "sprint-line-act");
   press.type = "button";
   press.title = action.title;
@@ -1492,13 +1507,17 @@ function sprintLineAction(block, index, lines, position, action) {
   press.onmousedown = (event) => event.preventDefault();
   press.onclick = (event) => {
     event.stopPropagation();
-    action.run(press, lines[position].text, (text) => {
+    action.run(press, lines[position].text, (text, done) => {
       lines[position].text = text;
+      // The action may settle the box as well as the text: what it linked the
+      // line to can already disagree about being done, and only the action's
+      // caller knows which of the two answers won.
+      if (done !== undefined) lines[position].box = done ? "x" : " ";
       writeSprintList(block, lines);
       // The whole document, because what the action wrote may draw as anything --
       // this file has no idea what changed about the line beyond its text.
       renderSprintDocument();
-    });
+    }, { done });
   };
   return press;
 }
@@ -2148,18 +2167,30 @@ function firstCellInline(text, where) {
   return best;
 }
 
-// Flip the marker on one line, in whichever spelling that line already uses. A
-// line with no marker gains one, which is what makes the keyboard toggle able to
-// *start* a checklist rather than only maintain one.
+const cellTodoDone = (marker) => marker === TODO_ON || /\[[xX]\]/.test(marker);
+
+// Set the marker on one line to `done`, in whichever spelling that line already
+// uses. A line with no marker gains one, which is what makes the keyboard toggle
+// able to *start* a checklist rather than only maintain one.
+//
+// Set rather than flipped, because an owner and the file can start out
+// disagreeing: the marker says what the file last recorded and the box draws what
+// the owner says now, and a press has to settle both on the same answer.
+function markCellTodo(line, done) {
+  const found = CELL_TODO.exec(line);
+  if (!found) return `${TODO_WRITE.replace("[ ]", done ? "[x]" : "[ ]")}${line}`;
+  const [, indent, marker, trailing] = found;
+  const marked = marker === TODO_OFF || marker === TODO_ON
+    ? (done ? TODO_ON : TODO_OFF)
+    : marker.replace(/\[[ xX]\]/, done ? "[x]" : "[ ]");
+  return `${indent}${marked}${trailing || " "}${line.slice(found[0].length)}`;
+}
+
+// The same, from whatever the line says now. A line with no marker gains an
+// unticked one.
 function flipCellTodo(line) {
   const found = CELL_TODO.exec(line);
-  if (!found) return `${TODO_WRITE}${line}`;
-  const [, indent, marker, trailing] = found;
-  const ticked = marker === TODO_ON || /\[[xX]\]/.test(marker);
-  const flipped = marker === TODO_OFF || marker === TODO_ON
-    ? (ticked ? TODO_OFF : TODO_ON)
-    : marker.replace(/\[[ xX]\]/, ticked ? "[ ]" : "[x]");
-  return `${indent}${flipped}${trailing || " "}${line.slice(found[0].length)}`;
+  return markCellTodo(line, found ? !cellTodoDone(found[2]) : false);
 }
 
 // --- a cell's own surface: a marker is chrome there too ----------------------
@@ -2962,7 +2993,7 @@ function showSprintCell(host, block, index, r, column) {
 // Drawn in the resting view only. Focusing the cell swaps in the surface, where
 // the line is text with a caret in it and its markdown is reachable directly --
 // the same trade a checkbox in a cell already makes.
-function cellLineAction(block, index, r, column, position, text) {
+function cellLineAction(block, index, r, column, position, text, done) {
   const action = firstOf(CELL_LINE_ACTIONS, text);
   if (!action) return null;
 
@@ -2973,21 +3004,22 @@ function cellLineAction(block, index, r, column, position, text) {
   press.onmousedown = (event) => event.preventDefault();
   press.onclick = (event) => {
     event.stopPropagation();
-    action.run(press, text, (written) => {
-      writeCellLine(block, r, column, position, written);
+    action.run(press, text, (written, settled) => {
+      writeCellLine(block, r, column, position, written, settled);
       tableEdited(block);
       // The whole document, for `sprintLineAction`'s reason: what the action wrote
       // may draw as anything, and this file has no idea what changed beyond text.
       renderSprintDocument();
-    });
+    }, { done });
   };
   return press;
 }
 
 // One line of a cell rewritten, the rest of the cell left exactly as it is. The
 // marker stays on the front: an action is handed the line's *body* and gives a
-// body back, the same contract a list line's action has.
-function writeCellLine(block, r, column, position, body) {
+// body back, the same contract a list line's action has. `done`, when the action
+// supplies it, settles the marker too.
+function writeCellLine(block, r, column, position, body, done) {
   const grid = block.table;
   const lines = cellText(cellValue(grid, r, column)).split("\n");
   if (position >= lines.length) return;
@@ -2996,6 +3028,7 @@ function writeCellLine(block, r, column, position, body) {
   // marker and the first word of the body become one word.
   const head = found ? (found[3] ? found[0] : `${found[0]} `) : "";
   lines[position] = `${head}${body}`;
+  if (done !== undefined) lines[position] = markCellTodo(lines[position], done);
   writeCell(grid, r, column, lines.join("\n"));
 }
 
@@ -3025,24 +3058,36 @@ function sprintCellView(block, index, r, column) {
       row.style.setProperty("--cell-depth", cellDepth((found || bullet)[1]));
     }
     if (found) {
+      const body = line.slice(found[0].length);
+      // What this line is really about, if anything outside the file claims it.
+      // The marker is still written when the box is pressed -- the cell keeps
+      // saying what you ticked -- but what the box *shows* is the owner's, since
+      // two things claiming one tick is how they come to disagree.
+      const owner = firstOf(CELL_LINE_OWNERS, body);
       const box = element("input", "sprint-cell-todo");
       box.type = "checkbox";
-      box.checked = found[2] === TODO_ON || /\[[xX]\]/.test(found[2]);
-      box.title = "Tick this line";
+      box.checked = owner ? owner.done : cellTodoDone(found[2]);
+      box.title = owner ? owner.title : "Tick this line";
       // The box is the only thing in a cell that is not "click here to type", so
       // it stops the click that would otherwise open the editor over it.
       box.onclick = (event) => {
         event.stopPropagation();
-        toggleCellTodo(cellHost(view), block, index, r, column, position);
+        toggleCellTodo(cellHost(view), block, index, r, column, position,
+          box.checked, owner);
       };
       const label = element("span", "sprint-cell-label");
-      const body = line.slice(found[0].length);
-      renderCellInline(label, body);
+      // The box at the front is this line's tick, whatever the text turns out to
+      // refer to: a construct drawn inside it must not grow a second one.
+      renderCellInline(label, body, { ownTick: false });
       row.append(box, label);
       // A checkbox line in a cell is a unit of work, so it gets the press a task
       // line outside the table has. Only a checkbox line: a bullet is a note and a
       // plain line is prose, neither of which anything downstream reads as work.
-      const press = cellLineAction(block, index, r, column, position, body);
+      // The state the box is *showing*, owner and all: that is the "this line says
+      // done" an action is answering about, and what the user is looking at when
+      // it asks.
+      const press = cellLineAction(block, index, r, column, position, body,
+        owner ? owner.done : cellTodoDone(found[2]));
       if (press) row.appendChild(press);
     } else if (bullet) {
       const depth = cellDepth(bullet[1]);
@@ -3105,17 +3150,23 @@ function toggleCellTodoAtCaret(cell, block, index, r, column) {
   tableEdited(block);
 }
 
-function toggleCellTodo(host, block, index, r, column, position) {
+// `done` is the box's new state rather than the marker flipped, for
+// `toggleSprintListLine`'s reason: with an owner the two can start out
+// disagreeing, and pressing the box settles both on the same answer.
+function toggleCellTodo(host, block, index, r, column, position, done, owner) {
   const grid = block.table;
   const lines = cellText(cellValue(grid, r, column)).split("\n");
   if (position >= lines.length) return;
 
-  lines[position] = flipCellTodo(lines[position]);
+  lines[position] = done === undefined
+    ? flipCellTodo(lines[position])
+    : markCellTodo(lines[position], done);
   // Written back with real newlines, the same shape typing produces -- the server
   // turns either spelling into `CELL_BREAK` on the way to the file.
   writeCell(grid, r, column, lines.join("\n"));
   tableEdited(block);
   showSprintCell(host, block, index, r, column);
+  if (owner) owner.toggle(done);
 }
 
 // **An inline surface, not a textarea**, for the reason every prose surface here is

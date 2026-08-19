@@ -3549,8 +3549,8 @@ function deliverableLineAction(text) {
     title: owned
       ? `Synced to ${owned.link.name} — press to sync it to a different deliverable`
       : "Sync this line to a deliverable",
-    run: (press, current, write) => openSyncPicker(press, owned ? owned.id : null,
-      (id) => write(withReference(current, id))),
+    run: (press, current, write, where) => openSyncPicker(press, owned ? owned.id : null,
+      (id) => linkTickedLine(press, id, current, write, where)),
   };
 }
 
@@ -3577,11 +3577,16 @@ function deliverableCellLineAction(text) {
     title: owned
       ? `Synced to ${owned.link.name} — press to sync it to a different deliverable`
       : "Sync this line to a deliverable",
-    run: (press, current, write) => openSyncPicker(press, owned ? owned.id : null,
-      (id) => write(withReference(current, id))),
+    run: (press, current, write, where) => openSyncPicker(press, owned ? owned.id : null,
+      (id) => linkTickedLine(press, id, current, write, where)),
   };
 }
 
+// The same owner a task line outside the table has. A checkbox line in a cell is
+// the same unit of work, so its box draws the deliverable's tick and pressing it
+// ticks the deliverable -- and the cell's own marker is written too, so the file
+// keeps saying what you ticked.
+registerCellLineOwner(deliverableLineOwner);
 registerCellLineAction(deliverableCellLineAction);
 
 // One reference per line, so a line that has one has it **moved** rather than
@@ -3883,6 +3888,113 @@ function placeSyncPicker(panel, anchor) {
   panel.style.left = `${left}px`;
 }
 
+// --- linking two records that already disagree --------------------------------
+
+// **Linking is where a line's box and a deliverable's tick meet, and they may
+// already say different things.** Neither is wrong: the box is what the file
+// recorded and the tick is what the roadmap recorded, both were typed by someone
+// on purpose, and this app does not get to pick between two user-entered states.
+// So it asks once, at the moment the link is made, and from then on there is one
+// answer -- the box draws the deliverable, and the question cannot come back.
+//
+// Asked **only** when they disagree. A question with one possible answer is a
+// keystroke tax, so agreeing states link silently, as they always have.
+//
+// Nothing is repaired here and nothing is inferred: cancelling writes neither the
+// reference nor either tick, which is the same stance as the rest of the app --
+// every rule reports, and the user's press is what changes something.
+function linkTickedLine(anchor, id, current, write, where) {
+  const text = withReference(current, id);
+  const link = sprintLink(id);
+  const lineDone = Boolean(where && where.done);
+  // A reference to nothing has no state to disagree with, and neither has a
+  // roadmap that has not been read yet.
+  if (!link || link.missing || Boolean(link.done) === lineDone) {
+    write(text);
+    return;
+  }
+
+  openTickConflict(anchor, link, lineDone, (winner) => {
+    if (winner === "line") {
+      // The file's answer wins: the line keeps the box it has and the roadmap is
+      // told. `toggleLinkedDeliverable` is the same write the box itself makes,
+      // so this reaches every other file naming it, exactly as a press would.
+      write(text);
+      toggleLinkedDeliverable(id, lineDone);
+      return;
+    }
+    // The roadmap's answer wins: the reference and the marker are written
+    // together, so the file agrees with the box before the next render draws it.
+    write(text, Boolean(link.done));
+  });
+}
+
+// Built and removed like the picker, anchored to the same press, and dismissed
+// the same way -- no element in `index.html` to keep in step, and no `hidden`
+// attribute for the `display` trap to catch.
+const tickConflict = { node: null, dismiss: null, keys: null };
+
+function closeTickConflict() {
+  if (!tickConflict.node) return;
+  document.removeEventListener("mousedown", tickConflict.dismiss, true);
+  document.removeEventListener("keydown", tickConflict.keys, true);
+  tickConflict.node.remove();
+  tickConflict.node = null;
+  tickConflict.dismiss = null;
+  tickConflict.keys = null;
+}
+
+// The two states, spelled out as what each one would do rather than as "yes" and
+// "no": the press has to say which record is about to change, because one of them
+// is a file and the other is the roadmap.
+function openTickConflict(anchor, link, lineDone, choose) {
+  closeTickConflict();
+
+  const panel = element("div", "tick-conflict");
+  panel.appendChild(element("p", "tick-conflict-head",
+    `${link.name} is ${link.done ? "done" : "not done"} on the roadmap.`));
+  panel.appendChild(element("p", "tick-conflict-note",
+    `This line says ${lineDone ? "done" : "not done"}. Which one starts the link?`));
+
+  const answer = (winner) => {
+    closeTickConflict();
+    choose(winner);
+  };
+
+  const roadmap = element("button", "tick-conflict-pick",
+    `Take the roadmap's — ${link.done ? "tick" : "untick"} this line`);
+  roadmap.type = "button";
+  roadmap.title = "The line's box is rewritten to match the deliverable.";
+  roadmap.onclick = () => answer("deliverable");
+
+  const file = element("button", "tick-conflict-pick",
+    `Take this line's — mark ${link.name} ${lineDone ? "done" : "not done"}`);
+  file.type = "button";
+  file.title = "The deliverable is written on the roadmap, and every other file naming it follows.";
+  file.onclick = () => answer("line");
+
+  panel.append(roadmap, file);
+  panel.appendChild(element("p", "tick-conflict-hint", "esc · don't link"));
+
+  document.body.appendChild(panel);
+  placeSyncPicker(panel, anchor);
+  roadmap.focus();
+
+  tickConflict.node = panel;
+  // Dismissing is cancelling: nothing has been written yet, so the line is left
+  // exactly as it was, unlinked.
+  tickConflict.dismiss = (event) => {
+    if (!panel.contains(event.target)) closeTickConflict();
+  };
+  tickConflict.keys = (event) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    closeTickConflict();
+  };
+  document.addEventListener("mousedown", tickConflict.dismiss, true);
+  document.addEventListener("keydown", tickConflict.keys, true);
+}
+
 // Same shape as `scopeKey` and for the same reason: the answer can change when
 // the roadmap does, so the key says which edition it was read at. The file is in
 // it too, because switching file changes the question entirely.
@@ -3988,6 +4100,12 @@ async function pushDeliverableMarks(id, done) {
 // in step with it; the server's is the one that decides what is on disk.
 const TASK_MARKER = /^([ \t]*(?:>[ \t]*)*(?:[-*+]|\d{1,9}[.)])[ \t]+)\[([ xX])\]/;
 
+// A checkbox line inside a cell, in either spelling. `_CELL_MARKER` in `main.py`
+// is the same expression, and the two are kept in step for the same reason
+// `TASK_MARKER` is: the server decides what is on disk, this decides what the
+// open file shows until the next save carries it there.
+const CELL_MARKER = /^([ \t]*)(☐|☑|(?:[-*+]|\d{1,9}[.)])[ \t]+\[[ xX]\])/;
+
 // One consequence worth stating: a block being typed in at this moment holds its
 // text in `sprint.draft`, and the draft is written back over `raw` when the edit
 // lands. So a flip that arrives while you are editing that very line loses to
@@ -3995,6 +4113,10 @@ const TASK_MARKER = /^([ \t]*(?:>[ \t]*)*(?:[-*+]|\d{1,9}[.)])[ \t]+)\[([ xX])\]
 function markOpenSprint(id, done) {
   let changed = 0;
   for (const block of state.sprint.blocks) {
+    if (block.table) {
+      changed += markOpenSprintTable(block, id, done);
+      continue;
+    }
     if (block.type !== "list" && block.type !== "quote") continue;
     block.raw = block.raw.split("\n").map((line) => {
       const found = TASK_MARKER.exec(line);
@@ -4009,6 +4131,43 @@ function markOpenSprint(id, done) {
   }
   if (changed) scheduleSprintSave();
   return changed;
+}
+
+// The same flip inside a table the editor is holding. The grid is the client's
+// copy of the table -- `serialiseEditedTables` turns it back into markdown at save
+// time -- so the write is to the cell value and the block is flagged, exactly as a
+// press on the box in that cell would leave it.
+function markOpenSprintTable(block, id, done) {
+  let changed = 0;
+  for (const row of block.table.rows) {
+    row.forEach((cell, column) => {
+      const lines = String(cell ?? "").replace(/<br\s*\/?>/gi, "\n").split("\n");
+      let touched = 0;
+      const written = lines.map((line) => {
+        const found = CELL_MARKER.exec(line);
+        if (!found) return line;
+        const rest = line.slice(found[0].length);
+        const reference = DELIVERABLE_REF.exec(rest);
+        if (!reference || referencedId(reference) !== id) return line;
+        const marker = found[2] === "☑" || /\[[xX]\]/.test(found[2]);
+        if (marker === done) return line;
+        touched += 1;
+        return `${found[1]}${cellMarkerFor(found[2], done)}${rest}`;
+      });
+      if (!touched) return;
+      row[column] = written.join("\n");
+      changed += touched;
+    });
+  }
+  if (changed) block.tableEdited = true;
+  return changed;
+}
+
+// One cell marker set to `done`, in the spelling the line already uses --
+// `markCellTodo`'s rule in `editor.js`, and `_tick_cell_marker`'s in `main.py`.
+function cellMarkerFor(marker, done) {
+  if (marker === "☐" || marker === "☑") return done ? "☑" : "☐";
+  return marker.replace(/\[[ xX]\]/, done ? "[x]" : "[ ]");
 }
 
 // Said out loud, because a file changing while you were not typing in it is the

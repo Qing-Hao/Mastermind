@@ -1049,20 +1049,88 @@ def line_reference(line):
 _TASK_MARKER = re.compile(r"^([ \t]*(?:>[ \t]*)*(?:[-*+]|\d{1,9}[.)])[ \t]+)\[([ xX])\]")
 
 
+# A checkbox line **inside a table cell**, whose marker is either a glyph or a
+# task box. The cell's own line, not the file's: a row is one file line, and its
+# cells hold their line breaks as `CELL_BREAK`.
+_CELL_MARKER = re.compile(r"^([ \t]*)(☐|☑|(?:[-*+]|\d{1,9}[.)])[ \t]+\[[ xX]\])")
+
+# A fenced block's opener or closer. A pipe inside a fence is code, not a table.
+_FENCE = re.compile(r"^[ \t]*(?:```|~~~)")
+
+# A pipe that is not escaped. Splitting a row on these and joining with `|` again
+# is lossless -- every cell keeps its padding, and `\|` stays inside its cell.
+_ROW_PIPE = re.compile(r"(?<!\\)\|")
+
+# `CELL_BREAK` in whatever spelling the file has it, kept as a captured group so a
+# split can be rejoined exactly as it was read.
+_KEPT_BREAK = re.compile(r"(<br\s*/?>)", re.I)
+
+
+def _tick_cell_marker(marker, done):
+    """One cell-line marker set to `done`, in the spelling the file already uses."""
+    if marker in ("☐", "☑"):
+        return "☑" if done else "☐"
+    return re.sub(r"\[[ xX]\]", "[x]" if done else "[ ]", marker)
+
+
+def _marked_cell_line(line, deliverable_id, done):
+    """One line of a cell ticked for this deliverable, as `(line, changed)`."""
+    found = _CELL_MARKER.match(line)
+    if not found:
+        return line, False
+    body = line[found.end():]
+    reference = DELIVERABLE_REF.search(body)
+    if not reference or _ref_id(reference) != deliverable_id:
+        return line, False
+    marked = _tick_cell_marker(found.group(2), done)
+    if marked == found.group(2):
+        return line, False
+    return f"{found.group(1)}{marked}{body}", True
+
+
+def _marked_row(line, deliverable_id, done):
+    """One table row with this deliverable's cell lines ticked, as `(line, count)`.
+
+    **Every flip is the same length as what it replaces** -- `☐`/`☑` are one
+    character each and `[ ]`/`[x]` are three -- so the row's padding still lines
+    up and `serialise_table` has nothing to redo. That is what makes writing
+    inside a table affordable at all: the alternative is realigning a table the
+    user last aligned, in a file the app does not own.
+    """
+    parts = _ROW_PIPE.split(line)
+    changed = 0
+    for position, cell in enumerate(parts):
+        pieces = _KEPT_BREAK.split(cell)
+        for step in range(0, len(pieces), 2):
+            pieces[step], flipped = _marked_cell_line(pieces[step], deliverable_id, done)
+            changed += flipped
+        parts[position] = "".join(pieces)
+    return "|".join(parts), changed
+
+
 def marked_for(text, deliverable_id, done):
-    """The document with this deliverable's task lines ticked, as `(text, lines)`.
+    """The document with this deliverable's boxes ticked, as `(text, lines)`.
 
-    **Task lines only.** A table row has no marker to flip -- its Status column is
-    a five-state note the app never writes -- and a plain bullet has no box. So a
-    document can name a deliverable and still have nothing here to change, which
-    is why the count comes back rather than a flag.
+    **Lines with a box, wherever they are**: a task line of a list, and a checkbox
+    line inside a table cell. Both draw the deliverable's own tick on screen, so
+    leaving either marker behind would make the file disagree with what it is
+    drawn as. A plain bullet has no box and a row's Status column is a five-state
+    note this app never writes, so a document can name a deliverable and still
+    have nothing here to change -- which is why the count comes back rather than a
+    flag.
 
-    Everything else is preserved byte for byte: the box is the only thing rewritten
-    on the only lines that carry one.
+    Everything else is preserved byte for byte: the box is the only thing
+    rewritten, on the only lines that carry one.
     """
     lines = []
     changed = 0
+    fenced = False
     for line in text.splitlines(keepends=True):
+        if _FENCE.match(line):
+            fenced = not fenced
+            lines.append(line)
+            continue
+
         found = _TASK_MARKER.match(line)
         reference = line_reference(line) if found else None
         if found and reference and reference[0] == deliverable_id:
@@ -1070,6 +1138,13 @@ def marked_for(text, deliverable_id, done):
                 lines.append(f"{found.group(1)}[{'x' if done else ' '}]{line[found.end():]}")
                 changed += 1
                 continue
+        # A pipe inside a fence is code. Everywhere else a line starting with one
+        # is a table row, and the delimiter row carries no marker to flip.
+        if not fenced and not found and line.lstrip().startswith("|"):
+            marked, count = _marked_row(line, deliverable_id, done)
+            lines.append(marked)
+            changed += count
+            continue
         lines.append(line)
     return "".join(lines), changed
 
@@ -1187,8 +1262,10 @@ def write_sprint_marks(body: SprintMarks):
     Declared above `/api/sprints/{number}` for the reason `links` is: `marks` is
     not a number, and the route declared first is the one that answers.
 
-    Three things it does not do. It never touches a table row -- there is no
-    marker there and the Status column is yours. It never touches the template,
+    Three things it does not do. It never touches a cell without a box in it --
+    a row's Status column is a five-state note and stays yours; what it does reach
+    inside a table is a checkbox line, which draws the deliverable's tick exactly
+    as a task line outside the table does. It never touches the template,
     which is not in `SPRINTS_DIR` at all. And it skips the files the caller names,
     which are the ones the editor is holding unsaved: their disk copy is already
     behind, and writing under an open editor is how typing goes missing.

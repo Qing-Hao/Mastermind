@@ -2818,6 +2818,83 @@ def test_a_tick_reaches_the_task_lines_that_name_it(client, sprints):
     assert f"- [x] Carried over" in two.read_text(encoding="utf-8")
 
 
+def test_a_tick_reaches_a_checkbox_line_inside_a_cell(client, sprints):
+    _, _, first, second = linked_plan(client)
+    path = stage_sprint(sprints, 1, (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        "| Task | PIC |\n"
+        "| --- | --- |\n"
+        f"| ☐ Ship the auth API [#D-{first['id']}]<br>"
+        f"- [ ] Write the audit log [#D-{second['id']}] | @me |\n"
+    ))
+
+    answer = client.post("/api/sprints/marks", json={
+        "deliverable_id": first["id"], "done": True,
+    })
+    # A checkbox line in a cell draws the deliverable's tick like any other, so the
+    # marker has to follow. The line beside it names something else and is left as
+    # it was, in the spelling it was written in.
+    assert [one["lines"] for one in answer.json()["files"]] == [1]
+    written = path.read_text(encoding="utf-8")
+    assert f"☑ Ship the auth API [#D-{first['id']}]" in written
+    assert f"- [ ] Write the audit log [#D-{second['id']}]" in written
+
+
+def test_a_tick_inside_a_cell_keeps_the_table_aligned(client, sprints):
+    _, _, first, _ = linked_plan(client)
+    text = (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        "| Task                        | PIC  |\n"
+        "| --------------------------- | ---- |\n"
+        f"| - [ ] Ship the API [#D-{first['id']}]   | @me  |\n"
+    )
+    path = stage_sprint(sprints, 1, text)
+
+    client.post("/api/sprints/marks", json={
+        "deliverable_id": first["id"], "done": True,
+    })
+    # `[ ]` and `[x]` are the same three characters, so the padding the user last
+    # aligned still lines up: one character changed in the whole file.
+    written = path.read_text(encoding="utf-8")
+    assert written == text.replace("- [ ] Ship", "- [x] Ship")
+    assert len(written) == len(text)
+
+
+def test_clearing_a_tick_reaches_a_cell_too(client, sprints):
+    _, _, first, _ = linked_plan(client)
+    path = stage_sprint(sprints, 1, (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        "| Task | PIC |\n"
+        "| --- | --- |\n"
+        f"| ☑ Ship the auth API [#D-{first['id']}] | @me |\n"
+    ))
+    client.put(f"/api/deliverables/{first['id']}", json={"done": True})
+
+    client.post("/api/sprints/marks", json={
+        "deliverable_id": first["id"], "done": False,
+    })
+    assert f"☐ Ship the auth API" in path.read_text(encoding="utf-8")
+
+
+def test_a_pipe_inside_a_fence_is_code_and_never_a_row(client, sprints):
+    _, _, first, _ = linked_plan(client)
+    text = (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        "```\n"
+        f"| ☐ Ship the auth API [#D-{first['id']}] | @me |\n"
+        "```\n"
+    )
+    path = stage_sprint(sprints, 1, text)
+
+    answer = client.post("/api/sprints/marks", json={
+        "deliverable_id": first["id"], "done": True,
+    })
+    # A fenced block is a document about a table, not a table. Nothing in it draws
+    # a checkbox, so nothing in it is a marker to flip.
+    assert answer.json()["files"] == []
+    assert path.read_text(encoding="utf-8") == text
+
+
 def test_a_tick_never_writes_a_table_row(client, sprints):
     _, _, first, _ = linked_plan(client)
     text = (
