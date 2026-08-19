@@ -2309,6 +2309,53 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 .sprint-line-act:focus-visible { visibility: visible; }
 .sprint-line-act:hover { border-color: var(--accent); color: var(--accent); }
 
+/* --- the notice --- */
+/* One line at the foot of the window, for the one thing that happens without you
+   asking for it: a sprint file rewritten by a tick made somewhere else. Above the
+   picker, because it may be what the picker's press caused. */
+.app-toast {
+  position: fixed;
+  z-index: 70;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 8px 12px;
+  font-size: 13px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 8px 24px rgba(0, 0, 0, 0.16);
+}
+.app-toast-text { flex: 1 1 auto; }
+.app-toast-undo {
+  flex: none;
+  font: inherit;
+  font-size: 12.5px;
+  padding: 2px 8px;
+  border: 1px solid var(--field);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--accent);
+  cursor: pointer;
+}
+.app-toast-undo:hover { border-color: var(--accent); background: var(--accent-soft); }
+.app-toast-close {
+  flex: none;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--faint);
+  cursor: pointer;
+}
+.app-toast-close:hover { color: var(--ink); }
+
 /* --- the sync picker --- */
 /* Opened from that handle, and built and removed rather than toggled -- there is
    no `hidden` attribute anywhere in it, so the `display` trap this stylesheet's

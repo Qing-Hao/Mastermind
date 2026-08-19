@@ -1925,7 +1925,7 @@ function deliverableRow(phase) {
     tick.type = "checkbox";
     tick.checked = Boolean(deliverable.done);
     tick.title = deliverable.done ? "Done" : "Still ongoing";
-    tick.onchange = () => saveDeliverable(deliverable.id, { done: tick.checked });
+    tick.onchange = () => saveDeliverableTick(deliverable.id, tick.checked);
     tickCell.appendChild(tick);
     line.appendChild(tickCell);
 
@@ -2104,6 +2104,16 @@ async function saveDeliverable(deliverableId, fields) {
     body: JSON.stringify(fields),
   });
   await loadPlan();
+}
+
+// The tick has a second half the other fields do not: a task line in a sprint
+// file draws this deliverable, so the marker on that line goes with it. See
+// `pushDeliverableMarks`.
+async function saveDeliverableTick(deliverableId, done) {
+  await saveDeliverable(deliverableId, { done });
+  const marks = await pushDeliverableMarks(deliverableId, done);
+  announceMarks(deliverableId, done, marks,
+    () => saveDeliverableTick(deliverableId, !done));
 }
 
 // Both directions are listed together: what this project waits on, and what
@@ -3553,6 +3563,51 @@ function withReference(text, id) {
   return base ? `${base} ${mark}` : mark;
 }
 
+// --- saying what just happened ------------------------------------------------
+
+// One notice at a time, at the foot of the window, gone in eight seconds or when
+// you dismiss it. Built and removed like the picker: no element in `index.html`
+// to keep in step, and no `hidden` attribute to be caught by the `display` trap.
+//
+// This exists for one message -- a sprint file rewritten by a tick you made
+// somewhere else -- and should stay that narrow. An app that announces its every
+// success is one you stop reading.
+const toast = { node: null, timer: null };
+
+function hideToast() {
+  clearTimeout(toast.timer);
+  if (toast.node) toast.node.remove();
+  toast.node = null;
+  toast.timer = null;
+}
+
+function showToast(text, undo) {
+  hideToast();
+  const node = element("div", "app-toast");
+  node.appendChild(element("span", "app-toast-text", text));
+
+  if (undo) {
+    const back = element("button", "app-toast-undo", "Undo");
+    back.type = "button";
+    back.title = "Put the marker back and clear the tick";
+    back.onclick = () => {
+      hideToast();
+      undo();
+    };
+    node.appendChild(back);
+  }
+
+  const close = element("button", "app-toast-close", "×");
+  close.type = "button";
+  close.title = "Dismiss";
+  close.onclick = hideToast;
+  node.appendChild(close);
+
+  document.body.appendChild(node);
+  toast.node = node;
+  toast.timer = setTimeout(hideToast, 8000);
+}
+
 // --- the sync picker ---------------------------------------------------------
 
 // **The fortnight first, the roadmap behind it.** A sprint file plans the work
@@ -3850,7 +3905,101 @@ async function toggleLinkedDeliverable(id, done) {
     method: "PUT",
     body: JSON.stringify({ done }),
   });
+  const marks = await pushDeliverableMarks(id, done);
   renderSprintView();
+  announceMarks(id, done, marks, () => toggleLinkedDeliverable(id, !done));
+}
+
+// --- the tick, going out to the files ----------------------------------------
+
+// **The reverse direction, and the only writing this app does to a document you
+// did not type in.** A task line's box draws the deliverable, so a tick anywhere
+// has to reach the marker on that line -- otherwise the file says one thing and
+// the screen beside it says another.
+//
+// Narrow on purpose: task markers only. A table row has no marker and its Status
+// column stays a note the app has no opinion about, so a deliverable named only
+// in tables changes nothing here and nothing is announced.
+//
+// The file the editor is holding unsaved is the editor's own to change. Its disk
+// copy is already behind what is on screen, and a server write under it is how a
+// half-typed line goes missing -- so it is named in `skip` and flipped in memory
+// instead, riding out on the next autosave.
+async function pushDeliverableMarks(id, done) {
+  const open = state.sprint.number;
+  const holding = open !== null && !isTemplate(open) && sprintHasUnsavedWork();
+  const answer = await api("/api/sprints/marks", {
+    method: "POST",
+    body: JSON.stringify({
+      deliverable_id: id,
+      done,
+      skip: holding ? [open] : [],
+    }),
+  });
+
+  const changed = answer.files || [];
+  const mine = holding ? markOpenSprint(id, done) : 0;
+
+  // A file the server wrote that is also the one on screen. It had no unsaved
+  // work -- that is why it was not skipped -- but its mtime has moved, and the
+  // next autosave quotes the old one and would be refused as a conflict.
+  if (open !== null && changed.some((one) => one.number === open)) {
+    await loadSprintFile(open);
+    renderSprintView();
+  }
+  return { changed, mine };
+}
+
+// The same flip as `marked_for` in `main.py`, against the blocks in memory. Kept
+// in step with it; the server's is the one that decides what is on disk.
+const TASK_MARKER = /^([ \t]*(?:>[ \t]*)*(?:[-*+]|\d{1,9}[.)])[ \t]+)\[([ xX])\]/;
+
+// One consequence worth stating: a block being typed in at this moment holds its
+// text in `sprint.draft`, and the draft is written back over `raw` when the edit
+// lands. So a flip that arrives while you are editing that very line loses to
+// what you type, which is the right way round for it to lose.
+function markOpenSprint(id, done) {
+  let changed = 0;
+  for (const block of state.sprint.blocks) {
+    if (block.type !== "list" && block.type !== "quote") continue;
+    block.raw = block.raw.split("\n").map((line) => {
+      const found = TASK_MARKER.exec(line);
+      if (!found) return line;
+      const rest = line.slice(found[0].length);
+      const reference = DELIVERABLE_REF.exec(rest);
+      if (!reference || referencedId(reference) !== id) return line;
+      if ((found[2].toLowerCase() === "x") === done) return line;
+      changed += 1;
+      return `${found[1]}[${done ? "x" : " "}]${rest}`;
+    }).join("\n");
+  }
+  if (changed) scheduleSprintSave();
+  return changed;
+}
+
+// Said out loud, because a file changing while you were not typing in it is the
+// one edit here nobody asked for directly. Silent when nothing changed, which is
+// most ticks: most deliverables are in no sprint file at all.
+function announceMarks(id, done, marks, undo) {
+  const names = marks.changed.map((one) => one.name);
+  if (marks.mine) names.push(state.sprint.name || "the open file");
+  if (names.length === 0) return;
+
+  showToast(`${deliverableName(id)} ${done ? "ticked" : "unticked"} — `
+    + `${names.join(" and ")} updated.`, undo);
+}
+
+// Whichever list is in hand. `allDeliverables` is the Sprint tab's read of the
+// whole roadmap and the open plan is the Project tab's, and a tick happens on
+// both -- neither tab has a reason to load the other's list to name one row.
+function deliverableName(id) {
+  const known = state.allDeliverables.find((row) => row.id === id);
+  if (known) return known.name;
+  for (const phase of state.plan ? state.plan.phases : []) {
+    const one = (phase.deliverables || []).find((row) => row.id === id);
+    if (one) return one.name;
+  }
+  return `Deliverable ${id}`;
 }
 
 // The arrow. `openProject` clears the open phases, so the one being jumped to is

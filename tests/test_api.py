@@ -2611,8 +2611,9 @@ def test_ticking_through_a_link_never_writes_the_sprint_file(client, sprints):
     client.put(f"/api/deliverables/{first['id']}", json={"done": False})
 
     # Byte-for-byte: no Status rewritten, no table realigned, no value invented to
-    # put back when the tick was cleared. This is why the reverse direction needs
-    # no definition -- there is no reverse write.
+    # put back when the tick was cleared. Saving a deliverable is a roadmap write
+    # and stays one; the file write lives on `/api/sprints/marks`, is asked for by
+    # name, and reaches task markers only.
     assert path.read_text(encoding="utf-8") == text
 
 
@@ -2730,6 +2731,111 @@ def test_a_line_carrying_two_references_links_only_the_first(client, sprints):
     # reference rather than adding a second beside it.
     links = client.get("/api/sprints/1/links").json()
     assert [one["deliverable_id"] for one in links] == [first["id"]]
+
+
+# --- the tick going the other way ---------------------------------------------
+
+# A task line's box draws the deliverable's tick, so ticking the deliverable has to
+# reach the marker in the file -- otherwise the file disagrees with the screen it
+# is drawn on. This is the one place the app writes a document you did not type
+# in, and every test below is about how narrow that write is.
+
+
+def test_a_tick_reaches_the_task_lines_that_name_it(client, sprints):
+    _, _, first, _ = linked_plan(client)
+    one = stage_sprint(sprints, 1, (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        f"- [ ] Ship the auth API [#D-{first['id']}]\n"
+        "- [ ] Something else\n"
+    ))
+    two = stage_sprint(sprints, 2, (
+        "# Sprint 2 · 2026-01-19 → 2026-02-02\n\n"
+        f"- [ ] Carried over: the auth API D-{first['id']}\n"
+    ))
+
+    answer = client.post("/api/sprints/marks", json={
+        "deliverable_id": first["id"], "done": True,
+    })
+    assert answer.status_code == 200
+    assert [one["number"] for one in answer.json()["files"]] == [1, 2]
+
+    # Both spellings, and only the line that names it.
+    assert f"- [x] Ship the auth API [#D-{first['id']}]" in one.read_text(encoding="utf-8")
+    assert "- [ ] Something else" in one.read_text(encoding="utf-8")
+    assert f"- [x] Carried over" in two.read_text(encoding="utf-8")
+
+
+def test_a_tick_never_writes_a_table_row(client, sprints):
+    _, _, first, _ = linked_plan(client)
+    text = (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        "| Task | Status |\n"
+        "| --- | --- |\n"
+        f"| Auth API [#D-{first['id']}] | Testing |\n"
+    )
+    path = stage_sprint(sprints, 1, text)
+
+    answer = client.post("/api/sprints/marks", json={
+        "deliverable_id": first["id"], "done": True,
+    })
+    # Nothing to flip: a row has no marker, and its Status column is a note the app
+    # does not get an opinion about.
+    assert answer.json()["files"] == []
+    assert path.read_text(encoding="utf-8") == text
+
+
+def test_a_file_the_editor_is_holding_is_skipped(client, sprints):
+    _, _, first, _ = linked_plan(client)
+    text = (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        f"- [ ] Ship the auth API [#D-{first['id']}]\n"
+    )
+    path = stage_sprint(sprints, 1, text)
+
+    answer = client.post("/api/sprints/marks", json={
+        "deliverable_id": first["id"], "done": True, "skip": [1],
+    })
+    # The editor's copy is newer than the disk's. Writing under it is how a
+    # half-typed line goes missing, so the caller keeps that one to apply itself.
+    assert answer.json()["files"] == []
+    assert path.read_text(encoding="utf-8") == text
+
+
+def test_a_line_already_in_that_state_is_left_alone(client, sprints):
+    _, _, first, _ = linked_plan(client)
+    text = (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        f"- [X] Ship the auth API [#D-{first['id']}]\n"
+    )
+    path = stage_sprint(sprints, 1, text)
+
+    answer = client.post("/api/sprints/marks", json={
+        "deliverable_id": first["id"], "done": True,
+    })
+    # `[X]` already says done. Rewriting it to `[x]` would be the app tidying a
+    # spelling it does not own, and would report a change nobody made.
+    assert answer.json()["files"] == []
+    assert path.read_text(encoding="utf-8") == text
+
+
+def test_a_tick_keeps_every_other_character_of_the_line(client, sprints):
+    _, _, first, _ = linked_plan(client)
+    sprints.mkdir(parents=True, exist_ok=True)
+    path = sprints / "01.md"
+    # Bytes both ways: the line endings are the thing under test, and every
+    # convenience that reads or writes text translates them.
+    path.write_bytes((
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\r\n\r\n"
+        f">   * [x]   Carried over: **the auth API** [#D-{first['id']}]\r\n"
+    ).encode("utf-8"))
+
+    client.post("/api/sprints/marks", json={
+        "deliverable_id": first["id"], "done": False,
+    })
+    # Quote, indent, bullet, spacing, emphasis and the CRLF endings all survive:
+    # the box is the only thing rewritten.
+    assert path.read_bytes().endswith(
+        f">   * [ ]   Carried over: **the auth API** [#D-{first['id']}]\r\n".encode("utf-8"))
 
 
 def test_links_of_a_sprint_that_is_not_there_is_a_404(client, sprints):

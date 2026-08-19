@@ -184,6 +184,15 @@ class SprintText(BaseModel):
     text: str
 
 
+class SprintMarks(BaseModel):
+    # One deliverable's tick, pushed out to the files that plan it. `skip` names
+    # the files the caller is holding unsaved edits for -- the editor's own copy
+    # is newer than the disk's, so writing under it would throw typing away.
+    deliverable_id: int
+    done: bool
+    skip: list[int] = []
+
+
 class SprintTable(BaseModel):
     # A table block's grid, as the editor holds it. Serialising it back to
     # markdown is the server's job so the column alignment lives in one place.
@@ -1012,6 +1021,37 @@ def line_reference(line):
     return _ref_id(found), " ".join(DELIVERABLE_REF.sub("", body).split())
 
 
+# A task line's own marker, with the box as its own group so only the box is
+# rewritten. Everything else on the line -- indent, quote, bullet, spacing -- is
+# left exactly as the file has it.
+_TASK_MARKER = re.compile(r"^([ \t]*(?:>[ \t]*)*(?:[-*+]|\d{1,9}[.)])[ \t]+)\[([ xX])\]")
+
+
+def marked_for(text, deliverable_id, done):
+    """The document with this deliverable's task lines ticked, as `(text, lines)`.
+
+    **Task lines only.** A table row has no marker to flip -- its Status column is
+    a five-state note the app never writes -- and a plain bullet has no box. So a
+    document can name a deliverable and still have nothing here to change, which
+    is why the count comes back rather than a flag.
+
+    Everything else is preserved byte for byte: the box is the only thing rewritten
+    on the only lines that carry one.
+    """
+    lines = []
+    changed = 0
+    for line in text.splitlines(keepends=True):
+        found = _TASK_MARKER.match(line)
+        reference = line_reference(line) if found else None
+        if found and reference and reference[0] == deliverable_id:
+            if (found.group(2).lower() == "x") != done:
+                lines.append(f"{found.group(1)}[{'x' if done else ' '}]{line[found.end():]}")
+                changed += 1
+                continue
+        lines.append(line)
+    return "".join(lines), changed
+
+
 def sprint_task_refs(text):
     """Every deliverable a document names, in file order, repeats kept.
 
@@ -1110,6 +1150,38 @@ def list_sprint_links():
         {"deliverable_id": deliverable_id, "sprints": sprints}
         for deliverable_id, sprints in sorted(found.items())
     ]
+
+
+@app.post("/api/sprints/marks")
+def write_sprint_marks(body: SprintMarks):
+    """Push one deliverable's tick into the task lines that name it.
+
+    **The one place this app writes a document you did not type in**, and it is
+    deliberate: a task line's box draws the deliverable's tick, so leaving the
+    marker behind would make the file disagree with the screen it is drawn on. A
+    deliverable carried over is named in two files, so this is rarely one file.
+
+    Declared above `/api/sprints/{number}` for the reason `links` is: `marks` is
+    not a number, and the route declared first is the one that answers.
+
+    Three things it does not do. It never touches a table row -- there is no
+    marker there and the Status column is yours. It never touches the template,
+    which is not in `SPRINTS_DIR` at all. And it skips the files the caller names,
+    which are the ones the editor is holding unsaved: their disk copy is already
+    behind, and writing under an open editor is how typing goes missing.
+
+    The reply names what changed, so the caller can say so and offer it back.
+    """
+    changed = []
+    for number, name in sprint_files(SPRINTS_DIR):
+        if number in body.skip:
+            continue
+        path = os.path.join(SPRINTS_DIR, name)
+        text, lines = marked_for(read_sprint_file(path), body.deliverable_id, body.done)
+        if lines:
+            write_sprint_file(path, text)
+            changed.append({"number": number, "name": name, "lines": lines})
+    return {"files": changed}
 
 
 @app.get("/api/sprints")
