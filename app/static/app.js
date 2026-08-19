@@ -255,6 +255,20 @@ let state = {
   // it on its own, because a slice for the *same* fortnight at an older edition
   // is still worth drawing while the re-read is in flight.
   sprintScope: { asked: null, key: null, start: null, slice: null, error: "" },
+  // `D-42` in a sprint row, read in both directions and cached differently on
+  // purpose. `sprintLinks` is the open file's references with the deliverable
+  // each one names, keyed by `roadmapRevision` like the scope panel: the tick a
+  // chip draws is the deliverable's, so clearing it on the Project tab has to
+  // reach the chip. `deliverableSprints` is the other way round -- which files
+  // name each deliverable -- and is **not** keyed at all, because a sprint save
+  // does not touch the roadmap and so cannot move its edition. It is re-read with
+  // the plan instead.
+  sprintLinks: { asked: null, byId: new Map(), error: "" },
+  deliverableSprints: { byId: new Map() },
+  // Every deliverable in the roadmap, for the cell picker. Read once per plan
+  // load for the same reason: the picker offers across projects, and the open
+  // project is not the whole roadmap.
+  allDeliverables: [],
 };
 
 // --- api --------------------------------------------------------------------
@@ -932,6 +946,10 @@ async function loadPlan() {
   if (!state.currentProjectId) return;
   state.plan = await api(`/api/projects/${state.currentProjectId}`);
   state.settings = state.plan.settings;
+  // Before the render, because the deliverable list draws the badge from it. Read
+  // on every plan load rather than cached: the references it counts are typed
+  // into markdown, and nothing about a roadmap edit says when that happened.
+  await loadDeliverableSprints();
   // Opening a project frames the chart on that project's dates. Once per
   // selection, not once per load: every edit lands here, and refitting on each
   // one would drag the viewport back while you were paging it. `Fit` in the
@@ -1921,6 +1939,29 @@ function deliverableRow(phase) {
       state.focusAdder = phase.id;
       if (nameInput.value === deliverable.name) renderPhases();
     };
+    // The other end of `D-42`: which sprint files planned this, and a way into
+    // the newest of them. In the name cell rather than a column of its own --
+    // most deliverables are in no sprint file, and a column would be four-fifths
+    // empty to serve the fifth.
+    const planned = state.deliverableSprints.byId.get(deliverable.id) || [];
+    if (planned.length > 0) {
+      // Flex, so the badge sits beside the name field rather than under it. The
+      // same answer `#phase-table td.checkpoint-name` reached, and for the same
+      // reason: `td input` is 100% wide and would push anything after it down.
+      nameCell.classList.add("deliverable-name");
+      const numbers = planned.map((one) => one.number);
+      const last = numbers[numbers.length - 1];
+      const jump = element("a", "deliverable-sprint", `↗ ${numbers.join(", ")}`);
+      jump.href = "#";
+      jump.title = numbers.length === 1
+        ? `Planned in sprint ${last} — open it`
+        : `Planned in sprints ${numbers.join(", ")} — open sprint ${last}`;
+      jump.onclick = async (event) => {
+        event.preventDefault();
+        await revealSprintFile(last);
+      };
+      nameCell.appendChild(jump);
+    }
     line.appendChild(nameCell);
 
     const actionCell = element("td");
@@ -3211,6 +3252,11 @@ function scopeSilence() {
 }
 
 function renderSprintScope() {
+  // The links ride in on this render rather than one of their own: it is the
+  // app.js end of the sprint view, it runs on every draw of the tab, and the
+  // chips are drawn from `state` by the cell renderer whenever the answer lands.
+  loadSprintLinks();
+
   const panel = $("sprint-scope");
   if (!panel) return;
   const scope = state.sprintScope;
@@ -3274,6 +3320,180 @@ async function loadSprintScope(window, key) {
   // landing mid-flight has already asked a newer one that will draw itself.
   const open = openSprintWindow();
   if (open && scopeKey(open) === key) renderSprintScope();
+}
+
+// --- deliverable links ------------------------------------------------------
+
+// **`D-42` in a sprint row is deliverable 42**, and this is the half of that
+// which draws. The reference is text in your markdown; the chip it draws carries
+// the deliverable's own tick and an arrow to it.
+//
+// Why the tick is the deliverable's rather than the row's Status cell: two places
+// claiming to own "is this done" is what makes a two-way sync undefinable. Clear
+// the tick on the Project tab and there is no value to write back into a Status
+// column -- the work was maybe in `Testing`, and inventing `Not Started` would be
+// the app editing your file with a guess. One owner and the reverse direction
+// stops needing a definition: the chip is drawing the deliverable, so it is
+// already right.
+//
+// The row's Status column is never read here and never written here. It stays
+// your five-state note about how the work is going.
+//
+// This lives in `app.js` and reaches the editor through two seams it exposes,
+// `registerCellInline` and `registerCellMenu`. That is the whole reason those
+// exist: `editor.js` renders a cell but must not know what a deliverable is, and
+// its own discipline is that a cell renders only what its menu can insert -- so
+// the chip and the picker are registered together or neither is.
+
+// Kept in step with `DELIVERABLE_REF` in `main.py`, which is what decides whether
+// a row is linked at all. This one only decides where the chip is drawn.
+const DELIVERABLE_REF = /\bD-(\d+)\b/;
+
+// Null rather than a node when the file's links have not been read, or this is
+// not a linked file: `firstCellInline` skips a rule that declines to build, and
+// leaves the text it matched alone. So an unread `D-42` is the characters you
+// typed, which is also exactly what it is in the file.
+function deliverableChip(match) {
+  const id = Number(match[1]);
+  const link = state.sprintLinks.byId.get(id);
+  if (!link) return null;
+
+  const chip = element("span", link.missing ? "cell-ref cell-ref-dead" : "cell-ref");
+  if (link.missing) {
+    chip.textContent = `D-${id}`;
+    chip.title = `No deliverable ${id} in the roadmap — check the reference.`;
+    return chip;
+  }
+
+  // The box is the only thing in a cell that is not "click here to type", so it
+  // stops the click that would otherwise open the editor over it -- the same
+  // reason and the same handling as a checkbox line.
+  const box = element("input", "cell-ref-tick");
+  box.type = "checkbox";
+  box.checked = link.done;
+  box.title = link.done ? "Done — untick to reopen" : "Still ongoing — tick to finish";
+  box.onclick = (event) => {
+    event.stopPropagation();
+    toggleLinkedDeliverable(id, box.checked);
+  };
+
+  // The reference stays on screen as written. The deliverable's name is the
+  // tooltip rather than the label: the row already carries a task name you typed,
+  // and drawing the name again would say the same thing twice in one cell.
+  const label = element("span", "cell-ref-id", `D-${id}`);
+
+  // An `<a>` on purpose -- `sprintCellHost` lets a click through a link rather
+  // than opening the editor under it, which is the behaviour a jump wants.
+  const jump = element("a", "cell-ref-jump", "↗");
+  jump.href = "#";
+  jump.title = `Open ${link.name} in ${link.project_name || "its project"}`;
+  jump.onclick = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    jumpToDeliverable(id);
+  };
+
+  chip.title = link.rows > 1
+    ? `${link.name} · ${link.project_name} · named in ${link.rows} rows of this file`
+    : `${link.name} · ${link.project_name}`;
+  chip.append(box, label, jump);
+  return chip;
+}
+
+// Nothing for an empty filter, which is the contract `registerCellMenu` states:
+// `/` on its own is the editor's own inventory, and the roadmap only joins it
+// once you have typed something to narrow it. `d` is the something that reaches
+// all of them, since every key here starts with it.
+function deliverableMenuEntries(filter) {
+  if (!filter.trim()) return [];
+  return state.allDeliverables.map((one) => ({
+    key: `d${one.id}`,
+    label: one.name,
+    markdown: `D-${one.id} `,
+  }));
+}
+
+registerCellInline({ mark: DELIVERABLE_REF, render: deliverableChip });
+registerCellMenu(deliverableMenuEntries);
+
+// Same shape as `scopeKey` and for the same reason: the answer can change when
+// the roadmap does, so the key says which edition it was read at. The file is in
+// it too, because switching file changes the question entirely.
+const sprintLinksKey = () => `${state.sprint.number}#${state.roadmapRevision}`;
+
+// Fired from the render and re-rendering when it lands, like `loadSprintScope`.
+// `asked` is set before the request and never cleared on failure, so a refusal
+// leaves the chips undrawn rather than asking again on every keystroke.
+async function loadSprintLinks() {
+  const links = state.sprintLinks;
+  const number = state.sprint.number;
+  // The template plans no fortnight and copies into every future file, so a live
+  // tick in it would be a link to real data from a document about nothing.
+  if (number === null || isTemplate(number)) {
+    links.asked = null;
+    links.byId = new Map();
+    links.error = "";
+    return;
+  }
+
+  const key = sprintLinksKey();
+  if (links.asked === key) return;
+  links.asked = key;
+  try {
+    const [found, all] = await Promise.all([
+      api(`/api/sprints/${number}/links`),
+      api("/api/deliverables"),
+    ]);
+    links.byId = new Map(found.map((one) => [one.deliverable_id, one]));
+    state.allDeliverables = all;
+    links.error = "";
+  } catch (failure) {
+    links.byId = new Map();
+    links.error = failure.message;
+  }
+  // Only if the page is still asking the same question -- switching file
+  // mid-flight must not paint the previous file's links over the new one's.
+  if (sprintLinksKey() === key) renderSprintView();
+}
+
+// The write, and the only one this feature makes. Optimistic on the way out so
+// the box does not flick back while the request is in the air; the PUT moves
+// `roadmapRevision`, so the render behind it re-reads the links and the server's
+// answer is what survives.
+async function toggleLinkedDeliverable(id, done) {
+  const link = state.sprintLinks.byId.get(id);
+  if (link) link.done = done;
+  await api(`/api/deliverables/${id}`, {
+    method: "PUT",
+    body: JSON.stringify({ done }),
+  });
+  renderSprintView();
+}
+
+// The arrow. `openProject` clears the open phases, so the one being jumped to is
+// expanded after it rather than before -- otherwise the tab arrives with the
+// deliverable's phase shut and nothing on screen saying where it went.
+async function jumpToDeliverable(id) {
+  const link = state.sprintLinks.byId.get(id);
+  if (!link || link.missing || link.project_id === null) return;
+  await openProject(link.project_id);
+  if (link.phase_id !== null) {
+    state.expandedPhases.add(link.phase_id);
+    renderPhases();
+  }
+}
+
+// The other direction, for the Project tab's badge. Read with the plan and never
+// cached against `roadmapRevision`: a sprint save does not touch the roadmap, so
+// the roadmap's edition cannot tell you a reference was typed into a file.
+async function loadDeliverableSprints() {
+  try {
+    const found = await api("/api/sprints/links");
+    state.deliverableSprints.byId = new Map(
+      found.map((one) => [one.deliverable_id, one.sprints]));
+  } catch {
+    state.deliverableSprints.byId = new Map();
+  }
 }
 
 // --- the fortnight drawer ---------------------------------------------------

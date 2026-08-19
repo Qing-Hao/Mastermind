@@ -24,12 +24,12 @@ What meaningful product outcome are we trying to achieve in this Sprint?
 - **Historical Velocity:** ~20 SP / Sprint
 - **Sprint Length:** 2 weeks
 
-| Person | Available Days | Leave / Holiday | Notes |
-|---|---|---|---|
-|  |  |  |  |
-|  |  |  |  |
-|  |  |  |  |
-|  |  |  |  |
+| Person    | Available Days | Leave / Holiday | Notes |
+| --------- | -------------- | --------------- | ----- |
+| @QingHao  |                |                 |       |
+| @Shahirul |                |                 |       |
+| @Song Le  |                |                 |       |
+| @Bernard  |                |                 |       |
 
 **Known Constraints:**
 
@@ -39,11 +39,16 @@ _Historical velocity is a planning reference, not a hard capacity limit._
 
 Work that directly advances the Sprint Goal.
 
-| Task | PIC | Reviewer | SP | Commitment | Status | Dependency / Remarks | Actual |
-|---|---|---|---|---|---|---|---|
-|  |  |  |  | Must / Should | Not Started |  |  |
-|  |  |  |  | Must / Should | Not Started |  |  |
-|  |  |  |  | Must / Should | Not Started |  |  |
+Write `D-42` anywhere in a row to link it to deliverable 42 — type `/` in a cell
+and start typing the deliverable's name to pick one. A linked row draws that
+deliverable's tick and an arrow to it, and ticking either place is the same tick.
+Rows without a reference are ordinary tasks; not every task is a deliverable.
+
+| Task | PIC | Reviewer | SP  | Priority            | Status      | Dependency / Remarks | Actual |
+| ---- | --- | -------- | --- | ------------------- | ----------- | -------------------- | ------ |
+|      |     |          |     | HIGH / MEDIUM / LOW | Not Started |                      |        |
+|      |     |          |     | HIGH / MEDIUM / LOW | Not Started |                      |        |
+|      |     |          |     | HIGH / MEDIUM / LOW | Not Started |                      |        |
 
 - **Planned Product SP:**
 - **Must SP:**
@@ -59,16 +64,16 @@ Do not break work down simply for the sake of creating more tickets.
 ## 4. Enablement / Platform Work
 
 Work that improves our ability to build, deploy, operate, maintain, or scale the
-product.
+product or internal tooling.
 
 Examples: internal tooling, CI/CD, infrastructure, self-hosted Git, research,
 documentation, deployment automation, technical improvements.
 
-| Work | PIC | Reviewer | SP | Commitment | Status | Dependency / Remarks | Actual |
-|---|---|---|---|---|---|---|---|
-|  |  |  |  | Must / Should | Not Started |  |  |
-|  |  |  |  | Must / Should | Not Started |  |  |
-|  |  |  |  | Must / Should | Not Started |  |  |
+| Work | PIC | Reviewer | SP  | Commitment          | Status      | Dependency / Remarks | Actual |
+| ---- | --- | -------- | --- | ------------------- | ----------- | -------------------- | ------ |
+|      |     |          |     | HIGH / MEDIUM / LOW | Not Started |                      |        |
+|      |     |          |     | HIGH / MEDIUM / LOW | Not Started |                      |        |
+|      |     |          |     | HIGH / MEDIUM / LOW | Not Started |                      |        |
 
 - **Planned Enablement SP:**
 

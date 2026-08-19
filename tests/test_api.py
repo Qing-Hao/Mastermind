@@ -2527,3 +2527,176 @@ def test_ticking_a_milestone_stores_a_flag_and_deleting_a_project_takes_it(tmp_p
         assert db.get_milestone(beta["id"]) is None
     finally:
         db.set_db_path(db.DEFAULT_DB_PATH)
+
+
+# --- deliverable links --------------------------------------------------------
+
+# `D-42` in a sprint row means deliverable 42. The reference is text in the file
+# and the tick is the deliverable's, which is the whole design: there is nothing
+# stored in between for these tests to check, and the thing worth pinning is that
+# **the app never writes the file back**. Ticking through a link and finding the
+# markdown byte-for-byte unchanged is the acceptance test for the whole feature.
+
+
+def make_deliverable(client, phase_id, name):
+    response = client.post(f"/api/phases/{phase_id}/deliverables", json={"name": name})
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def stage_sprint(sprints, number, text):
+    """Put a sprint file on disk directly, the way you would in a text editor."""
+    sprints.mkdir(parents=True, exist_ok=True)
+    path = sprints / f"{number:02d}.md"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def linked_plan(client):
+    """A project with one phase and two deliverables, for a file to refer to."""
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Build", "2026-01-05", 2, 8)
+    first = make_deliverable(client, phase["id"], "Auth API")
+    second = make_deliverable(client, phase["id"], "Audit log")
+    return project, phase, first, second
+
+
+def test_a_reference_is_read_from_anywhere_in_the_row(client, sprints):
+    _, _, first, second = linked_plan(client)
+    stage_sprint(sprints, 1, (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        "| Task | PIC | Status | Remarks |\n"
+        "| --- | --- | --- | --- |\n"
+        f"| Auth API D-{first['id']} | @me | Development | |\n"
+        f"| Something else | @you | Done | blocked on D-{second['id']} |\n"
+    ))
+
+    links = client.get("/api/sprints/1/links").json()
+    assert [one["deliverable_id"] for one in links] == [first["id"], second["id"]]
+    # The label is the row's first non-empty cell, not the cell the reference is in.
+    assert links[1]["label"] == "Something else"
+    assert links[1]["name"] == "Audit log"
+
+
+def test_a_link_carries_the_deliverables_tick_and_not_the_rows_status(client, sprints):
+    _, _, first, _ = linked_plan(client)
+    stage_sprint(sprints, 1, (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        "| Task | Status |\n"
+        "| --- | --- |\n"
+        f"| Auth API D-{first['id']} | Done |\n"
+    ))
+
+    # The row says Done. The deliverable does not, and the deliverable is what the
+    # link reports -- a five-state note in a cell is never read as a tick.
+    assert client.get("/api/sprints/1/links").json()[0]["done"] is False
+
+    client.put(f"/api/deliverables/{first['id']}", json={"done": True})
+    assert client.get("/api/sprints/1/links").json()[0]["done"] is True
+
+
+def test_ticking_through_a_link_never_writes_the_sprint_file(client, sprints):
+    _, _, first, _ = linked_plan(client)
+    text = (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        "| Task | Status |\n"
+        "| --- | --- |\n"
+        f"| Auth API D-{first['id']} | Testing |\n"
+    )
+    path = stage_sprint(sprints, 1, text)
+
+    client.put(f"/api/deliverables/{first['id']}", json={"done": True})
+    client.put(f"/api/deliverables/{first['id']}", json={"done": False})
+
+    # Byte-for-byte: no Status rewritten, no table realigned, no value invented to
+    # put back when the tick was cleared. This is why the reverse direction needs
+    # no definition -- there is no reverse write.
+    assert path.read_text(encoding="utf-8") == text
+
+
+def test_a_reference_to_nothing_is_reported_rather_than_dropped(client, sprints):
+    linked_plan(client)
+    stage_sprint(sprints, 1, (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        "| Task | Status |\n"
+        "| --- | --- |\n"
+        "| Long gone D-999 | Done |\n"
+    ))
+
+    link = client.get("/api/sprints/1/links").json()[0]
+    assert link["deliverable_id"] == 999
+    assert link["missing"] is True
+    assert link["done"] is False
+
+
+def test_one_deliverable_named_twice_is_one_link_counting_its_rows(client, sprints):
+    _, _, first, _ = linked_plan(client)
+    stage_sprint(sprints, 1, (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        "| Task | Status |\n"
+        "| --- | --- |\n"
+        f"| Auth API D-{first['id']} | Development |\n\n"
+        "| Carried over | Reason |\n"
+        "| --- | --- |\n"
+        f"| Auth API D-{first['id']} | ran out of time |\n"
+    ))
+
+    links = client.get("/api/sprints/1/links").json()
+    assert len(links) == 1
+    assert links[0]["rows"] == 2
+
+
+def test_a_reference_outside_a_table_is_not_a_link(client, sprints):
+    _, _, first, _ = linked_plan(client)
+    stage_sprint(sprints, 1, (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        f"We should finish D-{first['id']} this fortnight.\n"
+    ))
+
+    # Prose is prose. The reference is a planning row's, and a paragraph mentioning
+    # one is not a row of work with a tick to draw.
+    assert client.get("/api/sprints/1/links").json() == []
+
+
+def test_links_of_a_sprint_that_is_not_there_is_a_404(client, sprints):
+    sprints.mkdir(parents=True, exist_ok=True)
+    assert client.get("/api/sprints/7/links").status_code == 404
+
+
+def test_the_reverse_index_names_every_file_a_deliverable_is_in(client, sprints):
+    _, _, first, second = linked_plan(client)
+    stage_sprint(sprints, 1, (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        "| Task | Status |\n"
+        "| --- | --- |\n"
+        f"| Auth API D-{first['id']} | Development |\n"
+    ))
+    stage_sprint(sprints, 2, (
+        "# Sprint 2 · 2026-01-19 → 2026-02-02\n\n"
+        "| Task | Status |\n"
+        "| --- | --- |\n"
+        f"| Auth API D-{first['id']} | Done |\n"
+        f"| Audit log D-{second['id']} | Not Started |\n"
+    ))
+
+    found = {one["deliverable_id"]: one["sprints"] for one
+             in client.get("/api/sprints/links").json()}
+    assert [one["number"] for one in found[first["id"]]] == [1, 2]
+    assert [one["number"] for one in found[second["id"]]] == [2]
+    # `links` is not a number, and the route above `/api/sprints/{number}` is the
+    # one that answers -- the same ordering `split` and `table` rely on.
+    assert client.get("/api/sprints/links").status_code == 200
+
+
+def test_the_picker_offers_every_deliverable_in_the_roadmap(client):
+    _, phase, first, second = linked_plan(client)
+    other = make_project(client, name="Billing", start="2026-02-02")
+    other_phase = make_phase(client, other["id"], "Build", "2026-02-02", 2, 8)
+    third = make_deliverable(client, other_phase["id"], "Invoices")
+
+    listed = client.get("/api/deliverables").json()
+    assert [one["id"] for one in listed] == [first["id"], second["id"], third["id"]]
+    # A fortnight is planned across projects, so the picker says which one each
+    # deliverable belongs to.
+    assert listed[2]["project_name"] == "Billing"
+    assert listed[0]["phase_id"] == phase["id"]

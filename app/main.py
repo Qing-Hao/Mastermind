@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app import db
-from app.markdown import document_blocks, serialise_table
+from app.markdown import document_blocks, serialise_table, split_blocks
 from app.validation import (
     FORTNIGHT_DAYS,
     STAGE_DONE,
@@ -366,6 +366,20 @@ def deliverables_by_phase_id(by_project):
         for row in rows:
             grouped.setdefault(row["phase_id"], []).append(row)
     return grouped
+
+
+def deliverable_index():
+    """Every deliverable by id, each row carrying the project it belongs to.
+
+    The twin of `deliverables_by_phase_id`, keyed for lookup rather than grouped:
+    a sprint file names deliverables one id at a time and across projects, so
+    `db.get_deliverable` per reference would be a query per row of the file.
+    """
+    index = {}
+    for rows in db.deliverables_by_project().values():
+        for row in rows:
+            index[row["id"]] = row
+    return index
 
 
 def with_project_span(projects, phases_by_project, deliverables_by_project):
@@ -927,11 +941,133 @@ def add_sprint(body: SprintIn):
     }
 
 
+# --- deliverable links ------------------------------------------------------
+
+# **`D-42` in a sprint row means deliverable 42.** The reference lives in the
+# markdown, as text you can type, and nothing else stores it: no link table, no
+# sidecar, nothing for `migrate` to do and no export version to bump.
+#
+# The split it rests on: the file records what the sprint *is*, the deliverable
+# records whether it is *done*. That is what makes the link work in both
+# directions without a sync between them. A linked row's Status cell is never
+# read here and never written here -- it stays your five-state note -- and the
+# tick drawn beside it is the deliverable's own, so clearing it on the Project
+# tab shows through immediately and no value has ever to be invented to write
+# back into a file you also edit by hand. Two places owning "is this done" is
+# what made the reverse direction impossible to define; one owner deletes the
+# question rather than answering it.
+#
+# Nothing below knows what a sprint section is: any pipe table is a table and any
+# row in one may carry a reference. That is the same ignorance `split_blocks`
+# has, and the reason `markdown.py` needed no change for this feature.
+
+DELIVERABLE_REF = re.compile(r"\bD-(\d+)\b")
+
+
+def row_reference(cells):
+    """The deliverable a table row names as `(id, label)`, or None.
+
+    Read from anywhere in the row rather than from a named column: `Auth API
+    (D-42)` and a reference parked in Remarks are both things people write, and a
+    fixed column would silently ignore one of them. The label is the row's first
+    non-empty cell, which is the task name in every table in the template.
+    """
+    for cell in cells:
+        found = DELIVERABLE_REF.search(cell)
+        if found:
+            label = next((one.strip() for one in cells if one.strip()), "")
+            return int(found.group(1)), label
+    return None
+
+
+def sprint_task_refs(text):
+    """Every deliverable a document's tables name, in file order, repeats kept.
+
+    One entry per *row*. A deliverable named twice -- carried over within one
+    file, or planned in one table and reported in another -- is two rows, and
+    what that means is the caller's to decide rather than something to collapse
+    here.
+    """
+    found = []
+    for block in split_blocks(text):
+        table = block.get("table")
+        if not table:
+            continue
+        for row in table["rows"]:
+            reference = row_reference(row)
+            if reference:
+                found.append({"deliverable_id": reference[0], "label": reference[1]})
+    return found
+
+
+def resolved_links(text):
+    """A document's references joined to the deliverables they name.
+
+    A reference to nothing is reported as `missing` rather than dropped: a dead
+    reference is a typo worth seeing, not a row that quietly stops being linked.
+    `rows` counts how many rows named it, so the page can say a deliverable is in
+    the file twice instead of drawing one chip and losing the other.
+    """
+    index = deliverable_index()
+    names = {project["id"]: project["name"] for project in db.list_projects()}
+
+    links = {}
+    order = []
+    for reference in sprint_task_refs(text):
+        deliverable_id = reference["deliverable_id"]
+        if deliverable_id in links:
+            links[deliverable_id]["rows"] += 1
+            continue
+        found = index.get(deliverable_id)
+        links[deliverable_id] = {
+            "deliverable_id": deliverable_id,
+            "label": reference["label"],
+            "rows": 1,
+            "missing": found is None,
+            "name": found["name"] if found else "",
+            "done": bool(found["done"]) if found else False,
+            "phase_id": found["phase_id"] if found else None,
+            "project_id": found["project_id"] if found else None,
+            "project_name": names.get(found["project_id"], "") if found else "",
+        }
+        order.append(deliverable_id)
+    return [links[one] for one in order]
+
+
 # The sprint editor reads and writes these files as blocks of markdown. The file
 # on disk stays the one record: no table, no column, nothing for `migrate` to do,
 # and no export version to bump. Nothing below knows what a sprint section is --
 # any pipe table is just a table -- which is what keeps the storage question open
 # for sprint 4 to answer.
+
+
+@app.get("/api/sprints/links")
+def list_sprint_links():
+    """Which sprint files name each deliverable, for the Project tab's jump.
+
+    Declared above `/api/sprints/{number}` deliberately: `links` is not a number,
+    and the route declared first is the one that answers -- the same ordering
+    `split` and `table` already rely on.
+
+    A scan of every file rather than a stored index, because there is no index
+    that could be kept honest. The references live in markdown edited outside the
+    app, so anything stored beside them goes stale the moment you type in a text
+    editor. Re-reading a handful of small files per request is the cheaper
+    mistake, and it is why nothing caches this by `roadmapRevision`: a sprint save
+    does not touch the roadmap, so the roadmap's edition cannot say when this
+    changed.
+    """
+    found = {}
+    for number, name in sprint_files(SPRINTS_DIR):
+        path = os.path.join(SPRINTS_DIR, name)
+        for reference in sprint_task_refs(read_sprint_file(path)):
+            entry = found.setdefault(reference["deliverable_id"], [])
+            if not any(one["number"] == number for one in entry):
+                entry.append({"number": number, "name": name})
+    return [
+        {"deliverable_id": deliverable_id, "sprints": sprints}
+        for deliverable_id, sprints in sorted(found.items())
+    ]
 
 
 @app.get("/api/sprints")
@@ -985,6 +1121,20 @@ def read_sprint(number: int):
         "mtime": os.path.getmtime(path),
         "blocks": document_blocks(text),
     }
+
+
+@app.get("/api/sprints/{number}/links")
+def read_sprint_links(number: int):
+    """The deliverables one sprint file names, each with the tick it draws.
+
+    Read again whenever the roadmap changes edition, because the tick belongs to
+    the deliverable and can be cleared on another tab. There is deliberately no
+    equivalent for `templates/sprint.md`: it is the document a sprint is copied
+    *from*, covering no fortnight and planning no work, so a live tick in it would
+    be a link to real data from a file about nothing in particular.
+    """
+    path = found_sprint(number)
+    return resolved_links(read_sprint_file(path))
 
 
 @app.put("/api/sprints/{number}")
@@ -1217,6 +1367,29 @@ def require_deliverable(deliverable_id):
     if not deliverable:
         raise HTTPException(status_code=404, detail="Deliverable not found")
     return deliverable
+
+
+@app.get("/api/deliverables")
+def list_all_deliverables():
+    """Every deliverable in the roadmap, flat, for the sprint cell's picker.
+
+    Flat and whole rather than one project's plan, because a fortnight is planned
+    across projects and the file being edited belongs to none of them. Ordered by
+    id so the picker's list does not reshuffle under the cursor when a name is
+    edited somewhere else.
+    """
+    names = {project["id"]: project["name"] for project in db.list_projects()}
+    return [
+        {
+            "id": row["id"],
+            "name": row["name"],
+            "done": bool(row["done"]),
+            "phase_id": row["phase_id"],
+            "project_id": row["project_id"],
+            "project_name": names.get(row["project_id"], ""),
+        }
+        for row in sorted(deliverable_index().values(), key=lambda one: one["id"])
+    ]
 
 
 @app.get("/api/phases/{phase_id}/deliverables")

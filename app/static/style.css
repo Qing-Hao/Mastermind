@@ -852,6 +852,21 @@ table.deliverables td.tick { width: 1%; text-align: center; }
 table.deliverables td.tick input { min-width: 0; }
 table.deliverables tr.done input[type="text"] { color: #999; text-decoration: line-through; }
 
+/* The badge saying a deliverable is planned in a sprint file, and the way into
+   it. Flex for the same reason `#phase-table td.checkpoint-name` is: `td input`
+   is 100% wide, so anything after it in the cell lands on the next line. The
+   class is only added to a row that has one, so an unplanned deliverable keeps
+   the plain cell it always had. */
+table.deliverables td.deliverable-name { display: flex; align-items: center; gap: 6px; }
+.deliverable-sprint {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.deliverable-sprint:hover { color: var(--accent); text-decoration: underline; }
+
 /* The grip, and the row while it is held. `user-select` matters: without it a
    drag down the list selects the text of every row it passes over. */
 table.deliverables td.grip { width: 1%; text-align: center; }
@@ -2001,6 +2016,50 @@ body.resizing-column { cursor: col-resize; user-select: none; }
   cursor: pointer;
 }
 .sprint-cell-todo:hover { outline: 1px solid var(--accent); }
+
+/* --- the deliverable chip --- */
+/* `D-42` in a cell, drawn as the reference you typed plus the deliverable's own
+   tick and a way to it. The reference stays visible because it is what is in the
+   file: the chip is a reading of the text, never a replacement for it.
+
+   `--accent-soft` and not a stage or track colour: this is chrome telling you a
+   row is linked, and it must not read as a claim about where the work sits. */
+.cell-ref {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--accent-soft);
+  white-space: nowrap;
+}
+.cell-ref-id { font-size: 11px; color: var(--muted); }
+.cell-ref-jump { text-decoration: none; font-size: 11px; color: var(--muted); }
+.cell-ref-jump:hover { color: var(--accent); }
+
+/* Same 12px box and the same `min-width` reset as `.sprint-cell-todo`, and for
+   the same reason: `td input { min-width: 80px }` reaches into a cell and would
+   otherwise draw an 80px checkbox inside the chip. */
+.cell-ref-tick {
+  width: 12px;
+  min-width: 0;
+  height: 12px;
+  padding: 0;
+  margin: 0;
+  vertical-align: -1px;
+  cursor: pointer;
+}
+.cell-ref-tick:hover { outline: 1px solid var(--accent); }
+
+/* A reference to a deliverable that is not there. Drawn as text with a warning
+   underline rather than hidden: it is a typo you want to see, and the app does
+   not edit your file to tidy one away. */
+.cell-ref-dead {
+  background: none;
+  color: #b00020;
+  text-decoration: underline wavy #b00020;
+  text-underline-offset: 2px;
+}
 .sprint-table th .sprint-cell,
 .sprint-table th .sprint-cell-view { font-weight: 600; }
 .sprint-cell:focus {

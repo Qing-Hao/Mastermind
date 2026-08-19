@@ -180,7 +180,12 @@ function stubDocument() {
 // Load app.js with its two boot calls cut off: `bindEvents()` reaches for a
 // whole page of elements this harness has no reason to fake, and
 // `loadProjects()` would hit the network. Everything above them is declarations.
-function loadApp(source) {
+//
+// editor.js goes in first, the same load-bearing order `wire_check.js` keeps and
+// index.html defines. app.js has top-level statements that reach into it --
+// `registerCellInline` and `registerCellMenu`, the seams the deliverable chip is
+// installed through -- and they run long before the cut.
+function loadApp(source, editor) {
   const boot = source.lastIndexOf("bindEvents();");
   if (boot === -1) throw new Error("map_sweep: no bindEvents() call to cut at");
   // `state` is a `let` and `renderMap` a function declaration, so only the
@@ -207,6 +212,7 @@ function loadApp(source) {
     URL: { createObjectURL: () => "", revokeObjectURL: () => {} },
   };
   vm.createContext(context);
+  vm.runInContext(editor, context, { filename: "editor.js" });
   vm.runInContext(body, context, { filename: "app.js" });
   return { ...context, ...context.__map_sweep };
 }
@@ -434,9 +440,10 @@ async function graphPayload(options) {
 
 async function main() {
   const options = argue(process.argv.slice(2));
-  const source = fs.readFileSync(
-    path.join(__dirname, "..", "app", "static", "app.js"), "utf8");
-  const app = loadApp(source);
+  const staticDir = path.join(__dirname, "..", "app", "static");
+  const source = fs.readFileSync(path.join(staticDir, "app.js"), "utf8");
+  const editor = fs.readFileSync(path.join(staticDir, "editor.js"), "utf8");
+  const app = loadApp(source, editor);
   const graph = await graphPayload(options);
 
   app.state.graph = graph;

@@ -944,6 +944,18 @@ const CELL_INLINE = [
   { mark: /\[([^\]\n]*)\]\(([^()\s]+)\)/, render: (m) => cellLinkNode(m[1], m[2]) },
 ];
 
+// **The seam in the list above**, and the one thing here a caller may add to.
+// `app.js` registers the deliverable chip through it, because that rule has to
+// read a deliverable's tick and this file must not learn what a deliverable is.
+// The rule-parity discipline is kept rather than broken by it: `registerCellMenu`
+// lands beside this one, so what a caller can render it can also insert.
+//
+// Appended rather than inserted. `firstCellInline` gives a tie to the earlier
+// rule, so a reference written inside a link stays the link it was written as.
+function registerCellInline(rule) {
+  CELL_INLINE.push(rule);
+}
+
 // Anything with a scheme that is not one of these is left as text rather than
 // turned into a link -- `javascript:` being the reason to have the rule at all.
 const CELL_URL_SCHEME = /^([a-z][a-z0-9+.-]*):/i;
@@ -1064,6 +1076,24 @@ const CELL_MENU = [
   { key: "clear", label: "Clear highlight", highlight: "" },
 ];
 
+// Entries the menu grows at open time. The seam that pairs with
+// `registerCellInline`: `app.js` offers the roadmap's deliverables here, and this
+// file offers none, knows of none and never asks for one.
+//
+// A provider is handed the text typed after the slash and is expected to return
+// **nothing for an empty one**, so `/` on its own is still the fixed inventory
+// above rather than every deliverable in the roadmap unrolled into a menu. The
+// generic filter in `openSprintMenu` then applies to what comes back, the same
+// way it applies to the entries above.
+const CELL_MENU_PROVIDERS = [];
+
+function registerCellMenu(provider) {
+  CELL_MENU_PROVIDERS.push(provider);
+}
+
+const cellMenuEntries = (filter) => CELL_MENU.concat(
+  ...CELL_MENU_PROVIDERS.map((provide) => provide(filter)));
+
 // `pick` is what the chosen entry does, set by whichever surface opened the menu:
 // a block replaces itself and re-splits, a cell inserts text at the caret. The
 // rendering, the filtering and the keyboard are the same either way, which is the
@@ -1090,7 +1120,8 @@ function maybeOpenCellMenu(cell, block, index, r, column) {
   const line = cell.value.slice(0, cell.selectionStart).split("\n").pop();
   const after = cell.value.slice(cell.selectionStart).split("\n")[0];
   if (line.startsWith("/") && !/\s/.test(line) && !after) {
-    openSprintMenu(cell, index, line.slice(1), CELL_MENU,
+    const filter = line.slice(1);
+    openSprintMenu(cell, index, filter, cellMenuEntries(filter),
       (item) => insertIntoCell(item, cell, block, index, r, column));
   } else closeSprintMenu();
 }
