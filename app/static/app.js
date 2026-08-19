@@ -69,6 +69,50 @@ const TIER_LABEL = { 1: "T1", 2: "T2", 3: "T3", 0: "untiered" };
 // make "T?" read as "no tier yet" rather than as a fourth tier.
 const TIER_MARK = { ...TIER_LABEL, 0: "T?" };
 
+// The rungs the map's Status chips switch, in the ladder's order.
+//
+// **Five of the seven, and the two that are missing are the decision here.**
+// `planned` and `overdue` have no chip and are always drawn, because neither is
+// ever the answer to "should I be looking at this?" being no. Overdue is the
+// rung you most want to walk into without having asked for it -- a map that can
+// hide late work is a map that will eventually hide it on the day it mattered --
+// and `planned` is committed, shaped work waiting only for dates, which is the
+// one thing the default view would look wrong without. Both are cheap to leave
+// on: they are the two smallest rungs on the real file, 0 projects each today.
+//
+// The cost, stated rather than discovered: two rungs you cannot switch off, so
+// the Status row is not the whole ladder. `renderMapLegend` still lists all
+// seven, which is what keeps the picture explainable.
+const MAP_STAGE_CHIPS = ["idea", "planning", "dated", "active", "done"];
+
+// What each chip's tooltip calls its rung, since the chip itself has room for
+// the ladder's one-word name and nothing else. The words are the data model's,
+// cut to what reads after "Show" -- the legend under the canvas is where the
+// fuller definition lives, and these must not drift from it.
+const STAGE_SUBJECT = {
+  idea: "future directions",
+  planning: "projects still being shaped",
+  dated: "projects on the calendar but not started",
+  active: "projects running now",
+  done: "finished projects",
+};
+
+// What the Status filter starts on, and the one filter in this app that does not
+// start with everything showing.
+//
+// The rule everywhere else is that a filter hiding work by default loses it, and
+// the tier chips obey it. This is the deliberate exception, and it rests on what
+// the map is *for*: it answers "where is the team pointed **now**", and only one
+// rung is an answer to that. On the real file the difference is 29 projects on
+// the canvas against 6 -- and the outermost ring, where labels are widest and the
+// arc between slots is thinnest, is where all 17 ideas were sitting.
+//
+// Nothing is lost by it. Every chip counts its rung while it is off, so the map
+// says how much it is not showing; ideas are listed in full in **Future
+// directions** directly under the canvas; and `planned` and `overdue` are not
+// switchable at all, so no committed work can go missing without being asked to.
+const MAP_STAGE_DEFAULT = ["active"];
+
 let state = {
   view: "project",
   projects: [],
@@ -132,25 +176,20 @@ let state = {
   // work by default would lose it. Survives re-renders and tab switches but not
   // a reload, same as the timeline mode: it is a way of looking, not a setting.
   mapTiers: new Set(TIER_ORDER),
-  // Whether the map draws finished projects, and the one filter that starts
-  // **off**. That looks like the opposite of the rule above and rests on a
-  // different fact: a hidden tier is live work you have stopped looking at,
-  // while a hidden `done` project is work there is nothing left to do about.
-  // The map answers "where is the team pointed", and finished work is the part
-  // of that picture with no bearing on the answer. It is not lost either --
-  // the chip counts it while it is off, so the map says how much it is not
-  // showing you. Same lifetime as the tiers: a way of looking, gone on reload.
-  mapDone: false,
-  // Whether the map draws ideas, and the **second** filter that starts off. The
-  // exception rests on the same fact `mapDone`'s does and then on one more of
-  // its own: 16 of the 28 projects on the real file are future directions, all
-  // of them on the outermost ring where the labels are widest and the arc is
-  // thinnest, so they are most of what the picture is spending its room on
-  // while none of them is work anybody has committed to. And unlike a finished
-  // project, a hidden idea is still listed in full directly under the canvas --
-  // **Future directions** is the whole idea list, so nothing here is out of
-  // reach even while the ring is off.
-  mapIdeas: false,
+  // Which rungs of the ladder the map draws, holding the ones **shown** exactly
+  // as `mapTiers` does -- but starting on one rung rather than on all of them.
+  // The argument for the exception is on `MAP_STAGE_DEFAULT`, and the reason
+  // only five of the seven rungs can ever be in here is on `MAP_STAGE_CHIPS`.
+  //
+  // It replaced a pair of booleans, `mapIdeas` and `mapDone`, which was the
+  // right shape while the filter was two ends of the ladder being switched off
+  // and the wrong one the moment the middle of it became switchable too: five
+  // flags to write, five to read, and a `mapDrawn` that named every rung twice.
+  // A set says the same thing once and makes a sixth rung a one-line change.
+  //
+  // Same lifetime as the tiers and the tracks: a way of looking, kept across
+  // re-renders and tab switches, gone on a reload.
+  mapStages: new Set(MAP_STAGE_DEFAULT),
   // Which root tracks the map draws, and **empty means every one of them**.
   // That is the same stance `laneOpen` takes, for the same reason: a set of
   // what has been *picked* rather than of what has been hidden. It is what
@@ -3823,18 +3862,24 @@ function mixWhite(hex, amount) {
   return `rgb(${channel(1)}, ${channel(3)}, ${channel(5)})`;
 }
 
-// The whole `done` rung, both of the things it covers: work that shipped, and
-// work that was closed with phases still open. The node colours tell those two
-// apart; the filter deliberately does not, because neither has any bearing on
-// where the team is pointed next.
-const isFinished = (project) => project.derived_stage === "done";
-
-// A future direction. Read off `derived_stage` like the rung above rather than
-// off the stored column, even though for this one rung the two can never
-// disagree -- `idea` beats every derived rung by design, so a stored idea always
-// reads back as one. Reading the same field as every other filter is what keeps
-// the four of them one kind of thing.
-const isIdea = (project) => project.derived_stage === "idea";
+// Whether the status filter is letting a project through.
+//
+// A rung with no chip is **always drawn** -- see `MAP_STAGE_CHIPS` for which two
+// those are and why. That is the half worth reading twice: the set holds what is
+// shown, so testing membership alone would hide `planned` and `overdue` the
+// instant the default set stopped mentioning them, which is a filter switching
+// off work nobody can switch back on.
+//
+// Read off `derived_stage` rather than the stored column, so the picture ages by
+// itself and every filter here reads one field. For `idea` the two can never
+// disagree anyway -- it beats every derived rung by design -- but reading the
+// same field as the rest is what keeps them one kind of thing. The `done` rung
+// covers both of the things it means, work that shipped and work closed with
+// phases still open: the node colours tell those apart, the filter deliberately
+// does not, because neither bears on where the team is pointed next.
+const stageShown = (project) =>
+  !MAP_STAGE_CHIPS.includes(project.derived_stage)
+  || state.mapStages.has(project.derived_stage);
 
 // The track a legend swatch stands for: the **root** of the path, since roots
 // are what the legend lists and what `trackPalette` keys a hue off. Depth is a
@@ -3853,11 +3898,14 @@ const trackRoot = (project) => trackPath(project.track)[0] || UNTRACKED_KEY;
 const trackShown = (project) =>
   state.mapTracks.size === 0 || state.mapTracks.has(trackRoot(project));
 
-// **The map's four filters, in one place.** They were written inline in
+// **The map's three filters, in one place.** They were written inline in
 // `renderMap` and copied into `map_sweep.js --tree`, which is a copy that goes
-// stale the moment a fifth filter arrives -- the sweep would then print a
-// hierarchy the map does not draw, which is the one thing that tool exists to be
-// trusted about. Exported to the sweep so both read the same function.
+// stale the moment a filter changes -- the sweep would then print a hierarchy
+// the map does not draw, which is the one thing that tool exists to be trusted
+// about. Exported to the sweep so both read the same function.
+//
+// Three rather than four since the status filter became one set: it was `done`
+// and `ideas` as separate flags, and it now covers five rungs in one test.
 //
 // Filtering happens **before `mapGroups`**, so a wedge is sized by what is
 // actually drawn and a track with nothing left in it leaves the map entirely.
@@ -3866,8 +3914,7 @@ const trackShown = (project) =>
 function mapDrawn(projects) {
   return projects.filter((project) =>
     state.mapTiers.has(project.tier ?? 0)
-    && (state.mapDone || !isFinished(project))
-    && (state.mapIdeas || !isIdea(project))
+    && stageShown(project)
     && trackShown(project));
 }
 
@@ -3956,16 +4003,17 @@ function collectSlots(at, out = []) {
   return out;
 }
 
-// Two groups of chips, because they answer two different questions: how much
-// of the ranking to draw, and whether finished work is on the picture at all.
-// Mixing them into one row read as four tiers and a stray fifth thing.
+// Two groups of chips, because they answer two different questions: how much of
+// the ranking to draw, and how far along the work has to be to be on the picture
+// at all. Mixing them into one row read as four tiers and some stray extra ones,
+// and that only got truer when the status row grew from two chips to five.
 //
 // Every count is off the whole dataset rather than the filtered view, so a chip
-// still tells you what is behind it while it is switched off. That now means a
-// tier count can exceed what is drawn, since `done` may be hiding some of it --
-// the alternative is counts that move when you touch a different filter, which
-// is worse. Turning everything off is allowed: the empty map says why, and it
-// is one click back.
+// still tells you what is behind it while it is switched off. That means a tier
+// count routinely exceeds what is drawn, since the status row is hiding four
+// rungs by default -- the alternative is counts that move when you touch a
+// different filter, which is worse. Turning everything off is allowed: the empty
+// map says why, and it is one click back.
 function renderMapFilters() {
   const projects = state.graph.projects;
 
@@ -4002,19 +4050,24 @@ function renderMapFilters() {
       });
   }
 
-  // In the ladder's order -- `idea` is the first rung and `done` the last, so the
-  // two chips read as the two ends of it being switched off. Both start off, and
-  // between them they are what the map is filtered down to committed work by
-  // default: on the real file that is 12 projects of 28.
+  // In the ladder's order, which is what makes the row read as a ramp with a
+  // window open on it rather than as five unrelated switches. `active` is the
+  // one that starts on; see `MAP_STAGE_DEFAULT` for why the map opens there.
+  //
+  // The two rungs with no chip, `planned` and `overdue`, are drawn whatever this
+  // row says and are deliberately not represented in it -- a chip that cannot be
+  // switched off is a control lying about what it does. `MAP_STAGE_CHIPS` is
+  // where that is argued, and the legend under the canvas is where all seven
+  // rungs are still spelt out.
   const status = openGroup("status-filter", "Status");
-  chip(status, "status-idea", "idea", projects.filter(isIdea).length,
-    state.mapIdeas, "future directions", () => {
-      state.mapIdeas = !state.mapIdeas;
+  for (const rung of MAP_STAGE_CHIPS) {
+    const held = projects.filter(
+      (project) => project.derived_stage === rung).length;
+    const shown = state.mapStages.has(rung);
+    chip(status, `status-${rung}`, rung, held, shown, STAGE_SUBJECT[rung], () => {
+      if (shown) state.mapStages.delete(rung); else state.mapStages.add(rung);
     });
-  chip(status, "status-done", "done", projects.filter(isFinished).length,
-    state.mapDone, "finished projects", () => {
-      state.mapDone = !state.mapDone;
-    });
+  }
 }
 
 // What a node's own colours mean, in the ladder's order. The map has carried two
@@ -4205,11 +4258,13 @@ function renderMap() {
     return;
   }
   if (projects.length === 0) {
-    // Four filters can each empty the map, so the message names all of them
-    // rather than the two it used to. The legend is drawn before this return, so
-    // the ✕ that clears a track filter is on screen next to the empty canvas.
+    // Either filter above can empty the map, so the message names the two rows
+    // rather than the individual chips it used to -- there are five status chips
+    // now, and listing them would be longer than the sentence is worth. The
+    // legend is drawn before this return, so the ✕ that clears a track filter is
+    // on screen next to the empty canvas.
     canvas.appendChild(element("p", "muted",
-      "Every project is filtered out. Switch a tier, idea or done back on "
+      "Every project is filtered out. Switch a tier or a status back on "
       + "above — or clear the track filter under the canvas — to see them."));
     return;
   }

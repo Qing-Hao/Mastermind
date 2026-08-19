@@ -14,7 +14,8 @@
 //   node scripts/map_sweep.js --file graph.json      # a saved payload
 //   node scripts/map_sweep.js --widths 1000,1200     # narrower sweep
 //   node scripts/map_sweep.js --json                 # machine-readable
-//   node scripts/map_sweep.js --ideas --done         # worst case: everything on
+//   node scripts/map_sweep.js --stages all           # worst case: every rung on
+//   node scripts/map_sweep.js --stages idea,active   # the map opens on active alone
 //   node scripts/map_sweep.js --tracks Reporting     # one branch, as the key filters
 //
 // What it cannot tell you: what it looks like. Text width is approximated at
@@ -186,8 +187,9 @@ function loadApp(source) {
   // second one lands on the context's global object. An epilogue hands both out
   // explicitly rather than relying on which keyword happened to be used.
   const body = `${source.slice(0, boot)}
-;globalThis.__map_sweep = { state, renderMap, mapGroups, treeDepth, isFinished,
-  mapDrawn, trackPath, foldPath, canonicalTrack, trackTree, trackPalette,
+;globalThis.__map_sweep = { state, renderMap, mapGroups, treeDepth, mapDrawn,
+  trackPath, foldPath, canonicalTrack, trackTree, trackPalette,
+  MAP_STAGE_CHIPS, MAP_STAGE_DEFAULT,
   RING_FRACTIONS, MAX_DRAWN_DEPTH, LEVEL_TONES };`;
 
   const context = {
@@ -371,8 +373,10 @@ function argue(argv) {
     file: null,
     widths: DEFAULT_WIDTHS,
     json: false,
-    done: false,
-    ideas: false,
+    // null rather than [] so "not asked for" is distinguishable from "asked for
+    // nothing", which is a real request here: `--stages` with an empty list
+    // measures a map filtered down to only the rungs that have no chip.
+    stages: null,
     tracks: [],
   };
   for (let i = 0; i < argv.length; i += 1) {
@@ -386,12 +390,27 @@ function argue(argv) {
     // change has to be checked against -- a collision count can stay identical
     // while the tree underneath it is wrong.
     else if (flag === "--tree") options.tree = true;
-    // The map hides finished work and ideas by default, so the default sweep
-    // measures the picture you actually get. These two put them back, and
-    // together they are the worst case -- every project on the canvas at once,
-    // which is what the sweep measured by default before either filter existed.
-    else if (flag === "--done") options.done = true;
-    else if (flag === "--ideas") options.ideas = true;
+    // The map opens on one rung of the ladder, so the default sweep measures the
+    // picture you actually get. This is how the other four go back on, named as
+    // the chips name them: `--stages idea,done`, or `--stages all` for the worst
+    // case -- every project on the canvas at once, which is what the sweep
+    // measured by default before any of these filters existed.
+    //
+    // It replaced `--ideas` and `--done`, which were a flag per rung and would
+    // have become five. A list also states the whole filter in one place, which
+    // matters here: what the sweep is measuring *is* the filter.
+    // `all` is expanded in main(), where `MAP_STAGE_CHIPS` is loaded -- keeping
+    // the list of rungs in app.js alone is the point of reading the real filter.
+    else if (flag === "--stages") {
+      // Guarded because a shell eats a bare `--stages ""`, and the bare crash
+      // that leaves ("cannot read properties of undefined") says nothing about
+      // which flag was wrong. An empty list is still a real request -- every
+      // chip off -- it just has to be spelt `--stages none`.
+      const value = argv[i += 1];
+      if (value === undefined) throw new Error("map_sweep: --stages needs a list");
+      options.stages = value === "none" ? []
+        : value.split(",").map((name) => name.trim()).filter(Boolean);
+    }
     // The track filter, as the legend writes it: root names, or an empty string
     // for the untracked group. It is here because the filter's whole argument is
     // that focusing a branch buys room, and this is the only thing that can say
@@ -421,8 +440,23 @@ async function main() {
   const graph = await graphPayload(options);
 
   app.state.graph = graph;
-  app.state.mapDone = options.done;
-  app.state.mapIdeas = options.ideas;
+  // Left alone when `--stages` is absent, so the sweep opens on whatever the app
+  // opens on rather than on a second copy of that list living here.
+  if (options.stages) {
+    const wanted = options.stages.includes("all")
+      ? app.MAP_STAGE_CHIPS : options.stages;
+    // A rung with no chip cannot be switched, and asking for one is worth an
+    // error rather than a no-op: `--stages overdue` would otherwise read as
+    // "measure the overdue projects" and quietly measure nothing of the sort.
+    const unswitchable = wanted.filter(
+      (rung) => !app.MAP_STAGE_CHIPS.includes(rung));
+    if (unswitchable.length) {
+      throw new Error(`map_sweep: ${unswitchable.join(", ")} `
+        + `${unswitchable.length === 1 ? "is" : "are"} always drawn and cannot `
+        + `be switched -- pick from ${app.MAP_STAGE_CHIPS.join(", ")}, or all`);
+    }
+    app.state.mapStages = new Set(wanted);
+  }
   for (const name of options.tracks) app.state.mapTracks.add(name);
 
   if (options.tree) {
@@ -475,10 +509,14 @@ async function main() {
   // The header names how many projects the payload holds *and* how many of them
   // the filters let onto the canvas, because those are now routinely different
   // numbers and a collision count means nothing without the second one.
+  // The rungs are printed from the state the app is actually holding rather than
+  // from `options`, so the line says what was drawn even when nothing was asked
+  // for -- which is the common case, and the case where the default matters.
+  const shown = app.MAP_STAGE_CHIPS.filter((rung) => app.state.mapStages.has(rung));
   console.log(`${graph.projects.length} projects, `
     + `${app.mapDrawn(graph.projects).length} drawn`
-    + ` (ideas ${options.ideas ? "shown" : "hidden"},`
-    + ` done ${options.done ? "shown" : "hidden"},`
+    + ` (stages ${shown.length ? shown.join("+") : "none"}`
+    + ` + always-on planned/overdue,`
     + ` tracks ${options.tracks.length
       ? options.tracks.map((name) => name || "untracked").join("+") : "all"})`);
   console.log("");

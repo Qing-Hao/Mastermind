@@ -44,7 +44,7 @@ migration framework, no auth.
 
 node scripts\map_sweep.js            # map: label/circle collisions, 1000-1530px
 node scripts\map_sweep.js --tree     # map: the track hierarchy as drawn
-node scripts\map_sweep.js --ideas --done          # ...with every filter switched on
+node scripts\map_sweep.js --stages all            # ...with every rung switched on
 node scripts\map_sweep.js --tracks "AI Agent"     # ...focused, as the legend filters
 
 node scripts\wire_check.js           # frontend: ids the JS asks for, index.html lacks
