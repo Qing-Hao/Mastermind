@@ -3349,13 +3349,50 @@ async function loadSprintScope(window, key) {
 // a row is linked at all. This one only decides where the chip is drawn.
 const DELIVERABLE_REF = /\bD-(\d+)\b/;
 
-// Null rather than a node when the file's links have not been read, or this is
-// not a linked file: `firstCellInline` skips a rule that declines to build, and
-// leaves the text it matched alone. So an unread `D-42` is the characters you
-// typed, which is also exactly what it is in the file.
+// The deliverable a chip draws: the file's read links when they are in hand, the
+// roadmap's own list when they are not.
+//
+// **The fallback is what makes a reference you have just typed draw at once.**
+// `/api/sprints/{number}/links` is cached against `roadmapRevision`, and a sprint
+// save deliberately does not move that counter -- a `PUT` per autosave debounce
+// would re-read the fortnight to redraw a panel nothing had changed. So a fresh
+// `D-42` is not in `byId` and would sit there as plain text until some unrelated
+// roadmap write happened to re-read it. Everything a chip needs is already in
+// `/api/deliverables`; only `rows`, the "named in N rows of this file" count, is
+// the links' to answer, and it is a tooltip rather than the link.
+//
+// Null rather than a made-up link while there is nothing to answer from: no file
+// open, the template (it plans no fortnight, so a live tick in it would link real
+// data to a document about nothing), or the roadmap not read yet -- calling a
+// reference dead before reading the roadmap would accuse it of being a typo.
+function sprintLink(id) {
+  const found = state.sprintLinks.byId.get(id);
+  if (found) return found;
+  if (state.sprint.number === null || isTemplate(state.sprint.number)) return null;
+  if (!state.allDeliverables.length) return null;
+
+  const one = state.allDeliverables.find((row) => row.id === id);
+  if (!one) return { deliverable_id: id, label: "", rows: 1, missing: true };
+  return {
+    deliverable_id: id,
+    label: "",
+    rows: 1,
+    missing: false,
+    name: one.name,
+    done: one.done,
+    phase_id: one.phase_id,
+    project_id: one.project_id,
+    project_name: one.project_name,
+  };
+}
+
+// Null rather than a node when there is nothing to draw the chip from:
+// `firstCellInline` skips a rule that declines to build, and leaves the text it
+// matched alone. So an unresolved `D-42` is the characters you typed, which is
+// also exactly what it is in the file.
 function deliverableChip(match) {
   const id = Number(match[1]);
-  const link = state.sprintLinks.byId.get(id);
+  const link = sprintLink(id);
   if (!link) return null;
 
   const chip = element("span", link.missing ? "cell-ref cell-ref-dead" : "cell-ref");
@@ -3404,12 +3441,18 @@ function deliverableChip(match) {
 // `/` on its own is the editor's own inventory, and the roadmap only joins it
 // once you have typed something to narrow it. `d` is the something that reaches
 // all of them, since every key here starts with it.
+// `rowUnique` is the editor's "one of these per row" mark, and this regex is why
+// it exists: `row_reference` in `main.py` takes the row's **first** reference and
+// stops, so a second one in the same row is not a second link -- it would draw a
+// tick the file's own reader ignores. Picking again therefore moves the reference
+// the row already has rather than adding one beside it.
 function deliverableMenuEntries(filter) {
   if (!filter.trim()) return [];
   return state.allDeliverables.map((one) => ({
     key: `d${one.id}`,
     label: one.name,
     markdown: `D-${one.id} `,
+    rowUnique: DELIVERABLE_REF,
   }));
 }
 
@@ -3463,6 +3506,11 @@ async function loadSprintLinks() {
 async function toggleLinkedDeliverable(id, done) {
   const link = state.sprintLinks.byId.get(id);
   if (link) link.done = done;
+  // The roadmap copy too, because a chip drawn from the fallback above is built
+  // fresh from this row on every render -- setting it only on a link object that
+  // may not exist would let the box flick back on the next draw.
+  const one = state.allDeliverables.find((row) => row.id === id);
+  if (one) one.done = done;
   await api(`/api/deliverables/${id}`, {
     method: "PUT",
     body: JSON.stringify({ done }),
@@ -3474,7 +3522,7 @@ async function toggleLinkedDeliverable(id, done) {
 // expanded after it rather than before -- otherwise the tab arrives with the
 // deliverable's phase shut and nothing on screen saying where it went.
 async function jumpToDeliverable(id) {
-  const link = state.sprintLinks.byId.get(id);
+  const link = sprintLink(id);
   if (!link || link.missing || link.project_id === null) return;
   await openProject(link.project_id);
   if (link.phase_id !== null) {

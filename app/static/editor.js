@@ -1085,6 +1085,14 @@ const CELL_MENU = [
 // above rather than every deliverable in the roadmap unrolled into a menu. The
 // generic filter in `openSprintMenu` then applies to what comes back, the same
 // way it applies to the entries above.
+//
+// An entry may carry `rowUnique`, a **non-global** regex: at most one of them per
+// table row, so picking a second time replaces the one the row already has
+// wherever in the row it sits rather than adding another. Stated as a regex and
+// enforced by `insertIntoCell` so this file keeps knowing nothing about what the
+// entry means — it counts matches per row, and that is the whole of it. The rule
+// exists because a reader downstream may take only the row's first one, in which
+// case a second is not a second link but a decoration that lies.
 const CELL_MENU_PROVIDERS = [];
 
 function registerCellMenu(provider) {
@@ -1112,17 +1120,28 @@ function maybeOpenSprintMenu(area, index) {
   } else closeSprintMenu();
 }
 
-// The same rule read **per line**, because a cell is one box holding several
-// lines: `/` at the start of the caret's line, nothing but the filter after it. A
-// slash anywhere else is just a slash, which matters more here than in a block —
-// `1/2`, `n/a` and `Source expansion / Metrics` are all ordinary cell values.
+// The same gesture read **per line**, because a cell is one box holding several
+// lines. A slash opens the menu at the start of the caret's line **or after a
+// space**, with only the filter between it and the caret. The word boundary is
+// what keeps an ordinary cell value ordinary: `1/2` and `n/a` have no space in
+// front of the slash and never open anything. `Source expansion / Metrics` does
+// open one for as long as the slash is the last thing typed, and the next
+// character closes it again — the same way `/` alone has always behaved.
+//
+// A slash mid-line means the menu can be open with text on both sides of it, so
+// what an insert replaces is the `/filter` span rather than the head of the line.
+// `from` is where that span starts, and it is handed to the insert rather than
+// re-derived there: only this function knows which slash opened the menu.
+const CELL_MENU_TRIGGER = /(?:^|\s)\/(\S*)$/;
+
 function maybeOpenCellMenu(cell, block, index, r, column) {
   const line = cell.value.slice(0, cell.selectionStart).split("\n").pop();
-  const after = cell.value.slice(cell.selectionStart).split("\n")[0];
-  if (line.startsWith("/") && !/\s/.test(line) && !after) {
-    const filter = line.slice(1);
+  const found = CELL_MENU_TRIGGER.exec(line);
+  if (found) {
+    const filter = found[1];
+    const from = cell.selectionStart - filter.length - 1;
     openSprintMenu(cell, index, filter, cellMenuEntries(filter),
-      (item) => insertIntoCell(item, cell, block, index, r, column));
+      (item) => insertIntoCell(item, cell, block, index, r, column, from));
   } else closeSprintMenu();
 }
 
@@ -1212,13 +1231,43 @@ function pickSprintMenuItem(position) {
   if (item && pick) pick(item, index);
 }
 
+// Where the row already carries a `rowUnique` entry's mark, as a column, or null.
+// First match in column order, which is the same "first one wins" the row's
+// downstream reader applies. The header row is never a data row and has no
+// uniqueness to keep.
+function rowUniqueHome(item, grid, r) {
+  if (!item.rowUnique || r === -1) return null;
+  const cells = grid.rows[r] || [];
+  for (let c = 0; c < cells.length; c += 1) {
+    if (item.rowUnique.exec(cellText(cellValue(grid, r, c)))) return c;
+  }
+  return null;
+}
+
+// Redraw one resting cell of the same table after a write that did not come from
+// it. Found by the `data-r`/`data-c` the view already stamps rather than through a
+// map kept for the purpose: this is the only edit that reaches across a row, and
+// only ever to a cell that is not the one being typed in.
+function repaintSiblingCell(cell, block, index, r, column) {
+  const host = cellHost(cell);
+  const owner = host && host.closest(".sprint-table-block");
+  const view = owner
+    && owner.querySelector(`.sprint-cell-view[data-r="${r}"][data-c="${column}"]`);
+  if (view) showSprintCell(cellHost(view), block, index, r, column);
+}
+
 // One line of the cell had `/filter` typed into it; the snippet takes its place
 // and the caret lands where the entry says. The grid is written from the textarea
 // as usual, so a save writes `CELL_BREAK` for the line break like any other.
-function insertIntoCell(item, cell, block, index, r, column) {
-  const upto = cell.value.slice(0, cell.selectionStart);
-  const start = upto.length - upto.split("\n").pop().length;
+//
+// `from` is where the `/filter` starts — see `maybeOpenCellMenu`. Everything here
+// replaces that span and nothing wider, because a slash may now sit mid-line with
+// text on both sides of it.
+function insertIntoCell(item, cell, block, index, r, column, from) {
+  const start = from;
   const rest = cell.value.slice(cell.selectionStart);
+  // Read before the `/filter` comes out, so the grid and the textarea still agree.
+  const home = item.highlight === undefined ? rowUniqueHome(item, block.table, r) : null;
 
   if (item.highlight !== undefined) {
     // Drop the `/filter` that opened the menu, then re-mark the head of the cell:
@@ -1229,6 +1278,37 @@ function insertIntoCell(item, cell, block, index, r, column) {
     const mark = item.highlight ? `${item.highlight} ` : "";
     cell.value = mark + bare;
     const caret = Math.max(0, start - (tint ? tint.length : 0) + mark.length);
+    cell.setSelectionRange(caret, caret);
+    cell.focus();
+  } else if (home !== null) {
+    // The row already carries one of these. Take the `/filter` back out and swap
+    // the mark where it sits rather than inserting a second — picking the same one
+    // twice therefore changes nothing, which is the honest answer to that gesture.
+    const wanted = item.markdown.trim();
+    let mine = cell.value.slice(0, start) + rest;
+    let caret = Math.min(start, mine.length);
+
+    if (home === column) {
+      // The only match may have been inside the `/filter` itself, and dropping
+      // that leaves nothing to replace — so this falls back to an insert. Not
+      // reachable through the deliverable picker, whose keys never match its own
+      // mark, but the rule is generic and so is the guard.
+      const found = item.rowUnique.exec(mine);
+      if (found) {
+        mine = mine.slice(0, found.index) + wanted + mine.slice(found.index + found[0].length);
+      } else {
+        mine = mine.slice(0, start) + item.markdown + mine.slice(start);
+        caret = start + item.markdown.length;
+      }
+    } else {
+      const other = cellText(cellValue(block.table, r, home));
+      const found = item.rowUnique.exec(other);
+      writeCell(block.table, r, home,
+        other.slice(0, found.index) + wanted + other.slice(found.index + found[0].length));
+      repaintSiblingCell(cell, block, index, r, home);
+    }
+
+    cell.value = mine;
     cell.setSelectionRange(caret, caret);
     cell.focus();
   } else {

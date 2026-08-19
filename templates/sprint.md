@@ -39,10 +39,12 @@ _Historical velocity is a planning reference, not a hard capacity limit._
 
 Work that directly advances the Sprint Goal.
 
-Write `D-42` anywhere in a row to link it to deliverable 42 — type `/` in a cell
-and start typing the deliverable's name to pick one. A linked row draws that
-deliverable's tick and an arrow to it, and ticking either place is the same tick.
-Rows without a reference are ordinary tasks; not every task is a deliverable.
+Write `D-42` anywhere in a row to link it to deliverable 42 — type `/` in a cell,
+at the start or after a space, and start typing the deliverable's name to pick
+one. A linked row draws that deliverable's tick and an arrow to it, and ticking
+either place is the same tick. One link per row: picking again moves the reference
+the row already has rather than adding a second. Rows without a reference are
+ordinary tasks; not every task is a deliverable.
 
 | Task | PIC | Reviewer | SP  | Priority            | Status      | Dependency / Remarks | Actual |
 | ---- | --- | -------- | --- | ------------------- | ----------- | -------------------- | ------ |
