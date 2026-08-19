@@ -226,9 +226,10 @@ let state = {
     files: [], number: null, name: "", blocks: [], mtime: null,
     // clean | dirty | saving | saved | failed | conflict
     status: "clean", error: "",
-    // Which block is showing its markdown, and the text in that box if a
-    // commit failed and it is being kept rather than thrown away.
-    editing: null, draft: null,
+    // Which block is being typed in, which line of it when that block is a list
+    // -- null for every other type, which is edited whole -- and the text in that
+    // box if a commit failed and it is being kept rather than thrown away.
+    editing: null, editingLine: null, draft: null,
     // doc | raw -- the block document, or the whole file in one textarea. A way
     // of looking, so it is not pinned per file and a reload returns to doc.
     view: "doc",

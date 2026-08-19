@@ -2147,6 +2147,89 @@ body.resizing-column { cursor: col-resize; user-select: none; }
   box-sizing: border-box;
 }
 
+/* A heading edited at its own size, because its `##` is not in the box: the text
+   must not change size when you click into it. The sizes mirror
+   `.sprint-block h1/h2/h3` above and have to be kept in step with them. */
+.sprint-head-raw {
+  font-family: inherit;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.sprint-head-raw.level-1 { font-size: 20px; }
+.sprint-head-raw.level-2 { font-size: 16px; }
+.sprint-head-raw.level-3 { font-size: 14px; }
+.sprint-head-raw.level-4,
+.sprint-head-raw.level-5,
+.sprint-head-raw.level-6 { font-size: 13px; }
+
+/* --- a list, a line at a time --- */
+/* One line of a list block: its control, then its text. `--line-depth` is the
+   line's own indent, drawn as padding so wrapped text hangs under the text rather
+   than under the glyph -- `.sprint-cell-line`'s trick, one dimension up. */
+.sprint-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  min-height: 20px;
+  padding-left: calc(var(--line-depth, 0) * 16px);
+}
+
+/* • ◦ ▪ by depth, or the number as the file writes it. Fixed width, so the text
+   of every item at one depth starts in the same place. */
+.sprint-line-marker {
+  flex: none;
+  width: 16px;
+  color: #777;
+  user-select: none;
+}
+
+.sprint-line-label {
+  flex: 1 1 auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* The constructs `renderCellInline` draws, sized so a rendered line is the same
+   height as the box it swaps to -- the same reason `.sprint-cell-line` does it. */
+.sprint-line-label code {
+  font: inherit;
+  background: #f0f0f3;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+.sprint-line-label a { color: var(--accent); }
+.sprint-line-label a:hover { text-decoration: none; }
+
+/* The same 12px box as a cell's, and the same `min-width` reset for the same
+   reason: a rule for `input` elsewhere would otherwise draw it 80px wide. */
+.sprint-line-todo {
+  width: 12px;
+  min-width: 0;
+  height: 12px;
+  padding: 0;
+  margin: 4px 2px 0 0;
+  flex: none;
+  cursor: pointer;
+}
+.sprint-line-todo:hover { outline: 1px solid var(--accent); }
+
+/* The box for one line. Everything `.sprint-raw` says about a whole block is wrong
+   here -- not monospace, not full width, not bordered -- because the line has to
+   stay exactly where it was: a box that moved the text would make clicking into a
+   line feel like editing a different one. It wins on order, not specificity, so it
+   has to stay below `.sprint-raw`. */
+.sprint-line-raw {
+  flex: 1 1 auto;
+  width: auto;
+  font: inherit;
+  padding: 0 2px;
+  border: none;
+  border-radius: 2px;
+  background: var(--page);
+  outline: 1px solid var(--accent-ring);
+  resize: none;
+  min-height: 20px;
+}
+
 .sprint-placeholder { color: var(--muted); cursor: text; padding: 8px; }
 
 /* The foot of a file that already has content. Quiet until it is wanted: a
