@@ -1989,6 +1989,24 @@ body.resizing-column { cursor: col-resize; user-select: none; }
   user-select: none;
 }
 
+/* The same marker inside the surface you *type* into, where it is a widget rather
+   than a row: not editable, and holding no text of its own so the caret cannot
+   land in it and a markdown offset counts it as nothing. The bullet is therefore a
+   `content` — see `cellMarkerNode`, which is the other half of this rule and will
+   draw nothing at all if this one is removed. The indent is a margin here, not the
+   view's padding, because one surface holds every line of the cell. */
+.sprint-cell-mark {
+  display: inline-block;
+  user-select: none;
+  margin-left: calc(var(--cell-depth, 0) * 14px);
+}
+.sprint-cell-mark-bullet::before {
+  content: attr(data-glyph);
+  display: inline-block;
+  width: 14px;
+  color: #777;
+}
+
 /* The four constructs the cell menu can insert, drawn so a rendered row is the
    same height as the raw one it swaps to — no padded `code`, no larger link. */
 .sprint-cell-line code {

@@ -701,29 +701,57 @@ function inlineCaret(host) {
   return upto.toString().length;
 }
 
+// The count lands **between** two nodes as often as inside one, and which side of
+// them the caret goes is not a detail: in front of a `<strong>` and inside it are
+// the same place on screen and two different things to type into. Two rules settle
+// it, and the elements are walked as well as the text so they can be applied.
+//
+//   - A tie goes to the node already passed, which keeps a caret at the end of a
+//     word out of the emphasis that starts after it.
+//   - Unless what stands between is drawn but holds no text of its own -- a line's
+//     marker in a cell. That belongs on the far side of the caret, or typing at the
+//     head of a list line would put the character in front of its own bullet.
 function setInlineCaret(host, at) {
   const selection = window.getSelection();
-  const place = (range) => {
+  const place = (node, offset) => {
+    const range = document.createRange();
+    range.setStart(node, offset);
+    range.collapse(true);
     selection.removeAllRanges();
     selection.addRange(range);
   };
-  const walk = document.createTreeWalker(host, NodeFilter.SHOW_TEXT);
+
+  const walk = document.createTreeWalker(host, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
   let seen = 0;
+  let ended = null;    // the text node the count ended exactly at, if any
+  let marker = false;  // ...and whether something drawn stands after it
+
   for (let node = walk.nextNode(); node; node = walk.nextNode()) {
-    if (seen + node.nodeValue.length >= at) {
-      const range = document.createRange();
-      range.setStart(node, at - seen);
-      range.collapse(true);
-      place(range);
+    if (node.nodeType === 1) {
+      if (ended && !node.textContent) marker = true;
+      continue;
+    }
+    if (seen === at && ended && !marker) {
+      place(ended, ended.nodeValue.length);
+      return;
+    }
+    if (seen + node.nodeValue.length > at) {
+      place(node, at - seen);
       return;
     }
     seen += node.nodeValue.length;
+    if (seen === at && !ended) ended = node;
   }
-  // Past the end, or nothing to be in: the end of the surface is the honest answer.
+  if (ended && !marker) {
+    place(ended, ended.nodeValue.length);
+    return;
+  }
+  // Past the end, or a marker was the last thing drawn: the end of the surface.
   const range = document.createRange();
   range.selectNodeContents(host);
   range.collapse(false);
-  place(range);
+  selection.removeAllRanges();
+  selection.addRange(range);
 }
 
 // The surface's markdown either side of the caret. **Cloned rather than sliced**,
@@ -798,9 +826,10 @@ function inlineSurface(host) {
 // The offset is a **markdown** one, converted here, so a caller never has to know
 // that `**bold**` is eight characters in the file and four on the screen.
 function writeInlineSurface(host, text, at) {
+  const draw = host.inlineRender || renderCellInline;
   host.innerHTML = "";
-  renderCellInline(host, text);
-  setInlineCaret(host, inlineLength(text.slice(0, Math.max(0, at))));
+  draw(host, text);
+  setInlineCaret(host, inlineLength(text.slice(0, Math.max(0, at)), draw));
 }
 
 // Everything in the surface, selected -- what `textarea.select()` was.
@@ -858,10 +887,12 @@ function dropInlineAnchor(host) {
 
 // How long a piece of markdown is once drawn -- what a caret offset into it counts.
 // Measured by rendering it rather than by subtracting markers, so it cannot drift
-// from what the surface actually shows.
-function inlineLength(markdown) {
+// from what the surface actually shows. `draw` is the surface's own renderer, so a
+// cell -- which draws its line markers as chrome and therefore as no characters at
+// all -- is measured the way it is drawn.
+function inlineLength(markdown, draw = renderCellInline) {
   const measure = element("span");
-  renderCellInline(measure, markdown);
+  draw(measure, markdown);
   return measure.textContent.length;
 }
 
@@ -869,15 +900,22 @@ function inlineLength(markdown) {
 // shared is the element, the typing rules, and a paste that cannot smuggle markup
 // in -- a paste from a browser carries `<span style>` and `<div>`, and none of that
 // is markdown.
-function inlineEditable(className, markdown, onInput) {
+// `draw` lets a surface bring its own renderer. Only a cell does: its lines carry
+// markers, and a marker in a box you type in is the thing this editor exists to
+// stop showing. Everything the surface does afterwards -- measuring a caret,
+// rewriting itself -- goes through the same renderer, so the two cannot disagree.
+function inlineEditable(className, markdown, onInput, draw = renderCellInline) {
   const host = element("div", `sprint-inline ${className}`);
   host.contentEditable = "true";
   host.spellcheck = false;
-  renderCellInline(host, markdown ?? "");
+  host.inlineRender = draw;
+  draw(host, markdown ?? "");
 
-  host.oninput = () => {
+  host.oninput = (event) => {
     applyInlineTyped(host);
-    if (onInput) onInput();
+    // The event goes through because what was typed decides some rules -- a cell
+    // promotes a marker on the space that finishes it, and on nothing else.
+    if (onInput) onInput(event);
   };
   host.onpaste = (event) => {
     event.preventDefault();
@@ -902,10 +940,8 @@ function inlineEditable(className, markdown, onInput) {
 // promise: `- ` draws a bullet, `- [ ] ` draws a real checkbox, and the characters
 // are gone from the editing surface the moment they are recognised.
 //
-// Three things make that work without a `contenteditable` and without an
-// HTML -> markdown serialiser -- which would be the end of `markdown.py`'s first
-// invariant, since every commit would then rewrite prose it was only asked to
-// edit:
+// Three things make that work for a **block's** marker, and none of them needs the
+// DOM: the marker is a prefix of the raw text and is treated as one.
 //
 //   1. **Hoisting.** The marker is split off `raw` and drawn as chrome; the box
 //      holds the rest. A commit puts the two back together, so a marker nobody
@@ -916,10 +952,13 @@ function inlineEditable(className, markdown, onInput) {
 //      marker, and it earns that by you having just typed one.
 //   3. **A list is edited a line at a time** -- see the section below.
 //
-// What is **not** one way, and is the known cost of the above: inline markdown.
-// `**bold**` draws bold at rest and reads as `**bold**` while your caret is in
-// that line, because a textarea holds text and cannot draw an element inside it.
-// The raw pane is the escape hatch, as it is for everything else here.
+// Inline markdown is one way too, and could not be done this way at all: a marker
+// in the middle of a line is not a prefix to hoist, and drawing an element where it
+// stood needs a surface that can hold elements. That is the `inlineEditable`
+// section above, and its cost -- a block you type in has its inline source written
+// back from the DOM -- is stated there. A table cell is the same surface with its
+// own renderer: see `renderCellSurface`, where a line's marker is a widget rather
+// than a prefix, because a cell is one box holding several lines.
 
 // The head of an ATX heading, and the underline of a setext one. The gap after the
 // hashes is optional because `##` alone is still a heading to the splitter -- and
@@ -2018,6 +2057,109 @@ function flipCellTodo(line) {
   return `${indent}${flipped}${trailing || " "}${line.slice(found[0].length)}`;
 }
 
+// --- a cell's own surface: a marker is chrome there too ----------------------
+
+// **The surface you type a cell into draws its line markers instead of spelling
+// them.** `- [ ] Ship` is a real checkbox and a label while your caret is in the
+// cell, not six characters to be read as markdown -- the promise the document's
+// list blocks make, kept in the one place that was still an exception.
+//
+// It is still **one surface**, not a surface per line, and that is the whole
+// design: `Tab` walking the grid, a range paste filling it and the `/` menu
+// finding the caret are the grid's job and each is written about one string. So
+// the marker is a **widget** rather than a row -- a node carrying its own source
+// in `data-md` and holding no text of its own. `inlineMarkdown` already writes
+// such a node back verbatim, and having no text is what keeps a caret from
+// landing inside it and keeps it worth nothing when a markdown offset is turned
+// into a place on the screen.
+//
+// The one thing this cannot draw that the resting view can: wrapped text hanging
+// under the text rather than under the glyph. The indent is a margin on the marker
+// here, so a wrapped second line comes back to the left.
+function renderCellSurface(parent, text) {
+  String(text ?? "").split("\n").forEach((line, position) => {
+    // A real newline, not a `<br>`: the surface is `pre-wrap`, so the character
+    // draws the break and stays one character to every offset that counts it.
+    if (position) parent.appendChild(document.createTextNode("\n"));
+    const todo = CELL_TODO.exec(line);
+    const marker = todo || CELL_BULLET.exec(line);
+    if (marker) parent.appendChild(cellMarkerNode(marker[0], !!todo));
+    renderCellInline(parent, marker ? line.slice(marker[0].length) : line);
+  });
+}
+
+// One marker, drawn. The glyph is a CSS `content` rather than a text node for the
+// reason above -- what is on screen is a bullet, what is in the file is `- `, and
+// nothing in between may count characters twice.
+function cellMarkerNode(source, todo) {
+  const node = element("span", "sprint-cell-mark");
+  node.dataset.md = source;
+  node.contentEditable = "false";
+  const depth = cellDepth(/^[ \t]*/.exec(source)[0]);
+  node.style.setProperty("--cell-depth", depth);
+
+  if (todo) {
+    const box = element("input", "sprint-cell-todo");
+    box.type = "checkbox";
+    box.checked = /☑|\[[xX]\]/.test(source);
+    box.title = "Tick this line";
+    // The press must not take the caret out of the cell, or the tick would also
+    // mean "done editing here" -- which is not what ticking a box says.
+    box.onmousedown = (event) => event.preventDefault();
+    box.onclick = (event) => {
+      event.stopPropagation();
+      toggleCellMarker(node);
+    };
+    node.appendChild(box);
+  } else {
+    node.classList.add("sprint-cell-mark-bullet");
+    node.dataset.glyph = CELL_BULLETS[Math.min(depth, CELL_BULLETS.length - 1)];
+  }
+  return node;
+}
+
+// Ticking a box while you are typing in the cell. The widget's `data-md` is what
+// reaches the file, so the click rewrites *that* and redraws the widget from it --
+// setting `checked` alone would be a tick nothing outside the screen ever saw.
+function toggleCellMarker(node) {
+  const cell = node.closest(".sprint-cell");
+  if (!cell) return;
+  node.replaceWith(cellMarkerNode(flipCellTodo(node.dataset.md), true));
+  // The cell's own `input` handler is what writes a keystroke back; a tick is a
+  // change of the same kind, so it goes the same way rather than a second one.
+  cell.dispatchEvent(new Event("input"));
+}
+
+// A marker typed at the head of a line becomes chrome there and then -- the cell's
+// half of `promoteSprintBlock`. Only called when the character just typed was the
+// marker's own gap, so the redraw happens once per marker and not once per key.
+function promoteCellLine(cell) {
+  const { start, line, text, at } = caretLine(cell);
+  const found = CELL_TODO.exec(line) || CELL_BULLET.exec(line);
+  // The caret has to be sitting at the end of the marker: further along the line
+  // and this is a space in a sentence, not a marker that has just landed.
+  if (!found || at !== start + found[0].length) return false;
+  writeInlineSurface(cell, text, at);
+  return true;
+}
+
+// `Backspace` against a marker takes the marker off. There is no character in
+// front of the caret to delete -- the marker is chrome -- so without this the key
+// would either do nothing or hand the browser a non-editable node to argue with.
+function dropCellMarker(cell, block, r, column) {
+  const selection = window.getSelection();
+  if (!selection || !selection.isCollapsed) return false;
+  const { start, line, text, at } = caretLine(cell);
+  const found = CELL_TODO.exec(line) || CELL_BULLET.exec(line);
+  if (!found || at !== start + found[0].length) return false;
+
+  const mine = text.slice(0, start) + text.slice(start + found[0].length);
+  writeCell(block.table, r, column, mine);
+  writeInlineSurface(cell, mine, start);
+  tableEdited(block);
+  return true;
+}
+
 // --- the insert menu --------------------------------------------------------
 
 // `/` on an otherwise empty block. Nine ways in, and **not one of them is a
@@ -2843,20 +2985,22 @@ function toggleCellTodo(host, block, index, r, column, position) {
 // the surface wraps -- and the keyboard rules below are still read **per line**,
 // because a tab on a checklist line and a tab on a word are not the same request.
 //
-// What a cell does **not** do, and it is the one place the editor is not yet one
-// way: a line's own marker stays text while you are typing in it. `- [ ] Ship` reads
-// as those characters in the box and draws as a checkbox the moment you leave. The
-// document's list blocks hoist that marker; a cell is one small box, and splitting
-// it into per-line surfaces would cost `Tab` walking the grid, a paste filling it,
-// and the `/` menu knowing where the caret is -- which is the grid's whole job.
+// A line's own marker is chrome here too: `- [ ] Ship` is a checkbox and a label
+// while you type, never those six characters. It is drawn by `renderCellSurface`
+// as a widget inside this one surface rather than by splitting the cell into a
+// surface per line -- see that function for why the grid's rules make that the
+// only shape available.
 function sprintCell(block, index, r, column) {
   const grid = block.table;
-  const cell = inlineEditable("sprint-cell", cellText(cellValue(grid, r, column)), () => {
+  const cell = inlineEditable("sprint-cell", cellText(cellValue(grid, r, column)), (event) => {
     writeCell(grid, r, column, inlineMarkdown(cell));
+    // The gap is what finishes a marker, so it is the only key worth redrawing on.
+    const typed = event && event.data;
+    if (typed && /[ \t]$/.test(typed)) promoteCellLine(cell);
     paintCellHost(cellHost(cell), grid, r, column);
     maybeOpenCellMenu(cell, block, index, r, column);
     tableEdited(block);
-  });
+  }, renderCellSurface);
   cell.dataset.r = r;
   cell.dataset.c = column;
   // Alignment is the column's, so the grid reads the way the rendered table does.
@@ -2907,6 +3051,28 @@ function sprintCell(block, index, r, column) {
     // and without it the only exit is deleting what the first half just wrote.
     if (event.key === "Enter" && !event.shiftKey && !event.ctrlKey && !event.metaKey
         && continueCellList(cell, block, r, column)) {
+      event.preventDefault();
+      return;
+    }
+
+    // Every other `Enter` puts a newline in as a **character**, rather than letting
+    // the browser split the surface: left alone, Chrome wraps what it splits in a
+    // `<div>` of its own, and a marker widget inside one is a line the renderer no
+    // longer owns. The surface is `pre-wrap`, so the character is the break.
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const { text, at } = inlineSurface(cell);
+      const mine = `${text.slice(0, at)}\n${text.slice(at)}`;
+      writeCell(block.table, r, column, mine);
+      writeInlineSurface(cell, mine, at + 1);
+      tableEdited(block);
+      return;
+    }
+
+    // `Backspace` where the marker is: there is no character in front of the caret
+    // to delete, so the marker comes off instead -- one press, and the line keeps
+    // its text. Anywhere else the browser's own Backspace is right.
+    if (event.key === "Backspace" && dropCellMarker(cell, block, r, column)) {
       event.preventDefault();
       return;
     }
