@@ -3527,6 +3527,11 @@ function deliverableLineOwner(text) {
   };
 }
 
+// One glyph in front of both labels, line and row alike, so "this press is about a
+// link" reads before the word does. Part of the label rather than a span of its
+// own: the seam hands the editor a string, and a press is not worth a second seam.
+const SYNC_ICON = "🔗";
+
 // The press that opens the picker. Offered on every task line rather than only on
 // an unlinked one: picking again is how a line's reference is *moved*, which is
 // the gesture for "this turned out to be the other deliverable".
@@ -3538,7 +3543,7 @@ function deliverableLineAction(text) {
   if (number === null || isTemplate(number)) return null;
   const owned = lineDeliverable(text);
   return {
-    label: owned ? "Linked" : "Sync",
+    label: owned ? `${SYNC_ICON} Linked` : `${SYNC_ICON} Sync`,
     title: owned
       ? `Synced to ${owned.link.name} — press to sync it to a different deliverable`
       : "Sync this line to a deliverable",
@@ -3549,6 +3554,73 @@ function deliverableLineAction(text) {
 
 registerLineOwner(deliverableLineOwner);
 registerLineAction(deliverableLineAction);
+
+// --- a table row's own link --------------------------------------------------
+
+// **A table row is a unit of work too**, and `row_reference` in `main.py` already
+// reads one -- from any cell, first one wins. So the row gets the same press the
+// line has, through `registerRowAction`: the editor draws it, this file decides
+// what it means, and the row's own cells are all it is handed.
+//
+// Per row rather than per cell, because a row carries **one** reference: a press
+// in every cell would be four ways to say the one thing the row can say, three of
+// which the reader downstream ignores.
+
+// The row's first reference, resolved, or null when it has none, names nothing,
+// or there is no roadmap read yet to say either way. `lineDeliverable`'s shape,
+// scanning cells the way `row_reference` does.
+function rowDeliverable(cells) {
+  for (const cell of cells) {
+    const found = DELIVERABLE_REF.exec(cell);
+    if (!found) continue;
+    const id = referencedId(found);
+    const link = sprintLink(id);
+    // The first reference is the row's, whether or not it resolves: a dead one is
+    // not a reason to go looking for a second, since nothing downstream would read
+    // that second one either.
+    return link && !link.missing ? { id, link } : null;
+  }
+  return null;
+}
+
+// Null in the template, for `deliverableLineAction`'s reason -- it plans no
+// fortnight, so a link from it would point real roadmap state at a document about
+// nothing.
+function deliverableRowAction(cells) {
+  const number = state.sprint.number;
+  if (number === null || isTemplate(number)) return null;
+  const owned = rowDeliverable(cells);
+  return {
+    label: owned ? `${SYNC_ICON} Linked` : `${SYNC_ICON} Sync`,
+    title: owned
+      ? `Synced to ${owned.link.name} — press to sync it to a different deliverable`
+      : "Sync this row to a deliverable",
+    run: (press, current, write) => openSyncPicker(press, owned ? owned.id : null,
+      (id) => write(withRowReference(current, id))),
+  };
+}
+
+registerRowAction(deliverableRowAction);
+
+// One reference per row, so a row that has one has it **moved** -- rewritten where
+// it already sits, whichever cell that is. A row with none takes it on the end of
+// its first non-empty cell: that cell is the row's label to `row_reference`, and
+// the label is what the link is called everywhere it is listed.
+function withRowReference(cells, id) {
+  const mark = `[#D-${id}]`;
+  const written = cells.slice();
+  for (let column = 0; column < written.length; column += 1) {
+    const found = DELIVERABLE_REF.exec(written[column]);
+    if (!found) continue;
+    written[column] = written[column].slice(0, found.index) + mark
+      + written[column].slice(found.index + found[0].length);
+    return written;
+  }
+  const column = Math.max(0, written.findIndex((cell) => cell.trim()));
+  const base = written[column].replace(/\s+$/, "");
+  written[column] = base ? `${base} ${mark}` : mark;
+  return written;
+}
 
 // One reference per line, so a line that has one has it **moved** rather than
 // joined by a second. Same rule as a table row's, and the same reason:

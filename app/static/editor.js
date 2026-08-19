@@ -1378,8 +1378,15 @@ function listMarkerGlyph(line) {
 //
 // Both are offered a line's text and nothing else. A provider that has nothing to
 // say returns null, and the line is an ordinary line.
+//
+// A **row action** is the same seam one dimension up, for a table: it is offered
+// the row's cell texts rather than a line's text, and what it hands back is a
+// full row of cells. A row rather than a cell because the reader downstream reads
+// a row as one unit -- a press per cell would offer four ways to say the one
+// thing a row can say.
 const LINE_OWNERS = [];
 const LINE_ACTIONS = [];
+const ROW_ACTIONS = [];
 
 function registerLineOwner(provider) {
   LINE_OWNERS.push(provider);
@@ -1387,6 +1394,10 @@ function registerLineOwner(provider) {
 
 function registerLineAction(provider) {
   LINE_ACTIONS.push(provider);
+}
+
+function registerRowAction(provider) {
+  ROW_ACTIONS.push(provider);
 }
 
 function firstOf(providers, text) {
@@ -2736,7 +2747,11 @@ function sprintTable(block, index) {
     gutter.appendChild(gridGrip(block, index, "row", r, tr));
     tr.appendChild(gutter);
     row.forEach((_, column) => {
-      tr.appendChild(sprintCellHost(block, index, r, column));
+      const host = sprintCellHost(block, index, r, column);
+      // The row's press, in its first cell: a row action is the row's, and the
+      // first cell is the one every table in play puts the task's name in.
+      if (column === 0) attachRowAction(host, block, index, r);
+      tr.appendChild(host);
     });
     body.appendChild(tr);
   });
@@ -2959,6 +2974,44 @@ function showSprintCell(host, block, index, r, column) {
   host.innerHTML = "";
   host.appendChild(sprintCellView(block, index, r, column));
   paintCellHost(host, block.table, r, column);
+  restoreRowAction(host);
+}
+
+// The press a row action is drawn as, in the row's first cell. Chrome, like a
+// line's: `mousedown` is refused so the press does not take the caret out of a
+// cell you are typing in, and it stops its own click so the cell under it does
+// not open the editor.
+//
+// The cell swaps its one child between view and surface, and both swaps clear the
+// host -- so the press is kept **on** the host and put back afterwards rather than
+// rebuilt. Rebuilding it would ask the provider again mid-edit, on text the file
+// has not been told about yet.
+function attachRowAction(host, block, index, r) {
+  const cells = block.table.rows[r].map(cellText);
+  const action = firstOf(ROW_ACTIONS, cells);
+  if (!action) return;
+
+  const press = element("button", "sprint-row-act");
+  press.type = "button";
+  press.title = action.title;
+  press.textContent = action.label;
+  press.onmousedown = (event) => event.preventDefault();
+  press.onclick = (event) => {
+    event.stopPropagation();
+    action.run(press, cells, (written) => {
+      written.forEach((text, column) => writeCell(block.table, r, column, text));
+      tableEdited(block);
+      // The whole document, for `sprintLineAction`'s reason: what the action wrote
+      // may draw as anything, and this file has no idea what changed beyond text.
+      renderSprintDocument();
+    });
+  };
+  host.rowAction = press;
+  host.appendChild(press);
+}
+
+function restoreRowAction(host) {
+  if (host.rowAction) host.appendChild(host.rowAction);
 }
 
 // The resting state. One `<div>` per line so a line can carry a checkbox beside
@@ -3031,6 +3084,7 @@ function editSprintCell(host, block, index, r, column, select) {
   host.innerHTML = "";
   host.appendChild(area);
   paintCellHost(host, block.table, r, column);
+  restoreRowAction(host);
   area.focus();
   if (select) selectInline(area);
   return area;

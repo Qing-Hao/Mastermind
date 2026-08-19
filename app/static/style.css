@@ -2309,6 +2309,33 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 .sprint-line-act:focus-visible { visibility: visible; }
 .sprint-line-act:hover { border-color: var(--accent); color: var(--accent); }
 
+/* --- a table row's sync handle --- */
+/* The same press, in the row's first cell, and the same argument: chrome that
+   appears under the pointer. Positioned rather than in flow, because the cell it
+   sits in is a surface you type into and a button in that flow would reflow the
+   text as it came and went. It is opaque for the same reason -- it draws over the
+   end of a long first cell, and text showing through it would read as neither.
+   `visibility`, never `display`, so the button cannot be hit while invisible. */
+.sprint-table tbody .sprint-cell-host { position: relative; }
+.sprint-row-act {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  padding: 0 6px;
+  font: inherit;
+  font-size: 11.5px;
+  line-height: 17px;
+  color: var(--ink-3);
+  background: var(--surface);
+  border: 1px solid var(--field);
+  border-radius: var(--radius);
+  cursor: pointer;
+  visibility: hidden;
+}
+.sprint-table tbody tr:hover .sprint-row-act,
+.sprint-row-act:focus-visible { visibility: visible; }
+.sprint-row-act:hover { border-color: var(--accent); color: var(--accent); }
+
 /* --- the notice --- */
 /* One line at the foot of the window, for the one thing that happens without you
    asking for it: a sprint file rewritten by a tick made somewhere else. Above the
