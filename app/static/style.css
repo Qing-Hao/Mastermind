@@ -2285,6 +2285,145 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 }
 .sprint-line-todo:hover { outline: 1px solid var(--accent); }
 
+/* --- a task line's sync handle --- */
+/* The one press on a line, and it is chrome: it appears when the pointer is on the
+   line and takes the space either way, so nothing moves as it comes and goes.
+   `visibility` rather than `opacity` because an invisible button is still a button
+   you can hit, and `display` because that would move the text under the cursor. */
+.sprint-line-act {
+  flex: none;
+  align-self: flex-start;
+  margin-top: 1px;
+  padding: 0 6px;
+  font: inherit;
+  font-size: 11.5px;
+  line-height: 17px;
+  color: var(--ink-3);
+  background: var(--surface);
+  border: 1px solid var(--field);
+  border-radius: var(--radius);
+  cursor: pointer;
+  visibility: hidden;
+}
+.sprint-line:hover .sprint-line-act,
+.sprint-line-act:focus-visible { visibility: visible; }
+.sprint-line-act:hover { border-color: var(--accent); color: var(--accent); }
+
+/* --- the sync picker --- */
+/* Opened from that handle, and built and removed rather than toggled -- there is
+   no `hidden` attribute anywhere in it, so the `display` trap this stylesheet's
+   check exists for cannot reach it. Fixed, because it is placed from a viewport
+   rectangle. */
+.sync-picker {
+  position: fixed;
+  z-index: 60;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 8px 24px rgba(0, 0, 0, 0.16);
+}
+.sync-picker-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.sync-picker-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  font-size: 13px;
+  padding: 2px 4px;
+  border: 0;
+  background: transparent;
+  outline: none;
+}
+.sync-picker-tally { font-size: 11.5px; color: var(--faint); }
+
+.sync-picker-list { max-height: 300px; overflow-y: auto; padding: 4px 0; }
+
+/* The scope panel's group heading, at the picker's own size: the same two lines of
+   identity -- project, then phase -- carrying the same lane colour. */
+.sync-picker-group {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 4px 5px 0;
+  padding: 2px 8px;
+  border-left: 3px solid var(--lane-hue, var(--line));
+}
+.sync-picker-project { font-size: 12px; font-weight: 600; color: var(--lane-hue, var(--ink-2)); }
+.sync-picker-phase { font-size: 11.5px; color: var(--faint); }
+
+.sync-picker-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0 5px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.sync-picker-row[aria-selected="true"] { background: var(--accent-soft); color: var(--accent-hover); }
+/* The one this line is already synced to. A ring rather than a fill, so it does
+   not compete with the row the keyboard is on. */
+.sync-picker-row.here { box-shadow: inset 0 0 0 1px var(--accent-ring); }
+.sync-picker-row input {
+  width: 12px;
+  min-width: 0;
+  height: 12px;
+  padding: 0;
+  margin: 3px 0 0;
+  flex: none;
+  cursor: pointer;
+}
+.sync-picker-name { flex: 1 1 auto; }
+.sync-picker-name.done { color: var(--faint); text-decoration: line-through; }
+.sync-picker-ref {
+  flex: none;
+  font: 10.5px ui-monospace, SFMono-Regular, Consolas, monospace;
+  color: var(--faint);
+  padding-top: 2px;
+}
+.sync-picker-empty { margin: 0; padding: 8px 12px; font-size: 12.5px; color: var(--muted); }
+
+.sync-picker-foot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--line-soft);
+}
+/* Two presses reading as one switch: the pressed one wears the surface, the other
+   the ground behind it. */
+.sync-picker-scope {
+  font: inherit;
+  font-size: 11.5px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: var(--hover);
+  color: var(--muted);
+  cursor: pointer;
+}
+.sync-picker-scope.on {
+  background: var(--surface);
+  border-color: var(--field);
+  color: var(--ink);
+  font-weight: 600;
+}
+.sync-picker-scope:disabled { color: var(--faint); cursor: default; }
+.sync-picker-hint {
+  margin-left: auto;
+  font: 10.5px ui-monospace, SFMono-Regular, Consolas, monospace;
+  color: var(--faint);
+}
+
 /* The box for one line. Everything `.sprint-raw` says about a whole block is wrong
    here -- not monospace, not full width, not bordered -- because the line has to
    stay exactly where it was: a box that moved the text would make clicking into a

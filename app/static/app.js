@@ -3397,7 +3397,15 @@ function sprintLink(id) {
 // `firstCellInline` skips a rule that declines to build, and leaves the text it
 // matched alone. So an unresolved `D-42` is the characters you typed, which is
 // also exactly what it is in the file.
-function deliverableChip(match) {
+// `where.ownTick === false` is a surface saying it already draws a box for this
+// line, so the chip must not draw a second one. **A tick belongs to one control**,
+// and on a task line the control is the box at the front -- nearest the thumb, and
+// the one every other line in the file has. The chip keeps the reference and the
+// way through, which is all it ever was besides the tick.
+//
+// A table cell says nothing, so the chip carries its own box there: a row has no
+// box of its own to hand it to.
+function deliverableChip(match, where) {
   const id = referencedId(match);
   const link = sprintLink(id);
   if (!link) return null;
@@ -3414,14 +3422,17 @@ function deliverableChip(match) {
   // The box is the only thing in a cell that is not "click here to type", so it
   // stops the click that would otherwise open the editor over it -- the same
   // reason and the same handling as a checkbox line.
-  const box = element("input", "cell-ref-tick");
-  box.type = "checkbox";
-  box.checked = link.done;
-  box.title = link.done ? "Done — untick to reopen" : "Still ongoing — tick to finish";
-  box.onclick = (event) => {
-    event.stopPropagation();
-    toggleLinkedDeliverable(id, box.checked);
-  };
+  let box = null;
+  if (!where || where.ownTick !== false) {
+    box = element("input", "cell-ref-tick");
+    box.type = "checkbox";
+    box.checked = link.done;
+    box.title = link.done ? "Done — untick to reopen" : "Still ongoing — tick to finish";
+    box.onclick = (event) => {
+      event.stopPropagation();
+      toggleLinkedDeliverable(id, box.checked);
+    };
+  }
 
   // The reference stays on screen as written. The deliverable's name is the
   // tooltip rather than the label: the row already carries a task name you typed,
@@ -3442,7 +3453,8 @@ function deliverableChip(match) {
   chip.title = link.rows > 1
     ? `${link.name} · ${link.project_name} · named in ${link.rows} rows of this file`
     : `${link.name} · ${link.project_name}`;
-  chip.append(box, label, jump);
+  if (box) chip.append(box);
+  chip.append(label, jump);
   return chip;
 }
 
@@ -3467,6 +3479,320 @@ function deliverableMenuEntries(filter) {
 
 registerCellInline({ mark: DELIVERABLE_REF, render: deliverableChip });
 registerCellMenu(deliverableMenuEntries);
+
+// --- a task line's own link --------------------------------------------------
+
+// **A checkbox line is a unit of work, so it can be one of the roadmap's.** The
+// two halves are the editor's `registerLineOwner` and `registerLineAction` seams,
+// and they are registered together for the same reason the two above are: the
+// action is the only way to give a line an owner, so an owner nothing can create
+// would be a state you could only reach by typing the reference by hand.
+//
+// What the owner does: the line's box draws the deliverable's tick, and pressing
+// it ticks the deliverable. The marker in the file is written too -- your file
+// keeps saying what you ticked -- but the roadmap is what the box *shows*, so the
+// two cannot sit there disagreeing about a line you are looking at.
+
+// The line's first reference, resolved, or null when it has none, when it names
+// nothing, or when there is no roadmap read yet to say either way.
+function lineDeliverable(text) {
+  const found = DELIVERABLE_REF.exec(text);
+  if (!found) return null;
+  const id = referencedId(found);
+  const link = sprintLink(id);
+  if (!link || link.missing) return null;
+  return { id, link };
+}
+
+function deliverableLineOwner(text) {
+  const owned = lineDeliverable(text);
+  if (!owned) return null;
+  const { id, link } = owned;
+  return {
+    done: Boolean(link.done),
+    title: link.done
+      ? `${link.name} is done. Untick to reopen it on the roadmap.`
+      : `${link.name} is still ongoing. Tick to finish it on the roadmap.`,
+    toggle: (done) => toggleLinkedDeliverable(id, done),
+  };
+}
+
+// The press that opens the picker. Offered on every task line rather than only on
+// an unlinked one: picking again is how a line's reference is *moved*, which is
+// the gesture for "this turned out to be the other deliverable".
+//
+// Null in the template, for `loadSprintLinks`' reason -- it plans no fortnight, so
+// a link from it would point real roadmap state at a document about nothing.
+function deliverableLineAction(text) {
+  const number = state.sprint.number;
+  if (number === null || isTemplate(number)) return null;
+  const owned = lineDeliverable(text);
+  return {
+    label: owned ? "Linked" : "Sync",
+    title: owned
+      ? `Synced to ${owned.link.name} — press to sync it to a different deliverable`
+      : "Sync this line to a deliverable",
+    run: (press, current, write) => openSyncPicker(press, owned ? owned.id : null,
+      (id) => write(withReference(current, id))),
+  };
+}
+
+registerLineOwner(deliverableLineOwner);
+registerLineAction(deliverableLineAction);
+
+// One reference per line, so a line that has one has it **moved** rather than
+// joined by a second. Same rule as a table row's, and the same reason:
+// `line_reference` in `main.py` takes the first and stops.
+function withReference(text, id) {
+  const mark = `[#D-${id}]`;
+  const found = DELIVERABLE_REF.exec(text);
+  if (found) {
+    return text.slice(0, found.index) + mark + text.slice(found.index + found[0].length);
+  }
+  const base = text.replace(/\s+$/, "");
+  return base ? `${base} ${mark}` : mark;
+}
+
+// --- the sync picker ---------------------------------------------------------
+
+// **The fortnight first, the roadmap behind it.** A sprint file plans the work
+// that overlaps its dates, so those are the deliverables worth offering; the rest
+// of the roadmap is one press away rather than absent, because a plan that reaches
+// forward is a thing people write and refusing to link it would be an opinion
+// about scheduling this app does not get to have.
+//
+// Grouped by project, sub-headed by phase, in the scope panel's own lane colours:
+// the two lists are answering the same question a foot apart, and a deliverable
+// should look the same in both.
+//
+// Built and removed rather than hidden. Nothing in here is toggled with the
+// `hidden` attribute, so nothing here can be caught by the `display` trap that
+// `css_check.js` exists for.
+const syncPicker = { node: null, dismiss: null };
+
+function closeSyncPicker() {
+  if (!syncPicker.node) return;
+  document.removeEventListener("mousedown", syncPicker.dismiss, true);
+  syncPicker.node.remove();
+  syncPicker.node = null;
+  syncPicker.dismiss = null;
+}
+
+// The ids the open fortnight has in scope, or null while the slice has not been
+// read. Null rather than an empty set, because "nothing in scope" and "not read
+// yet" want different words on screen.
+function scopedDeliverableIds() {
+  const slice = state.sprintScope.slice;
+  if (!slice) return null;
+  const ids = new Set();
+  for (const lane of slice.lanes) {
+    for (const one of lane.deliverables) ids.add(one.id);
+  }
+  return ids;
+}
+
+// Deliverables in list order, grouped project by project and phase by phase. The
+// order inside a group is `/api/deliverables`' own -- by id -- so a name edited
+// elsewhere does not reshuffle the list under the cursor.
+function pickerGroups(rows) {
+  const groups = [];
+  const at = new Map();
+  for (const one of rows) {
+    const key = `${one.project_id}#${one.phase_id}`;
+    let group = at.get(key);
+    if (!group) {
+      group = {
+        key,
+        project_id: one.project_id,
+        project_name: one.project_name || "No project",
+        phase_name: one.phase_name || "",
+        rows: [],
+      };
+      at.set(key, group);
+      groups.push(group);
+    }
+    group.rows.push(one);
+  }
+  return groups;
+}
+
+function pickerMatches(one, filter) {
+  if (!filter) return true;
+  const hay = `${one.name} ${one.project_name} ${one.phase_name} d-${one.id}`;
+  return hay.toLowerCase().includes(filter);
+}
+
+function openSyncPicker(anchor, currentId, choose) {
+  closeSyncPicker();
+
+  const panel = element("div", "sync-picker");
+  const head = element("div", "sync-picker-head");
+  const search = element("input", "sync-picker-search");
+  search.type = "text";
+  search.placeholder = "Search deliverables";
+  const tally = element("span", "sync-picker-tally");
+  head.append(search, tally);
+
+  const list = element("div", "sync-picker-list");
+  const foot = element("div", "sync-picker-foot");
+  const scopeOnly = element("button", "sync-picker-scope");
+  const everything = element("button", "sync-picker-scope");
+  scopeOnly.type = "button";
+  everything.type = "button";
+  const hint = element("span", "sync-picker-hint", "↑↓ · ⏎ · esc");
+  foot.append(scopeOnly, everything, hint);
+  panel.append(head, list, foot);
+
+  const scoped = scopedDeliverableIds();
+  // The roadmap outright when there is no fortnight to narrow to: an empty list
+  // with a toggle to press is a worse answer than the list you can use.
+  let wide = scoped === null || scoped.size === 0;
+  let selected = 0;
+  let shown = [];
+
+  const pick = (id) => {
+    closeSyncPicker();
+    choose(id);
+  };
+
+  const draw = () => {
+    const filter = search.value.trim().toLowerCase();
+    const pool = wide || !scoped
+      ? state.allDeliverables
+      : state.allDeliverables.filter((one) => scoped.has(one.id));
+    shown = pool.filter((one) => pickerMatches(one, filter));
+    if (selected >= shown.length) selected = Math.max(0, shown.length - 1);
+
+    tally.textContent = `${shown.length} of ${pool.length}`;
+    scopeOnly.textContent = `In scope (${scoped ? scoped.size : 0})`;
+    everything.textContent = `Whole roadmap (${state.allDeliverables.length})`;
+    scopeOnly.disabled = !scoped || scoped.size === 0;
+    scopeOnly.classList.toggle("on", !wide);
+    everything.classList.toggle("on", wide);
+
+    list.textContent = "";
+    if (shown.length === 0) {
+      list.appendChild(element("p", "sync-picker-empty", wide
+        ? "Nothing in the roadmap matches. This picker only writes a reference — name the deliverable on the Project tab first."
+        : "Nothing in this fortnight matches. Widen to the whole roadmap, or name it on the Project tab first."));
+      return;
+    }
+
+    // The scope panel's own colours, so a deliverable reads the same in the panel
+    // and in the picker a foot away from it. Empty while there is no fortnight
+    // read: an uncoloured group is honest about there being nothing to colour by.
+    const hues = state.sprintScope.slice
+      ? laneColours(state.sprintScope.slice.lanes)
+      : new Map();
+
+    for (const group of pickerGroups(shown)) {
+      const title = element("div", "sync-picker-group");
+      const colour = hues.get(group.project_id);
+      if (colour) title.style.setProperty("--lane-hue", colour);
+      title.appendChild(element("span", "sync-picker-project", group.project_name));
+      if (group.phase_name) {
+        title.appendChild(element("span", "sync-picker-phase", group.phase_name));
+      }
+      list.appendChild(title);
+
+      for (const one of group.rows) {
+        const row = element("div", "sync-picker-row");
+        if (shown[selected] && shown[selected].id === one.id) {
+          row.setAttribute("aria-selected", "true");
+        }
+        if (one.id === currentId) row.classList.add("here");
+        const tick = element("input", null);
+        tick.type = "checkbox";
+        tick.checked = Boolean(one.done);
+        tick.disabled = true;
+        const name = element("span", one.done ? "sync-picker-name done" : "sync-picker-name",
+          one.name);
+        row.append(tick, name, element("span", "sync-picker-ref", `D-${one.id}`));
+        row.title = one.done ? "Already done" : "Not done yet";
+        // `mousedown` rather than `click`: the press must not blur the search field
+        // first, which is what closes the picker.
+        row.onmousedown = (event) => {
+          event.preventDefault();
+          pick(one.id);
+        };
+        list.appendChild(row);
+      }
+    }
+  };
+
+  search.oninput = () => {
+    selected = 0;
+    draw();
+  };
+
+  search.onkeydown = (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeSyncPicker();
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (shown[selected]) pick(shown[selected].id);
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      if (shown.length) selected = (selected + step + shown.length) % shown.length;
+      draw();
+      const here = list.querySelector('[aria-selected="true"]');
+      if (here) here.scrollIntoView({ block: "nearest" });
+    }
+  };
+
+  scopeOnly.onclick = () => {
+    wide = false;
+    selected = 0;
+    draw();
+    search.focus();
+  };
+  everything.onclick = () => {
+    wide = true;
+    selected = 0;
+    draw();
+    search.focus();
+  };
+
+  // Filled before it is placed: an empty panel measures a few pixels tall, and a
+  // panel placed on that measurement is one that fits everywhere and then grows
+  // off the bottom of the window.
+  document.body.appendChild(panel);
+  draw();
+  placeSyncPicker(panel, anchor);
+  search.focus();
+
+  // Capture, so a press anywhere else closes this before that press does whatever
+  // else it was going to do.
+  syncPicker.node = panel;
+  syncPicker.dismiss = (event) => {
+    if (!panel.contains(event.target)) closeSyncPicker();
+  };
+  document.addEventListener("mousedown", syncPicker.dismiss, true);
+}
+
+// Under the press it was opened from, flipped above it when there is no room
+// below, and pushed back inside the window when there is room for neither -- a
+// panel hanging off the bottom edge is a list you cannot reach the end of.
+// `position: fixed`, so the numbers are viewport ones and a scrolled document
+// needs no correction.
+function placeSyncPicker(panel, anchor) {
+  const at = anchor.getBoundingClientRect();
+  const size = panel.getBoundingClientRect();
+  const below = window.innerHeight - at.bottom;
+  const wanted = below > size.height + 8 || at.top < size.height + 8
+    ? at.bottom + 4
+    : at.top - size.height - 4;
+  const top = Math.max(8, Math.min(wanted, window.innerHeight - size.height - 8));
+  const left = Math.max(8, Math.min(at.left, window.innerWidth - size.width - 8));
+  panel.style.top = `${top}px`;
+  panel.style.left = `${left}px`;
+}
 
 // Same shape as `scopeKey` and for the same reason: the answer can change when
 // the roadmap does, so the key says which edition it was read at. The file is in

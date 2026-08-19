@@ -2774,3 +2774,6 @@ def test_the_picker_offers_every_deliverable_in_the_roadmap(client):
     # deliverable belongs to.
     assert listed[2]["project_name"] == "Billing"
     assert listed[0]["phase_id"] == phase["id"]
+    # And which phase, because the picker groups by project and a project with
+    # thirty deliverables needs a second heading to stay readable.
+    assert listed[0]["phase_name"] == "Build"

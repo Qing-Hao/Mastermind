@@ -1359,6 +1359,44 @@ function listMarkerGlyph(line) {
   return CELL_BULLETS[Math.min(cellDepth(line.indent), CELL_BULLETS.length - 1)];
 }
 
+// --- what else a line can belong to -----------------------------------------
+
+// **Two seams, and the same argument as `registerCellInline`:** a task line may
+// be a unit of work that something outside this file already records, and this
+// file must not learn what that something is. So it asks, per line, and takes
+// what it is handed.
+//
+// An **owner** answers "this box is really about something else": it supplies the
+// state to draw and takes the new one when the box is pressed. The marker in the
+// file is still written -- the line keeps saying what you ticked -- but what the
+// box *shows* is the owner's, because two things claiming one tick is how they
+// come to disagree.
+//
+// An **action** is the way to give a line an owner in the first place. It is
+// drawn as a press at the end of the line and is handed the line's text and a
+// way to write it back; what it puts there is its own business.
+//
+// Both are offered a line's text and nothing else. A provider that has nothing to
+// say returns null, and the line is an ordinary line.
+const LINE_OWNERS = [];
+const LINE_ACTIONS = [];
+
+function registerLineOwner(provider) {
+  LINE_OWNERS.push(provider);
+}
+
+function registerLineAction(provider) {
+  LINE_ACTIONS.push(provider);
+}
+
+function firstOf(providers, text) {
+  for (const provide of providers) {
+    const found = provide(text);
+    if (found) return found;
+  }
+  return null;
+}
+
 function sprintListRow(block, index, lines, position, editing) {
   const line = lines[position];
   const row = element("div", `sprint-line${line.quote ? " sprint-line-quote" : ""}`);
@@ -1366,18 +1404,22 @@ function sprintListRow(block, index, lines, position, editing) {
   // glyph -- `.sprint-cell-line`'s trick, and the same custom property shape.
   row.style.setProperty("--line-depth", cellDepth(line.indent));
 
+  // Only a line with a box: a bullet is a note, not a unit of work, and there is
+  // no tick on it for anything to own.
+  const owner = line.box === null ? null : firstOf(LINE_OWNERS, line.text);
+
   if (line.box !== null) {
     const box = element("input", "sprint-line-todo");
     box.type = "checkbox";
-    box.checked = line.box.toLowerCase() === "x";
-    box.title = "Tick this line";
+    box.checked = owner ? owner.done : line.box.toLowerCase() === "x";
+    box.title = owner ? owner.title : "Tick this line";
     // The one thing in a list block that is not "click here to type". The default
     // is **not** prevented, so the box you clicked is already showing its new
     // state -- there is nothing to re-render, and re-rendering here is what would
     // pull the row out from under the click that caused it.
     box.onclick = (event) => {
       event.stopPropagation();
-      toggleSprintListLine(block, lines, position);
+      toggleSprintListLine(block, lines, position, box.checked, owner);
     };
     row.appendChild(box);
   } else if (line.marker) {
@@ -1388,14 +1430,20 @@ function sprintListRow(block, index, lines, position, editing) {
     row.appendChild(sprintLineEditor(block, index, lines, position));
   } else {
     const label = element("span", "sprint-line-label");
-    renderCellInline(label, line.text);
+    // A line with a box of its own draws no second one inside the text: the box
+    // at the front is the tick, whatever the text turns out to refer to.
+    renderCellInline(label, line.text, { ownTick: line.box === null });
     row.appendChild(label);
   }
+
+  const action = line.box === null ? null : firstOf(LINE_ACTIONS, line.text);
+  if (action) row.appendChild(sprintLineAction(block, index, lines, position, action));
 
   row.onclick = (event) => {
     // A link is there to be followed and a control to be operated, the same two
     // exceptions a cell makes.
-    if (event.target.closest("a") || event.target.closest("input")) return;
+    if (event.target.closest("a") || event.target.closest("input")
+      || event.target.closest("button")) return;
     const area = row.querySelector(".sprint-line-raw");
     // Already editing: a press in the margin around the box puts you in it, and a
     // press inside it is the browser's to place the caret with.
@@ -1408,13 +1456,41 @@ function sprintListRow(block, index, lines, position, editing) {
   return row;
 }
 
-// A tick is a rewrite of that line's own marker and nothing else -- the stance
-// `toggleSprintTask` takes, minus the round trip and minus the counting: the line
-// is the unit here, so there is no nth-checkbox to find.
-function toggleSprintListLine(block, lines, position) {
-  const line = lines[position];
-  line.box = line.box.toLowerCase() === "x" ? " " : "x";
+// A tick is a rewrite of that line's own marker -- the stance `toggleSprintTask`
+// takes, minus the round trip and minus the counting: the line is the unit here,
+// so there is no nth-checkbox to find.
+//
+// `done` is the box's new state rather than the marker flipped, because with an
+// owner the two can start out disagreeing: the marker says what the file last
+// recorded and the box draws what the owner says now. Pressing it settles both on
+// the same answer, which is the useful thing for a press to do.
+function toggleSprintListLine(block, lines, position, done, owner) {
+  lines[position].box = done ? "x" : " ";
   writeSprintList(block, lines);
+  if (owner) owner.toggle(done);
+}
+
+// The press that gives a line an owner. Chrome at the end of the line, the way a
+// block's grip is: `mousedown` is refused so the press does not take the caret
+// out of a line you are typing in, and the write goes through `writeSprintList`
+// like every other list edit.
+function sprintLineAction(block, index, lines, position, action) {
+  const press = element("button", "sprint-line-act");
+  press.type = "button";
+  press.title = action.title;
+  press.textContent = action.label;
+  press.onmousedown = (event) => event.preventDefault();
+  press.onclick = (event) => {
+    event.stopPropagation();
+    action.run(press, lines[position].text, (text) => {
+      lines[position].text = text;
+      writeSprintList(block, lines);
+      // The whole document, because what the action wrote may draw as anything --
+      // this file has no idea what changed about the line beyond its text.
+      renderSprintDocument();
+    });
+  };
+  return press;
 }
 
 // The one line you are in, and it draws its own inline markdown: the difference
@@ -1422,13 +1498,17 @@ function toggleSprintListLine(block, lines, position) {
 // the block rather than the block, because the control beside it has to stay
 // clickable and a box cannot hold one.
 function sprintLineEditor(block, index, lines, position) {
+  // The surface brings the label's own renderer, box and all: a line whose tick is
+  // drawn at the front must not grow a second one the moment you click into it.
+  const draw = (node, text) =>
+    renderCellInline(node, text, { ownTick: lines[position].box === null });
   const host = inlineEditable("sprint-line-raw", lines[position].text, () => {
     lines[position].text = inlineMarkdown(host);
     // A box or a bullet has to appear, which is the one thing a line edit cannot do
     // in place.
     if (promoteSprintLine(block, lines, position)) return;
     writeSprintList(block, lines);
-  });
+  }, draw);
 
   // Back to the label, so the box beside it is clickable again. The child is
   // swapped rather than the document re-rendered: a click on another row is in
@@ -1442,7 +1522,7 @@ function sprintLineEditor(block, index, lines, position) {
     }
     if (!host.isConnected) return;
     const label = element("span", "sprint-line-label");
-    renderCellInline(label, lines[position].text);
+    renderCellInline(label, lines[position].text, { ownTick: lines[position].box === null });
     host.replaceWith(label);
   };
 
@@ -2016,10 +2096,14 @@ function cellLinkNode(label, url) {
 // Text in, nodes out. `textContent` for every run that is not a construct, and a
 // real element for every one that is -- never `innerHTML`, so a cell holding
 // `<script>` is a cell holding the characters `<script>`.
-function renderCellInline(parent, text) {
+// `where` is passed through to the rules untouched, and this file never reads it:
+// it is how a surface says something about itself that only the rule cares about.
+// The one thing said through it so far is whether a construct drawn here has to
+// carry its own checkbox, which a line with a box of its own does not.
+function renderCellInline(parent, text, where) {
   let rest = String(text ?? "");
   while (rest) {
-    const found = firstCellInline(rest);
+    const found = firstCellInline(rest, where);
     if (!found) break;
     if (found.at) parent.appendChild(document.createTextNode(rest.slice(0, found.at)));
     parent.appendChild(found.node);
@@ -2040,12 +2124,12 @@ function renderCellInline(parent, text) {
 // jump arrow re-derived as a markdown link, so the cell grew a second link on
 // every keystroke. `markInlineSource` leaves the structural tags alone, so
 // `<strong>` and a real `<a>` stay re-derived and stay editable.
-function firstCellInline(text) {
+function firstCellInline(text, where) {
   let best = null;
   for (const rule of CELL_INLINE) {
     const found = rule.mark.exec(text);
     if (!found || (best && found.index >= best.at)) continue;
-    const node = rule.render(found);
+    const node = rule.render(found, where);
     if (node) {
       markInlineSource(node, found[0]);
       best = { at: found.index, length: found[0].length, node };

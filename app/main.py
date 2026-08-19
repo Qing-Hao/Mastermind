@@ -1413,20 +1413,30 @@ def require_deliverable(deliverable_id):
 
 @app.get("/api/deliverables")
 def list_all_deliverables():
-    """Every deliverable in the roadmap, flat, for the sprint cell's picker.
+    """Every deliverable in the roadmap, flat, for the sprint picker.
 
     Flat and whole rather than one project's plan, because a fortnight is planned
     across projects and the file being edited belongs to none of them. Ordered by
     id so the picker's list does not reshuffle under the cursor when a name is
     edited somewhere else.
+
+    The phase name rides along because the picker groups by project and a project
+    with thirty deliverables needs a second heading to be readable. It is the
+    phase's name and nothing else about it -- no dates, no stage.
     """
     names = {project["id"]: project["name"] for project in db.list_projects()}
+    phases = {
+        phase["id"]: phase["name"]
+        for rows in db.phases_by_project().values()
+        for phase in rows
+    }
     return [
         {
             "id": row["id"],
             "name": row["name"],
             "done": bool(row["done"]),
             "phase_id": row["phase_id"],
+            "phase_name": phases.get(row["phase_id"], ""),
             "project_id": row["project_id"],
             "project_name": names.get(row["project_id"], ""),
         }
