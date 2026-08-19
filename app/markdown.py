@@ -26,9 +26,18 @@ Two invariants live here specifically:
      for byte: every line of the input belongs to exactly one block's `raw` or
      one block's `gap`. Each block keeps its own source, so the serialiser for
      prose is the identity function and there is no markdown -> AST -> markdown
-     round trip to normalise anything. Tables are the single exception, and only
-     when the grid was edited -- `serialise_table` aligns the columns it writes,
-     which is the feature that motivated the editor.
+     round trip to normalise anything. Tables are this module's single exception,
+     and only when the grid was edited -- `serialise_table` aligns the columns it
+     writes, which is the feature that motivated the editor.
+
+     One exception lives **outside** this module and is worth knowing about here:
+     the editor's inline surfaces are `contenteditable`, so a block someone typed
+     in has its inline source written back from the DOM by `inlineMarkdown` in
+     `editor.js`. Constructs that renderer knows are respelled canonically
+     (`<b>x</b>` becomes `**x**`); everything it does not know passes through as
+     text, and a block nobody touched is untouched. Nothing on this side changes:
+     what arrives to be saved is still whole-file text, split by the same
+     splitter.
   2. **This module is sprint-agnostic.** It never learns what a capacity table
      is. Any pipe table gets the same treatment, no category is validated and no
      point is counted. That is the condition the sprint-4 gate override rests

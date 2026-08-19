@@ -747,6 +747,71 @@ function inlineHalves(host) {
   };
 }
 
+// --- a surface as markdown, with a place in it -------------------------------
+
+// Some rules are easier to state about the **string** than about the DOM: "continue
+// the list on this line", "indent from here", "put `**` where the `/bold` was". They
+// were written against a textarea's `value` and `selectionStart`, and they are still
+// the clearest way to say what they say.
+//
+// So an inline surface can be read as one: `inlineSurface` gives its markdown and
+// where the caret is **in that markdown**, and `writeInlineSurface` puts a new string
+// back with the caret at an offset into it. Between those two, a rule can go on doing
+// string surgery and know nothing about ranges.
+
+// A character no file can contain, stood at the caret so its position can be read
+// off the serialised text. `data-md` is copied verbatim by `inlineNodeMarkdown`,
+// which is what makes the flag survive serialisation without being interpreted.
+const INLINE_FLAG = "\u0000";
+
+// Where the caret is in the surface's markdown. Found by standing a flag there and
+// serialising rather than by counting characters, so it **cannot disagree** with
+// `inlineMarkdown` -- it is `inlineMarkdown`. The opening marker of a construct the
+// caret sits inside is therefore counted and its closing one is not, which is
+// exactly where a typed character would land.
+function inlineCaretInMarkdown(host) {
+  const selection = window.getSelection();
+  if (!selection || !selection.rangeCount) return -1;
+  const caret = selection.getRangeAt(0).cloneRange();
+  if (!host.contains(caret.endContainer)) return -1;
+
+  const flag = element("span");
+  flag.dataset.md = INLINE_FLAG;
+  caret.collapse(false);
+  caret.insertNode(flag);
+  const text = inlineMarkdown(host);
+  flag.remove();
+  // `insertNode` splits the text node it landed in; joining them back leaves the
+  // surface exactly as it was found.
+  host.normalize();
+  return text.indexOf(INLINE_FLAG);
+}
+
+// The surface as a rule wants to see it: its markdown, and the caret's place in it.
+function inlineSurface(host) {
+  const at = inlineCaretInMarkdown(host);
+  const text = inlineMarkdown(host);
+  return { text, at: at < 0 ? text.length : at };
+}
+
+// The other direction: draw this markdown and put the caret at this offset into it.
+// The offset is a **markdown** one, converted here, so a caller never has to know
+// that `**bold**` is eight characters in the file and four on the screen.
+function writeInlineSurface(host, text, at) {
+  host.innerHTML = "";
+  renderCellInline(host, text);
+  setInlineCaret(host, inlineLength(text.slice(0, Math.max(0, at))));
+}
+
+// Everything in the surface, selected -- what `textarea.select()` was.
+function selectInline(host) {
+  const selection = window.getSelection();
+  const range = document.createRange();
+  range.selectNodeContents(host);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
 // The shortcuts, and why `execCommand`: it is deprecated, and it is also the only
 // thing that wraps a selection spanning element boundaries correctly. This is a
 // localhost tool driven in one browser, so the trade is worth making. `styleWithCSS`
@@ -2065,11 +2130,12 @@ function maybeOpenSprintMenu(area, index) {
 const CELL_MENU_TRIGGER = /(?:^|\s)\/(\S*)$/;
 
 function maybeOpenCellMenu(cell, block, index, r, column) {
-  const line = cell.value.slice(0, cell.selectionStart).split("\n").pop();
+  const { text, at } = inlineSurface(cell);
+  const line = text.slice(0, at).split("\n").pop();
   const found = CELL_MENU_TRIGGER.exec(line);
   if (found) {
     const filter = found[1];
-    const from = cell.selectionStart - filter.length - 1;
+    const from = at - filter.length - 1;
     openSprintMenu(cell, index, filter, cellMenuEntries(filter),
       (item) => insertIntoCell(item, cell, block, index, r, column, from));
   } else closeSprintMenu();
@@ -2194,29 +2260,32 @@ function repaintSiblingCell(cell, block, index, r, column) {
 // replaces that span and nothing wider, because a slash may now sit mid-line with
 // text on both sides of it.
 function insertIntoCell(item, cell, block, index, r, column, from) {
+  // The cell read as a string with a place in it, which is what every branch below
+  // was written against. Both offsets are markdown ones -- see `inlineSurface`.
+  const { text, at } = inlineSurface(cell);
   const start = from;
-  const rest = cell.value.slice(cell.selectionStart);
-  // Read before the `/filter` comes out, so the grid and the textarea still agree.
+  const rest = text.slice(at);
+  // Read before the `/filter` comes out, so the grid and the surface still agree.
   const home = item.highlight === undefined ? rowUniqueHome(item, block.table, r) : null;
+  let mine;
+  let caret;
 
   if (item.highlight !== undefined) {
     // Drop the `/filter` that opened the menu, then re-mark the head of the cell:
     // one marker at a time, and an empty one is what clears it.
-    const dropped = cell.value.slice(0, start) + rest;
+    const dropped = text.slice(0, start) + rest;
     const tint = cellTint(dropped);
     const bare = tint ? dropped.slice(tint.length) : dropped;
     const mark = item.highlight ? `${item.highlight} ` : "";
-    cell.value = mark + bare;
-    const caret = Math.max(0, start - (tint ? tint.length : 0) + mark.length);
-    cell.setSelectionRange(caret, caret);
-    cell.focus();
+    mine = mark + bare;
+    caret = Math.max(0, start - (tint ? tint.length : 0) + mark.length);
   } else if (home !== null) {
     // The row already carries one of these. Take the `/filter` back out and swap
     // the mark where it sits rather than inserting a second — picking the same one
     // twice therefore changes nothing, which is the honest answer to that gesture.
     const wanted = item.markdown.trim();
-    let mine = cell.value.slice(0, start) + rest;
-    let caret = Math.min(start, mine.length);
+    mine = text.slice(0, start) + rest;
+    caret = Math.min(start, mine.length);
 
     if (home === column) {
       // The only match may have been inside the `/filter` itself, and dropping
@@ -2237,20 +2306,17 @@ function insertIntoCell(item, cell, block, index, r, column, from) {
         other.slice(0, found.index) + wanted + other.slice(found.index + found[0].length));
       repaintSiblingCell(cell, block, index, r, home);
     }
-
-    cell.value = mine;
-    cell.setSelectionRange(caret, caret);
-    cell.focus();
   } else {
-    cell.value = cell.value.slice(0, start) + item.markdown + rest;
-    const caret = start + (item.caret ?? item.markdown.length);
-    cell.setSelectionRange(caret, caret);
-    cell.focus();
+    mine = text.slice(0, start) + item.markdown + rest;
+    caret = start + (item.caret ?? item.markdown.length);
   }
 
-  writeCell(block.table, r, column, cell.value);
+  writeCell(block.table, r, column, mine);
+  // Redrawn from the string, so a `**bold**` the insert completed is drawn as bold
+  // rather than sitting there as four asterisks until the cell is left.
+  writeInlineSurface(cell, mine, caret);
+  cell.focus();
   paintCellHost(cellHost(cell), block.table, r, column);
-  autosizeSprintArea(cell);
   tableEdited(block);
 }
 
@@ -2719,18 +2785,17 @@ function sprintCellView(block, index, r, column) {
 // host's one child", so the host is the only thing either state needs to know.
 const cellHost = (node) => node.parentElement;
 
-// Swap the view for the editor and put the caret in it. In the document already,
-// so `scrollHeight` is real and the autosize is exact -- which is why the cells no
-// longer need a measuring pass after the render.
+// Swap the view for the editor and put the caret in it. No measuring pass: the
+// surface is an ordinary block element and sizes itself, which is one thing the
+// inline surfaces gave back.
 function editSprintCell(host, block, index, r, column, select) {
   if (!host) return null;
   const area = sprintCell(block, index, r, column);
   host.innerHTML = "";
   host.appendChild(area);
   paintCellHost(host, block.table, r, column);
-  autosizeSprintArea(area);
   area.focus();
-  if (select) area.select();
+  if (select) selectInline(area);
   return area;
 }
 
@@ -2740,21 +2805,22 @@ function editSprintCell(host, block, index, r, column, select) {
 // clamped, because the marker it just gained or lost changed the line's length.
 function toggleCellTodoAtCaret(cell, block, index, r, column) {
   const grid = block.table;
-  const before = cell.value.slice(0, cell.selectionStart);
+  const { text, at } = inlineSurface(cell);
+  const before = text.slice(0, at);
   const position = before.split("\n").length - 1;
   const offset = before.length - (before.lastIndexOf("\n") + 1);
 
-  const lines = cell.value.split("\n");
+  const lines = text.split("\n");
   const was = lines[position].length;
   lines[position] = flipCellTodo(lines[position]);
   const moved = lines[position].length - was;
 
-  cell.value = lines.join("\n");
-  const start = before.length - offset + Math.max(0, Math.min(offset + moved, lines[position].length));
-  cell.setSelectionRange(start, start);
+  const mine = lines.join("\n");
+  const start = before.length - offset
+    + Math.max(0, Math.min(offset + moved, lines[position].length));
 
-  writeCell(grid, r, column, cell.value);
-  autosizeSprintArea(cell);
+  writeCell(grid, r, column, mine);
+  writeInlineSurface(cell, mine, start);
   tableEdited(block);
 }
 
@@ -2771,28 +2837,30 @@ function toggleCellTodo(host, block, index, r, column, position) {
   showSprintCell(host, block, index, r, column);
 }
 
-// A `<textarea>` and not an `<input>`, because an input has no second line to
-// give: `Enter` in a cell is a line break within it, and the height follows the
-// text. The keyboard rules below are read **per line** for the same reason -- a
-// tab on a checklist line and a tab on a word are not the same request.
+// **An inline surface, not a textarea**, for the reason every prose surface here is
+// one: `**Total**` typed into a cell has to draw as bold rather than sit there as
+// asterisks. A cell can still hold a second line -- the text keeps its newlines and
+// the surface wraps -- and the keyboard rules below are still read **per line**,
+// because a tab on a checklist line and a tab on a word are not the same request.
+//
+// What a cell does **not** do, and it is the one place the editor is not yet one
+// way: a line's own marker stays text while you are typing in it. `- [ ] Ship` reads
+// as those characters in the box and draws as a checkbox the moment you leave. The
+// document's list blocks hoist that marker; a cell is one small box, and splitting
+// it into per-line surfaces would cost `Tab` walking the grid, a paste filling it,
+// and the `/` menu knowing where the caret is -- which is the grid's whole job.
 function sprintCell(block, index, r, column) {
   const grid = block.table;
-  const cell = element("textarea", "sprint-cell");
-  cell.value = cellText(cellValue(grid, r, column));
-  cell.rows = Math.max(1, cell.value.split("\n").length);
-  cell.dataset.r = r;
-  cell.dataset.c = column;
-  cell.spellcheck = false;
-  // Alignment is the column's, so the grid reads the way the rendered table does.
-  cell.style.textAlign = CELL_ALIGN[grid.align[column]] || "";
-
-  cell.oninput = () => {
-    writeCell(grid, r, column, cell.value);
+  const cell = inlineEditable("sprint-cell", cellText(cellValue(grid, r, column)), () => {
+    writeCell(grid, r, column, inlineMarkdown(cell));
     paintCellHost(cellHost(cell), grid, r, column);
-    autosizeSprintArea(cell);
     maybeOpenCellMenu(cell, block, index, r, column);
     tableEdited(block);
-  };
+  });
+  cell.dataset.r = r;
+  cell.dataset.c = column;
+  // Alignment is the column's, so the grid reads the way the rendered table does.
+  cell.style.textAlign = CELL_ALIGN[grid.align[column]] || "";
 
   // Back to the view, so the checkboxes in this cell become clickable again. The
   // grid already holds every keystroke, so there is nothing to commit here --
@@ -2809,6 +2877,9 @@ function sprintCell(block, index, r, column) {
   cell.onkeydown = (event) => {
     // While the menu is up it owns the arrows, Enter and Esc.
     if (sprintMenu.open && sprintMenuKey(event)) return;
+    // Bold, italic, underline and strikethrough, the same four keys every other
+    // inline surface answers to.
+    if (inlineCommandKey(event)) return;
 
     // The keyboard equivalent of clicking a box, and the reason the feature is not
     // mouse-only. On a line with no marker it adds one, so this also starts a
@@ -2864,12 +2935,19 @@ function sprintCell(block, index, r, column) {
     stepSprintCell(block, index, r, column, step);
   };
 
+  // Replaces `inlineEditable`'s own paste handler, so the plain-text half of it is
+  // repeated here: a surface that let a browser's HTML in would be a surface whose
+  // markdown nobody can write back.
   cell.onpaste = (event) => {
     const text = (event.clipboardData || window.clipboardData).getData("text");
     // One value is an ordinary paste; a range is a grid, and that is the point.
     // Deliberately unchanged by multi-line cells: a one-column range is still
     // rows, and `Enter` is how a second line goes into a single cell.
-    if (!text || !/[\t\n]/.test(text)) return;
+    if (!text || !/[\t\n]/.test(text)) {
+      event.preventDefault();
+      if (text) document.execCommand("insertText", false, text);
+      return;
+    }
     event.preventDefault();
     pasteIntoTable(block, r, column, text);
     renderSprintDocument();
@@ -2879,13 +2957,16 @@ function sprintCell(block, index, r, column) {
   return cell;
 }
 
-// The line the caret is on, and where it starts in the box. Every keyboard rule
-// below is per line rather than per cell, because a cell holds several -- the
-// same reading `maybeOpenCellMenu` does for `/`.
+// The line the caret is on, and where it starts in the cell's markdown -- plus that
+// markdown and the caret's place in it, since every caller needs all four and
+// reading them twice would mean reading them from a surface that had moved on.
+// Every keyboard rule below is per line rather than per cell, because a cell holds
+// several -- the same reading `maybeOpenCellMenu` does for `/`.
 function caretLine(cell) {
-  const upto = cell.value.slice(0, cell.selectionStart);
+  const { text, at } = inlineSurface(cell);
+  const upto = text.slice(0, at);
   const start = upto.length - upto.split("\n").pop().length;
-  return { start, line: cell.value.slice(start).split("\n")[0] };
+  return { start, line: text.slice(start).split("\n")[0], text, at };
 }
 
 // What a line is, for the two rules that care: a checkbox, a bullet, or neither.
@@ -2905,32 +2986,29 @@ function cellLineMarker(line) {
 }
 
 // `Enter` on a list line. Returns whether it handled the key -- on an ordinary
-// line it does not, and the textarea inserts a plain newline as before.
+// line it does not, and the surface takes the newline itself as before.
 function continueCellList(cell, block, r, column) {
-  const { start, line } = caretLine(cell);
+  const { start, line, text, at } = caretLine(cell);
   const marker = cellLineMarker(line);
   if (!marker) return false;
 
-  const value = cell.value;
-  const from = cell.selectionStart;
-  const to = cell.selectionEnd;
+  let mine;
   let caret;
 
   if (line.slice(marker.length).trim()) {
     const carry = `\n${marker.indent}${marker.write}`;
-    cell.value = value.slice(0, from) + carry + value.slice(to);
-    caret = from + carry.length;
+    mine = text.slice(0, at) + carry + text.slice(at);
+    caret = at + carry.length;
   } else {
     // An empty item ends the list rather than laying out another empty one. The
     // indent goes with the marker: what is left is a blank line, not a stray two
     // spaces that the next save would strip anyway.
-    cell.value = value.slice(0, start) + value.slice(start + marker.length);
+    mine = text.slice(0, start) + text.slice(start + marker.length);
     caret = start;
   }
 
-  cell.setSelectionRange(caret, caret);
-  writeCell(block.table, r, column, cell.value);
-  autosizeSprintArea(cell);
+  writeCell(block.table, r, column, mine);
+  writeInlineSurface(cell, mine, caret);
   tableEdited(block);
   return true;
 }
@@ -2973,8 +3051,11 @@ function stepSprintCell(block, index, r, column, [down, across]) {
 // whitespace on line one is gone by the next save. Lines two and after keep it,
 // which is where nesting belongs anyway -- a list starts at the left.
 function indentCellLine(cell, block, r, column, direction) {
-  const value = cell.value;
-  const was = { start: cell.selectionStart, end: cell.selectionEnd };
+  const { text: value, at } = inlineSurface(cell);
+  // One line: the caret's. A range spanning several was what a textarea's two
+  // offsets could say and an inline caret cannot, so the loop below now runs once
+  // -- kept as a loop because that is what makes the arithmetic below readable.
+  const was = { start: at, end: at };
   const from = value.lastIndexOf("\n", Math.max(0, was.start - 1)) + 1;
   const found = value.indexOf("\n", was.end);
   const to = found === -1 ? value.length : found;
@@ -2989,15 +3070,11 @@ function indentCellLine(cell, block, r, column, direction) {
     return direction > 0 ? CELL_INDENT + line : line.slice(taken.length);
   });
 
-  cell.value = value.slice(0, from) + lines.join("\n") + value.slice(to);
-  // Both ends move by what was added or taken *before* them, so the caret keeps
-  // its place in the line rather than jumping to the end of the box.
-  cell.setSelectionRange(
-    Math.max(from, was.start + first),
-    Math.max(from, was.end + total));
-
-  writeCell(block.table, r, column, cell.value);
-  autosizeSprintArea(cell);
+  const mine = value.slice(0, from) + lines.join("\n") + value.slice(to);
+  // The caret moves by what was added or taken *before* it, so it keeps its place
+  // in the line rather than jumping to the end of the box.
+  writeCell(block.table, r, column, mine);
+  writeInlineSurface(cell, mine, Math.max(from, was.start + first));
   tableEdited(block);
 }
 
@@ -3382,7 +3459,7 @@ function focusSprintCell(index, r, column) {
 
   if (cell.classList.contains("sprint-cell")) {
     cell.focus();
-    cell.select();
+    selectInline(cell);
     return;
   }
   const grid = state.sprint.blocks[index];

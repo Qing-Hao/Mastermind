@@ -1943,9 +1943,10 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 .sprint-table td.cell-tint-blue, .sprint-table th.cell-tint-blue { background: #e2ecfa; }
 
 /* The two states of one cell, sharing every metric that decides the row's height
-   so the swap on focus does not move the grid. A textarea, so a cell can hold a
-   second line — sized by its text rather than resizable, and `display: block`
-   because a textarea's baseline would otherwise leave a gap under every row. */
+   so the swap on focus does not move the grid. Both are `<div>`s now -- the editing
+   one is a `contenteditable`, so a cell draws its own bold rather than showing the
+   asterisks -- and `display: block` is kept because the metrics are shared with the
+   view and a change here moves both. */
 .sprint-cell, .sprint-cell-view {
   font: inherit;
   font-variant-numeric: tabular-nums;
@@ -2182,6 +2183,16 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 }
 .sprint-inline a { color: var(--accent); }
 .sprint-inline u { text-decoration: underline; }
+/* A cell is an inline surface too, and it keeps the grid's own metrics: the rule
+   above would hand it a page background, an accent edge and 8px of padding, and
+   every one of those moves the column it sits in. Specificity rather than source
+   order, so the two cannot be reordered into a broken grid. */
+.sprint-table .sprint-cell {
+  padding: 5px 7px;
+  border: 0;
+  background: transparent;
+  min-height: 0;
+}
 .sprint-inline del, .sprint-inline s, .sprint-inline strike,
 .sprint-line-label del { color: var(--muted); }
 
