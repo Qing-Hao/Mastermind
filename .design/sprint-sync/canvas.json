@@ -34,14 +34,14 @@
       "x": 0,
       "y": 1370,
       "w": 680,
-      "text": "STILL OPEN — THE FILES ALREADY ON DISK\n\nsprints/*.md contain bare D-42 today.\n\nA (drawn here, recommended). Read both spellings, write only [#D-9]. Nothing on disk is touched. Matches the editor's own precedent — it reads both \"- [ ]\" and \"☐\" and writes only the first.\n\nB. Hard switch plus a one-off rewrite of sprints/*.md. One spelling; it edits your gitignored files, so it runs once, against a backup.\n\nC. New spelling only, old stops linking. Least code, silent breakage.\n\nThe amber D-11 at the foot of the file is an old reference still being read — that is A."
+      "text": "SETTLED — THE FILES ALREADY ON DISK\n\nsprints/*.md contain bare D-42 today. A was chosen and is what shipped.\n\nA (drawn here). Read both spellings, write only [#D-9]. Nothing on disk is touched. Matches the editor's own precedent — it reads both \"- [ ]\" and \"☐\" and writes only the first.\n\nB. Hard switch plus a one-off rewrite of sprints/*.md. One spelling; it edits your gitignored files, so it runs once, against a backup.\n\nC. New spelling only, old stops linking. Least code, silent breakage.\n\nThe amber D-11 at the foot of the file is an old reference still being read — that is A."
     },
     {
       "id": "note-gap",
       "x": 1500,
       "y": 1900,
       "w": 660,
-      "text": "THE PART THAT IS NOT BUILT YET\n\nA reference on a checkbox line already DRAWS a chip — the renderer is shared with table cells. But sprint_task_refs in main.py walks table blocks only, so that reference never reaches /api/sprints/{n}/links.\n\nConsequence today: no \"↗ 03\" badge on the Project tab, and the \"named in N rows\" count misses it.\n\nWith the tick moved onto the line, this stops being cosmetic: direction 2 of the write-through needs to know which line of which file to flip, and only the links reader can say.\n\nSo main.py reading list lines is the foundation of the whole feature, not a nicety."
+      "text": "THE FOUNDATION — NOW BUILT\n\nA reference on a checkbox line already DREW a chip — the renderer is shared with table cells. But sprint_task_refs in main.py walks table blocks only, so that reference never reaches /api/sprints/{n}/links.\n\nConsequence today: no \"↗ 03\" badge on the Project tab, and the \"named in N rows\" count misses it.\n\nWith the tick moved onto the line, this stops being cosmetic: direction 2 of the write-through needs to know which line of which file to flip, and only the links reader can say.\n\nSo main.py reading list lines is the foundation of the whole feature, not a nicety."
     }
   ],
   "launch": { "view": "canvas" }
