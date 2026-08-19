@@ -1379,14 +1379,13 @@ function listMarkerGlyph(line) {
 // Both are offered a line's text and nothing else. A provider that has nothing to
 // say returns null, and the line is an ordinary line.
 //
-// A **row action** is the same seam one dimension up, for a table: it is offered
-// the row's cell texts rather than a line's text, and what it hands back is a
-// full row of cells. A row rather than a cell because the reader downstream reads
-// a row as one unit -- a press per cell would offer four ways to say the one
-// thing a row can say.
+// A **cell-line action** is the same seam inside a table: a cell may hold a
+// checklist, and each of its lines is a unit of work in its own right. It is
+// offered that one line's text and hands back that one line's text -- the cell
+// around it, and the row around that, are none of its business.
 const LINE_OWNERS = [];
 const LINE_ACTIONS = [];
-const ROW_ACTIONS = [];
+const CELL_LINE_ACTIONS = [];
 
 function registerLineOwner(provider) {
   LINE_OWNERS.push(provider);
@@ -1396,8 +1395,8 @@ function registerLineAction(provider) {
   LINE_ACTIONS.push(provider);
 }
 
-function registerRowAction(provider) {
-  ROW_ACTIONS.push(provider);
+function registerCellLineAction(provider) {
+  CELL_LINE_ACTIONS.push(provider);
 }
 
 function firstOf(providers, text) {
@@ -2326,13 +2325,16 @@ const CELL_MENU = [
 // generic filter in `openSprintMenu` then applies to what comes back, the same
 // way it applies to the entries above.
 //
-// An entry may carry `rowUnique`, a **non-global** regex: at most one of them per
-// table row, so picking a second time replaces the one the row already has
-// wherever in the row it sits rather than adding another. Stated as a regex and
-// enforced by `insertIntoCell` so this file keeps knowing nothing about what the
-// entry means — it counts matches per row, and that is the whole of it. The rule
-// exists because a reader downstream may take only the row's first one, in which
-// case a second is not a second link but a decoration that lies.
+// An entry may carry `lineUnique`, a **non-global** regex: at most one of them per
+// line, so picking a second time on a line replaces the one that line already has
+// rather than adding another. Stated as a regex and enforced by `insertIntoCell`
+// so this file keeps knowing nothing about what the entry means — it looks for a
+// match on the line, and that is the whole of it. The rule exists because a reader
+// downstream may take only the line's first one, in which case a second is not a
+// second link but a decoration that lies.
+//
+// The line and not the row: a cell holding a checklist plans one thing per line,
+// and each line is read on its own downstream.
 const CELL_MENU_PROVIDERS = [];
 
 function registerCellMenu(provider) {
@@ -2475,29 +2477,14 @@ function pickSprintMenuItem(position) {
   if (item && pick) pick(item, index);
 }
 
-// Where the row already carries a `rowUnique` entry's mark, as a column, or null.
-// First match in column order, which is the same "first one wins" the row's
-// downstream reader applies. The header row is never a data row and has no
-// uniqueness to keep.
-function rowUniqueHome(item, grid, r) {
-  if (!item.rowUnique || r === -1) return null;
-  const cells = grid.rows[r] || [];
-  for (let c = 0; c < cells.length; c += 1) {
-    if (item.rowUnique.exec(cellText(cellValue(grid, r, c)))) return c;
-  }
-  return null;
-}
-
-// Redraw one resting cell of the same table after a write that did not come from
-// it. Found by the `data-r`/`data-c` the view already stamps rather than through a
-// map kept for the purpose: this is the only edit that reaches across a row, and
-// only ever to a cell that is not the one being typed in.
-function repaintSiblingCell(cell, block, index, r, column) {
-  const host = cellHost(cell);
-  const owner = host && host.closest(".sprint-table-block");
-  const view = owner
-    && owner.querySelector(`.sprint-cell-view[data-r="${r}"][data-c="${column}"]`);
-  if (view) showSprintCell(cellHost(view), block, index, r, column);
+// The span of `text` holding the line offset `at` sits on, as `[from, to)`. A cell
+// is one string with newlines in it, and a `lineUnique` entry is kept unique
+// within the line the caret is on rather than across the cell or the row: each
+// line of a cell's checklist is read on its own downstream.
+function cellLineSpan(text, at) {
+  const from = text.lastIndexOf("\n", Math.max(0, at - 1)) + 1;
+  const to = text.indexOf("\n", at);
+  return [from, to === -1 ? text.length : to];
 }
 
 // One line of the cell had `/filter` typed into it; the snippet takes its place
@@ -2513,8 +2500,7 @@ function insertIntoCell(item, cell, block, index, r, column, from) {
   const { text, at } = inlineSurface(cell);
   const start = from;
   const rest = text.slice(at);
-  // Read before the `/filter` comes out, so the grid and the surface still agree.
-  const home = item.highlight === undefined ? rowUniqueHome(item, block.table, r) : null;
+  const unique = item.highlight === undefined ? item.lineUnique : null;
   let mine;
   let caret;
 
@@ -2527,32 +2513,28 @@ function insertIntoCell(item, cell, block, index, r, column, from) {
     const mark = item.highlight ? `${item.highlight} ` : "";
     mine = mark + bare;
     caret = Math.max(0, start - (tint ? tint.length : 0) + mark.length);
-  } else if (home !== null) {
-    // The row already carries one of these. Take the `/filter` back out and swap
-    // the mark where it sits rather than inserting a second — picking the same one
-    // twice therefore changes nothing, which is the honest answer to that gesture.
+  } else if (unique) {
+    // Take the `/filter` back out first, then look at the line it was typed on: if
+    // that line already carries one of these, the mark is swapped where it sits
+    // rather than a second one inserted beside it — so picking the same one twice
+    // changes nothing, which is the honest answer to that gesture.
     const wanted = item.markdown.trim();
     mine = text.slice(0, start) + rest;
     caret = Math.min(start, mine.length);
 
-    if (home === column) {
-      // The only match may have been inside the `/filter` itself, and dropping
-      // that leaves nothing to replace — so this falls back to an insert. Not
-      // reachable through the deliverable picker, whose keys never match its own
-      // mark, but the rule is generic and so is the guard.
-      const found = item.rowUnique.exec(mine);
-      if (found) {
-        mine = mine.slice(0, found.index) + wanted + mine.slice(found.index + found[0].length);
-      } else {
-        mine = mine.slice(0, start) + item.markdown + mine.slice(start);
-        caret = start + item.markdown.length;
-      }
+    const [head, tail] = cellLineSpan(mine, caret);
+    const found = unique.exec(mine.slice(head, tail));
+    if (found) {
+      const at = head + found.index;
+      mine = mine.slice(0, at) + wanted + mine.slice(at + found[0].length);
+      caret = Math.min(caret, mine.length);
     } else {
-      const other = cellText(cellValue(block.table, r, home));
-      const found = item.rowUnique.exec(other);
-      writeCell(block.table, r, home,
-        other.slice(0, found.index) + wanted + other.slice(found.index + found[0].length));
-      repaintSiblingCell(cell, block, index, r, home);
+      // Nothing on this line yet — an ordinary insert at the caret. Also the way
+      // out when the only match was inside the `/filter` that has just been
+      // dropped: unreachable through the deliverable picker, whose keys never
+      // match its own mark, but the rule is generic and so is the guard.
+      mine = mine.slice(0, start) + item.markdown + mine.slice(start);
+      caret = start + item.markdown.length;
     }
   } else {
     mine = text.slice(0, start) + item.markdown + rest;
@@ -2747,11 +2729,7 @@ function sprintTable(block, index) {
     gutter.appendChild(gridGrip(block, index, "row", r, tr));
     tr.appendChild(gutter);
     row.forEach((_, column) => {
-      const host = sprintCellHost(block, index, r, column);
-      // The row's press, in its first cell: a row action is the row's, and the
-      // first cell is the one every table in play puts the task's name in.
-      if (column === 0) attachRowAction(host, block, index, r);
-      tr.appendChild(host);
+      tr.appendChild(sprintCellHost(block, index, r, column));
     });
     body.appendChild(tr);
   });
@@ -2974,44 +2952,51 @@ function showSprintCell(host, block, index, r, column) {
   host.innerHTML = "";
   host.appendChild(sprintCellView(block, index, r, column));
   paintCellHost(host, block.table, r, column);
-  restoreRowAction(host);
 }
 
-// The press a row action is drawn as, in the row's first cell. Chrome, like a
-// line's: `mousedown` is refused so the press does not take the caret out of a
-// cell you are typing in, and it stops its own click so the cell under it does
-// not open the editor.
+// The press a cell-line action is drawn as, at the end of the line it belongs to.
+// Chrome, like a list line's: `mousedown` is refused so the press does not take
+// the caret out of a cell you are typing in, and it stops its own click so the
+// cell under it does not open the editor over the press you just made.
 //
-// The cell swaps its one child between view and surface, and both swaps clear the
-// host -- so the press is kept **on** the host and put back afterwards rather than
-// rebuilt. Rebuilding it would ask the provider again mid-edit, on text the file
-// has not been told about yet.
-function attachRowAction(host, block, index, r) {
-  const cells = block.table.rows[r].map(cellText);
-  const action = firstOf(ROW_ACTIONS, cells);
-  if (!action) return;
+// Drawn in the resting view only. Focusing the cell swaps in the surface, where
+// the line is text with a caret in it and its markdown is reachable directly --
+// the same trade a checkbox in a cell already makes.
+function cellLineAction(block, index, r, column, position, text) {
+  const action = firstOf(CELL_LINE_ACTIONS, text);
+  if (!action) return null;
 
-  const press = element("button", "sprint-row-act");
+  const press = element("button", "sprint-cell-act");
   press.type = "button";
   press.title = action.title;
   press.textContent = action.label;
   press.onmousedown = (event) => event.preventDefault();
   press.onclick = (event) => {
     event.stopPropagation();
-    action.run(press, cells, (written) => {
-      written.forEach((text, column) => writeCell(block.table, r, column, text));
+    action.run(press, text, (written) => {
+      writeCellLine(block, r, column, position, written);
       tableEdited(block);
       // The whole document, for `sprintLineAction`'s reason: what the action wrote
       // may draw as anything, and this file has no idea what changed beyond text.
       renderSprintDocument();
     });
   };
-  host.rowAction = press;
-  host.appendChild(press);
+  return press;
 }
 
-function restoreRowAction(host) {
-  if (host.rowAction) host.appendChild(host.rowAction);
+// One line of a cell rewritten, the rest of the cell left exactly as it is. The
+// marker stays on the front: an action is handed the line's *body* and gives a
+// body back, the same contract a list line's action has.
+function writeCellLine(block, r, column, position, body) {
+  const grid = block.table;
+  const lines = cellText(cellValue(grid, r, column)).split("\n");
+  if (position >= lines.length) return;
+  const found = CELL_TODO.exec(lines[position]);
+  // A bare `☐` matched with no gap after it, so one is put back: without it the
+  // marker and the first word of the body become one word.
+  const head = found ? (found[3] ? found[0] : `${found[0]} `) : "";
+  lines[position] = `${head}${body}`;
+  writeCell(grid, r, column, lines.join("\n"));
 }
 
 // The resting state. One `<div>` per line so a line can carry a checkbox beside
@@ -3051,8 +3036,14 @@ function sprintCellView(block, index, r, column) {
         toggleCellTodo(cellHost(view), block, index, r, column, position);
       };
       const label = element("span", "sprint-cell-label");
-      renderCellInline(label, line.slice(found[0].length));
+      const body = line.slice(found[0].length);
+      renderCellInline(label, body);
       row.append(box, label);
+      // A checkbox line in a cell is a unit of work, so it gets the press a task
+      // line outside the table has. Only a checkbox line: a bullet is a note and a
+      // plain line is prose, neither of which anything downstream reads as work.
+      const press = cellLineAction(block, index, r, column, position, body);
+      if (press) row.appendChild(press);
     } else if (bullet) {
       const depth = cellDepth(bullet[1]);
       const glyph = element("span", "sprint-cell-bullet",
@@ -3084,7 +3075,6 @@ function editSprintCell(host, block, index, r, column, select) {
   host.innerHTML = "";
   host.appendChild(area);
   paintCellHost(host, block.table, r, column);
-  restoreRowAction(host);
   area.focus();
   if (select) selectInline(area);
   return area;

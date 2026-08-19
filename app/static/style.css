@@ -2309,18 +2309,17 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 .sprint-line-act:focus-visible { visibility: visible; }
 .sprint-line-act:hover { border-color: var(--accent); color: var(--accent); }
 
-/* --- a table row's sync handle --- */
-/* The same press, in the row's first cell, and the same argument: chrome that
-   appears under the pointer. Positioned rather than in flow, because the cell it
-   sits in is a surface you type into and a button in that flow would reflow the
-   text as it came and went. It is opaque for the same reason -- it draws over the
-   end of a long first cell, and text showing through it would read as neither.
-   `visibility`, never `display`, so the button cannot be hit while invisible. */
-.sprint-table tbody .sprint-cell-host { position: relative; }
-.sprint-row-act {
-  position: absolute;
-  top: 2px;
-  right: 2px;
+/* --- a cell checkbox line's sync handle --- */
+/* The same press as a task line's, at the end of the line it belongs to, and the
+   same argument: chrome that appears when the pointer is on the row and holds its
+   space either way, so nothing moves as it comes and goes. `visibility`, never
+   `display` — an invisible button is still a button you can hit, and `display`
+   would reflow the line under the cursor.
+   Inline rather than positioned, because it belongs to *that line* of the cell and
+   a cell may hold several: only a press sitting after the line's own text can say
+   which one it is about. */
+.sprint-cell-act {
+  margin-left: 6px;
   padding: 0 6px;
   font: inherit;
   font-size: 11.5px;
@@ -2332,9 +2331,9 @@ body.resizing-column { cursor: col-resize; user-select: none; }
   cursor: pointer;
   visibility: hidden;
 }
-.sprint-table tbody tr:hover .sprint-row-act,
-.sprint-row-act:focus-visible { visibility: visible; }
-.sprint-row-act:hover { border-color: var(--accent); color: var(--accent); }
+.sprint-table tbody tr:hover .sprint-cell-act,
+.sprint-cell-act:focus-visible { visibility: visible; }
+.sprint-cell-act:hover { border-color: var(--accent); color: var(--accent); }
 
 /* --- the notice --- */
 /* One line at the foot of the window, for the one thing that happens without you

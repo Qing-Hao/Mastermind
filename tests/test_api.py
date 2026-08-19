@@ -2676,6 +2676,59 @@ def test_both_spellings_of_a_reference_are_read(client, sprints):
     assert [one["missing"] for one in links] == [False, False]
 
 
+def test_each_checkbox_line_in_a_cell_is_its_own_link(client, sprints):
+    _, _, first, second = linked_plan(client)
+    stage_sprint(sprints, 1, (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        "| Task | PIC |\n"
+        "| --- | --- |\n"
+        f"| ☐ Ship the auth API [#D-{first['id']}]<br>"
+        f"- [ ] Write the audit log [#D-{second['id']}] | @me |\n"
+    ))
+
+    # A cell holding a checklist plans one thing per line, and the editor puts a
+    # sync press on each of them -- so each line is its own link, not one link for
+    # whichever reference happened to come first.
+    links = client.get("/api/sprints/1/links").json()
+    assert [one["deliverable_id"] for one in links] == [first["id"], second["id"]]
+    # And the label is that line, marker and reference out, rather than the row's
+    # first cell repeated twice.
+    assert [one["label"] for one in links] == ["Ship the auth API", "Write the audit log"]
+
+
+def test_two_cells_of_one_row_naming_different_deliverables_are_two_links(client, sprints):
+    _, _, first, second = linked_plan(client)
+    stage_sprint(sprints, 1, (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        "| Task | Remarks |\n"
+        "| --- | --- |\n"
+        f"| Auth API [#D-{first['id']}] | blocked on [#D-{second['id']}] |\n"
+    ))
+
+    # Every reference in the row is read, not only the first. The label of one that
+    # sits on a line with no marker of its own is still the row's first cell --
+    # there is nothing else on that line to call it.
+    links = client.get("/api/sprints/1/links").json()
+    assert [one["deliverable_id"] for one in links] == [first["id"], second["id"]]
+    row_label = f"Auth API [#D-{first['id']}]"
+    assert [one["label"] for one in links] == [row_label, row_label]
+
+
+def test_a_cell_line_carrying_two_references_links_only_the_first(client, sprints):
+    _, _, first, second = linked_plan(client)
+    stage_sprint(sprints, 1, (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        "| Task | PIC |\n"
+        "| --- | --- |\n"
+        f"| ☐ Both at once [#D-{first['id']}] [#D-{second['id']}] | @me |\n"
+    ))
+
+    # One link per line, first spelling wins -- the same rule a list line has, and
+    # the reason the picker moves a line's reference rather than adding a second.
+    links = client.get("/api/sprints/1/links").json()
+    assert [one["deliverable_id"] for one in links] == [first["id"]]
+
+
 def test_a_reference_on_a_checkbox_line_is_a_link(client, sprints):
     _, _, first, second = linked_plan(client)
     stage_sprint(sprints, 1, (

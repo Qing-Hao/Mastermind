@@ -987,20 +987,42 @@ def _ref_id(found):
     return int(found.group(1) or found.group(2))
 
 
-def row_reference(cells):
-    """The deliverable a table row names as `(id, label)`, or None.
+# A cell keeps its line breaks as `CELL_BREAK` in the file, and a line inside one
+# may carry a marker of its own: the editor draws `- [ ] Ship` and `☐ Ship` in a
+# cell as a checkbox and a label. Read leniently, the way `cellText` does in
+# `editor.js` -- `<br/>`, `<br />` and any case are the same break.
+_CELL_BREAK = re.compile(r"<br\s*/?>", re.I)
+_CELL_ITEM = re.compile(r"^[ \t]*(?:[☐☑][ \t]*|(?:[-*+]|\d+[.)])[ \t]+(?:\[[ xX]\][ \t]+)?)")
+
+
+def row_references(cells):
+    """Every deliverable a table row names, as `(id, label)` in reading order.
+
+    **The line is the unit, not the row.** A cell holding a checklist plans one
+    thing per line, and the editor puts a sync press on each of them -- so a row
+    may name several deliverables and each is its own link. At most one per line,
+    first spelling wins, which is the rule a list line has already.
 
     Read from anywhere in the row rather than from a named column: `Auth API
     [#D-42]` and a reference parked in Remarks are both things people write, and
-    a fixed column would silently ignore one of them. The label is the row's
-    first non-empty cell, which is the task name in every table in the template.
+    a fixed column would silently ignore one of them.
+
+    The label is the line the reference sits on, marker and reference taken out --
+    what you would call that task if asked. A reference on a line with no marker
+    of its own has nothing to be called, so it falls back to the row's first
+    non-empty cell, which is the task name in every table in the template.
     """
+    row_label = next((one.strip() for one in cells if one.strip()), "")
+    found = []
     for cell in cells:
-        found = DELIVERABLE_REF.search(cell)
-        if found:
-            label = next((one.strip() for one in cells if one.strip()), "")
-            return _ref_id(found), label
-    return None
+        for line in _CELL_BREAK.split(cell):
+            match = DELIVERABLE_REF.search(line)
+            if not match:
+                continue
+            item = _CELL_ITEM.match(line)
+            body = DELIVERABLE_REF.sub("", line[item.end():]) if item else ""
+            found.append((_ref_id(match), " ".join(body.split()) or row_label))
+    return found
 
 
 def line_reference(line):
@@ -1055,10 +1077,10 @@ def marked_for(text, deliverable_id, done):
 def sprint_task_refs(text):
     """Every deliverable a document names, in file order, repeats kept.
 
-    One entry per table *row* and per list *line*. A deliverable named twice --
-    carried over within one file, or planned in one table and reported in
-    another -- is two entries, and what that means is the caller's to decide
-    rather than something to collapse here.
+    One entry per reference-carrying *line*, inside a table cell or out of one.
+    A deliverable named twice -- carried over within one file, or planned in one
+    table and reported in another -- is two entries, and what that means is the
+    caller's to decide rather than something to collapse here.
 
     A list line counts because a fortnight is as often planned as a checklist as
     it is as a table, and a reference that draws a chip but reaches no reader is
@@ -1069,8 +1091,7 @@ def sprint_task_refs(text):
         table = block.get("table")
         if table:
             for row in table["rows"]:
-                reference = row_reference(row)
-                if reference:
+                for reference in row_references(row):
                     found.append({"deliverable_id": reference[0], "label": reference[1]})
             continue
         if block["type"] not in ("list", "quote"):
@@ -1087,8 +1108,10 @@ def resolved_links(text):
 
     A reference to nothing is reported as `missing` rather than dropped: a dead
     reference is a typo worth seeing, not a row that quietly stops being linked.
-    `rows` counts how many rows named it, so the page can say a deliverable is in
-    the file twice instead of drawing one chip and losing the other.
+    `rows` counts how many places named it -- a row, a list line, or one line of a
+    cell's checklist -- so the page can say a deliverable is in the file twice
+    instead of drawing one chip and losing the other. The name predates the line
+    being the unit and is kept: it is the shape the frontend reads.
     """
     index = deliverable_index()
     names = {project["id"]: project["name"] for project in db.list_projects()}

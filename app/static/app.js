@@ -3472,18 +3472,20 @@ function deliverableChip(match, where) {
 // `/` on its own is the editor's own inventory, and the roadmap only joins it
 // once you have typed something to narrow it. `d` is the something that reaches
 // all of them, since every key here starts with it.
-// `rowUnique` is the editor's "one of these per row" mark, and this regex is why
-// it exists: `row_reference` in `main.py` takes the row's **first** reference and
-// stops, so a second one in the same row is not a second link -- it would draw a
-// tick the file's own reader ignores. Picking again therefore moves the reference
-// the row already has rather than adding one beside it.
+// `lineUnique` is the editor's "one of these per line" mark, and this regex is why
+// it exists: `row_references` and `line_reference` in `main.py` both take a line's
+// **first** reference and stop, so a second one on the same line is not a second
+// link -- it would draw a tick the file's own reader ignores. Picking again
+// therefore moves the reference the line already has rather than adding one beside
+// it. A second *line*, in the same cell or not, is its own link and takes its own
+// reference.
 function deliverableMenuEntries(filter) {
   if (!filter.trim()) return [];
   return state.allDeliverables.map((one) => ({
     key: `d${one.id}`,
     label: one.name,
     markdown: `[#D-${one.id}] `,
-    rowUnique: DELIVERABLE_REF,
+    lineUnique: DELIVERABLE_REF,
   }));
 }
 
@@ -3555,72 +3557,32 @@ function deliverableLineAction(text) {
 registerLineOwner(deliverableLineOwner);
 registerLineAction(deliverableLineAction);
 
-// --- a table row's own link --------------------------------------------------
+// --- a checkbox line inside a table cell -------------------------------------
 
-// **A table row is a unit of work too**, and `row_reference` in `main.py` already
-// reads one -- from any cell, first one wins. So the row gets the same press the
-// line has, through `registerRowAction`: the editor draws it, this file decides
-// what it means, and the row's own cells are all it is handed.
+// **The line is the unit here too.** A cell often holds a checklist rather than
+// one task, and `row_references` in `main.py` reads each of its lines as its own
+// link -- so each gets the press a task line outside the table has, through
+// `registerCellLineAction`.
 //
-// Per row rather than per cell, because a row carries **one** reference: a press
-// in every cell would be four ways to say the one thing the row can say, three of
-// which the reader downstream ignores.
-
-// The row's first reference, resolved, or null when it has none, names nothing,
-// or there is no roadmap read yet to say either way. `lineDeliverable`'s shape,
-// scanning cells the way `row_reference` does.
-function rowDeliverable(cells) {
-  for (const cell of cells) {
-    const found = DELIVERABLE_REF.exec(cell);
-    if (!found) continue;
-    const id = referencedId(found);
-    const link = sprintLink(id);
-    // The first reference is the row's, whether or not it resolves: a dead one is
-    // not a reason to go looking for a second, since nothing downstream would read
-    // that second one either.
-    return link && !link.missing ? { id, link } : null;
-  }
-  return null;
-}
-
-// Null in the template, for `deliverableLineAction`'s reason -- it plans no
-// fortnight, so a link from it would point real roadmap state at a document about
-// nothing.
-function deliverableRowAction(cells) {
+// Per line and not per row: a row that plans three things names three
+// deliverables, and a single press somewhere in the row could only ever mean one
+// of them. The provider, the picker and the write are the list line's; all that
+// differs is which surface drew the press.
+function deliverableCellLineAction(text) {
   const number = state.sprint.number;
   if (number === null || isTemplate(number)) return null;
-  const owned = rowDeliverable(cells);
+  const owned = lineDeliverable(text);
   return {
     label: owned ? `${SYNC_ICON} Linked` : `${SYNC_ICON} Sync`,
     title: owned
       ? `Synced to ${owned.link.name} — press to sync it to a different deliverable`
-      : "Sync this row to a deliverable",
+      : "Sync this line to a deliverable",
     run: (press, current, write) => openSyncPicker(press, owned ? owned.id : null,
-      (id) => write(withRowReference(current, id))),
+      (id) => write(withReference(current, id))),
   };
 }
 
-registerRowAction(deliverableRowAction);
-
-// One reference per row, so a row that has one has it **moved** -- rewritten where
-// it already sits, whichever cell that is. A row with none takes it on the end of
-// its first non-empty cell: that cell is the row's label to `row_reference`, and
-// the label is what the link is called everywhere it is listed.
-function withRowReference(cells, id) {
-  const mark = `[#D-${id}]`;
-  const written = cells.slice();
-  for (let column = 0; column < written.length; column += 1) {
-    const found = DELIVERABLE_REF.exec(written[column]);
-    if (!found) continue;
-    written[column] = written[column].slice(0, found.index) + mark
-      + written[column].slice(found.index + found[0].length);
-    return written;
-  }
-  const column = Math.max(0, written.findIndex((cell) => cell.trim()));
-  const base = written[column].replace(/\s+$/, "");
-  written[column] = base ? `${base} ${mark}` : mark;
-  return written;
-}
+registerCellLineAction(deliverableCellLineAction);
 
 // One reference per line, so a line that has one has it **moved** rather than
 // joined by a second. Same rule as a table row's, and the same reason:
