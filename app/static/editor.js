@@ -96,25 +96,25 @@ async function loadSprints() {
   renderSprintView();
 }
 
-// Which file a fresh page opens: **the one you were last in, then the one today
-// falls inside, then the newest.**
+// Which file a fresh page opens: **the fortnight today falls inside**, then the
+// one you were last in, then the newest.
 //
-// The date beats the newest file, which is what this changed. Sprint files get
-// written ahead, so "newest" is regularly a fortnight that has not started, and
-// landing there every morning means paging back to the one you are actually in.
+// The date leads, and that is deliberate rather than a fallback ordering. Sprint
+// files get written ahead, so the newest is regularly a fortnight that has not
+// started; and the file you happened to be reading last week is not where you
+// want to arrive on Monday either. The fortnight containing today is the one
+// answer that stays right without anyone maintaining it.
 //
 // A window is the inclusive pair read off the file's own heading, so a file whose
 // heading has no readable window simply cannot be today's -- nothing is guessed
-// from the number or the order.
+// from the number or the order. That is also why the remembered file is still
+// consulted: with no window covering today there is no date answer at all, and
+// where you were is better than the newest file.
 //
-// The remembered file wins over the date because it is an answer you gave: you
-// were reading sprint 3 when the page reloaded, and the app has no business
-// deciding you meant sprint 5. The template is remembered on the same footing --
-// it is in no listing, so it is checked before the list is searched.
+// This decides only what opens when **nothing is open** -- `loadSprints` calls it
+// on that condition alone. Switching files mid-session is left alone, and coming
+// back to the tab does not drag you off the file you chose.
 function openingSprintKey(files) {
-  if (isTemplate(rememberedSprint)) return rememberedSprint;
-  if (files.some((file) => file.number === rememberedSprint)) return rememberedSprint;
-
   // Both ends inclusive, and the list is newest first -- so on the handover day
   // two consecutive sprints share, the one starting is what opens. That is the
   // fortnight you are about to work, and `windows_overlap` already treats a
@@ -123,6 +123,11 @@ function openingSprintKey(files) {
   const current = files.find((file) => file.window
     && file.window.start <= today && today <= file.window.end);
   if (current) return current.number;
+
+  // The template is in no listing, so it is checked on its own rather than
+  // searched for.
+  if (isTemplate(rememberedSprint)) return rememberedSprint;
+  if (files.some((file) => file.number === rememberedSprint)) return rememberedSprint;
 
   // Newest first, so this is the newest -- the behaviour before there was
   // anything better to say.
