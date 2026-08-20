@@ -159,6 +159,23 @@ the text above, **the amendment wins** — the code follows the amendments.
    when a pre-version-6 file is opened or imported; links that collapse onto a
    single project are discarded.
 
+4. **The tool is used by a team, and sign-in is Keycloak's job.** The brief says
+   single user, localhost only, no auth. Two of those are now over: several people
+   plan out of one instance, and it is served to them rather than to one machine.
+
+   What was built is **a gate, not an account model**. Keycloak answers "is this
+   you" over OIDC; Mastermind stores nothing about the answer — no `user` table,
+   no roles, no permissions, no `created_by`, no assignee, no audit log, no
+   per-user preferences. The non-goal in **Non-goals** is narrowed to exactly
+   that, not dropped: the moment a row is keyed by a person, this is the tracker
+   the brief forbids.
+
+   The client secret and the cookie signing key are environment variables and are
+   never stored in the database, for the reason the AI provider key already is:
+   `/api/export` writes the settings row to JSON. Sign-in configuration lives in
+   the settings row and is stripped from the export — a gate describes the
+   deployment, not the dataset.
+
 Deliverables inside a phase are treated as **sequential**, so durations sum. Work
 that genuinely runs in parallel belongs in separate phases.
 

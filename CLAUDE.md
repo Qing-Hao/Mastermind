@@ -76,8 +76,10 @@ Type checking is pyright, `basic` mode, config in `pyrightconfig.json`.
 | `app/validation.py` | Every rule, derived date, derived stage and summary. **Pure functions, no I/O.** The heart of the tool — business logic belongs here, not in a route. |
 | `app/db.py` | Schema, CRUD, `migrate`, export/import. Rows in/out as plain dicts. The only module that touches SQLite. |
 | `app/markdown.py` | Splits a markdown file into blocks, renders one to HTML, serialises a table back. **Pure functions, no I/O** — the `validation.py` genre. **Knows nothing about sprints, and must not.** |
+| `app/auth.py` | The OIDC sign-in flow and its pure predicates — `is_allowed`, the claim checks, the signed cookie. The `validation.py` genre, different subject: scheduling rules do not live here and OIDC does not live there. **A gate, not an account model.** |
 | `app/main.py` | FastAPI routes. Thin — assembly and HTTP only, no business logic. |
 | `app/static/index.html` | The shell. Deleting an element here is a migration — see Working style. |
+| `app/static/signin.html`, `sso.html` | The gate's own two documents: the sign-in page and the Sign-in configuration page. Separate from the shell **so they work when the shell cannot** — no project, gate never armed, or gate armed and broken. |
 | `app/static/app.js` | Frontend: shell, four views (Project / Portfolio / Map / Sprint), all charts. ~2,800 lines. |
 | `app/static/editor.js` | The Sprint tab's block editor. Its own file because `app.js` is already large; it reads `state`, `api`, `$` and `element` from there. **Knows nothing about sprints as a concept** — see the gate below. |
 | `app/static/style.css` | One theme. Designed above the first chart rule, data-driven below it — see Working style. |
@@ -135,6 +137,21 @@ and argument are in `PROMPT.md`, `feature_request.md` and `git log`.
 7. **Never build:** ticket tracking, comments, activity feeds, notifications,
    accounts/roles/permissions, external integrations, BI dashboards, mobile
    layouts. The one LLM script is a knowing exception, not a precedent.
+
+   **Narrowed 2026-08-21, not dropped.** Keycloak over OIDC is now built, and it
+   is *a gate, not an account model*: the app asks the realm "is this you" and
+   stores nothing about the answer. Still never built, and each is the line where
+   the gate would become the tracker the brief forbids — a `user` table or any row
+   keyed by a person, roles, permissions, per-user views, `created_by`, an
+   assignee, an audit log, per-user preferences. Presence shows a name it was
+   handed; it does not record one.
+
+   **Secrets are read from the environment and never stored in the database.**
+   Two of them now — the AI provider key and `MASTERMIND_OIDC_SECRET`, plus
+   `MASTERMIND_SESSION_KEY` — and the reason is the same for all three:
+   `/api/export` writes the settings row to JSON and would carry a secret
+   straight out. Sign-in *configuration* is in the settings row and stripped from
+   the export, because a gate describes this deployment rather than the dataset.
 8. **Still not to be built without asking** (PROMPT.md Phase 2): sprint generation
    from a project's date range, `sprint_goal` as a column, allocating deliverables
    into sprints against velocity, the delivery forecast. And **nothing sums points
