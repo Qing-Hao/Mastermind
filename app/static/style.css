@@ -867,6 +867,24 @@ table.deliverables td.deliverable-name { display: flex; align-items: center; gap
 }
 .deliverable-sprint:hover { color: var(--accent); text-decoration: underline; }
 
+/* Where a jump landed. Both directions scroll the thing you pressed for into the
+   middle of the window and then flash it, because a tab that has changed under
+   you says nothing about *which* row you were sent to.
+
+   Background only -- no `display` here, so nothing in this block can be caught by
+   the `[hidden]` trap `css_check.js` exists for. A `<tr>` cannot be tinted
+   directly in every browser, so the cells are what animate; the chip is one
+   element and animates itself. */
+@keyframes arrival-flash {
+  from { background: var(--accent-soft); }
+  to { background: transparent; }
+}
+tr.just-arrived > td { animation: arrival-flash 1.6s ease-out; }
+.cell-ref.just-arrived, .cell-ref-id.just-arrived {
+  animation: arrival-flash 1.6s ease-out;
+  border-radius: 4px;
+}
+
 /* The grip, and the row while it is held. `user-select` matters: without it a
    drag down the list selects the text of every row it passes over. */
 table.deliverables td.grip { width: 1%; text-align: center; }

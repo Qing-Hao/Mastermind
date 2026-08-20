@@ -1910,6 +1910,9 @@ function deliverableRow(phase) {
   const lines = [];
   for (const deliverable of phase.deliverables) {
     const line = element("tr", deliverable.done ? "done" : null);
+    // What `revealDeliverableRow` finds the row by. The table is rebuilt on every
+    // render, so an arriving jump has to look the row up rather than hold a node.
+    line.dataset.deliverable = deliverable.id;
 
     // The grip is its own column because the rest of the row is a checkbox and
     // a text field: a drag surface over either would cost you click-to-place-
@@ -1935,6 +1938,10 @@ function deliverableRow(phase) {
     // in keydown; the `change` Enter fires next is what saves and re-renders.
     // With nothing edited there is no change to wait for, so render now.
     const nameInput = nameCell.querySelector("input");
+    // The reference you would type into a sprint file, on hover. A tooltip rather
+    // than a column: the id matters only while writing `[#D-42]` somewhere else,
+    // and a column of ids would be read once a fortnight and looked past daily.
+    nameInput.title = `D-${deliverable.id}`;
     nameInput.onkeydown = (event) => {
       if (event.key !== "Enter") return;
       state.focusAdder = phase.id;
@@ -1960,6 +1967,7 @@ function deliverableRow(phase) {
       jump.onclick = async (event) => {
         event.preventDefault();
         await revealSprintFile(last);
+        revealSprintReference(deliverable.id);
       };
       nameCell.appendChild(jump);
     }
@@ -3547,10 +3555,11 @@ function deliverableLineAction(text) {
   return {
     label: owned ? `${SYNC_ICON} Linked` : `${SYNC_ICON} Sync`,
     title: owned
-      ? `Synced to ${owned.link.name} — press to sync it to a different deliverable`
+      ? `Synced to ${owned.link.name} — press to sync it elsewhere, or pick it again to unlink`
       : "Sync this line to a deliverable",
     run: (press, current, write, where) => openSyncPicker(press, owned ? owned.id : null,
-      (id) => linkTickedLine(press, id, current, write, where)),
+      (id) => linkTickedLine(press, id, current, write, where),
+      owned ? () => write(withoutReference(current)) : null),
   };
 }
 
@@ -3575,10 +3584,11 @@ function deliverableCellLineAction(text) {
   return {
     label: owned ? `${SYNC_ICON} Linked` : `${SYNC_ICON} Sync`,
     title: owned
-      ? `Synced to ${owned.link.name} — press to sync it to a different deliverable`
+      ? `Synced to ${owned.link.name} — press to sync it elsewhere, or pick it again to unlink`
       : "Sync this line to a deliverable",
     run: (press, current, write, where) => openSyncPicker(press, owned ? owned.id : null,
-      (id) => linkTickedLine(press, id, current, write, where)),
+      (id) => linkTickedLine(press, id, current, write, where),
+      owned ? () => write(withoutReference(current)) : null),
   };
 }
 
@@ -3600,6 +3610,21 @@ function withReference(text, id) {
   }
   const base = text.replace(/\s+$/, "");
   return base ? `${base} ${mark}` : mark;
+}
+
+// The reverse. The line keeps its marker, its box and its words -- only the
+// reference goes, and **nothing is ticked or unticked by unlinking**: the box was
+// drawing the deliverable's state, and the file's own marker already says the
+// same thing, so it stays exactly as it was drawn.
+//
+// The gap the reference leaves is closed, because `Ship it [#D-42]` unlinked
+// should read `Ship it` and not `Ship it ` -- a trailing space is a diff nobody
+// asked for.
+function withoutReference(text) {
+  const found = DELIVERABLE_REF.exec(text);
+  if (!found) return text;
+  const cut = text.slice(0, found.index) + text.slice(found.index + found[0].length);
+  return cut.replace(/[ \t]{2,}/g, " ").replace(/[ \t]+$/, "");
 }
 
 // --- saying what just happened ------------------------------------------------
@@ -3716,7 +3741,11 @@ function pickerMatches(one, filter) {
   return hay.toLowerCase().includes(filter);
 }
 
-function openSyncPicker(anchor, currentId, choose) {
+// `unlink` is null on a line that has no reference yet. When it is given, picking
+// the row already linked -- the one drawn `.here` -- takes the reference off
+// instead of writing it again. **A link you cannot undo is a link you hesitate to
+// make**, and picking the same thing twice is the gesture people try first.
+function openSyncPicker(anchor, currentId, choose, unlink = null) {
   closeSyncPicker();
 
   const panel = element("div", "sync-picker");
@@ -3744,9 +3773,12 @@ function openSyncPicker(anchor, currentId, choose) {
   let selected = 0;
   let shown = [];
 
+  // One place, so the keyboard and the mouse cannot disagree about what picking
+  // the row you are already on means.
   const pick = (id) => {
     closeSyncPicker();
-    choose(id);
+    if (id === currentId && unlink) unlink();
+    else choose(id);
   };
 
   const draw = () => {
@@ -3794,7 +3826,8 @@ function openSyncPicker(anchor, currentId, choose) {
         if (shown[selected] && shown[selected].id === one.id) {
           row.setAttribute("aria-selected", "true");
         }
-        if (one.id === currentId) row.classList.add("here");
+        const here = one.id === currentId;
+        if (here) row.classList.add("here");
         const tick = element("input", null);
         tick.type = "checkbox";
         tick.checked = Boolean(one.done);
@@ -3802,7 +3835,11 @@ function openSyncPicker(anchor, currentId, choose) {
         const name = element("span", one.done ? "sync-picker-name done" : "sync-picker-name",
           one.name);
         row.append(tick, name, element("span", "sync-picker-ref", `D-${one.id}`));
-        row.title = one.done ? "Already done" : "Not done yet";
+        // The row you are already linked to says what pressing it does, because
+        // what it does there is the opposite of what it does everywhere else.
+        if (here && unlink) row.title = "Linked to this line — press again to unlink";
+        else if (here) row.title = "Linked to this line";
+        else row.title = one.done ? "Already done" : "Not done yet";
         // `mousedown` rather than `click`: the press must not blur the search field
         // first, which is what closes the picker.
         row.onmousedown = (event) => {
@@ -4206,6 +4243,55 @@ async function jumpToDeliverable(id) {
     state.expandedPhases.add(link.phase_id);
     renderPhases();
   }
+  revealDeliverableRow(id);
+}
+
+// --- landing on the thing you asked for --------------------------------------
+
+// **Arriving on a tab is not the same as arriving at the row.** Both jumps used
+// to stop at the tab: the phase opened, and the deliverable was wherever it
+// happened to be -- often below the fold, which reads as "it did nothing".
+//
+// Centred rather than `nearest`, because the row is the whole point of the press
+// and one resting a pixel inside the bottom edge is still something to go looking
+// for. The flash is what says *which* row, once the scrolling has stopped.
+
+// A second jump to the same row has to flash again, and an animation does not
+// restart on an element already carrying the class -- so it is taken off, the
+// layout is read to force the style to settle, and it goes back on.
+const ARRIVAL_FLASH_MS = 1600;
+
+function flashArrival(node) {
+  node.classList.remove("just-arrived");
+  void node.offsetWidth;
+  node.classList.add("just-arrived");
+  setTimeout(() => node.classList.remove("just-arrived"), ARRIVAL_FLASH_MS);
+}
+
+function revealDeliverableRow(id) {
+  const row = document.querySelector(`tr[data-deliverable="${id}"]`);
+  if (!row) return;
+  row.scrollIntoView({ block: "center", behavior: "smooth" });
+  flashArrival(row);
+}
+
+// The other direction. The chip is `deliverableChip`'s and carries the id as the
+// text it draws, so that is what is matched -- nothing else in the document
+// writes `D-42` into an element of its own.
+//
+// Retried once: `loadSprintLinks` lands after the render that opened the file and
+// re-renders when it does, which would replace the chip found on the first look.
+function revealSprintReference(id, retry = true) {
+  const wanted = `D-${id}`;
+  const chip = Array.from(document.querySelectorAll(".cell-ref-id"))
+    .find((one) => one.textContent === wanted);
+  if (!chip) {
+    if (retry) setTimeout(() => revealSprintReference(id, false), 300);
+    return;
+  }
+  const host = chip.closest(".cell-ref") || chip;
+  host.scrollIntoView({ block: "center", behavior: "smooth" });
+  flashArrival(host);
 }
 
 // The other direction, for the Project tab's badge. Read with the plan and never
