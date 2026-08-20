@@ -117,6 +117,34 @@ def is_scheduled(record):
     return as_optional_date(record.get("start_date")) is not None
 
 
+def same_stored_value(stored, expected):
+    """Is a value from the row the same as the one a writer expected?
+
+    JSON and SQLite do not agree on shape: a tick is `true` on the wire and 1 in
+    the column, and `duration_weeks` comes back 4.0 where it was sent 4. Neither
+    difference is a change anyone made, so both are normalised before comparing.
+    Everything else -- names, dates, empty strings, NULL velocity -- compares as
+    it stands.
+    """
+    if isinstance(stored, bool) or isinstance(expected, bool):
+        return bool(stored) == bool(expected)
+    if (isinstance(stored, (int, float)) and isinstance(expected, (int, float))):
+        return float(stored) == float(expected)
+    return stored == expected
+
+
+def stale_expectations(row, expected):
+    """Which fields the writer was wrong about. Empty means the write is safe.
+
+    The guard against two people overwriting each other: a write states what it
+    believed was stored, and anything that has moved since is named back. Fields
+    the row does not have are ignored rather than reported -- a caller cannot be
+    stale about something that was never there.
+    """
+    return sorted(name for name, value in expected.items()
+                  if name in row and not same_stored_value(row[name], value))
+
+
 def phase_end_date(phase):
     """Derived end date, or None while the phase is unscheduled.
 

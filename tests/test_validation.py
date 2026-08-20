@@ -24,7 +24,9 @@ from app.validation import (
     project_span,
     project_stage,
     relative_layout,
+    same_stored_value,
     sequential_layout,
+    stale_expectations,
     validate_plan,
     validate_portfolio,
 )
@@ -82,6 +84,42 @@ def test_implied_weeks_matches_the_worked_example():
 
 def test_implied_weeks_is_none_when_velocity_is_zero():
     assert implied_weeks(55, 0, 14) is None
+
+
+# --- what a writer expected --------------------------------------------------
+
+
+def test_a_tick_is_the_same_value_in_either_shape():
+    assert same_stored_value(1, True)
+    assert same_stored_value(0, False)
+    assert not same_stored_value(1, False)
+
+
+def test_a_whole_number_of_weeks_is_the_same_value_as_its_float():
+    assert same_stored_value(4.0, 4)
+    assert not same_stored_value(4.0, 4.5)
+
+
+def test_text_and_empty_and_null_compare_as_they_stand():
+    assert same_stored_value("", "")
+    assert same_stored_value(None, None)
+    assert not same_stored_value("", None)
+    assert not same_stored_value("Design", "design")
+
+
+def test_only_the_fields_that_moved_come_back():
+    row = {"name": "Design", "effort_points": 55, "done": 1}
+    assert stale_expectations(row, {"name": "Design", "done": True}) == []
+    assert stale_expectations(row, {"name": "Discovery", "effort_points": 40}) == [
+        "effort_points", "name"]
+
+
+def test_a_field_the_row_does_not_have_is_not_stale():
+    assert stale_expectations({"name": "Design"}, {"invented": "whatever"}) == []
+
+
+def test_no_expectation_is_never_stale():
+    assert stale_expectations({"name": "Design"}, {}) == []
 
 
 # --- V1 ---------------------------------------------------------------------

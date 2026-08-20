@@ -39,6 +39,7 @@ from app.validation import (
     project_stage,
     relative_layout,
     sequential_layout,
+    stale_expectations,
     validate_plan,
     validate_portfolio,
 )
@@ -75,6 +76,18 @@ app = FastAPI(title="Mastermind", lifespan=lifespan)
 
 # --- request bodies ---------------------------------------------------------
 
+# What a writer believed was stored, field by field, on the four row edits. The
+# guard against two people saving the same thing and one of them silently
+# winning: anything that moved since is a 409 naming it, never a merge.
+#
+# Optional on purpose, and the one place this differs from the sprint editor's
+# `mtime` -- which has no default, because a sprint save is always a whole file
+# read moments earlier. A row edit is not: a drag supplies a date, a tick
+# supplies a flag, and a reorder renumbers a line nothing validates. Those
+# writes state no expectation and are guarded by nothing, deliberately. What
+# carries an `expect` is what could overwrite something typed.
+Expectation = dict[str, object] | None
+
 
 class SettingsIn(BaseModel):
     default_velocity_points_per_sprint: int | None = None
@@ -106,6 +119,7 @@ class ProjectPatch(BaseModel):
     stage: str | None = None
     track: str | None = None
     tier: int | None = None
+    expect: Expectation = None
 
 
 class PhaseIn(BaseModel):
@@ -125,6 +139,7 @@ class PhasePatch(BaseModel):
     description: str | None = None
     status: str | None = None
     sort_order: int | None = None
+    expect: Expectation = None
 
 
 class DeliverableIn(BaseModel):
@@ -141,6 +156,7 @@ class DeliverablePatch(BaseModel):
     description: str | None = None
     done: bool | None = None
     sort_order: int | None = None
+    expect: Expectation = None
 
 
 class MilestoneIn(BaseModel):
@@ -158,6 +174,7 @@ class MilestonePatch(BaseModel):
     target_date: str | None = None
     achieved: bool | None = None
     sort_order: int | None = None
+    expect: Expectation = None
 
 
 class DependencyIn(BaseModel):
@@ -279,6 +296,55 @@ def require_phase(phase_id):
     if not phase:
         raise HTTPException(status_code=404, detail="Phase not found")
     return phase
+
+
+# Field labels for the refusal, so a message reads "Effort points" rather than
+# the column name. Only the fields a writer can state an expectation about.
+FIELD_LABELS = {
+    "achieved": "Achieved",
+    "description": "Description",
+    "done": "Done",
+    "duration_weeks": "Duration",
+    "effort_points": "Effort points",
+    "goal": "Goal",
+    "name": "Name",
+    "sort_order": "Order",
+    "stage": "Stage",
+    "start_date": "Start date",
+    "status": "Status",
+    "target_date": "Target date",
+    "tier": "Tier",
+    "track": "Track",
+    "velocity_override": "Velocity",
+}
+
+
+def require_unchanged(row, expected, thing):
+    """Refuse a write whose expectation of the row has been overtaken.
+
+    The third write-time refusal in the app, and the same shape as the other
+    two: it declines to write something bad rather than repairing something
+    good. Nothing is merged and nothing is corrected -- the current row goes
+    back and whoever is holding the stale value decides what to do about it.
+
+    A write that states no expectation is not guarded. See `Expectation`.
+    """
+    if not expected:
+        return
+    stale = stale_expectations(row, expected)
+    if not stale:
+        return
+
+    named = ", ".join(FIELD_LABELS.get(field) or field for field in stale)
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "error": f"{named} changed since you loaded this {thing}. "
+                     "Nothing was saved.",
+            "fields": stale,
+            "current": row,
+        },
+    )
 
 
 def portfolio_warnings():
@@ -1521,8 +1587,9 @@ def layout_project(project_id: int):
 
 @app.put("/api/projects/{project_id}")
 def edit_project(project_id: int, body: ProjectPatch):
-    require_project(project_id)
+    project = require_project(project_id)
     fields = body.model_dump(exclude_unset=True)
+    require_unchanged(project, fields.pop("expect", None), "project")
     if "start_date" in fields:
         fields["start_date"] = clean_date(fields["start_date"])
     # Promoting a future direction is this same edit with stage='planned': the
@@ -1560,8 +1627,9 @@ def add_phase(project_id: int, body: PhaseIn):
 
 @app.put("/api/phases/{phase_id}")
 def edit_phase(phase_id: int, body: PhasePatch):
-    require_phase(phase_id)
+    phase = require_phase(phase_id)
     fields = body.model_dump(exclude_unset=True)
+    require_unchanged(phase, fields.pop("expect", None), "phase")
     if "start_date" in fields:
         fields["start_date"] = clean_date(fields["start_date"])
     return with_end_date(db.update_phase(phase_id, fields))
@@ -1635,8 +1703,10 @@ def add_deliverable(phase_id: int, body: DeliverableIn):
 
 @app.put("/api/deliverables/{deliverable_id}")
 def edit_deliverable(deliverable_id: int, body: DeliverablePatch):
-    require_deliverable(deliverable_id)
-    return db.update_deliverable(deliverable_id, body.model_dump(exclude_unset=True))
+    deliverable = require_deliverable(deliverable_id)
+    fields = body.model_dump(exclude_unset=True)
+    require_unchanged(deliverable, fields.pop("expect", None), "deliverable")
+    return db.update_deliverable(deliverable_id, fields)
 
 
 @app.delete("/api/deliverables/{deliverable_id}", status_code=204)
@@ -1681,8 +1751,9 @@ def edit_milestone(milestone_id: int, body: MilestonePatch):
     shaped write in the app that a derived status reads. It still only stores
     what it was told: the ladder does the reading, on the next GET.
     """
-    require_milestone(milestone_id)
+    milestone = require_milestone(milestone_id)
     fields = body.model_dump(exclude_unset=True)
+    require_unchanged(milestone, fields.pop("expect", None), "checkpoint")
     if "target_date" in fields:
         fields["target_date"] = clean_date(fields["target_date"])
     return db.update_milestone(milestone_id, fields)

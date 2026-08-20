@@ -2131,6 +2131,121 @@ def test_an_empty_grid_is_rejected_rather_than_written_as_pipes(client):
     assert response.status_code == 422
 
 
+# --- two writers on one row ---------------------------------------------------
+
+
+def test_a_write_whose_expectation_is_current_goes_through(client):
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+    response = client.put(f"/api/phases/{phase['id']}", json={
+        "effort_points": 55, "expect": {"effort_points": 40}})
+    assert response.status_code == 200
+    assert response.json()["effort_points"] == 55
+
+
+def test_a_stale_expectation_is_refused_and_nothing_is_written(client):
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+
+    # Someone else saves first.
+    assert client.put(f"/api/phases/{phase['id']}",
+                      json={"effort_points": 55}).status_code == 200
+
+    stale = client.put(f"/api/phases/{phase['id']}", json={
+        "effort_points": 70, "expect": {"effort_points": 40}})
+    assert stale.status_code == 409
+    detail = stale.json()["detail"]
+    assert detail["fields"] == ["effort_points"]
+    assert "Effort points changed" in detail["error"]
+    # The refusal carries the row as it stands, and the write did not land.
+    assert detail["current"]["effort_points"] == 55
+    assert plan_of(client, project["id"])["phases"][0]["effort_points"] == 55
+
+
+def test_two_people_editing_different_fields_of_one_row_both_land(client):
+    """The reason this is per field and not per row: these do not collide."""
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+
+    assert client.put(f"/api/phases/{phase['id']}", json={
+        "name": "Discovery", "expect": {"name": "Design"}}).status_code == 200
+    assert client.put(f"/api/phases/{phase['id']}", json={
+        "effort_points": 55, "expect": {"effort_points": 40}}).status_code == 200
+
+    saved = plan_of(client, project["id"])["phases"][0]
+    assert (saved["name"], saved["effort_points"]) == ("Discovery", 55)
+
+
+def test_the_whole_form_save_names_every_field_that_moved(client):
+    """A project save sends seven fields, so it can overwrite six nobody touched."""
+    project = make_project(client)
+    client.put(f"/api/projects/{project['id']}", json={"track": "Platform"})
+    client.put(f"/api/projects/{project['id']}", json={"tier": 2})
+
+    stale = client.put(f"/api/projects/{project['id']}", json={
+        "name": "Payments", "track": "AI Agent", "tier": 1,
+        "expect": {"name": "Payments", "track": "", "tier": 0},
+    })
+    assert stale.status_code == 409
+    assert stale.json()["detail"]["fields"] == ["tier", "track"]
+    assert plan_of(client, project["id"])["project"]["track"] == "Platform"
+
+
+def test_a_tick_and_a_date_compare_across_the_shapes_json_uses(client):
+    """`done` is true on the wire and 1 in the column; weeks arrive 4 and 4.0."""
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+    response = client.post(f"/api/phases/{phase['id']}/deliverables",
+                           json={"name": "Wireframes", "done": True})
+    deliverable = response.json()
+
+    assert client.put(f"/api/deliverables/{deliverable['id']}", json={
+        "name": "Wireframes v2", "expect": {"done": True}}).status_code == 200
+    assert client.put(f"/api/phases/{phase['id']}", json={
+        "start_date": "2026-02-02", "expect": {"duration_weeks": 4}}).status_code == 200
+
+
+def test_a_write_that_states_no_expectation_is_not_guarded(client):
+    """Reorder and the ticks send nothing, and last writer wins by design."""
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+    client.put(f"/api/phases/{phase['id']}", json={"sort_order": 5})
+
+    assert client.put(f"/api/phases/{phase['id']}",
+                      json={"sort_order": 9}).status_code == 200
+    assert plan_of(client, project["id"])["phases"][0]["sort_order"] == 9
+
+
+def test_the_guard_covers_deliverables_and_checkpoints_too(client):
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+    deliverable = client.post(f"/api/phases/{phase['id']}/deliverables",
+                              json={"name": "Wireframes"}).json()
+    milestone = client.post(f"/api/projects/{project['id']}/milestones",
+                            json={"name": "Design signed off"}).json()
+
+    client.put(f"/api/deliverables/{deliverable['id']}", json={"name": "Mockups"})
+    refused = client.put(f"/api/deliverables/{deliverable['id']}", json={
+        "name": "Sketches", "expect": {"name": "Wireframes"}})
+    assert refused.status_code == 409
+    assert "deliverable" in refused.json()["detail"]["error"]
+
+    client.put(f"/api/milestones/{milestone['id']}", json={"target_date": "2026-03-02"})
+    refused = client.put(f"/api/milestones/{milestone['id']}", json={
+        "target_date": "2026-04-06", "expect": {"target_date": ""}})
+    assert refused.status_code == 409
+    assert "checkpoint" in refused.json()["detail"]["error"]
+
+
+def test_an_expectation_about_a_field_the_row_lacks_is_ignored(client):
+    """A caller cannot be stale about something that was never stored."""
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+    response = client.put(f"/api/phases/{phase['id']}", json={
+        "name": "Discovery", "expect": {"name": "Design", "invented": "whatever"}})
+    assert response.status_code == 200
+
+
 # --- the connection ----------------------------------------------------------
 
 

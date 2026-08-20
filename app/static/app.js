@@ -1342,10 +1342,16 @@ function renderPromote(count) {
 }
 
 async function promoteProject() {
-  await api(`/api/projects/${state.currentProjectId}`, {
-    method: "PUT",
-    body: JSON.stringify({ stage: "planned" }),
-  });
+  try {
+    await api(`/api/projects/${state.currentProjectId}`, {
+      method: "PUT",
+      // Promotion is a write, not an inference, so it says what it is promoting
+      // *from*: a project someone else already committed is not promoted twice.
+      body: JSON.stringify({ stage: "planned", expect: { stage: "idea" } }),
+    });
+  } catch (failure) {
+    reportStaleWrite(failure);
+  }
   await loadPlan();
 }
 
@@ -1389,6 +1395,12 @@ function orderedPlanRows() {
 // tick, not a date, not a phase's status -- the same contract the deliverable
 // list and the timeline's bar drag have. No rule reads the order, so nothing
 // fires.
+//
+// **No `expect` here, deliberately.** A drag renumbers most of the list, so a
+// per-row guard would refuse almost every drag that happened near someone
+// else's -- and refuse it halfway through, leaving the line part-written.
+// Ordering is arrangement rather than state: nothing validates it, ties and
+// gaps are well-formed, and the worst a lost race costs is a second drag.
 async function savePlanOrder(rows) {
   for (let index = 0; index < rows.length; index += 1) {
     const { kind, item } = rows[index];
@@ -1459,10 +1471,14 @@ function makePlanRowDraggable(entry, entries, index) {
 }
 
 async function saveMilestone(milestoneId, fields) {
-  await api(`/api/milestones/${milestoneId}`, {
-    method: "PUT",
-    body: JSON.stringify(fields),
-  });
+  try {
+    await api(`/api/milestones/${milestoneId}`, {
+      method: "PUT",
+      body: JSON.stringify(fields),
+    });
+  } catch (failure) {
+    reportStaleWrite(failure);
+  }
   // Ticking the last one changes the project's stage, so the whole plan and the
   // picker badge are re-read -- the same trade every other edit here makes.
   await loadPlan();
@@ -2068,7 +2084,8 @@ function phaseRow(phase, warned) {
     select.appendChild(option);
   }
   select.value = phase.status;
-  select.onchange = () => savePhase(phase.id, { status: select.value });
+  select.onchange = () => savePhase(phase.id,
+    { status: select.value, expect: { status: phase.status } });
   statusCell.appendChild(select);
   row.appendChild(statusCell);
 
@@ -2275,7 +2292,8 @@ function makeDeliverableDraggable(entry, lines, index, adder, phase) {
 }
 
 // Renumbered from zero so the stored order matches what is on screen, and only
-// the rows that actually moved are written. The phase twin is `saveOrder`.
+// the rows that actually moved are written. The phase twin is `saveOrder`, and
+// so is its unguarded-on-purpose note.
 async function saveDeliverableOrder(deliverables) {
   for (let index = 0; index < deliverables.length; index += 1) {
     if (deliverables[index].sort_order === index) continue;
@@ -2295,28 +2313,55 @@ function fieldCell(record, key, type, save, attributes = {}) {
   Object.assign(input, attributes);
   input.onchange = () => {
     const value = type === "number" ? Number(input.value) : input.value;
-    save(record.id, { [key]: value });
+    // What this row held when it was drawn. The server refuses the write if
+    // someone else has moved this field since -- see `expect` in `main.py`.
+    // Every typed field in the plan goes through here, so this one line is the
+    // guard for all of them.
+    save(record.id, { [key]: value, expect: { [key]: record[key] } });
   };
   cell.appendChild(input);
   return cell;
 }
 
+// A refused write, said out loud. 409 here means the field this save was about
+// to overwrite had already moved: nothing was written, and the reload that
+// follows puts the other person's value on screen. Never merged, never retried
+// -- the same contract the sprint editor's "Changed on disk" has. Anything
+// other than a conflict is rethrown, because it is not this function's failure.
+function reportStaleWrite(failure) {
+  if (failure.status !== 409) throw failure;
+  showToast(failure.message);
+}
+
 async function savePhase(phaseId, fields) {
-  await api(`/api/phases/${phaseId}`, { method: "PUT", body: JSON.stringify(fields) });
+  try {
+    await api(`/api/phases/${phaseId}`, { method: "PUT", body: JSON.stringify(fields) });
+  } catch (failure) {
+    reportStaleWrite(failure);
+  }
   await loadPlan();
 }
 
 async function saveDeliverable(deliverableId, fields) {
-  await api(`/api/deliverables/${deliverableId}`, {
-    method: "PUT",
-    body: JSON.stringify(fields),
-  });
+  try {
+    await api(`/api/deliverables/${deliverableId}`, {
+      method: "PUT",
+      body: JSON.stringify(fields),
+    });
+  } catch (failure) {
+    reportStaleWrite(failure);
+  }
   await loadPlan();
 }
 
 // The tick has a second half the other fields do not: a task line in a sprint
 // file draws this deliverable, so the marker on that line goes with it. See
 // `pushDeliverableMarks`.
+//
+// **No `expect` on a tick, deliberately**, here or on a checkpoint's. A box is
+// one click and holds nothing typed: two people ticking the same thing agree,
+// and the guard would refuse the second of them for reaching the same answer.
+// What the guard is for is a write that overwrites something someone wrote.
 async function saveDeliverableTick(deliverableId, done) {
   await saveDeliverable(deliverableId, { done });
   const marks = await pushDeliverableMarks(deliverableId, done);
@@ -3011,7 +3056,10 @@ function makeTrayDraggable(chip, entry, body, view) {
       try {
         await api(`/api/projects/${entry.project_id}`, {
           method: "PUT",
-          body: JSON.stringify({ start_date: startDate }),
+          body: JSON.stringify({
+            start_date: startDate,
+            expect: { start_date: entry.start_date },
+          }),
         });
         // The layout call reports exactly which phases it dated, which together
         // with the project's previous start is the whole of what this drop
@@ -3024,6 +3072,10 @@ function makeTrayDraggable(chip, entry, body, view) {
           startDate,
           previousStart: entry.start_date,
           phaseIds: Object.keys(result.placements),
+          // Kept whole, not just the ids: the undo states each date it is
+          // clearing, so a phase re-dated by someone else after the drop is
+          // refused rather than blanked.
+          placements: result.placements,
         };
       } catch (failure) {
         alert(`Could not place ${entry.project_name}: ${failure.message}`);
@@ -3074,12 +3126,18 @@ async function undoPlacement() {
     for (const phaseId of last.phaseIds) {
       await api(`/api/phases/${phaseId}`, {
         method: "PUT",
-        body: JSON.stringify({ start_date: "" }),
+        body: JSON.stringify({
+          start_date: "",
+          expect: { start_date: (last.placements || {})[phaseId] },
+        }),
       });
     }
     await api(`/api/projects/${last.projectId}`, {
       method: "PUT",
-      body: JSON.stringify({ start_date: last.previousStart }),
+      body: JSON.stringify({
+        start_date: last.previousStart,
+        expect: { start_date: last.startDate },
+      }),
     });
   } catch (failure) {
     alert(`Could not undo: ${failure.message}`);
@@ -3153,10 +3211,17 @@ function makeDraggable(bar, phase, view) {
       bar.textContent = label;
       if (dayDelta === 0) return;
       // Only this phase moves. Dependents stay put and start warning instead.
-      await api(`/api/phases/${phase.id}`, {
-        method: "PUT",
-        body: JSON.stringify({ start_date: shiftDate(phase.start_date, dayDelta) }),
-      });
+      try {
+        await api(`/api/phases/${phase.id}`, {
+          method: "PUT",
+          body: JSON.stringify({
+            start_date: shiftDate(phase.start_date, dayDelta),
+            expect: { start_date: phase.start_date },
+          }),
+        });
+      } catch (failure) {
+        reportStaleWrite(failure);
+      }
       await loadPortfolio();
     };
 
@@ -6157,10 +6222,14 @@ function renderDirections() {
       // 'planned' is what committing writes now. Where it lands on the ladder
       // is worked out from the plan -- an idea with no phases becomes
       // `planning`, one already dated becomes `dated` or `active`.
-      await api(`/api/projects/${idea.id}`, {
-        method: "PUT",
-        body: JSON.stringify({ stage: "planned" }),
-      });
+      try {
+        await api(`/api/projects/${idea.id}`, {
+          method: "PUT",
+          body: JSON.stringify({ stage: "planned", expect: { stage: idea.stage } }),
+        });
+      } catch (failure) {
+        reportStaleWrite(failure);
+      }
       await loadProjects();
     };
 
@@ -6701,18 +6770,33 @@ function bindEvents() {
 
   const saveProject = async () => {
     const velocity = $("project-velocity").value;
-    await api(`/api/projects/${state.currentProjectId}`, {
-      method: "PUT",
-      body: JSON.stringify({
-        name: $("project-name").value,
-        goal: $("project-goal").value,
-        start_date: $("project-start").value,
-        stage: $("project-stage").value,
-        tier: Number($("project-tier").value),
-        track: $("project-track").value,
-        velocity_override: velocity === "" ? null : Number(velocity),
-      }),
-    });
+    // The one whole-record write in the app: seven fields go every time any one
+    // of them changes, so this is the write that can overwrite six things
+    // nobody touched. It states what it believed all seven were -- taken from
+    // the loaded row, not from the boxes, which is what makes it an expectation
+    // rather than a copy of the request.
+    const loaded = state.plan ? state.plan.project : null;
+    const fields = {
+      name: $("project-name").value,
+      goal: $("project-goal").value,
+      start_date: $("project-start").value,
+      stage: $("project-stage").value,
+      tier: Number($("project-tier").value),
+      track: $("project-track").value,
+      velocity_override: velocity === "" ? null : Number(velocity),
+    };
+    if (loaded) {
+      fields.expect = Object.fromEntries(
+        Object.keys(fields).map((key) => [key, loaded[key]]));
+    }
+    try {
+      await api(`/api/projects/${state.currentProjectId}`, {
+        method: "PUT",
+        body: JSON.stringify(fields),
+      });
+    } catch (failure) {
+      reportStaleWrite(failure);
+    }
     await loadProjects();
   };
   for (const id of ["project-name", "project-goal", "project-start",

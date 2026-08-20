@@ -40,7 +40,7 @@ migration framework, no auth.
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000   # http://127.0.0.1:8000
-.\.venv\Scripts\python.exe -m pytest -q                                   # ~342 tests, ~7s
+.\.venv\Scripts\python.exe -m pytest -q
 
 node scripts\map_sweep.js            # map: label/circle collisions, 1000-1530px
 node scripts\map_sweep.js --tree     # map: the track hierarchy as drawn
