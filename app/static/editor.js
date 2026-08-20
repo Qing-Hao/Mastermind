@@ -4075,6 +4075,28 @@ function sprintHasUnsavedWork() {
   return SPRINT_UNSAVED.has(state.sprint.status);
 }
 
+// Somebody else wrote the file this page has open. **The contract this tab has
+// always had holds: never overwrite work that has not been saved.**
+//
+// So there are two answers, and this function is only the second one. A clean
+// file is re-read like any other view, by the caller. A file with unsaved work is
+// not re-read at all -- it raises the save bar's existing `Changed on disk` state
+// and stops autosaving, which is what a stale mtime does today at the next save.
+// Same bar, same button, same refusal to decide whose version wins; it simply
+// arrives when the file changes rather than minutes later when a save is refused.
+//
+// Returns true when it has dealt with the message and nothing else should.
+function liveSprintChanged(key) {
+  const sprint = state.sprint;
+  if (sprint.number === null || sprintFileKey(key) !== sprint.number) return false;
+  if (!sprintHasUnsavedWork()) return false;
+  clearTimeout(sprintSaveTimer);
+  sprint.status = "conflict";
+  sprint.error = `${sprint.name} changed on disk.`;
+  renderSprintStatus();
+  return true;
+}
+
 // Autosave makes this rare, and rare is exactly when it matters: a failed save
 // or a conflict is unsaved work that no timer is going to clear.
 window.addEventListener("beforeunload", (event) => {

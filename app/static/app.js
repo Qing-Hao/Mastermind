@@ -277,6 +277,8 @@ let state = {
   live: {
     socket: null, opened: false, down: false, attempt: 0,
     pending: false, loading: false, watching: null,
+    // The sprint file a held refresh still owes a re-read to, if any.
+    sprintReload: null,
   },
 };
 
@@ -2044,6 +2046,10 @@ function renderPhases() {
 
 function phaseRow(phase, warned) {
   const row = element("tr", warned.has(phase.id) ? "row-warn" : null);
+  // How a live refresh finds the row again to flash it. The table is rebuilt on
+  // every render, so nothing can hold the node -- the deliverable rows carry the
+  // same marker for `revealDeliverableRow`, and for the same reason.
+  row.dataset.phase = phase.id;
   const isOpen = state.expandedPhases.has(phase.id);
 
   // Its own column, the same conclusion the deliverable list reached: a drag
@@ -7045,9 +7051,16 @@ function handleLiveMessage(message) {
     // is already holding the value the file now has. Ignoring it is what stops a
     // save reloading over the typing that followed it.
     if (message.mtime && message.mtime === state.sprint.mtime) return;
-    // The open document is not touched here -- only the listing, which is what
-    // a new file on disk changes.
-    if (state.view === "sprint") liveRefresh();
+    // Unsaved work in the open file is answered on the spot, by the save bar,
+    // and nothing is re-read -- see `liveSprintChanged`.
+    if (liveSprintChanged(message.key)) return;
+    if (state.view !== "sprint") return;
+    // A clean open file is re-read like any other view, through the guard: the
+    // caret may be sitting in a block nobody has typed into yet.
+    if (sprintFileKey(message.key) === state.sprint.number) {
+      state.live.sprintReload = state.sprint.number;
+    }
+    liveRefresh();
     return;
   }
   // A write is a new edition of the roadmap whoever made it, so the caches keyed
@@ -7102,15 +7115,65 @@ function watchForBlur() {
 
 async function reloadCurrentView() {
   try {
-    if (state.view === "portfolio") await loadPortfolio();
-    else if (state.view === "map") await loadGraph();
-    else if (state.view === "sprint") await loadSprints();
-    else if (state.projects.length) await loadPlan();
-    else await loadProjects();  // the first project somebody else created
+    if (state.view === "portfolio") {
+      await loadPortfolio();
+    } else if (state.view === "map") {
+      await loadGraph();
+    } else if (state.view === "sprint") {
+      const wanted = state.live.sprintReload;
+      state.live.sprintReload = null;
+      // The listing always refreshes -- naming the files on disk touches nothing
+      // anyone is typing. The open document only if it is still the same file and
+      // still has nothing unsaved: both can have changed while the refresh was
+      // held under a cursor.
+      await loadSprints();
+      if (wanted !== null && wanted === state.sprint.number && !sprintHasUnsavedWork()) {
+        await loadSprintFile(wanted);
+        renderSprintView();
+      }
+    } else if (state.projects.length) {
+      const before = planRowSignatures();
+      await loadPlan();
+      flashChangedRows(before);
+    } else {
+      await loadProjects();  // the first project somebody else created
+    }
     renderTopbar();
   } catch (_) {
     // A failed read is not worth a toast: it was not asked for, and the next
     // message -- or the reconnect -- comes back to it.
+  }
+}
+
+// A value that changes with no explanation reads as a bug, so a row that moved
+// under you washes indigo -- the same 1.6s flash a jump arriving already draws.
+// It is a **diff of what this page was holding**, which is also why your own
+// write never flashes at you: by the time your edit echoes back off the socket,
+// the read you made after it is already the value on screen.
+function planRowSignatures() {
+  const found = new Map();
+  if (!state.plan) return found;
+  for (const phase of state.plan.phases) {
+    // The phase's own signature carries its deliverables, so a tick flashes the
+    // phase row as well as the deliverable's. That is right rather than sloppy:
+    // the phase row prints the tally, and the tally is what just moved.
+    found.set(`phase:${phase.id}`, JSON.stringify(phase));
+    for (const deliverable of phase.deliverables || []) {
+      found.set(`deliverable:${deliverable.id}`, JSON.stringify(deliverable));
+    }
+  }
+  return found;
+}
+
+function flashChangedRows(before) {
+  if (!before.size) return;  // nothing to compare against: the first load
+  for (const [key, signature] of planRowSignatures()) {
+    // Only what changed, never what arrived: a new row is already conspicuous,
+    // and flashing every row of a project that was empty is noise.
+    if (!before.has(key) || before.get(key) === signature) continue;
+    const [kind, id] = key.split(":");
+    const row = document.querySelector(`tr[data-${kind}="${id}"]`);
+    if (row) flashArrival(row);
   }
 }
 
