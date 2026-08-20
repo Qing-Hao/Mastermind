@@ -84,6 +84,10 @@
       <button id="export" class="btn-ghost">Export</button>
       <button id="import" class="btn-ghost">Import</button>
       <input type="file" id="import-file" accept="application/json" hidden>
+      <!-- A plain link, not a tab: the Sign-in page is its own document so it
+           still works when the shell cannot load. `app.js` fills the label in
+           with who you are once the gate is armed. -->
+      <a id="signin-link" class="btn-ghost sidebar-link" href="/auth/settings">Sign-in</a>
     </div>
   </nav>
 

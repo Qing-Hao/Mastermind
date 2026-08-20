@@ -530,6 +530,60 @@ button:disabled:hover { background: var(--surface); }
 .btn-ghost { border-color: transparent; background: transparent; color: var(--muted); }
 .btn-ghost:hover { background: var(--hover); color: var(--ink); }
 
+/* --- the sign-in configuration page ---------------------------------------
+   `sso.html` only, and the sidebar link that reaches it. */
+.sidebar-link {
+  display: inline-block;
+  text-decoration: none;
+  font-size: 13px;
+  padding: 5px 12px;
+  border-radius: var(--radius);
+}
+.sidebar-link:hover { background: var(--hover); color: var(--ink); }
+
+.config-page { background: var(--page); padding: 32px 24px 64px; }
+.config-doc { width: min(760px, 100%); margin: 0 auto; }
+.config-back { display: inline-block; font-size: 13px; text-decoration: none; color: var(--muted); }
+.config-back:hover { color: var(--accent); }
+.config-title { font-size: 22px; font-weight: 600; margin: 14px 0 4px; }
+.config-state { margin: 0 0 20px; font-size: 13px; color: var(--muted); }
+.config-state.config-on { color: #2e7d32; }
+.config-card {
+  display: block;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: 20px;
+  margin-bottom: 16px;
+}
+.config-card h2 { font-size: 15px; font-weight: 600; margin: 0 0 2px; }
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 14px 0 6px;
+}
+.config-wide { grid-column: 1 / -1; }
+.config-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+.config-row .hint { margin: 0; }
+.config-choice { flex-direction: row; align-items: center; gap: 8px; margin: 12px 0 6px; }
+.config-doc textarea { width: 100%; font: inherit; font-size: 13px; padding: 7px 9px;
+  border: 1px solid var(--field); border-radius: var(--radius); }
+.config-result {
+  display: block;
+  margin: 14px 0 0;
+  padding: 12px;
+  background: var(--hover);
+  border-radius: var(--radius);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+.config-result[hidden] { display: none; }
+/* The one success spelling of the error box, so a save and a refusal land in the
+   same place on the page rather than two. */
+.signin-error.config-ok { border-color: #bcd8bd; background: #f2f9f2; color: #2e7d32; }
+
 /* --- the sign-in page ------------------------------------------------------
    `signin.html` only. One card on the page ground, no shell around it: a
    signed-out visitor gets the gate and nothing else. Every element here is

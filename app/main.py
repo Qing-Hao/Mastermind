@@ -313,6 +313,12 @@ def signin():
     return FileResponse(os.path.join(STATIC_DIR, "signin.html"))
 
 
+@app.get("/auth/settings")
+def sign_in_settings():
+    """The Sign-in configuration page. Its own document -- see `sso.html`."""
+    return FileResponse(os.path.join(STATIC_DIR, "sso.html"))
+
+
 @app.get("/auth/status")
 def sign_in_status(request: Request):
     """Who you are and whether the gate is on. Read by the frontend on boot."""

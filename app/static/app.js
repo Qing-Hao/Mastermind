@@ -120,6 +120,10 @@ let state = {
   // `mapTiers` and `timelineMode`: nothing is stored, the open project stays open
   // even while filtered out of the list, and a reload clears it.
   projectFilter: "",
+  // Who Keycloak says you are, when the gate is armed. Read once at boot and
+  // used as a label; nothing about a person is stored anywhere else, here or on
+  // the server. Empty means the gate is off.
+  signedInAs: "",
   currentProjectId: null,
   plan: null,
   portfolio: null,
@@ -7204,12 +7208,31 @@ window.addEventListener("resize", () => {
   resizeTimer = setTimeout(redraw, 150);
 });
 
+// Who the gate says you are. The label is the only thing the shell knows about
+// sign-in: the configuration lives in its own document, and a signed-out visitor
+// never reaches this file at all -- the server redirects the page request.
+async function loadSignInLabel() {
+  const link = $("signin-link");
+  if (!link) return;
+  try {
+    const status = await (await fetch("/auth/status")).json();
+    state.signedInAs = status.name || "";
+    if (status.armed && status.name) {
+      link.textContent = status.name;
+      link.title = "Signed in through Keycloak. Opens the Sign-in settings.";
+    }
+  } catch {
+    // The label is decoration; a failed read must not stop the app booting.
+  }
+}
+
 bindEvents();
 // Before the first load, so the sidebar is already the width it was left at when
 // the charts measure their container -- `weekGrid` fits its columns to that
 // width, so applying it after would fit them to the wrong one and need a redraw.
 applySidebar(sidebarCollapsed());
 restoreSession();
+loadSignInLabel();
 loadProjects();
 // After the first read, not before: the socket's job is to say what changed
 // *since*, and its own first open deliberately reloads nothing.

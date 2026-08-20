@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign-in · Mastermind</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<!-- The Sign-in configuration surface, drawn from `.design/sso/`.
+
+     A document of its own rather than a section of the shell, and the reason is
+     what this page is for: it has to work when the app does not. It is reachable
+     with no projects in the database, before the gate has ever been armed, and
+     while the gate is armed and broken -- which is exactly when the shell's
+     hundred ids and four tabs of data are the last thing you want in the way.
+
+     PLAN-sso-keycloak.md D2 draws the eventual home: a Settings nav entry with
+     Sign-in, Data and Appearance beneath it, with Export/Import moving into
+     Data. That is a chrome change beyond this plan, and this page is the
+     acceptable first cut it names. -->
+<body class="config-page">
+  <main class="config-doc">
+    <a class="config-back" href="/">← Back to Mastermind</a>
+    <h1 class="config-title">Sign-in</h1>
+    <p id="sso-state" class="config-state">Loading…</p>
+
+    <p id="sso-message" class="signin-error" hidden></p>
+
+    <section class="config-card">
+      <h2>Single sign-on</h2>
+      <p class="hint">
+        When on, every page requires a Keycloak session. Mastermind stores no
+        password, creates no account and keeps no record of who you are — the
+        session is a signed cookie and nothing else.
+      </p>
+      <div class="config-row">
+        <button id="sso-arm" class="btn-primary">Turn on</button>
+        <button id="sso-disarm" hidden>Turn off</button>
+        <span id="sso-arm-hint" class="hint"></span>
+      </div>
+      <p class="hint">
+        <strong>Turning it on signs you in first.</strong> The switch flips only
+        if the round trip comes back with an identity this page allows, so a
+        wrong setting here cannot lock you out — it simply refuses to arm.
+      </p>
+    </section>
+
+    <section class="config-card">
+      <h2>Keycloak</h2>
+      <p class="hint">Taken from your realm's discovery document. Nothing here is a secret.</p>
+      <div class="config-grid">
+        <label class="config-wide">Issuer URL
+          <input id="sso-issuer" type="url" placeholder="https://keycloak.example.com/realms/delivery">
+        </label>
+        <label>Client ID
+          <input id="sso-client-id" type="text" placeholder="mastermind">
+        </label>
+        <label>Identity claim
+          <input id="sso-claim" type="text" placeholder="preferred_username">
+        </label>
+      </div>
+      <p class="hint">
+        The client is <strong>confidential</strong>: its secret is read from
+        <code id="sso-secret-name">MASTERMIND_OIDC_SECRET</code> in the server's
+        environment — <span id="sso-secret-state">unknown</span>. It is never
+        stored in <code>roadmap.db</code>, because an export would carry it out.
+      </p>
+      <div class="config-row">
+        <button id="sso-save" class="btn-primary">Save</button>
+        <button id="sso-test">Test connection</button>
+      </div>
+      <pre id="sso-test-result" class="config-result" hidden></pre>
+    </section>
+
+    <section class="config-card">
+      <h2>Give these to your Keycloak admin</h2>
+      <p class="hint">
+        Both must be registered on the client, character for character.
+        <code>127.0.0.1</code> and <code>localhost</code> are different entries,
+        and a mismatch here is the step that fails.
+      </p>
+      <label class="config-wide">Redirect URI
+        <input id="sso-redirect" type="text" readonly>
+      </label>
+      <label class="config-wide">Post-logout redirect URI
+        <input id="sso-post-logout" type="text" readonly>
+      </label>
+    </section>
+
+    <section class="config-card">
+      <h2>Who may sign in</h2>
+      <p class="hint">
+        This is the whole of access control. There are no roles and no per-user
+        data: everyone who gets in sees the same planner.
+      </p>
+      <label class="config-choice">
+        <input type="radio" name="sso-mode" id="sso-mode-allowlist" value="allowlist">
+        <span>These identities only — one per line</span>
+      </label>
+      <textarea id="sso-allowlist" rows="4" placeholder="qing.hao&#10;wei.lim"></textarea>
+      <label class="config-choice">
+        <input type="radio" name="sso-mode" id="sso-mode-any" value="any">
+        <span>Anyone the realm lets in</span>
+      </label>
+    </section>
+
+    <section class="config-card">
+      <h2>If you are locked out</h2>
+      <p class="hint">
+        Start the server with <code id="sso-env-name">MASTERMIND_SSO</code><code>=off</code>
+        in its environment. The gate is skipped for that process, this page comes
+        back, and everything configured above is left exactly as it was. That is the
+        answer for a rotated secret, a deleted client, a realm that is down and a
+        VPN that is off.
+      </p>
+      <p class="hint" id="sso-session-note"></p>
+    </section>
+  </main>
+
+  <script>
+    // Vanilla and self-contained: this page must work when the app's own shell
+    // would not, which is most of its reason for existing.
+    const $ = (id) => document.getElementById(id);
+    let saving = false;
+
+    function message(text, kind) {
+      const box = $("sso-message");
+      box.textContent = text || "";
+      box.hidden = !text;
+      box.classList.toggle("config-ok", kind === "ok");
+    }
+
+    function draw(config) {
+      $("sso-issuer").value = config.issuer || "";
+      $("sso-client-id").value = config.client_id || "";
+      $("sso-claim").value = config.identity_claim || "";
+      $("sso-allowlist").value = config.allowlist || "";
+      $(config.mode === "any" ? "sso-mode-any" : "sso-mode-allowlist").checked = true;
+      $("sso-redirect").value = config.redirect_uri || "";
+      $("sso-post-logout").value = location.origin + "/";
+
+      const armed = config.armed;
+      $("sso-state").textContent = armed
+        ? "On · signed in as " + (config.name || "someone")
+        : "Off · anyone who can reach this port can use the planner";
+      $("sso-state").classList.toggle("config-on", armed);
+      $("sso-arm").hidden = config.enabled;
+      $("sso-disarm").hidden = !config.enabled;
+      $("sso-arm-hint").textContent = config.enabled
+        ? (config.reason === "armed" ? "" : "Armed, but " + config.reason)
+        : "Signs you in through Keycloak, then arms the gate if it works.";
+
+      const secret = config.env.client_secret;
+      $("sso-secret-name").textContent = secret.name;
+      $("sso-secret-state").textContent = secret.set ? "set" : "not set";
+      $("sso-env-name").textContent = config.env.sso_env_name;
+      $("sso-session-note").textContent = config.env.session_key.set
+        ? ""
+        : config.env.session_key.name + " is not set, so a per-process key signs "
+          + "the session cookie: restarting the server signs everybody out.";
+    }
+
+    async function load() {
+      const response = await fetch("/api/sso");
+      if (response.status === 401) {
+        message("This page is gated because the app is bound to a public "
+                + "interface. Sign in first, or restart with the environment "
+                + "variable below.");
+        return;
+      }
+      draw(await response.json());
+    }
+
+    async function save() {
+      if (saving) return;
+      saving = true;
+      const body = {
+        issuer: $("sso-issuer").value.trim(),
+        client_id: $("sso-client-id").value.trim(),
+        identity_claim: $("sso-claim").value.trim() || "preferred_username",
+        allowlist: $("sso-allowlist").value,
+        mode: $("sso-mode-any").checked ? "any" : "allowlist",
+      };
+      const response = await fetch("/api/sso", {
+        method: "PUT",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(body),
+      });
+      saving = false;
+      message(response.ok ? "Saved." : "Could not save.", response.ok ? "ok" : "");
+      await load();
+      return response.ok;
+    }
+
+    $("sso-save").onclick = save;
+
+    $("sso-test").onclick = async () => {
+      await save();
+      const result = await (await fetch("/api/sso/test", {method: "POST"})).json();
+      const box = $("sso-test-result");
+      box.hidden = false;
+      box.textContent = result.ok
+        ? "Reached the realm.\n"
+          + "issuer:        " + result.issuer + "\n"
+          + "authorize:     " + result.authorization_endpoint + "\n"
+          + "token:         " + result.token_endpoint + "\n"
+          + "end session:   " + (result.end_session_endpoint || "(none published)") + "\n"
+          + "client secret: " + (result.client_secret_set ? "set" : "NOT SET")
+        : result.detail;
+    };
+
+    // Verify-then-arm. The page never writes the flag; it starts a real sign-in
+    // and the callback decides. See PLAN-sso-keycloak.md C1.
+    $("sso-arm").onclick = async () => {
+      if (!(await save())) return;
+      location.href = "/auth/login?arm=1&next=" + encodeURIComponent("/auth/settings");
+    };
+
+    $("sso-disarm").onclick = async () => {
+      await fetch("/api/sso/disarm", {method: "POST"});
+      message("Sign-in is off. The port is as open as whatever it is bound to.");
+      await load();
+    };
+
+    load();
+  </script>
+</body>
+</html>
