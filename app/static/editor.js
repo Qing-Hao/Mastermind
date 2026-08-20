@@ -89,11 +89,44 @@ async function loadSprints() {
   const open = isTemplate(sprint.number)
     || sprint.files.some((file) => file.number === sprint.number);
   if (!open) {
-    const first = sprint.files[0];
-    if (first) await loadSprintFile(first.number);
+    const wanted = openingSprintKey(sprint.files);
+    if (wanted !== null) await loadSprintFile(wanted);
     else resetSprint();
   }
   renderSprintView();
+}
+
+// Which file a fresh page opens: **the one you were last in, then the one today
+// falls inside, then the newest.**
+//
+// The date beats the newest file, which is what this changed. Sprint files get
+// written ahead, so "newest" is regularly a fortnight that has not started, and
+// landing there every morning means paging back to the one you are actually in.
+//
+// A window is the inclusive pair read off the file's own heading, so a file whose
+// heading has no readable window simply cannot be today's -- nothing is guessed
+// from the number or the order.
+//
+// The remembered file wins over the date because it is an answer you gave: you
+// were reading sprint 3 when the page reloaded, and the app has no business
+// deciding you meant sprint 5. The template is remembered on the same footing --
+// it is in no listing, so it is checked before the list is searched.
+function openingSprintKey(files) {
+  if (isTemplate(rememberedSprint)) return rememberedSprint;
+  if (files.some((file) => file.number === rememberedSprint)) return rememberedSprint;
+
+  // Both ends inclusive, and the list is newest first -- so on the handover day
+  // two consecutive sprints share, the one starting is what opens. That is the
+  // fortnight you are about to work, and `windows_overlap` already treats a
+  // shared boundary day as no clash.
+  const today = todayISO();
+  const current = files.find((file) => file.window
+    && file.window.start <= today && today <= file.window.end);
+  if (current) return current.number;
+
+  // Newest first, so this is the newest -- the behaviour before there was
+  // anything better to say.
+  return files.length ? files[0].number : null;
 }
 
 // Every field is assigned **onto** the existing object rather than replacing it.
@@ -116,6 +149,9 @@ async function loadSprintFile(number) {
     editingLine: null,
     draft: null,
   });
+  // Switching files never goes through `refreshView`, so this is where the open
+  // file gets remembered for the next reload.
+  saveSession();
 }
 
 // Leaving a file flushes what it owes first, and refuses to leave if the write

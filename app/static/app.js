@@ -751,6 +751,49 @@ function applySidebar(collapsed) {
   redraw();
 }
 
+// **A refresh should put you back, not start you over.** Which tab, which
+// project and which sprint file, in `localStorage` beside the sidebar's fold and
+// for the same reason: where you were looking is a fact about this browser, not
+// about the plan, so it has no business in the dataset or in a settings row.
+//
+// Guarded both ways, like the sidebar: storage that is switched off *throws*, and
+// the cost of that is a page that starts where it always used to, never a page
+// that fails to start.
+const SESSION_KEY = "roadmap.session";
+
+// Read once at boot and consulted by `loadSprints`, which runs later and only
+// when the Sprint tab is actually opened -- there is no point fetching a file for
+// a tab you may never look at.
+let rememberedSprint = null;
+
+function saveSession() {
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      view: state.view,
+      projectId: state.currentProjectId,
+      sprint: state.sprint.number,
+    }));
+  } catch (_) { /* no storage: it still works, it just will not be remembered */ }
+}
+
+// Before the first load, because `refreshView` reads `state.view` to decide what
+// to fetch and `loadProjects` only picks the first project when nothing is
+// selected -- both have to be told before either runs.
+//
+// The project id is taken on trust and checked by `loadProjects`, which already
+// falls back to the first project when the selected one is not in the list. So a
+// project deleted since you last looked is a quiet fallback rather than an error.
+function restoreSession() {
+  let session = {};
+  try {
+    session = JSON.parse(localStorage.getItem(SESSION_KEY)) || {};
+  } catch (_) { /* unreadable or unparseable: start where the app always did */ }
+
+  if (VIEW_TITLE[session.view]) state.view = session.view;
+  if (typeof session.projectId === "number") state.currentProjectId = session.projectId;
+  if (session.sprint !== undefined) rememberedSprint = session.sprint;
+}
+
 // The sidebar's project list, and the app's picker. It replaced a native
 // `<select>` whose only possible badge was an emoji in the option's text, because
 // an `<option>` holds no markup: here the rung is a dot in the map's own colours,
@@ -941,6 +984,10 @@ async function refreshView() {
   // which is what the load fetches. `renderProjectView` calls it too, so an edit
   // retags the bar without a tab switch.
   renderTopbar();
+  // Every tab switch and every project opened lands here, so this is the one
+  // place that has to remember. The sprint file has its own call in
+  // `loadSprintFile`, because switching files never comes back through here.
+  saveSession();
 }
 
 async function loadPlan() {
@@ -6696,4 +6743,5 @@ bindEvents();
 // the charts measure their container -- `weekGrid` fits its columns to that
 // width, so applying it after would fit them to the wrong one and need a redraw.
 applySidebar(sidebarCollapsed());
+restoreSession();
 loadProjects();
