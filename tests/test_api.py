@@ -2302,6 +2302,129 @@ def test_a_second_writer_waits_for_the_lock_rather_than_failing(tmp_path):
         db.set_db_path(db.DEFAULT_DB_PATH)
 
 
+# --- live invalidation --------------------------------------------------------
+
+# A landed write is announced down every open socket so the other windows re-read
+# themselves. The database is the record and the socket is a hint: nothing here
+# may fail a write, which is what the last two tests in this section are for.
+
+
+def wait_for_clients(count, timeout=2.0):
+    """Wait for the registry to reach `count`. Registering happens on the loop."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if len(main.live_clients) == count:
+            return True
+        time.sleep(0.01)
+    return len(main.live_clients) == count
+
+
+def test_a_row_write_is_announced_to_every_open_page(client):
+    project = make_project(client)
+    with client.websocket_connect("/ws") as one, client.websocket_connect("/ws") as two:
+        assert wait_for_clients(2)
+        client.put(f"/api/projects/{project['id']}", json={"name": "Renamed"})
+        for socket in (one, two):
+            assert socket.receive_json() == {"type": "changed", "scope": "roadmap"}
+
+
+def test_a_read_announces_nothing(client):
+    """The GET must not queue anything, so the next message is the write's."""
+    project = make_project(client)
+    with client.websocket_connect("/ws") as socket:
+        assert wait_for_clients(1)
+        client.get(f"/api/projects/{project['id']}")
+        client.get("/api/portfolio")
+        client.put(f"/api/projects/{project['id']}", json={"name": "Renamed"})
+        assert socket.receive_json()["scope"] == "roadmap"
+
+
+def test_laying_out_a_project_announces_once_for_the_batch(client):
+    project = make_project(client)
+    make_phase(client, project["id"], "One", "", 2, 20)
+    make_phase(client, project["id"], "Two", "", 2, 20)
+    with client.websocket_connect("/ws") as socket:
+        assert wait_for_clients(1)
+        client.post(f"/api/projects/{project['id']}/layout")
+        assert socket.receive_json()["scope"] == "roadmap"
+        # If the batch had announced per phase, this would be the second of two.
+        client.delete(f"/api/projects/{project['id']}")
+        assert socket.receive_json()["scope"] == "roadmap"
+
+
+def test_a_sprint_save_is_announced_with_the_new_mtime(client, sprints):
+    """The mtime is what stops your own save reloading over your own typing."""
+    write_sprint(sprints)
+    payload = read_sprint(client)
+    with client.websocket_connect("/ws") as socket:
+        assert wait_for_clients(1)
+        saved = client.put("/api/sprints/3",
+                           json={"text": SPRINT_FILE + "\nmore\n",
+                                 "mtime": payload["mtime"]})
+        assert saved.status_code == 200, saved.text
+        assert socket.receive_json() == {
+            "type": "changed", "scope": "sprint", "key": 3,
+            "mtime": saved.json()["mtime"],
+        }
+
+
+def test_a_refused_sprint_save_announces_nothing(client, sprints):
+    write_sprint(sprints)
+    read_sprint(client)
+    with client.websocket_connect("/ws") as socket:
+        assert wait_for_clients(1)
+        stale = client.put("/api/sprints/3", json={"text": "x", "mtime": 1.0})
+        assert stale.status_code == 409
+        # Nothing was written, so the next message is the one that follows it.
+        client.put("/api/settings", json={"sprint_length_days": 14})
+        assert socket.receive_json()["scope"] == "roadmap"
+
+
+def test_a_template_save_announces_under_the_template_key(client, template):
+    payload = read_template(client)
+    with client.websocket_connect("/ws") as socket:
+        assert wait_for_clients(1)
+        saved = client.put("/api/template",
+                           json={"text": TEMPLATE_FILE, "mtime": payload["mtime"]})
+        assert saved.status_code == 200, saved.text
+        assert socket.receive_json()["key"] == "template"
+
+
+def test_pushing_a_tick_into_files_announces_each_one(client, sprints):
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Build", "2026-01-05", 2, 20)
+    deliverable = client.post(f"/api/phases/{phase['id']}/deliverables",
+                              json={"name": "Ship it"}).json()
+    marker = f"- [ ] work [#D-{deliverable['id']}]\n"
+    write_sprint(sprints, "03.md", SPRINT_FILE + marker)
+    write_sprint(sprints, "04.md", SPRINT_FILE + marker)
+    with client.websocket_connect("/ws") as socket:
+        assert wait_for_clients(1)
+        response = client.post("/api/sprints/marks",
+                               json={"deliverable_id": deliverable["id"], "done": True})
+        assert len(response.json()["files"]) == 2
+        announced = [socket.receive_json() for _ in range(2)]
+        assert [one["key"] for one in announced] == [3, 4]
+        assert all(one["scope"] == "sprint" for one in announced)
+
+
+def test_a_write_lands_with_nobody_listening(client):
+    """The common case, and the one that must not need a socket at all."""
+    assert not main.live_clients
+    project = make_project(client)
+    assert client.put(f"/api/projects/{project['id']}",
+                      json={"name": "Renamed"}).status_code == 200
+
+
+def test_a_closed_page_is_deregistered_and_does_not_fail_a_write(client):
+    project = make_project(client)
+    with client.websocket_connect("/ws"):
+        assert wait_for_clients(1)
+    assert wait_for_clients(0), "a closed socket kept its slot in the registry"
+    assert client.put(f"/api/projects/{project['id']}",
+                      json={"name": "Renamed"}).status_code == 200
+
+
 # --- migrating an existing file ---------------------------------------------
 
 

@@ -5,13 +5,14 @@ The only rule enforced at write time is V3 (dependency cycles), which returns
 409 instead of a warning. Everything else is reported, never corrected.
 """
 
+import asyncio
 import os
 import re
 import tempfile
 from contextlib import asynccontextmanager
 from datetime import date, timedelta
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -67,11 +68,122 @@ SPRINTS_DIR = os.path.join(REPO_ROOT, "sprints")
 
 @asynccontextmanager
 async def lifespan(_app):
+    global live_loop
     db.init_db()
-    yield
+    # Captured here because the routes that announce a write are sync `def`, so
+    # they run in a threadpool with no running loop of their own. `announce`
+    # hands work back to this one.
+    live_loop = asyncio.get_running_loop()
+    try:
+        yield
+    finally:
+        live_loop = None
 
 
 app = FastAPI(title="Mastermind", lifespan=lifespan)
+
+
+# --- live invalidation -------------------------------------------------------
+
+# Every open page holds one socket, and a landed write is announced down all of
+# them so the other windows re-read themselves. The registry is process memory,
+# which is what pins the app to **one uvicorn worker** -- a second worker would
+# hold a second registry and announce to half the room.
+#
+# The database is the record; a socket is a hint. Nothing here may fail a write:
+# every path swallows, and a page that misses a message reloads whole when its
+# socket comes back.
+
+# Enough for a burst of edits while a page is mid-render. A page slower than
+# this is not one more message behind, it is broken, and its reconnect is what
+# repairs it.
+LIVE_QUEUE_LIMIT = 64
+
+live_clients: set[asyncio.Queue] = set()
+live_loop: asyncio.AbstractEventLoop | None = None
+
+
+def _fan_out(message):
+    """Put one message on every open socket's queue. Runs on the loop thread."""
+    for queue in list(live_clients):
+        try:
+            queue.put_nowait(message)
+        except asyncio.QueueFull:
+            # Lose the oldest hint rather than the newest: the newest is the one
+            # that describes the data as it now is.
+            try:
+                queue.get_nowait()
+                queue.put_nowait(message)
+            except (asyncio.QueueEmpty, asyncio.QueueFull):
+                pass
+
+
+def announce(message):
+    """Tell every open page a write landed. Never raises, never blocks."""
+    loop = live_loop
+    if loop is None or not live_clients:
+        return
+    try:
+        loop.call_soon_threadsafe(_fan_out, message)
+    except RuntimeError:
+        # The loop closed between the write and the announcement. The write is
+        # already on disk, which is the part that matters.
+        pass
+
+
+def announce_roadmap():
+    """A row changed. Every tab re-reads; no tab is told which row."""
+    announce({"type": "changed", "scope": "roadmap"})
+
+
+def announce_sprint(key, mtime=None):
+    """A sprint file changed. `key` is a number or the string `template`.
+
+    The `mtime` is what solves self-echo for nothing: your own save comes back to
+    you as a broadcast, and a tab already holding that mtime ignores it instead of
+    reloading over what you are typing. No client ids, no sender bookkeeping.
+    """
+    announce({"type": "changed", "scope": "sprint", "key": key, "mtime": mtime})
+
+
+async def _await_close(socket):
+    """Await the client's close. Nothing is sent *up* this socket today.
+
+    Without this the endpoint would sit on `queue.get()` and only learn the page
+    had gone at the next write -- so a closed tab would hold a registry slot for
+    as long as the room stayed quiet.
+    """
+    while True:
+        if (await socket.receive())["type"] == "websocket.disconnect":
+            return
+
+
+@app.websocket("/ws")
+async def live_updates(socket: WebSocket):
+    """One socket per open page. Server talks, client listens.
+
+    Deliberately carries no identity: who is where is presence, and presence
+    waits on a name that cannot be typed. See PLAN-multi-user.md B1.
+    """
+    await socket.accept()
+    queue: asyncio.Queue = asyncio.Queue(maxsize=LIVE_QUEUE_LIMIT)
+    live_clients.add(queue)
+
+    async def pump():
+        while True:
+            await socket.send_json(await queue.get())
+
+    tasks = {asyncio.create_task(pump()), asyncio.create_task(_await_close(socket))}
+    try:
+        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+        for task in done:
+            task.exception()  # a send to a gone socket is not an error worth raising
+    except Exception:
+        pass
+    finally:
+        live_clients.discard(queue)
 
 
 # --- request bodies ---------------------------------------------------------
@@ -506,7 +618,10 @@ def read_settings():
 
 @app.put("/api/settings")
 def write_settings(body: SettingsIn):
-    return db.update_settings(body.model_dump(exclude_unset=True, exclude_none=True))
+    settings = db.update_settings(body.model_dump(exclude_unset=True, exclude_none=True))
+    # Velocity and the V1 tolerance are read by every warning on every tab.
+    announce_roadmap()
+    return settings
 
 
 # --- projects ---------------------------------------------------------------
@@ -559,7 +674,7 @@ def read_projects():
 
 @app.post("/api/projects", status_code=201)
 def add_project(body: ProjectIn):
-    return db.create_project(
+    project = db.create_project(
         name=body.name,
         start_date=clean_date(body.start_date),
         description=body.description,
@@ -569,6 +684,8 @@ def add_project(body: ProjectIn):
         track=body.track,
         tier=clean_tier(body.tier),
     )
+    announce_roadmap()
+    return project
 
 
 @app.get("/api/projects/{project_id}")
@@ -1008,6 +1125,9 @@ def add_sprint(body: SprintIn):
             detail=f"{name} already exists. Sprint files are never overwritten.",
         )
 
+    # A new file changes every open picker's list. No mtime: nobody is holding
+    # this file yet, so there is no self-echo to solve.
+    announce_sprint(number)
     return {
         "number": number,
         "name": name,
@@ -1346,6 +1466,7 @@ def write_sprint_marks(body: SprintMarks):
         text, lines = marked_for(read_sprint_file(path), body.deliverable_id, body.done)
         if lines:
             write_sprint_file(path, text)
+            announce_sprint(number, os.path.getmtime(path))
             changed.append({"number": number, "name": name, "lines": lines})
     return {"files": changed}
 
@@ -1434,7 +1555,9 @@ def save_sprint(number: int, body: SprintSave):
         )
 
     write_sprint_file(path, body.text)
-    return {"mtime": os.path.getmtime(path)}
+    mtime = os.path.getmtime(path)
+    announce_sprint(number, mtime)
+    return {"mtime": mtime}
 
 
 # The one file the editor can open that is not a sprint: `templates/sprint.md`,
@@ -1492,7 +1615,9 @@ def save_template(body: SprintSave):
         )
 
     write_sprint_file(path, body.text)
-    return {"mtime": os.path.getmtime(path)}
+    mtime = os.path.getmtime(path)
+    announce_sprint("template", mtime)
+    return {"mtime": mtime}
 
 
 @app.get("/api/graph")
@@ -1582,6 +1707,8 @@ def layout_project(project_id: int):
     for phase_id, start_date in placements.items():
         db.update_phase(phase_id, {"start_date": start_date})
 
+    # Once for the batch, not once per phase: every listener reloads whole.
+    announce_roadmap()
     return {"placed": len(placements), "placements": placements}
 
 
@@ -1598,13 +1725,16 @@ def edit_project(project_id: int, body: ProjectPatch):
         fields["stage"] = clean_stage(fields["stage"])
     if "tier" in fields:
         fields["tier"] = clean_tier(fields["tier"])
-    return db.update_project(project_id, fields)
+    updated = db.update_project(project_id, fields)
+    announce_roadmap()
+    return updated
 
 
 @app.delete("/api/projects/{project_id}", status_code=204)
 def remove_project(project_id: int):
     require_project(project_id)
     db.delete_project(project_id)
+    announce_roadmap()
 
 
 # --- phases -----------------------------------------------------------------
@@ -1622,6 +1752,7 @@ def add_phase(project_id: int, body: PhaseIn):
         description=body.description,
         status=body.status,
     )
+    announce_roadmap()
     return with_end_date(phase)
 
 
@@ -1632,13 +1763,16 @@ def edit_phase(phase_id: int, body: PhasePatch):
     require_unchanged(phase, fields.pop("expect", None), "phase")
     if "start_date" in fields:
         fields["start_date"] = clean_date(fields["start_date"])
-    return with_end_date(db.update_phase(phase_id, fields))
+    updated = with_end_date(db.update_phase(phase_id, fields))
+    announce_roadmap()
+    return updated
 
 
 @app.delete("/api/phases/{phase_id}", status_code=204)
 def remove_phase(phase_id: int):
     require_phase(phase_id)
     db.delete_phase(phase_id)
+    announce_roadmap()
 
 
 # --- deliverables -----------------------------------------------------------
@@ -1693,12 +1827,14 @@ def read_deliverables(phase_id: int):
 @app.post("/api/phases/{phase_id}/deliverables", status_code=201)
 def add_deliverable(phase_id: int, body: DeliverableIn):
     require_phase(phase_id)
-    return db.create_deliverable(
+    deliverable = db.create_deliverable(
         phase_id=phase_id,
         name=body.name,
         description=body.description,
         done=body.done,
     )
+    announce_roadmap()
+    return deliverable
 
 
 @app.put("/api/deliverables/{deliverable_id}")
@@ -1706,13 +1842,18 @@ def edit_deliverable(deliverable_id: int, body: DeliverablePatch):
     deliverable = require_deliverable(deliverable_id)
     fields = body.model_dump(exclude_unset=True)
     require_unchanged(deliverable, fields.pop("expect", None), "deliverable")
-    return db.update_deliverable(deliverable_id, fields)
+    updated = db.update_deliverable(deliverable_id, fields)
+    # A tick also rewrites the sprint files that name it -- that is a second
+    # write, through `/api/sprints/marks`, and it announces itself.
+    announce_roadmap()
+    return updated
 
 
 @app.delete("/api/deliverables/{deliverable_id}", status_code=204)
 def remove_deliverable(deliverable_id: int):
     require_deliverable(deliverable_id)
     db.delete_deliverable(deliverable_id)
+    announce_roadmap()
 
 
 # --- milestones -------------------------------------------------------------
@@ -1734,13 +1875,15 @@ def read_milestones(project_id: int):
 @app.post("/api/projects/{project_id}/milestones", status_code=201)
 def add_milestone(project_id: int, body: MilestoneIn):
     require_project(project_id)
-    return db.create_milestone(
+    milestone = db.create_milestone(
         project_id=project_id,
         name=body.name,
         description=body.description,
         target_date=clean_date(body.target_date),
         achieved=body.achieved,
     )
+    announce_roadmap()
+    return milestone
 
 
 @app.put("/api/milestones/{milestone_id}")
@@ -1756,13 +1899,16 @@ def edit_milestone(milestone_id: int, body: MilestonePatch):
     require_unchanged(milestone, fields.pop("expect", None), "checkpoint")
     if "target_date" in fields:
         fields["target_date"] = clean_date(fields["target_date"])
-    return db.update_milestone(milestone_id, fields)
+    updated = db.update_milestone(milestone_id, fields)
+    announce_roadmap()
+    return updated
 
 
 @app.delete("/api/milestones/{milestone_id}", status_code=204)
 def remove_milestone(milestone_id: int):
     require_milestone(milestone_id)
     db.delete_milestone(milestone_id)
+    announce_roadmap()
 
 
 # --- dependencies -----------------------------------------------------------
@@ -1795,13 +1941,16 @@ def add_dependency(body: DependencyIn):
             detail=f"That dependency would create a cycle: {readable}",
         )
 
-    return db.create_dependency(body.predecessor_project_id,
-                                body.successor_project_id)
+    dependency = db.create_dependency(body.predecessor_project_id,
+                                      body.successor_project_id)
+    announce_roadmap()
+    return dependency
 
 
 @app.delete("/api/dependencies/{dependency_id}", status_code=204)
 def remove_dependency(dependency_id: int):
     db.delete_dependency(dependency_id)
+    announce_roadmap()
 
 
 # --- export / import --------------------------------------------------------
@@ -1815,6 +1964,9 @@ def export_dataset():
 @app.post("/api/import")
 def import_dataset(payload: dict):
     db.import_all(payload)
+    # The whole dataset was replaced under everyone. This is the one announcement
+    # nobody's page can sensibly ignore.
+    announce_roadmap()
     return {"ok": True, "projects": len(payload.get("projects", []))}
 
 
