@@ -7056,6 +7056,11 @@ function handleLiveMessage(message) {
     // is already holding the value the file now has. Ignoring it is what stops a
     // save reloading over the typing that followed it.
     if (message.mtime && message.mtime === state.sprint.mtime) return;
+    // A write that named one run of blocks can be repeated here rather than
+    // re-read, provided this page holds the text it replaced and owes nothing
+    // inside it. That is the whole point of the block API: an edit of theirs
+    // elsewhere in the file is not a conflict with an edit of yours.
+    if (message.splice && applyRemoteSprintSplice(message)) return;
     // Unsaved work in the open file is answered on the spot, by the save bar,
     // and nothing is re-read -- see `liveSprintChanged`.
     if (liveSprintChanged(message.key)) return;

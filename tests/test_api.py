@@ -2561,10 +2561,63 @@ def test_a_splice_is_announced_with_the_new_mtime(client, splice_file):
         assert wait_for_clients(1)
         spliced = client.patch("/api/sprints/1/blocks", json=tick())
         assert spliced.status_code == 200, spliced.text
-        assert socket.receive_json() == {
+        announced = socket.receive_json()
+        assert {key: announced[key] for key in ("type", "scope", "key", "mtime")} == {
             "type": "changed", "scope": "sprint", "key": 1,
             "mtime": spliced.json()["mtime"],
         }
+        # What the write did rides along -- see the test below.
+        assert announced["splice"]["at"] == 2
+
+
+def test_the_announcement_carries_what_the_splice_did(client, splice_file):
+    """The other pages repeat the write instead of re-reading the file, so the
+    message has to say what it did -- rendered, and with what it replaced."""
+    with client.websocket_connect("/ws") as socket:
+        assert wait_for_clients(1)
+        client.patch("/api/sprints/1/blocks", json=tick())
+        splice = socket.receive_json()["splice"]
+
+    assert splice["at"] == 2
+    assert splice["expect"] == ["- [ ] Token refresh on the auth API"]
+    # The run's **new** blocks, drawn: a page applying this needs no second call.
+    assert [block["raw"] for block in splice["blocks"]] == [
+        "- [x] Token refresh on the auth API"]
+    assert "checkbox" in splice["blocks"][0]["html"]
+
+
+def test_an_insert_announces_the_blocks_it_added_and_no_expectation(client, splice_file):
+    with client.websocket_connect("/ws") as socket:
+        assert wait_for_clients(1)
+        client.patch("/api/sprints/1/blocks", json={
+            "at": 1, "expect": [], "blocks": [{"raw": "## 0. Notes"}]})
+        splice = socket.receive_json()["splice"]
+
+    assert splice == {
+        "at": 1, "expect": [],
+        "blocks": [dict(splice["blocks"][0])],
+    }
+    assert splice["blocks"][0]["raw"] == "## 0. Notes"
+
+
+def test_a_delete_announces_an_expectation_and_no_blocks(client, splice_file):
+    with client.websocket_connect("/ws") as socket:
+        assert wait_for_clients(1)
+        client.patch("/api/sprints/1/blocks", json={
+            "at": 2, "expect": ["- [ ] Token refresh on the auth API"], "blocks": []})
+        splice = socket.receive_json()["splice"]
+
+    assert splice["blocks"] == []
+    assert splice["expect"] == ["- [ ] Token refresh on the auth API"]
+
+
+def test_a_whole_file_save_announces_no_splice(client, splice_file):
+    """It has none to name, so those pages re-read exactly as they always did."""
+    payload = client.get("/api/sprints/1").json()
+    with client.websocket_connect("/ws") as socket:
+        assert wait_for_clients(1)
+        client.put("/api/sprints/1", json={"text": "# Sprint 1\n", "mtime": payload["mtime"]})
+        assert "splice" not in socket.receive_json()
 
 
 def test_a_refused_splice_announces_nothing(client, splice_file):

@@ -461,27 +461,7 @@ function renderSprintDocument() {
   if (leaving) leaving.onblur = null;
   doc.innerHTML = "";
 
-  sprint.blocks.forEach((block, index) => {
-    const row = element("div", "sprint-row");
-    row.appendChild(sprintRail(block, index, row));
-
-    // A table is edited as a grid and never as raw pipes, so it has no reveal
-    // gesture at all -- the cells *are* the editor. A list and a quote are the same
-    // answer to the same problem one dimension down: their marker is on every line,
-    // and a checkbox is an element, so the line it sits on cannot be a box.
-    // Everything else is one surface: prose drawn as itself, source where the
-    // source is the content.
-    if (block.type === "table" && block.table) {
-      row.appendChild(sprintTable(block, index));
-    } else if (block.type === "list" || block.type === "quote") {
-      row.appendChild(sprintList(block, index));
-    } else {
-      row.appendChild(index === sprint.editing
-        ? sprintEditor(block, index)
-        : sprintBlock(block, index));
-    }
-    doc.appendChild(row);
-  });
+  sprint.blocks.forEach((block, index) => doc.appendChild(sprintRow(block, index)));
 
   // The foot of the document, and the only way to start a block at the end of a
   // file. It used to appear at `blocks.length === 0` alone, which left **a file
@@ -536,6 +516,31 @@ function renderSprintDocument() {
   // Also after the append, and for the same reason: a diagram is measured text,
   // and a detached node has no measurements.
   drawSprintDiagrams(doc);
+}
+
+// One block's row, rail and all. Its own function because a remote splice
+// repaints a few of these rather than the document -- a full re-render would
+// take the caret with it, and the caret may be in a block nobody touched.
+function sprintRow(block, index) {
+  const row = element("div", "sprint-row");
+  row.appendChild(sprintRail(block, index, row));
+
+  // A table is edited as a grid and never as raw pipes, so it has no reveal
+  // gesture at all -- the cells *are* the editor. A list and a quote are the same
+  // answer to the same problem one dimension down: their marker is on every line,
+  // and a checkbox is an element, so the line it sits on cannot be a box.
+  // Everything else is one surface: prose drawn as itself, source where the
+  // source is the content.
+  if (block.type === "table" && block.table) {
+    row.appendChild(sprintTable(block, index));
+  } else if (block.type === "list" || block.type === "quote") {
+    row.appendChild(sprintList(block, index));
+  } else {
+    row.appendChild(index === state.sprint.editing
+      ? sprintEditor(block, index)
+      : sprintBlock(block, index));
+  }
+  return row;
 }
 
 function sprintBlock(block, index) {
@@ -4187,6 +4192,110 @@ function liveSprintChanged(key) {
   sprint.error = `${sprint.name} changed on disk.`;
   renderSprintStatus();
   return true;
+}
+
+// --- somebody else's splice ---------------------------------------------------
+//
+// What the block API was for, arriving. A write that named one run of blocks can
+// be repeated here, so an edit of yours in §3 and an edit of theirs in §6 stop
+// being a conflict at all -- no re-read, no waiting for a blur, no reload button.
+//
+// Everything below is a reason **not** to apply one. What survives all of them is
+// applied and drawn; anything else falls through to the answer this tab has always
+// given, which is the save bar's `Changed on disk` and no decision about whose
+// version wins.
+
+// Where the caret is, by block, however the block is being edited -- an open
+// editor, a list line, a table cell. Asked of the DOM rather than of the state,
+// because a cell being typed in is not recorded anywhere in `state.sprint`.
+function openSprintRows() {
+  const doc = $("sprint-document");
+  const rows = state.sprint.editing === null ? [] : [state.sprint.editing];
+  const active = document.activeElement;
+  const row = active && typeof active.closest === "function"
+    ? active.closest(".sprint-row")
+    : null;
+  const at = row ? Array.prototype.indexOf.call(doc.children, row) : -1;
+  if (at >= 0 && !rows.includes(at)) rows.push(at);
+  return rows;
+}
+
+function applyRemoteSprintSplice(message) {
+  const sprint = state.sprint;
+  const splice = message.splice;
+  if (sprint.number === null || sprintFileKey(message.key) !== sprint.number) return false;
+  if (!sprint.disk || !splice || !Array.isArray(splice.expect) || !Array.isArray(splice.blocks)) {
+    return false;
+  }
+
+  const at = splice.at;
+  const end = at + splice.expect.length;
+
+  // 1. This page has to be holding the very text that write replaced -- position
+  //    and text both, the same pair the write itself was named by. The check is
+  //    against `disk`, because that is what the other page's `expect` came from.
+  const held = sprint.disk.slice(at, end).map((block) => block.raw);
+  if (held.length !== splice.expect.length
+    || held.some((raw, index) => raw !== splice.expect[index])) return false;
+
+  // 2. Nothing this page still owes may be inside the run. What it owes is
+  //    exactly what a save would send, so it is asked the same way -- an edit of
+  //    yours inside the run someone else just rewrote is the case that has to
+  //    stay a conflict.
+  const owed = sprintSplices(sprint.disk, sprint.blocks);
+  const overlaps = owed.some((run) =>
+    run.at < end && at < run.at + Math.max(run.expect.length, run.blocks.length));
+  if (overlaps) return false;
+
+  // 3. Nor may the caret be. A block open for editing holds text that has not
+  //    been committed yet, so it is invisible to the check above.
+  const open = openSprintRows();
+  if (open.some((index) => index >= at && index < end)) return false;
+
+  // 4. And while any block is open, the run must replace as many blocks as it
+  //    removes: every row below a splice that grows or shrinks is left holding
+  //    an index one out, and those indexes are baked into its handlers.
+  if (open.length && splice.expect.length !== splice.blocks.length) return false;
+
+  const fresh = splice.blocks.map((block) => Object.assign({}, block));
+  sprint.disk.splice(at, splice.expect.length, ...diskBlocks(fresh));
+  sprint.blocks.splice(at, splice.expect.length, ...fresh);
+  sprint.blocks.forEach((block, index) => { block.index = index; });
+  // The file is now what that write left, and this page knows it: the next save
+  // quotes these blocks, and the write's own echo is ignored on arrival.
+  sprint.mtime = message.mtime;
+
+  if (open.length) repaintSprintRows(at, fresh.length);
+  else {
+    renderSprintDocument();
+    flashSprintRows(at, fresh.length);
+  }
+  return true;
+}
+
+// Replace the rows a splice covers and nothing else: every other row keeps its
+// node, its handlers and -- the point of the exercise -- the caret inside it.
+function repaintSprintRows(at, count) {
+  const doc = $("sprint-document");
+  for (let index = at; index < at + count; index += 1) {
+    const row = sprintRow(state.sprint.blocks[index], index);
+    const old = doc.children[index];
+    if (old) doc.replaceChild(row, old);
+    else doc.insertBefore(row, doc.querySelector(".sprint-placeholder"));
+  }
+  flashSprintRows(at, count);
+  drawSprintDiagrams(doc);
+}
+
+// Say which blocks moved under you. The same flash a row that changed elsewhere
+// gets, for the same reason: a document that quietly rewrote itself is worse
+// than one that says where.
+function flashSprintRows(at, count) {
+  const doc = $("sprint-document");
+  for (let index = at; index < at + count; index += 1) {
+    const row = doc.children[index];
+    if (row) flashArrival(row);
+  }
 }
 
 // Autosave makes this rare, and rare is exactly when it matters: a failed save

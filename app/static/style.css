@@ -911,6 +911,13 @@ tr.just-arrived > td { animation: arrival-flash 1.6s ease-out; }
   animation: arrival-flash 1.6s ease-out;
   border-radius: 4px;
 }
+/* Third caller, same idea one document down: a block somebody else rewrote while
+   this page had the file open. It is the only thing that says the paragraph you
+   are looking at is not the one you were looking at a moment ago. */
+.sprint-row.just-arrived {
+  animation: arrival-flash 1.6s ease-out;
+  border-radius: 4px;
+}
 
 /* The grip, and the row while it is held. `user-select` matters: without it a
    drag down the list selects the text of every row it passes over. */

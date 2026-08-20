@@ -142,14 +142,24 @@ def announce_roadmap():
     announce({"type": "changed", "scope": "roadmap"})
 
 
-def announce_sprint(key, mtime=None):
+def announce_sprint(key, mtime=None, splice=None):
     """A sprint file changed. `key` is a number or the string `template`.
 
     The `mtime` is what solves self-echo for nothing: your own save comes back to
     you as a broadcast, and a tab already holding that mtime ignores it instead of
     reloading over what you are typing. No client ids, no sender bookkeeping.
+
+    `splice` says *what* changed, when the write was one: `{at, expect, blocks}`,
+    the same three fields the write itself named, with the replaced run's new
+    blocks carrying their html. A page holding the same text can apply it to the
+    blocks it is not typing in instead of re-reading the file. A whole-file write
+    has no splice to name and sends none, so those pages re-read as they always
+    have.
     """
-    announce({"type": "changed", "scope": "sprint", "key": key, "mtime": mtime})
+    message = {"type": "changed", "scope": "sprint", "key": key, "mtime": mtime}
+    if splice:
+        message["splice"] = splice
+    announce(message)
 
 
 async def _await_close(socket):
@@ -1648,12 +1658,28 @@ def apply_splice(path, body):
     )
 
 
+def landed_splice(body, result):
+    """What the write did, in the shape the other pages need to repeat it.
+
+    The run's **new** blocks, sliced out of the document the write produced, so
+    they arrive rendered -- a page applying this draws them without asking for
+    anything. `expect` rides along unchanged: it is how the receiver checks that
+    what it is holding is the same text this write replaced.
+    """
+    at = result["at"]
+    return {
+        "at": at,
+        "expect": body.expect,
+        "blocks": result["blocks"][at:at + len(body.blocks)],
+    }
+
+
 @app.patch("/api/sprints/{number}/blocks")
 def splice_sprint(number: int, body: BlockSplice):
     """Replace one run of blocks in a sprint file. The rest of the file is untouched."""
     path = found_sprint(number)
     result = apply_splice(path, body)
-    announce_sprint(number, result["mtime"])
+    announce_sprint(number, result["mtime"], landed_splice(body, result))
     return result
 
 
@@ -1722,7 +1748,7 @@ def splice_template(body: BlockSplice):
     """Replace one run of blocks in the template. Same operation as a sprint file's."""
     path = found_template()
     result = apply_splice(path, body)
-    announce_sprint("template", result["mtime"])
+    announce_sprint("template", result["mtime"], landed_splice(body, result))
     return result
 
 
