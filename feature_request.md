@@ -664,20 +664,13 @@ script. It was 30 of 30 on 2026-08-15.
 
 ---
 
-## Tab order
+## Tab order — **done 2026-08-20**
 
-Separate from the above and not a gap: the tab bar is
-`Project | Portfolio | Map` (`app/static/index.html:13-15`), which runs backwards
-along the commitment ladder the tool is actually built on
-(`validation.project_stage`). `Map → Project → Portfolio → Sprint` matches it —
-ideas are captured on the Map, costed on Project, dated on Portfolio, executed in
-a sprint.
+The nav now runs `Map → Project → Portfolio → Sprint`, matching the commitment
+ladder (`validation.project_stage`). Landing tab stays Project. It was a markup
+move in the `nav-group` and nothing else: tab handling is keyed off element ids,
+not order.
 
-Reordering is three lines: tab handling is keyed off element ids, not order
-(`app/static/app.js:417-419`, `2466-2474`). Landing tab is a separate decision
-and should probably stay on Project.
-
-One thing it exposes: the project `<select>`, `New project` and `Delete` sit in
-the global header but only mean anything in Project view. Land on Map first and
-that is the first thing you see. **That is now FR-11**, raised independently by
-the requester — so the two should be done together.
+Kept here only because **FR-11 quoted it as a joint change** and now does not
+have to be. The reorder was the cheap half; moving the picker out of the chrome
+is still open on its own.

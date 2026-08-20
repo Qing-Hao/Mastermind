@@ -27,10 +27,20 @@
 
     <!-- Same four ids the tab strip carried, so `refreshView` still toggles
          `active` on them and nothing in app.js knows the shape changed. -->
+    <!-- Order follows the commitment ladder `validation.project_stage` reads:
+         ideas are captured on the Map, costed on Project, dated on Portfolio,
+         executed in a Sprint. Landing tab stays Project. -->
     <!-- The label is a span so the collapsed rail can drop it and keep the icon.
          Each button carries its own `title` for the same reason: collapsed, the
          icon is all there is. -->
     <div class="nav-group">
+      <button id="tab-map" class="nav-item" title="Map">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="2.5"></circle><circle cx="12" cy="12" r="8.5"></circle>
+          <path d="M12 3.5v3M12 17.5v3M3.5 12h3M17.5 12h3"></path>
+        </svg><span class="nav-label">Map</span>
+      </button>
       <button id="tab-project" class="nav-item active" title="Project">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
              stroke-linecap="round" aria-hidden="true">
@@ -45,13 +55,6 @@
           <rect x="11" y="7" width="4" height="11"></rect>
           <rect x="17" y="14" width="3" height="4"></rect>
         </svg><span class="nav-label">Portfolio</span>
-      </button>
-      <button id="tab-map" class="nav-item" title="Map">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-             stroke-linecap="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="2.5"></circle><circle cx="12" cy="12" r="8.5"></circle>
-          <path d="M12 3.5v3M12 17.5v3M3.5 12h3M17.5 12h3"></path>
-        </svg><span class="nav-label">Map</span>
       </button>
       <button id="tab-sprint" class="nav-item" title="Sprint">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
