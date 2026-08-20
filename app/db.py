@@ -276,7 +276,61 @@ def connect():
     return connection
 
 
+# How many startup backups to keep beside the dataset. Ten is a fortnight of
+# ordinary restarts and a few megabytes.
+BACKUP_KEEP = 10
+BACKUP_DIR_NAME = "backups"
+
+
+def backup_before_migrate():
+    """Copy the dataset aside before `migrate` runs. Never raises.
+
+    `init_db()` runs on every start -- and, under `--reload`, every time a source
+    file is saved. `migrate` can drop a column, and that has cost the real dataset
+    once. This turns a documented hazard into a recoverable one for the price of a
+    file copy.
+
+    The SQLite backup API rather than `shutil.copy`, because the file is in WAL
+    mode: a plain copy can miss whatever is still in `-wal`.
+    """
+    if not os.path.exists(_db_path) or os.path.getsize(_db_path) == 0:
+        return None
+    directory = os.path.join(os.path.dirname(_db_path) or ".", BACKUP_DIR_NAME)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    target = os.path.join(directory, f"roadmap-{stamp}.db")
+    try:
+        os.makedirs(directory, exist_ok=True)
+        source = sqlite3.connect(_db_path)
+        destination = sqlite3.connect(target)
+        with source, destination:
+            source.backup(destination)
+        destination.close()
+        source.close()
+        prune_backups(directory)
+        return target
+    except (sqlite3.Error, OSError):
+        # A backup that cannot be written is not a reason to refuse to start --
+        # a read-only volume would otherwise take the whole app down.
+        return None
+
+
+def prune_backups(directory, keep=BACKUP_KEEP):
+    """Keep the newest `keep` startup backups and delete the rest."""
+    try:
+        existing = sorted(name for name in os.listdir(directory)
+                          if name.startswith("roadmap-") and name.endswith(".db"))
+    except OSError:
+        return
+    # Named by timestamp, so alphabetical order is oldest first.
+    for name in existing[:-keep] if keep else existing:
+        try:
+            os.remove(os.path.join(directory, name))
+        except OSError:
+            pass
+
+
 def init_db():
+    backup_before_migrate()
     with connect() as connection:
         connection.executescript(SCHEMA)
         connection.execute("INSERT OR IGNORE INTO settings (id) VALUES (1)")

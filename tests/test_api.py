@@ -2687,6 +2687,47 @@ def test_pushing_a_tick_into_files_announces_each_one(client, sprints):
         assert all(one["scope"] == "sprint" for one in announced)
 
 
+# --- the startup backup -------------------------------------------------------
+
+
+def test_a_start_copies_the_dataset_aside_before_migrating(client, tmp_path):
+    make_project(client, name="Worth keeping")
+    main.db.init_db()
+
+    backups = sorted((tmp_path / "backups").glob("roadmap-*.db"))
+    assert len(backups) == 1
+    kept = sqlite3.connect(backups[0])
+    assert kept.execute("SELECT name FROM project").fetchone()[0] == "Worth keeping"
+    kept.close()
+
+
+def test_only_the_last_few_backups_are_kept(client, tmp_path):
+    directory = tmp_path / "backups"
+    directory.mkdir()
+    for index in range(db.BACKUP_KEEP + 5):
+        (directory / f"roadmap-2026010{index:02d}-000000.db").write_text("x")
+
+    db.prune_backups(str(directory))
+    assert len(list(directory.glob("roadmap-*.db"))) == db.BACKUP_KEEP
+
+
+def test_a_backup_that_cannot_be_written_does_not_stop_the_app(client, tmp_path, monkeypatch):
+    real_makedirs = db.os.makedirs
+
+    def refuse_the_backup_directory(path, **kwargs):
+        # Only the backup directory: `connect` makes the data directory through
+        # this same call, and failing that would test something else.
+        if str(path).endswith(db.BACKUP_DIR_NAME):
+            raise OSError("read-only volume")
+        return real_makedirs(path, **kwargs)
+
+    monkeypatch.setattr(db.os, "makedirs", refuse_the_backup_directory)
+    assert db.backup_before_migrate() is None
+    # And the app still starts.
+    db.init_db()
+    assert client.get("/api/projects").status_code == 200
+
+
 # --- presence -----------------------------------------------------------------
 
 # Who is where, drawn as a badge on the cell they are in. Advisory: it informs,
