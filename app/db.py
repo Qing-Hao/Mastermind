@@ -218,6 +218,11 @@ STAGES = ("idea", "planned", "active", "done")
 # 0 is "untiered", not a fourth tier -- see the column comment.
 TIERS = (0, 1, 2, 3)
 
+# How long a writer waits for another writer's lock before giving up. Named
+# rather than left to `sqlite3.connect`'s own five-second default, because that
+# default is invisible at the call site and this is now a decision.
+BUSY_TIMEOUT_MS = 5000
+
 _db_path = DEFAULT_DB_PATH
 
 
@@ -233,6 +238,15 @@ def connect():
         os.makedirs(directory, exist_ok=True)
     connection = sqlite3.connect(_db_path)
     connection.row_factory = sqlite3.Row
+    # A reader no longer blocks behind a writer, and a writer no longer fails
+    # outright while another holds the lock -- it waits. `journal_mode` is a
+    # property of the file and persists, so re-asserting it costs nothing after
+    # the first connection; `busy_timeout` is per connection and must be set
+    # every time. WAL leaves `-wal` and `-shm` beside the file, and does not
+    # work over a network share -- keep `data/` on a local disk or a container
+    # volume, never a mapped drive.
+    connection.execute("PRAGMA journal_mode = WAL")
+    connection.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
     connection.execute("PRAGMA foreign_keys = ON")
     return connection
 

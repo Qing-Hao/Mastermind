@@ -2,6 +2,9 @@
 
 import os
 import re
+import sqlite3
+import threading
+import time
 from datetime import date, timedelta
 
 import pytest
@@ -2126,6 +2129,62 @@ def test_an_edited_grid_comes_back_as_aligned_markdown(client):
 def test_an_empty_grid_is_rejected_rather_than_written_as_pipes(client):
     response = client.post("/api/sprints/table", json={"head": [], "align": [], "rows": []})
     assert response.status_code == 422
+
+
+# --- the connection ----------------------------------------------------------
+
+
+def test_connect_opens_the_file_in_wal_with_a_busy_timeout(tmp_path):
+    db.set_db_path(str(tmp_path / "pragmas.db"))
+    try:
+        db.init_db()
+        with db.connect() as connection:
+            assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+            assert (connection.execute("PRAGMA busy_timeout").fetchone()[0]
+                    == db.BUSY_TIMEOUT_MS)
+            # WAL must not have cost the cascade guard the rebuild depends on.
+            assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    finally:
+        db.set_db_path(db.DEFAULT_DB_PATH)
+
+
+def test_a_second_writer_waits_for_the_lock_rather_than_failing(tmp_path):
+    """Without the busy timeout this is `database is locked` and a lost save."""
+    db.set_db_path(str(tmp_path / "contended.db"))
+    try:
+        db.init_db()
+        holder = db.connect()
+        holder.execute("BEGIN IMMEDIATE")
+        holder.execute("UPDATE settings SET sprint_length_days = 14 WHERE id = 1")
+
+        outcome = {}
+
+        def second_writer():
+            connection = db.connect()
+            try:
+                connection.execute(
+                    "UPDATE settings SET sprint_length_days = 21 WHERE id = 1")
+                connection.commit()
+                outcome["result"] = "committed"
+            except sqlite3.OperationalError as error:
+                outcome["result"] = str(error)
+            finally:
+                connection.close()
+
+        thread = threading.Thread(target=second_writer)
+        thread.start()
+        time.sleep(0.3)  # well inside the timeout, so the wait has to succeed
+        holder.commit()
+        holder.close()
+        thread.join(timeout=db.BUSY_TIMEOUT_MS / 1000 + 5)
+
+        assert outcome["result"] == "committed"
+        with db.connect() as connection:
+            assert connection.execute(
+                "SELECT sprint_length_days FROM settings WHERE id = 1"
+            ).fetchone()[0] == 21
+    finally:
+        db.set_db_path(db.DEFAULT_DB_PATH)
 
 
 # --- migrating an existing file ---------------------------------------------
