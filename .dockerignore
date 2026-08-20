@@ -1,0 +1,18 @@
+# The image copies app/, templates/ and scripts/ explicitly, but the build
+# context is still sent to the daemon -- and `data/` and `sprints/` are the two
+# directories that must never be baked into an image. They are mounted.
+data/
+sprints/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.git/
+.design/
+.claude/
+.env
+*.db
+*.bak
+STATUS.md
+STATUS.md.bak-*
+PLAN-*.md

@@ -1,0 +1,67 @@
+# Mastermind for a team: one service, one worker, three things that must outlive
+# the container.
+#
+# Read `.env.example` first -- the three secrets live there, never in the
+# database, because `/api/export` writes the settings row to JSON.
+
+services:
+  mastermind:
+    build: .
+    image: mastermind:local
+    container_name: mastermind
+    restart: unless-stopped
+
+    ports:
+      # **Published to loopback until sign-in is armed.** The container binds
+      # 0.0.0.0 inside, which is the moment "localhost only" ends; this line is
+      # what decides who can reach it. With the gate off, anyone who can reach
+      # this port can read the whole roadmap and `POST /api/import` over it --
+      # that route is destructive by design.
+      #
+      # Once `/auth/settings` says "On", change this to `"8000:8000"` to let the
+      # office in.
+      - "127.0.0.1:8000:8000"
+
+    environment:
+      # Sign-in configuration lives in the database and is edited at
+      # /auth/settings. Only the secrets are here.
+      #
+      # The client secret from Keycloak. Without it the app cannot complete a
+      # code exchange, and the Sign-in page will say so.
+      MASTERMIND_OIDC_SECRET: ${MASTERMIND_OIDC_SECRET:-}
+      # Signs the session cookie. Unset is not fatal, it is forgetful: a
+      # per-process key is generated and every restart signs everybody out.
+      MASTERMIND_SESSION_KEY: ${MASTERMIND_SESSION_KEY:-}
+      # The way back in when the realm is down, the secret was rotated, or the
+      # client was deleted: set this to `off`, `docker compose up -d`, repair it
+      # at /auth/settings, then unset it. Nothing else can rescue a gate whose
+      # provider is unreachable.
+      MASTERMIND_SSO: ${MASTERMIND_SSO:-}
+      # This container binds a non-loopback interface, so the Sign-in page loses
+      # its own exemption from the gate: with sign-in armed you must be signed in
+      # to reach it. That exemption is only sound on loopback, where anyone who
+      # can reach the port can read the database file anyway.
+      MASTERMIND_PUBLIC: "1"
+      # Keycloak compares the redirect URI character for character. Set this to
+      # the URL the browser actually uses -- behind a proxy, or on a host name,
+      # the one derived from the request will not match what is registered.
+      MASTERMIND_OIDC_REDIRECT_URI: ${MASTERMIND_OIDC_REDIRECT_URI:-}
+
+    volumes:
+      # The dataset, and the startup backups beside it. Irreplaceable.
+      - ./data:/app/data
+      # The real record of work done -- one markdown file per fortnight, and
+      # there is no sprint table anywhere.
+      - ./sprints:/app/sprints
+      # Editable from the Sprint tab **and** tracked by git. Without this mount
+      # an `Edit template` save vanishes on the next rebuild.
+      - ./templates/sprint.md:/app/templates/sprint.md
+
+    # On Linux, a bind mount keeps the host's ownership, and the image runs as
+    # uid 10001. Either `sudo chown -R 10001:10001 data sprints`, or uncomment
+    # this and pass your own ids. On Docker Desktop neither is needed.
+    # user: "${MASTERMIND_UID:-10001}:${MASTERMIND_GID:-10001}"
+
+    # **Do not add `--workers`.** The connection registry is process memory: a
+    # second worker announces writes to half the open pages and draws presence
+    # for the other half. The CMD in the Dockerfile is single-worker already.
