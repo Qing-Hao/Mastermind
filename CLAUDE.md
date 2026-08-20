@@ -54,6 +54,11 @@ node scripts\css_check.js            # frontend: the [hidden] trap, dead tokens,
 .\.venv\Scripts\python.exe scripts\sprint_review.py --history 3
 ```
 
+> **Run it with one worker.** `/ws` keeps its connection registry in process
+> memory, so a second worker would announce a write to half the open pages and
+> leave the rest silently stale. The command above is single-worker already; the
+> point is not to add `--workers` to it.
+
 > **`--reload` runs `init_db()` — and therefore `db.migrate()` — against
 > `data/roadmap.db` every time a source file is saved.** A half-finished edit is
 > executed the moment it hits disk; it does not need to be run deliberately, or
