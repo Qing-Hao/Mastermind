@@ -6,6 +6,7 @@ The only rule enforced at write time is V3 (dependency cycles), which returns
 """
 
 import asyncio
+import json
 import os
 import re
 import tempfile
@@ -107,13 +108,38 @@ app = FastAPI(title="Mastermind", lifespan=lifespan)
 # repairs it.
 LIVE_QUEUE_LIMIT = 64
 
-live_clients: set[asyncio.Queue] = set()
+class LiveClient:
+    """One open page: its queue, who is at it, and where they are looking.
+
+    `place` is the whole of presence -- a view, the project or sprint file inside
+    it, and the field the caret is in. It is held here and nowhere else: no row,
+    no column, no file. Closing the tab forgets it.
+    """
+
+    def __init__(self, name):
+        self.queue: asyncio.Queue = asyncio.Queue(maxsize=LIVE_QUEUE_LIMIT)
+        self.name = name
+        self.place = {"view": "", "key": None, "field": ""}
+
+    def presence(self, connection_id):
+        return {"id": connection_id, "name": self.name, **self.place}
+
+
+live_clients: dict[int, LiveClient] = {}
 live_loop: asyncio.AbstractEventLoop | None = None
+# Connection ids, not people. Two tabs of one browser are two of these, which is
+# what lets presence say "you, in the other window" rather than merging them.
+next_connection_id = 0
+# What a page is called before Keycloak has an opinion -- with the gate off there
+# is no name to be had, and a typed one would be a self-asserted label, which
+# PLAN-multi-user.md B1 rejected.
+guest_count = 0
 
 
 def _fan_out(message):
     """Put one message on every open socket's queue. Runs on the loop thread."""
-    for queue in list(live_clients):
+    for client in list(live_clients.values()):
+        queue = client.queue
         try:
             queue.put_nowait(message)
         except asyncio.QueueFull:
@@ -164,34 +190,94 @@ def announce_sprint(key, mtime=None, splice=None):
     announce(message)
 
 
-async def _await_close(socket):
-    """Await the client's close. Nothing is sent *up* this socket today.
+def presence_roll():
+    """Everyone currently connected, and where each of them is looking."""
+    return [client.presence(connection_id)
+            for connection_id, client in live_clients.items()]
 
-    Without this the endpoint would sit on `queue.get()` and only learn the page
-    had gone at the next write -- so a closed tab would hold a registry slot for
-    as long as the room stayed quiet.
+
+def announce_presence():
+    """Redraw everybody's badges. Sent whenever the roll or anyone's place moves."""
+    announce({"type": "presence", "users": presence_roll()})
+
+
+def live_name(socket):
+    """Who this socket belongs to: the Keycloak claim, or a guest number.
+
+    Nothing is stored about either. With the gate off there is no name to be had,
+    and a typed one would be exactly the self-asserted label B1 rejected -- so the
+    badge is honest about being anonymous instead of pretending otherwise.
+    """
+    global guest_count
+    _, armed, _ = gate_state()
+    if armed:
+        session = auth.unseal(socket.cookies.get(auth.SESSION_COOKIE, ""),
+                              auth.session_key())
+        if session and session.get("name"):
+            return session["name"]
+    guest_count += 1
+    return f"guest-{guest_count}"
+
+
+async def _listen(socket, client):
+    """Take `here` messages until the page goes away.
+
+    The only thing a page says upward. It carries where the caret is, which is
+    what the other pages draw -- see `applyPresence` in `app.js`.
     """
     while True:
-        if (await socket.receive())["type"] == "websocket.disconnect":
+        event = await socket.receive()
+        if event["type"] == "websocket.disconnect":
             return
+        text = event.get("text")
+        if not text:
+            continue
+        try:
+            message = json.loads(text)
+        except ValueError:
+            continue
+        if message.get("type") != "here":
+            continue
+        place = {
+            "view": str(message.get("view", ""))[:40],
+            # A project id or a sprint file key. Left as it arrives, because a
+            # sprint key is the string `template` as often as it is a number.
+            "key": message.get("key"),
+            # The cell the caret is in, e.g. `phase:12:duration_weeks`. Bounded
+            # because it is echoed to every other page.
+            "field": str(message.get("field", ""))[:80],
+        }
+        if place != client.place:
+            client.place = place
+            announce_presence()
 
 
 @app.websocket("/ws")
 async def live_updates(socket: WebSocket):
-    """One socket per open page. Server talks, client listens.
+    """One socket per open page: writes are announced down it, presence both ways.
 
-    Deliberately carries no identity: who is where is presence, and presence
-    waits on a name that cannot be typed. See PLAN-multi-user.md B1.
+    Presence is **advisory and never a lease**. Nothing here reserves anything and
+    no write is refused because of who holds what -- the only refusal on a row is
+    the stale-expectation 409, which is about the data having moved rather than
+    whose turn it is. See PLAN-multi-user.md B6.
     """
+    global next_connection_id
     await socket.accept()
-    queue: asyncio.Queue = asyncio.Queue(maxsize=LIVE_QUEUE_LIMIT)
-    live_clients.add(queue)
+    next_connection_id += 1
+    connection_id = next_connection_id
+    client = LiveClient(live_name(socket))
+    live_clients[connection_id] = client
+    # Tell this page who it is, so a badge can say "you" rather than drawing you
+    # as a stranger in your own other window.
+    await socket.send_json({"type": "welcome", "id": connection_id, "name": client.name})
+    announce_presence()
 
     async def pump():
         while True:
-            await socket.send_json(await queue.get())
+            await socket.send_json(await client.queue.get())
 
-    tasks = {asyncio.create_task(pump()), asyncio.create_task(_await_close(socket))}
+    tasks = {asyncio.create_task(pump()),
+             asyncio.create_task(_listen(socket, client))}
     try:
         done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
         for task in pending:
@@ -201,7 +287,10 @@ async def live_updates(socket: WebSocket):
     except Exception:
         pass
     finally:
-        live_clients.discard(queue)
+        live_clients.pop(connection_id, None)
+        # A close is an event, which is the reason this is a socket and not a
+        # poll: the badge goes when the tab does, not when a window expires.
+        announce_presence()
 
 
 # --- the sign-in gate --------------------------------------------------------

@@ -2497,13 +2497,28 @@ def wait_for_clients(count, timeout=2.0):
     return len(main.live_clients) == count
 
 
+def next_change(socket, timeout=2.0):
+    """The next *write* announcement, stepping over presence traffic.
+
+    A socket carries two conversations: what changed, and who is where. These
+    tests are about the first, and a page's own `welcome` plus the presence roll
+    that follows every connect and disconnect would otherwise arrive first.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        message = socket.receive_json()
+        if message.get("type") == "changed":
+            return message
+    raise AssertionError("no write was announced")
+
+
 def test_a_row_write_is_announced_to_every_open_page(client):
     project = make_project(client)
     with client.websocket_connect("/ws") as one, client.websocket_connect("/ws") as two:
         assert wait_for_clients(2)
         client.put(f"/api/projects/{project['id']}", json={"name": "Renamed"})
         for socket in (one, two):
-            assert socket.receive_json() == {"type": "changed", "scope": "roadmap"}
+            assert next_change(socket) == {"type": "changed", "scope": "roadmap"}
 
 
 def test_a_read_announces_nothing(client):
@@ -2514,7 +2529,7 @@ def test_a_read_announces_nothing(client):
         client.get(f"/api/projects/{project['id']}")
         client.get("/api/portfolio")
         client.put(f"/api/projects/{project['id']}", json={"name": "Renamed"})
-        assert socket.receive_json()["scope"] == "roadmap"
+        assert next_change(socket)["scope"] == "roadmap"
 
 
 def test_laying_out_a_project_announces_once_for_the_batch(client):
@@ -2524,10 +2539,10 @@ def test_laying_out_a_project_announces_once_for_the_batch(client):
     with client.websocket_connect("/ws") as socket:
         assert wait_for_clients(1)
         client.post(f"/api/projects/{project['id']}/layout")
-        assert socket.receive_json()["scope"] == "roadmap"
+        assert next_change(socket)["scope"] == "roadmap"
         # If the batch had announced per phase, this would be the second of two.
         client.delete(f"/api/projects/{project['id']}")
-        assert socket.receive_json()["scope"] == "roadmap"
+        assert next_change(socket)["scope"] == "roadmap"
 
 
 def test_a_sprint_save_is_announced_with_the_new_mtime(client, sprints):
@@ -2540,7 +2555,7 @@ def test_a_sprint_save_is_announced_with_the_new_mtime(client, sprints):
                            json={"text": SPRINT_FILE + "\nmore\n",
                                  "mtime": payload["mtime"]})
         assert saved.status_code == 200, saved.text
-        assert socket.receive_json() == {
+        assert next_change(socket) == {
             "type": "changed", "scope": "sprint", "key": 3,
             "mtime": saved.json()["mtime"],
         }
@@ -2555,7 +2570,7 @@ def test_a_refused_sprint_save_announces_nothing(client, sprints):
         assert stale.status_code == 409
         # Nothing was written, so the next message is the one that follows it.
         client.put("/api/settings", json={"sprint_length_days": 14})
-        assert socket.receive_json()["scope"] == "roadmap"
+        assert next_change(socket)["scope"] == "roadmap"
 
 
 def test_a_splice_is_announced_with_the_new_mtime(client, splice_file):
@@ -2565,7 +2580,7 @@ def test_a_splice_is_announced_with_the_new_mtime(client, splice_file):
         assert wait_for_clients(1)
         spliced = client.patch("/api/sprints/1/blocks", json=tick())
         assert spliced.status_code == 200, spliced.text
-        announced = socket.receive_json()
+        announced = next_change(socket)
         assert {key: announced[key] for key in ("type", "scope", "key", "mtime")} == {
             "type": "changed", "scope": "sprint", "key": 1,
             "mtime": spliced.json()["mtime"],
@@ -2580,7 +2595,7 @@ def test_the_announcement_carries_what_the_splice_did(client, splice_file):
     with client.websocket_connect("/ws") as socket:
         assert wait_for_clients(1)
         client.patch("/api/sprints/1/blocks", json=tick())
-        splice = socket.receive_json()["splice"]
+        splice = next_change(socket)["splice"]
 
     assert splice["at"] == 2
     assert splice["expect"] == ["- [ ] Token refresh on the auth API"]
@@ -2595,7 +2610,7 @@ def test_an_insert_announces_the_blocks_it_added_and_no_expectation(client, spli
         assert wait_for_clients(1)
         client.patch("/api/sprints/1/blocks", json={
             "at": 1, "expect": [], "blocks": [{"raw": "## 0. Notes"}]})
-        splice = socket.receive_json()["splice"]
+        splice = next_change(socket)["splice"]
 
     assert splice == {
         "at": 1, "expect": [],
@@ -2609,7 +2624,7 @@ def test_a_delete_announces_an_expectation_and_no_blocks(client, splice_file):
         assert wait_for_clients(1)
         client.patch("/api/sprints/1/blocks", json={
             "at": 2, "expect": ["- [ ] Token refresh on the auth API"], "blocks": []})
-        splice = socket.receive_json()["splice"]
+        splice = next_change(socket)["splice"]
 
     assert splice["blocks"] == []
     assert splice["expect"] == ["- [ ] Token refresh on the auth API"]
@@ -2621,7 +2636,7 @@ def test_a_whole_file_save_announces_no_splice(client, splice_file):
     with client.websocket_connect("/ws") as socket:
         assert wait_for_clients(1)
         client.put("/api/sprints/1", json={"text": "# Sprint 1\n", "mtime": payload["mtime"]})
-        assert "splice" not in socket.receive_json()
+        assert "splice" not in next_change(socket)
 
 
 def test_a_refused_splice_announces_nothing(client, splice_file):
@@ -2632,7 +2647,7 @@ def test_a_refused_splice_announces_nothing(client, splice_file):
         assert refused.status_code == 409
         # Nothing was written, so the next message is the one that follows it.
         client.put("/api/settings", json={"sprint_length_days": 14})
-        assert socket.receive_json()["scope"] == "roadmap"
+        assert next_change(socket)["scope"] == "roadmap"
 
 
 def test_a_template_splice_announces_under_the_template_key(client, template):
@@ -2641,7 +2656,7 @@ def test_a_template_splice_announces_under_the_template_key(client, template):
         spliced = client.patch("/api/template/blocks", json={
             "at": 2, "expect": ["**Sprint Goal:**"], "blocks": [{"raw": "**Goal:**"}]})
         assert spliced.status_code == 200, spliced.text
-        assert socket.receive_json()["key"] == "template"
+        assert next_change(socket)["key"] == "template"
 
 
 def test_a_template_save_announces_under_the_template_key(client, template):
@@ -2651,7 +2666,7 @@ def test_a_template_save_announces_under_the_template_key(client, template):
         saved = client.put("/api/template",
                            json={"text": TEMPLATE_FILE, "mtime": payload["mtime"]})
         assert saved.status_code == 200, saved.text
-        assert socket.receive_json()["key"] == "template"
+        assert next_change(socket)["key"] == "template"
 
 
 def test_pushing_a_tick_into_files_announces_each_one(client, sprints):
@@ -2667,9 +2682,89 @@ def test_pushing_a_tick_into_files_announces_each_one(client, sprints):
         response = client.post("/api/sprints/marks",
                                json={"deliverable_id": deliverable["id"], "done": True})
         assert len(response.json()["files"]) == 2
-        announced = [socket.receive_json() for _ in range(2)]
+        announced = [next_change(socket) for _ in range(2)]
         assert [one["key"] for one in announced] == [3, 4]
         assert all(one["scope"] == "sprint" for one in announced)
+
+
+# --- presence -----------------------------------------------------------------
+
+# Who is where, drawn as a badge on the cell they are in. Advisory: it informs,
+# it never refuses. The only refusal on a row is the stale-expectation 409, which
+# is about the data having moved rather than whose turn it is.
+
+
+def next_presence(socket, timeout=2.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        message = socket.receive_json()
+        if message.get("type") == "presence":
+            return message["users"]
+    raise AssertionError("no presence was announced")
+
+
+def test_a_page_is_told_who_it_is_and_who_else_is_here(client):
+    with client.websocket_connect("/ws") as one:
+        welcome = one.receive_json()
+        assert welcome["type"] == "welcome"
+        # With the gate off there is no name to be had, and a typed one would be
+        # the self-asserted label B1 rejected. So: honestly anonymous.
+        assert welcome["name"].startswith("guest-")
+        assert next_presence(one) == [
+            {"id": welcome["id"], "name": welcome["name"],
+             "view": "", "key": None, "field": ""}]
+
+        with client.websocket_connect("/ws") as two:
+            two.receive_json()
+            assert len(next_presence(one)) == 2
+        # A close is an event: the badge goes when the tab does.
+        assert len(next_presence(one)) == 1
+
+
+def test_a_page_says_where_its_caret_is_and_everyone_is_told(client):
+    with client.websocket_connect("/ws") as one, client.websocket_connect("/ws") as two:
+        one.receive_json()
+        two.receive_json()
+        two.send_json({"type": "here", "view": "project", "key": 4,
+                       "field": "phase:12:duration_weeks"})
+
+        roll = next_presence(one)
+        while len(roll) != 2 or not any(user["field"] for user in roll):
+            roll = next_presence(one)
+        held = [user for user in roll if user["field"]][0]
+        assert held["field"] == "phase:12:duration_weeks"
+        assert held["view"] == "project"
+        assert held["key"] == 4
+
+
+def test_presence_never_refuses_a_write(client):
+    """B6: the badge informs. Two pages in one cell both write, and both land."""
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Build", "2026-01-05", 2, 20)
+    with client.websocket_connect("/ws") as socket:
+        socket.receive_json()
+        socket.send_json({"type": "here", "view": "project", "key": project["id"],
+                          "field": f"phase:{phase['id']}:duration_weeks"})
+        time.sleep(0.05)
+        # Somebody else writes the very cell that socket is sitting in.
+        assert client.put(f"/api/phases/{phase['id']}",
+                          json={"duration_weeks": 3}).status_code == 200
+
+
+def test_the_name_comes_from_keycloak_once_the_gate_is_armed(client, realm):
+    sign_in(client, realm, arm=True)
+    with client.websocket_connect("/ws") as socket:
+        assert socket.receive_json()["name"] == "qinghao"
+
+
+def test_a_page_that_talks_nonsense_is_ignored_rather_than_dropped(client):
+    with client.websocket_connect("/ws") as socket:
+        socket.receive_json()
+        socket.send_text("not json at all")
+        socket.send_json({"type": "something-else"})
+        socket.send_json({"type": "here", "view": "map", "key": None, "field": ""})
+        # Still connected, still answering.
+        assert wait_for_clients(1)
 
 
 def test_a_write_lands_with_nobody_listening(client):
