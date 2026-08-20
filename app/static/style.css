@@ -303,6 +303,33 @@
 }
 .stage-badge[hidden] { display: none; }
 
+/* Drawn only while the live connection is gone, so it has to read as a state of
+   the app rather than as another readout: warm, quiet, and no bigger than the
+   stage badge beside it. Chrome, not data -- there is no value behind the
+   colour. */
+.live-down {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: 8px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: #fff4ed;
+  color: #9a3412;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.live-down::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+/* Load-bearing: the rule above sets `display`, which outranks the UA sheet's
+   `[hidden]`. Without this the badge never goes away. */
+.live-down[hidden] { display: none; }
+
 /* --- the ⋯ menu ----------------------------------------------------------
    Rename, the global settings and Delete: everything about the open project you
    touch rarely, and the one thing that must not be a click away from `New

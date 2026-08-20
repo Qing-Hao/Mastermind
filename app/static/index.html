@@ -101,6 +101,12 @@
       <div id="project-meta" class="topbar-meta" hidden></div>
     </div>
     <span class="spacer"></span>
+    <!-- Drawn only while the live connection is gone. Nothing marks it working:
+         a page that is up to date is the normal case and says nothing about
+         itself. Sits outside `topbar-actions` so it shows on all four tabs. -->
+    <span id="live-down" class="live-down"
+          title="Not receiving other people's changes. Reconnecting — what you see may be out of date."
+          hidden>offline</span>
     <div id="topbar-actions" class="topbar-actions" hidden>
       <button id="layout-phases"
               title="Give every undated phase a date, back to back from the project start">

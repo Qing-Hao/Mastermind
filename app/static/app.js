@@ -270,6 +270,14 @@ let state = {
   // load for the same reason: the picker offers across projects, and the open
   // project is not the whole roadmap.
   allDeliverables: [],
+  // The socket that says somebody else wrote something. `opened` is what tells a
+  // reconnect from the first connect: coming back means messages were missed, so
+  // the view is reloaded whole; connecting for the first time does not, because
+  // the page has only just read everything.
+  live: {
+    socket: null, opened: false, down: false, attempt: 0,
+    pending: false, loading: false, watching: null,
+  },
 };
 
 // --- api --------------------------------------------------------------------
@@ -6966,6 +6974,154 @@ function bindEvents() {
   };
 }
 
+// --- live invalidation ------------------------------------------------------
+
+// One socket per open page, and the server talks down it when somebody else's
+// write lands. Nothing is diffed and nothing is patched: the message says the
+// roadmap moved, and the tab makes the same read it already makes after its own
+// edits. What arrives is a **hint** -- the server is the record, so a page that
+// misses one is repaired by the reload its reconnect does.
+//
+// Nothing here carries identity. Who is where is presence, and presence waits on
+// a name that cannot be typed -- see PLAN-multi-user.md B1.
+
+const LIVE_BACKOFF_MS = 1000;
+const LIVE_BACKOFF_CAP_MS = 30000;
+
+function connectLive() {
+  const scheme = location.protocol === "https:" ? "wss" : "ws";
+  let socket;
+  try {
+    socket = new WebSocket(`${scheme}://${location.host}/ws`);
+  } catch (_) {
+    scheduleLiveReconnect();
+    return;
+  }
+  state.live.socket = socket;
+
+  socket.onopen = () => {
+    state.live.attempt = 0;
+    markLiveDown(false);
+    // Messages were missed while it was down, and there is no replay: the only
+    // sound answer is to read everything again. Not on the first connect --
+    // the page has just loaded, so it is already current.
+    if (state.live.opened) liveRefresh();
+    state.live.opened = true;
+  };
+
+  socket.onmessage = (event) => {
+    let message;
+    try {
+      message = JSON.parse(event.data);
+    } catch (_) {
+      return;  // a message this page cannot read is not a reason to stop listening
+    }
+    handleLiveMessage(message);
+  };
+
+  // `onerror` fires before `onclose` on a failed connect, so the reconnect is
+  // scheduled from `onclose` alone -- both would double the attempts.
+  socket.onclose = () => {
+    state.live.socket = null;
+    markLiveDown(true);
+    scheduleLiveReconnect();
+  };
+}
+
+function scheduleLiveReconnect() {
+  const attempt = state.live.attempt;
+  state.live.attempt += 1;
+  // Exponential with a cap and a little jitter: a closed laptop lid must come
+  // back on its own, and a server restart must not have every open page knocking
+  // in step.
+  const wait = Math.min(LIVE_BACKOFF_CAP_MS, LIVE_BACKOFF_MS * 2 ** attempt);
+  setTimeout(connectLive, wait + Math.random() * 250);
+}
+
+function handleLiveMessage(message) {
+  if (message.type !== "changed") return;
+  if (message.scope === "sprint") {
+    // Your own save comes back to you, and the mtime is how this page knows: it
+    // is already holding the value the file now has. Ignoring it is what stops a
+    // save reloading over the typing that followed it.
+    if (message.mtime && message.mtime === state.sprint.mtime) return;
+    // The open document is not touched here -- only the listing, which is what
+    // a new file on disk changes.
+    if (state.view === "sprint") liveRefresh();
+    return;
+  }
+  // A write is a new edition of the roadmap whoever made it, so the caches keyed
+  // by the counter re-ask exactly as they do after an edit of your own.
+  state.roadmapRevision += 1;
+  liveRefresh();
+}
+
+// A refresh must never eat what is being typed. `loadPlan()` rebuilds the phase
+// table, and Chrome fires `blur` on a focused element that gets removed -- which
+// is the handler that *saves the field*. So an unguarded live refresh does not
+// merely interrupt: it can save a half-typed value or throw it away. Hold it
+// while something in the open view has focus, and run it on blur.
+const LIVE_EDITABLE = "input, textarea, select, [contenteditable='true']";
+
+function editableWithFocus() {
+  const active = document.activeElement;
+  if (!active || typeof active.closest !== "function") return null;
+  if (!active.matches(LIVE_EDITABLE)) return null;
+  return active.closest("#workspace, #portfolio-view, #map-view, #sprint-view");
+}
+
+function liveRefresh() {
+  if (editableWithFocus()) {
+    state.live.pending = true;
+    watchForBlur();
+    return;
+  }
+  // One read at a time. A burst of edits from two other people is one reload,
+  // and the last one wins rather than three overlapping loads racing to render.
+  if (state.live.loading) {
+    state.live.pending = true;
+    return;
+  }
+  state.live.pending = false;
+  state.live.loading = true;
+  reloadCurrentView().finally(() => {
+    state.live.loading = false;
+    if (state.live.pending) liveRefresh();
+  });
+}
+
+function watchForBlur() {
+  const active = document.activeElement;
+  if (state.live.watching === active) return;
+  state.live.watching = active;
+  active.addEventListener("blur", () => {
+    state.live.watching = null;
+    if (state.live.pending) liveRefresh();
+  }, { once: true });
+}
+
+async function reloadCurrentView() {
+  try {
+    if (state.view === "portfolio") await loadPortfolio();
+    else if (state.view === "map") await loadGraph();
+    else if (state.view === "sprint") await loadSprints();
+    else if (state.projects.length) await loadPlan();
+    else await loadProjects();  // the first project somebody else created
+    renderTopbar();
+  } catch (_) {
+    // A failed read is not worth a toast: it was not asked for, and the next
+    // message -- or the reconnect -- comes back to it.
+  }
+}
+
+// Drawn only when it is broken. Silence when it is working is the whole point of
+// it working; silence when it is not is exactly when you want to be told.
+function markLiveDown(down) {
+  state.live.down = down;
+  const badge = $("live-down");
+  if (badge) badge.hidden = !down;
+}
+
 // Column width is measured from the container, so a resized window has to
 // redraw to stay fitted. Debounced because dragging a window edge fires this
 // continuously and every render rebuilds a whole chart.
@@ -6982,3 +7138,6 @@ bindEvents();
 applySidebar(sidebarCollapsed());
 restoreSession();
 loadProjects();
+// After the first read, not before: the socket's job is to say what changed
+// *since*, and its own first open deliberately reloads nothing.
+connectLive();
