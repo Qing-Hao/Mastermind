@@ -18,7 +18,13 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app import db
-from app.markdown import document_blocks, serialise_table, split_blocks
+from app.markdown import (
+    SpliceRefused,
+    document_blocks,
+    serialise_table,
+    splice_blocks,
+    split_blocks,
+)
 from app.validation import (
     FORTNIGHT_DAYS,
     STAGE_DONE,
@@ -328,6 +334,22 @@ class SprintTable(BaseModel):
     head: list[str] = []
     align: list[str] = []
     rows: list[list[str]] = []
+
+
+class BlockIn(BaseModel):
+    # One replacement block. `gap` stays None when the caller names nothing, and
+    # the server supplies the separator -- see `splice_blocks`.
+    raw: str
+    gap: str | None = None
+
+
+class BlockSplice(BaseModel):
+    # Replace a contiguous run of blocks with another. `expect` is the raw text
+    # of the run as the caller believes it stands: empty inserts at `at`, and an
+    # empty `blocks` deletes the run.
+    at: int
+    expect: list[str] = []
+    blocks: list[BlockIn] = []
 
 
 # --- helpers ----------------------------------------------------------------
@@ -1560,6 +1582,81 @@ def save_sprint(number: int, body: SprintSave):
     return {"mtime": mtime}
 
 
+# --- block-addressed writes --------------------------------------------------
+#
+# A second, finer door onto the same bytes: a write names one run of blocks
+# instead of the whole document. It changes no storage -- the markdown file is
+# still the one record -- and it replaces nothing: `PUT` above stays exactly as
+# it is, because the raw editor writes whole files and so do you, by hand.
+#
+# What it buys is that two people editing different parts of one fortnight stop
+# being a conflict. The block is the unit of refusal, not the end of refusal:
+# two people in the *same* block still ends in a 409.
+
+# One try, one retry. Contention is a visible refusal sooner rather than a loop
+# that can churn and refuse anyway -- and a refusal here costs a reload, not work.
+SPLICE_ATTEMPTS = 2
+
+
+def splice_conflict(path, text, message):
+    """A 409 carrying what is on disk now. Merges nothing, repairs nothing."""
+    return HTTPException(
+        status_code=409,
+        detail={
+            "error": message,
+            "current": {
+                "text": text,
+                "mtime": os.path.getmtime(path),
+                "blocks": document_blocks(text),
+            },
+        },
+    )
+
+
+def apply_splice(path, body):
+    """Splice one run of blocks into a file, re-reading if it changed under us.
+
+    The caller never sends the whole document, so the wide half of the
+    read-modify-write window is already closed; what is left is this function's
+    own read-to-write gap. Guarded by re-reading and comparing the **text**
+    rather than the mtime -- two writes inside one clock tick can share an mtime,
+    and the file is 4KB. Re-matching after a re-read is safe because a moved
+    block is still found, so the other write's insert does not cost this one its
+    place. `write_sprint_file` is atomic, which is what makes the compare honest.
+
+    Deliberately not a lock: no `threading.Lock` keyed by path, which would make
+    one worker a requirement of writing as well as of `/ws`, and no
+    `fcntl`/`msvcrt` platform split.
+    """
+    for _ in range(SPLICE_ATTEMPTS):
+        text = read_sprint_file(path)
+        try:
+            spliced, at = splice_blocks(
+                text, body.at, body.expect, [block.model_dump() for block in body.blocks]
+            )
+        except SpliceRefused as refused:
+            raise splice_conflict(path, text, refused.detail)
+
+        if read_sprint_file(path) != text:
+            continue
+        write_sprint_file(path, spliced)
+        return {"mtime": os.path.getmtime(path), "at": at, "blocks": document_blocks(spliced)}
+
+    return_text = read_sprint_file(path)
+    raise splice_conflict(
+        path, return_text, f"{os.path.basename(path)} is being written to. Nothing was changed."
+    )
+
+
+@app.patch("/api/sprints/{number}/blocks")
+def splice_sprint(number: int, body: BlockSplice):
+    """Replace one run of blocks in a sprint file. The rest of the file is untouched."""
+    path = found_sprint(number)
+    result = apply_splice(path, body)
+    announce_sprint(number, result["mtime"])
+    return result
+
+
 # The one file the editor can open that is not a sprint: `templates/sprint.md`,
 # the thing every new sprint file is a copy of. Editing it changes what the
 # *next* `POST /api/sprints` writes and touches no file already on disk. Same two verbs as a sprint file, same
@@ -1618,6 +1715,15 @@ def save_template(body: SprintSave):
     mtime = os.path.getmtime(path)
     announce_sprint("template", mtime)
     return {"mtime": mtime}
+
+
+@app.patch("/api/template/blocks")
+def splice_template(body: BlockSplice):
+    """Replace one run of blocks in the template. Same operation as a sprint file's."""
+    path = found_template()
+    result = apply_splice(path, body)
+    announce_sprint("template", result["mtime"])
+    return result
 
 
 @app.get("/api/graph")

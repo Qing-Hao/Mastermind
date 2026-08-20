@@ -2131,6 +2131,180 @@ def test_an_empty_grid_is_rejected_rather_than_written_as_pipes(client):
     assert response.status_code == 422
 
 
+# --- block-addressed writes ---------------------------------------------------
+#
+# The same file, written one run of blocks at a time. Whole-file PUT is
+# untouched above; this is the finer door, and its only two outcomes are the
+# right block and a 409.
+
+SPLICE_FILE = """# Sprint 1 · 2026-08-03 → 2026-08-17
+
+## 1. Sprint Goal
+
+- [ ] Token refresh on the auth API
+"""
+
+
+@pytest.fixture
+def splice_file(sprints):
+    """One sprint file on disk, in the disposable directory."""
+    return write_sprint(sprints, "01.md", SPLICE_FILE)
+
+
+def file_text(path):
+    with open(path, encoding="utf-8", newline="") as handle:
+        return handle.read()
+
+
+def tick():
+    return {
+        "at": 2,
+        "expect": ["- [ ] Token refresh on the auth API"],
+        "blocks": [{"raw": "- [x] Token refresh on the auth API"}],
+    }
+
+
+def test_a_splice_writes_one_block_and_leaves_the_rest_of_the_file_alone(client, splice_file):
+    response = client.patch("/api/sprints/1/blocks", json=tick())
+    assert response.status_code == 200, response.text
+    assert file_text(splice_file) == SPLICE_FILE.replace("- [ ]", "- [x]")
+
+
+def test_the_reply_carries_the_new_mtime_the_index_and_the_whole_block_list(client, splice_file):
+    payload = client.patch("/api/sprints/1/blocks", json=tick()).json()
+    assert payload["mtime"] == os.path.getmtime(splice_file)
+    assert payload["at"] == 2
+    # The whole document, so the caller re-syncs without a second GET.
+    assert [block["raw"] for block in payload["blocks"]] == [
+        "# Sprint 1 · 2026-08-03 → 2026-08-17",
+        "## 1. Sprint Goal",
+        "- [x] Token refresh on the auth API",
+    ]
+
+
+def test_a_block_that_moved_is_still_written(client, splice_file):
+    """Someone inserted a section above. The write lands on the same block."""
+    client.patch("/api/sprints/1/blocks", json={
+        "at": 1, "expect": [], "blocks": [{"raw": "## 0. Notes"}]})
+    response = client.patch("/api/sprints/1/blocks", json=tick())
+    assert response.status_code == 200, response.text
+    # Asked for block 2, applied at 3.
+    assert response.json()["at"] == 3
+    assert "- [x] Token refresh on the auth API" in file_text(splice_file)
+    assert "## 0. Notes" in file_text(splice_file)
+
+
+def test_a_stale_expectation_is_a_409_carrying_the_file_as_it_stands(client, splice_file):
+    response = client.patch("/api/sprints/1/blocks", json={
+        "at": 2,
+        "expect": ["- [ ] Something nobody wrote"],
+        "blocks": [{"raw": "- [x] Something nobody wrote"}],
+    })
+    assert response.status_code == 409
+    current = response.json()["detail"]["current"]
+    assert current["text"] == SPLICE_FILE
+    assert current["mtime"] == os.path.getmtime(splice_file)
+    assert [block["raw"] for block in current["blocks"]][0].startswith("# Sprint 1")
+    # Refused, so nothing was written.
+    assert file_text(splice_file) == SPLICE_FILE
+
+
+def test_two_identical_blocks_are_refused_rather_than_guessed_at(client, splice_file):
+    with open(splice_file, "w", encoding="utf-8", newline="") as handle:
+        handle.write("- \n\n## Middle\n\n- \n")
+    response = client.patch("/api/sprints/1/blocks", json={
+        "at": 1, "expect": ["- "], "blocks": [{"raw": "- typed"}]})
+    assert response.status_code == 409
+    assert "guess" in response.json()["detail"]["error"]
+
+
+def test_an_insert_and_a_delete_are_the_same_operation(client, splice_file):
+    added = client.patch("/api/sprints/1/blocks", json={
+        "at": 3, "expect": [], "blocks": [{"raw": "## 2. What happened"}]})
+    assert added.status_code == 200, added.text
+    assert file_text(splice_file).endswith("## 2. What happened\n")
+
+    removed = client.patch("/api/sprints/1/blocks", json={
+        "at": 3, "expect": ["## 2. What happened"], "blocks": []})
+    assert removed.status_code == 200, removed.text
+    assert file_text(splice_file) == SPLICE_FILE
+
+
+def test_a_splice_against_a_sprint_that_is_not_on_disk_is_a_404(client, sprints):
+    sprints.mkdir(exist_ok=True)
+    assert client.patch("/api/sprints/7/blocks", json=tick()).status_code == 404
+
+
+def test_a_write_that_lands_mid_splice_is_re_read_and_both_survive(
+    client, splice_file, monkeypatch
+):
+    """The retry, forced: somebody else's write lands between this one's read and
+    its write. Ours is recomputed against the new text rather than clobbering it."""
+    real_read = main.read_sprint_file
+    reads = []
+
+    def read_and_meddle(path):
+        text = real_read(path)
+        reads.append(path)
+        if len(reads) == 1:
+            main.write_sprint_file(path, text.replace("## 1. Sprint Goal", "## 1. Goal"))
+        return text
+
+    monkeypatch.setattr(main, "read_sprint_file", read_and_meddle)
+    response = client.patch("/api/sprints/1/blocks", json=tick())
+    assert response.status_code == 200, response.text
+
+    text = file_text(splice_file)
+    assert "## 1. Goal" in text  # the other write survived
+    assert "- [x] Token refresh on the auth API" in text  # and so did this one
+
+
+def test_a_file_that_keeps_moving_is_refused_rather_than_retried_forever(
+    client, splice_file, monkeypatch
+):
+    """One retry. Contention becomes a visible refusal rather than a loop."""
+    real_read = main.read_sprint_file
+    version = [0]
+
+    def read_and_meddle(path):
+        text = real_read(path)
+        version[0] += 1
+        main.write_sprint_file(path, text + f"\n\nEdit {version[0]}\n")
+        return text
+
+    monkeypatch.setattr(main, "read_sprint_file", read_and_meddle)
+    response = client.patch("/api/sprints/1/blocks", json=tick())
+
+    assert response.status_code == 409
+    assert "being written to" in response.json()["detail"]["error"]
+    assert "- [x]" not in file_text(splice_file)
+
+
+def test_the_template_takes_the_same_splice(client, template):
+    response = client.patch("/api/template/blocks", json={
+        "at": 2, "expect": ["**Sprint Goal:**"], "blocks": [{"raw": "**Goal:**"}]})
+    assert response.status_code == 200, response.text
+    assert file_text(template) == TEMPLATE_FILE.replace("**Sprint Goal:**", "**Goal:**")
+
+
+def test_a_splice_leaves_the_whole_file_route_working(client, splice_file):
+    """PUT still writes whole files, and still refuses a stale mtime, after a splice.
+
+    Deliberately not asserting that the mtime the caller read *before* the splice
+    is now stale: two writes inside one clock tick can share an mtime, which is a
+    hole in that guard rather than in this one -- `apply_splice` compares the text.
+    """
+    assert client.patch("/api/sprints/1/blocks", json=tick()).status_code == 200
+    assert client.put("/api/sprints/1", json={
+        "text": "clobbered", "mtime": 1.0}).status_code == 409
+    assert file_text(splice_file) == SPLICE_FILE.replace("- [ ]", "- [x]")
+
+    fresh = client.get("/api/sprints/1").json()
+    assert client.put("/api/sprints/1", json={
+        "text": "# Sprint 1\n", "mtime": fresh["mtime"]}).status_code == 200
+    assert file_text(splice_file) == "# Sprint 1\n"
+
+
 # --- two writers on one row ---------------------------------------------------
 
 

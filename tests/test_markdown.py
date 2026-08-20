@@ -1,15 +1,18 @@
 import glob
 import os
+import random
 
 import pytest
 
 from app.markdown import (
     MERMAID_CLASS,
+    SpliceRefused,
     document_blocks,
     join_blocks,
     parse_table,
     render_block,
     serialise_table,
+    splice_blocks,
     split_blocks,
 )
 
@@ -386,3 +389,144 @@ def test_join_blocks_falls_back_to_a_blank_line_for_a_new_block():
     assert join_blocks([{"type": "paragraph", "raw": "one"}, {"type": "paragraph", "raw": "two"}]) == (
         "one\n\ntwo\n\n"
     )
+
+
+# --- splicing a run of blocks -------------------------------------------------
+#
+# The round trip is the gate here too: replacing a block with itself must give
+# the file back byte for byte, and a real splice must leave every byte outside
+# the run it replaced alone.
+
+TWO_BLOCKS = "one\n\ntwo\n"
+
+
+def spliced(text, at, expect, blocks):
+    """`splice_blocks`, keeping only the text. The index has its own tests."""
+    return splice_blocks(text, at, expect, blocks)[0]
+
+
+def refusal(text, at, expect, blocks):
+    with pytest.raises(SpliceRefused) as raised:
+        splice_blocks(text, at, expect, blocks)
+    return raised.value
+
+
+@pytest.mark.parametrize("path", CORPUS, ids=[os.path.basename(p) for p in CORPUS])
+def test_replacing_any_corpus_block_with_itself_is_byte_for_byte(path):
+    with open(path, encoding="utf-8", newline="") as handle:
+        text = handle.read()
+    for block in split_blocks(text):
+        same = [{"raw": block["raw"], "gap": block["gap"]}]
+        assert spliced(text, block["index"], [block["raw"]], same) == text
+
+
+@pytest.mark.parametrize("text", [AWKWARD, AWKWARD.replace("\n", "\r\n")], ids=["lf", "crlf"])
+def test_replacing_any_block_with_itself_survives_either_line_ending(text):
+    for block in split_blocks(text):
+        same = [{"raw": block["raw"], "gap": block["gap"]}]
+        assert spliced(text, block["index"], [block["raw"]], same) == text
+
+
+def test_replacing_a_run_with_itself_is_byte_for_byte_at_every_width():
+    """Random runs, not only single blocks: nothing lost, no separator invented."""
+    blocks = split_blocks(AWKWARD)
+    generator = random.Random(20260820)
+    for _ in range(200):
+        at = generator.randrange(len(blocks))
+        width = generator.randint(1, len(blocks) - at)
+        run = blocks[at:at + width]
+        same = [{"raw": block["raw"], "gap": block["gap"]} for block in run]
+        assert spliced(AWKWARD, at, [block["raw"] for block in run], same) == AWKWARD
+
+
+def test_a_splice_leaves_every_byte_outside_the_run_alone():
+    text = AWKWARD
+    blocks = split_blocks(text)
+    target = blocks[4]
+    before = join_blocks(blocks[:4])
+    after = join_blocks(blocks[5:])
+
+    result = spliced(text, 4, [target["raw"]], [{"raw": "> replaced", "gap": target["gap"]}])
+    assert result == before + "> replaced" + target["gap"] + after
+
+
+def test_the_run_at_at_is_used_when_it_matches():
+    assert spliced(TWO_BLOCKS, 1, ["two"], [{"raw": "second"}]) == "one\n\nsecond\n"
+
+
+def test_a_block_that_moved_is_still_found():
+    """Someone inserted a heading above you. Your write lands on your block."""
+    moved = "# Heading\n\none\n\ntwo\n"
+    # `at` is 1, which is where "one" used to be -- "two" is now at 2.
+    assert spliced(moved, 1, ["two"], [{"raw": "second"}]) == "# Heading\n\none\n\nsecond\n"
+
+
+def test_the_index_returned_is_where_the_splice_landed():
+    moved = "# Heading\n\none\n\ntwo\n"
+    assert splice_blocks(moved, 1, ["two"], [{"raw": "second"}])[1] == 2
+    assert splice_blocks(TWO_BLOCKS, 0, ["one"], [{"raw": "first"}])[1] == 0
+
+
+def test_a_block_that_changed_is_refused():
+    assert refusal(TWO_BLOCKS, 1, ["three"], [{"raw": "x"}]).reason == "gone"
+
+
+def test_two_identical_blocks_are_refused_rather_than_guessed_at():
+    # `at` points at neither, so there is nothing to choose between them.
+    text = "- \n\nmiddle\n\n- \n"
+    assert refusal(text, 1, ["- "], [{"raw": "- done"}]).reason == "ambiguous"
+
+
+def test_at_chooses_between_two_identical_blocks():
+    text = "- \n\nmiddle\n\n- \n"
+    assert spliced(text, 2, ["- "], [{"raw": "- done"}]) == "- \n\nmiddle\n\n- done\n"
+
+
+def test_an_insert_names_no_block_and_lands_at_at():
+    assert spliced(TWO_BLOCKS, 1, [], [{"raw": "mid"}]) == "one\n\nmid\n\ntwo\n"
+
+
+def test_an_insert_anchored_past_the_end_is_refused():
+    assert refusal(TWO_BLOCKS, 9, [], [{"raw": "mid"}]).reason == "out of range"
+
+
+def test_an_empty_block_list_deletes_the_run():
+    assert spliced(TWO_BLOCKS, 0, ["one"], []) == "two\n"
+
+
+def test_one_block_splits_into_two_and_two_merge_into_one():
+    split = spliced(TWO_BLOCKS, 1, ["two"], [{"raw": "two"}, {"raw": "three"}])
+    assert split == "one\n\ntwo\n\nthree\n"
+    assert spliced(split, 0, ["one", "two"], [{"raw": "one two"}]) == "one two\n\nthree\n"
+
+
+def test_a_replacement_that_names_no_gap_keeps_the_one_the_run_had():
+    # The template writes a bold heading directly above its list, with no blank
+    # line. A client that forgets the gap must not reflow that.
+    text = "**Deliverable**\n- [ ] task\n\n## Next\n"
+    assert spliced(text, 0, ["**Deliverable**"], [{"raw": "**Renamed**"}]) == (
+        "**Renamed**\n- [ ] task\n\n## Next\n"
+    )
+
+
+def test_a_named_gap_wins_over_the_one_the_run_had():
+    assert spliced(TWO_BLOCKS, 0, ["one"], [{"raw": "one", "gap": "\n"}]) == "one\ntwo\n"
+
+
+def test_a_trailing_newline_on_raw_counts_as_naming_the_gap():
+    assert spliced(TWO_BLOCKS, 0, ["one"], [{"raw": "one\n"}]) == "one\ntwo\n"
+
+
+def test_appending_keeps_the_file_ending_it_had():
+    # AWKWARD ends without a newline, and appending must not invent one.
+    blocks = split_blocks(AWKWARD)
+    result = spliced(AWKWARD, len(blocks), [], [{"raw": "Appended."}])
+    assert result == AWKWARD + "\n\nAppended."
+
+
+def test_deleting_the_last_block_moves_the_ending_back_one_block():
+    assert spliced(TWO_BLOCKS, 1, ["two"], []) == "one\n"
+
+
+def test_splicing_into_an_empty_document_starts_it():
+    assert spliced("", 0, [], [{"raw": "# Sprint 1"}]) == "# Sprint 1\n\n"

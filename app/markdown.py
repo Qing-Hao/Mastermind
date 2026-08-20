@@ -152,6 +152,142 @@ def join_blocks(blocks):
     return "".join(block["raw"] + block.get("gap", DEFAULT_GAP) for block in blocks)
 
 
+# --- writing one run of blocks ----------------------------------------------
+#
+# A whole-file save replaces the document. `splice_blocks` replaces a contiguous
+# run of blocks inside it and leaves every other byte alone, so two writes to
+# different parts of one file are not a conflict. It is still text in, text out:
+# nothing here is stored, and the file remains the one record.
+#
+# The run is named by **where the caller thinks it is and what it thinks it
+# says** -- `at` plus the raw text of each block. Nothing in the file names a
+# block, and the three other ways to give it a name were rejected: position
+# alone silently lands on the wrong paragraph after one insert above, ids
+# written into the file stop it being clean markdown, and a sidecar id map is a
+# second store that goes stale the moment a file is edited outside the app.
+
+
+class SpliceRefused(Exception):
+    """A run of blocks could not be placed. `reason` says which way.
+
+    Three ways, all of them "the document is not what the caller believed":
+    `gone` (nothing matches), `ambiguous` (more than one place matches), and
+    `out of range` (an insert anchored past either end). Never raised when the
+    run can be placed in exactly one place -- so the only outcomes a caller has
+    to handle are "the right block" and "refused".
+    """
+
+    def __init__(self, reason, detail):
+        super().__init__(detail)
+        self.reason = reason
+        self.detail = detail
+
+
+def find_run(blocks, at, expect):
+    """Index where the run `expect` sits in `blocks`. Refuses if that is not one place.
+
+    Tried in order: the run at `at`, then a search of the whole document. The
+    search is what lets a write survive someone inserting a heading above it --
+    the block moved, the write still lands on that block. Two identical blocks
+    are genuinely ambiguous and are refused rather than guessed at: a reload
+    costs a moment, a write on the wrong line costs trust in the file.
+    """
+    raws = [block["raw"] for block in blocks]
+    width = len(expect)
+
+    # An empty run matches everywhere, so `at` is the only anchor it has.
+    if width == 0:
+        if not 0 <= at <= len(raws):
+            raise SpliceRefused(
+                "out of range",
+                f"Cannot insert at block {at}: the document has {len(raws)}.",
+            )
+        return at
+
+    if 0 <= at <= len(raws) - width and raws[at:at + width] == expect:
+        return at
+
+    found = [i for i in range(len(raws) - width + 1) if raws[i:i + width] == expect]
+    if len(found) == 1:
+        return found[0]
+    if not found:
+        raise SpliceRefused("gone", "That block is not in the file any more.")
+    raise SpliceRefused(
+        "ambiguous",
+        f"{len(found)} blocks in the file say exactly that, so which one was meant is a guess.",
+    )
+
+
+def splice_blocks(text, at, expect, blocks):
+    """Replace the run matching `expect` with `blocks`. Returns `(text, at)`.
+
+    One operation covers all five edits: replace is 1->1, split 1->2, merge
+    2->1, insert 0->1 (`expect` empty) and delete 1->0 (`blocks` empty). `at` is
+    where the caller believes the run starts; the returned index is where it was
+    actually applied, which differs when the run had moved.
+
+    Gaps: a replacement block may name its own `gap`, and the trailing line
+    ending of its `raw` counts as naming one. Otherwise the server supplies it,
+    so a caller that forgets cannot silently reflow the file -- the last block of
+    the run keeps the gap the run had, and the rest get `DEFAULT_GAP`.
+
+    **The document's own ending belongs to the document, not to a block.** A
+    splice at the end of the file preserves the bytes the file ended with,
+    which is the one case where a byte outside the replaced run moves.
+    """
+    current = split_blocks(text)
+    index = find_run(current, at, expect)
+    end = index + len(expect)
+
+    head = [dict(block) for block in current[:index]]
+    tail = [dict(block) for block in current[end:]]
+    new = [_incoming(block) for block in blocks]
+
+    # What separated the run from what follows it separates the replacement from
+    # the same thing -- so a caller that named no gap cannot reflow the file.
+    if expect and new and new[-1]["gap"] is None:
+        new[-1]["gap"] = current[end - 1]["gap"]
+
+    if current and not tail:
+        ending = current[-1]["gap"]
+        if not new and head:
+            # Deleting the last block: the file's ending moves back one block.
+            head[-1]["gap"] = ending
+        elif new and index == end and head:
+            # Appending: the file's ending moves onto the new last block, and
+            # what was the last block needs a separator in its place.
+            if new[-1]["gap"] is None:
+                new[-1]["gap"] = ending
+            head[-1]["gap"] = DEFAULT_GAP
+
+    for block in new:
+        if block["gap"] is None:
+            block["gap"] = DEFAULT_GAP
+
+    return join_blocks(head + new + tail), index
+
+
+def _incoming(block):
+    """One caller-supplied block, normalised: `raw` carries no line ending.
+
+    A trailing ending on `raw` is not dropped -- it moves to the front of the
+    gap, so what the caller sent is what the file gets. `gap` stays None when
+    the caller named nothing, which is how `splice_blocks` tells the two apart.
+    """
+    raw = block.get("raw", "")
+    trailing = ""
+    while True:
+        raw, ending = _split_trailing_newline(raw)
+        if not ending:
+            break
+        trailing = ending + trailing
+
+    gap = block.get("gap")
+    if trailing:
+        gap = trailing + (gap or "")
+    return {"raw": raw, "gap": gap}
+
+
 def _consume(lines, i):
     """Find where the block starting at `i` ends, and what kind it is.
 
