@@ -158,6 +158,7 @@ async function loadSprintFile(number) {
     number: isTemplate(number) ? TEMPLATE_KEY : payload.number,
     name: payload.name,
     blocks: payload.blocks,
+    disk: diskBlocks(payload.blocks),
     mtime: payload.mtime,
     status: "clean",
     error: "",
@@ -202,7 +203,7 @@ async function revealSprintFile(number) {
 function resetSprint() {
   clearTimeout(sprintSaveTimer);
   Object.assign(state.sprint, {
-    number: null, name: "", blocks: [], mtime: null,
+    number: null, name: "", blocks: [], disk: null, mtime: null,
     status: "clean", error: "", editing: null, editingLine: null, draft: null,
   });
 }
@@ -3966,7 +3967,100 @@ async function commitSprintBlock(index, text) {
 // The mirror of `markdown.join_blocks`, and the reason a save is exact rather
 // than nearly exact: the separator is the one the file already had, not "\n\n".
 function joinSprintBlocks(blocks) {
-  return blocks.map((block) => block.raw + (block.gap ?? "\n\n")).join("");
+  return blocks.map((block) => block.raw + blockGap(block)).join("");
+}
+
+// A save writes the blocks that changed, not the document. What it quotes as the
+// run it expects to replace comes from `sprint.disk` -- the list the server last
+// confirmed -- and never from the blocks on screen, which is the whole reason
+// this works: an inline surface respells the block it is typed in, so the live
+// copy of a block someone touched is not what the file says it is.
+const DEFAULT_GAP = "\n\n";
+
+const blockGap = (block) => block.gap ?? DEFAULT_GAP;
+
+const diskBlocks = (blocks) => blocks.map((block) => ({ raw: block.raw, gap: blockGap(block) }));
+
+const sameSprintBlock = (one, two) => one.raw === two.raw && blockGap(one) === blockGap(two);
+
+// What one save owes, as runs to replace. The common prefix and suffix are
+// trimmed first, so ticking one box is a one-block run rather than the file.
+//
+// When the two sides are the same length nothing was inserted or deleted, so
+// each block pairs with the one that replaced it and only the groups that
+// actually differ are sent -- two edits in distant blocks inside one debounce
+// stay two small writes. When the lengths differ the pairing is a guess, so the
+// whole remaining run goes as one splice; the server places it either way.
+function sprintSplices(disk, live) {
+  let head = 0;
+  while (head < disk.length && head < live.length && sameSprintBlock(disk[head], live[head])) {
+    head += 1;
+  }
+
+  let tail = 0;
+  while (tail < disk.length - head && tail < live.length - head
+    && sameSprintBlock(disk[disk.length - 1 - tail], live[live.length - 1 - tail])) {
+    tail += 1;
+  }
+
+  const was = disk.slice(head, disk.length - tail);
+  const now = live.slice(head, live.length - tail);
+  if (!was.length && !now.length) return [];
+  if (was.length !== now.length) {
+    return [{ at: head, expect: was.map((block) => block.raw), blocks: now }];
+  }
+
+  const runs = [];
+  let start = null;
+  for (let at = 0; at <= was.length; at += 1) {
+    const changed = at < was.length && !sameSprintBlock(was[at], now[at]);
+    if (changed && start === null) start = at;
+    if (!changed && start !== null) {
+      runs.push({
+        at: head + start,
+        expect: was.slice(start, at).map((block) => block.raw),
+        blocks: now.slice(start, at),
+      });
+      start = null;
+    }
+  }
+  return runs;
+}
+
+// One `PATCH` per run. The reply carries the file as it now stands, which is
+// adopted as the new `disk` -- **and nowhere else**: writing it into `blocks`
+// would rebuild a block that is being typed in, the trap `renderSprintDocument`
+// documents at length.
+async function writeSprintSplices(number) {
+  const sprint = state.sprint;
+  for (const splice of sprintSplices(sprint.disk, sprint.blocks)) {
+    const landed = await api(`${sprintEndpoint(number)}/blocks`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        at: splice.at,
+        expect: splice.expect,
+        // A block this page invented has no gap of its own, and says so: the
+        // server keeps whatever separated the run it replaced.
+        blocks: splice.blocks.map((block) => ({ raw: block.raw, gap: block.gap ?? null })),
+      }),
+    });
+    if (sprint.number !== number) return;
+    sprint.mtime = landed.mtime;
+    sprint.disk = diskBlocks(landed.blocks);
+  }
+}
+
+// The whole document in one write, still the only thing the raw editor could
+// have meant and the only thing available before a file has been read.
+async function writeSprintWholeFile(number) {
+  const sprint = state.sprint;
+  const saved = await api(sprintEndpoint(number), {
+    method: "PUT",
+    body: JSON.stringify({ text: joinSprintBlocks(sprint.blocks), mtime: sprint.mtime }),
+  });
+  if (sprint.number !== number) return;
+  sprint.mtime = saved.mtime;
+  sprint.disk = diskBlocks(sprint.blocks);
 }
 
 function scheduleSprintSave() {
@@ -3989,25 +4083,23 @@ async function saveSprint() {
   renderSprintStatus();
 
   try {
-    // Grids become markdown first, so what is joined below is never stale.
+    // Grids become markdown first, so what is written below is never stale.
     await serialiseEditedTables();
     if (sprint.number !== number) return;
-    const text = joinSprintBlocks(sprint.blocks);
-    const saved = await api(sprintEndpoint(number), {
-      method: "PUT",
-      body: JSON.stringify({ text, mtime: sprint.mtime }),
-    });
+    if (sprint.disk) await writeSprintSplices(number);
+    else await writeSprintWholeFile(number);
     // The file may have been switched while the write was in flight.
     if (sprint.number !== number) return;
-    sprint.mtime = saved.mtime;
     sprint.status = "saved";
     sprint.error = "";
   } catch (failure) {
     if (sprint.number !== number) return;
     // 409: someone else -- you, in an editor -- wrote the file since it was
-    // read. Autosaving stops here and the mtime is deliberately **not** updated
-    // to the disk value: doing that would arm the next save to overwrite the
-    // very change this refused to.
+    // read, or the block this was about is no longer where it was. Autosaving
+    // stops here, and neither the mtime nor `disk` is updated to what the
+    // refusal carried: adopting it would arm the next save to overwrite the
+    // very change this refused to. The reload button is the only way forward,
+    // exactly as it was before a save could name one block.
     sprint.status = failure.status === 409 ? "conflict" : "failed";
     sprint.error = failure.message;
   }

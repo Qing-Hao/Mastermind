@@ -224,6 +224,11 @@ let state = {
   // a read or a successful write.
   sprint: {
     files: [], number: null, name: "", blocks: [], mtime: null,
+    // What the server last said is on disk, as `{raw, gap}`. A save quotes its
+    // blocks as the run it expects to replace, so it is never the live `blocks`
+    // above: an inline surface respells the block it is typed in, and a write
+    // naming what this page holds would be refused by the file it came from.
+    disk: null,
     // clean | dirty | saving | saved | failed | conflict
     status: "clean", error: "",
     // Which block is being typed in, which line of it when that block is a list
