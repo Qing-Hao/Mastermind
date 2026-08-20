@@ -115,6 +115,17 @@ async function loadSprints() {
 // on that condition alone. Switching files mid-session is left alone, and coming
 // back to the tab does not drag you off the file you chose.
 function openingSprintKey(files) {
+  // A file named in the URL outranks even today's fortnight: a link to a file is
+  // a request for that file. Read once -- it says where to *arrive*, and coming
+  // back to the tab later must not drag you off the file you chose since. Checked
+  // against the listing, so a hash naming a file that is gone falls through to
+  // the ordinary answer rather than fetching a 404.
+  const routed = routedSprint;
+  routedSprint = null;
+  if (routed !== null && (isTemplate(routed) || files.some((file) => file.number === routed))) {
+    return routed;
+  }
+
   // Both ends inclusive, and the list is newest first -- so on the handover day
   // two consecutive sprints share, the one starting is what opens. That is the
   // fortnight you are about to work, and `windows_overlap` already treats a
@@ -155,8 +166,10 @@ async function loadSprintFile(number) {
     draft: null,
   });
   // Switching files never goes through `refreshView`, so this is where the open
-  // file gets remembered for the next reload.
+  // file gets remembered for the next reload, and where the route picks it up so
+  // Back walks back through the files as well as the tabs.
   saveSession();
+  syncHash();
 }
 
 // Leaving a file flushes what it owes first, and refuses to leave if the write

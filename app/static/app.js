@@ -766,6 +766,12 @@ const SESSION_KEY = "roadmap.session";
 // a tab you may never look at.
 let rememberedSprint = null;
 
+// A sprint key that came from the URL rather than from storage, read by
+// `openingSprintKey` and preferred there over the fortnight containing today: a
+// link naming a file is a request for that file, where a remembered one is only
+// where you last were.
+let routedSprint = null;
+
 function saveSession() {
   try {
     localStorage.setItem(SESSION_KEY, JSON.stringify({
@@ -775,6 +781,142 @@ function saveSession() {
     }));
   } catch (_) { /* no storage: it still works, it just will not be remembered */ }
 }
+
+// **Back should return you to the tab you left**, and only a history entry can do
+// that: the browser reads history, not storage, so `localStorage` remembering
+// across a reload is no help across a Back. Every view change therefore writes a
+// hash, and the hash is the entry.
+//
+// A hash rather than a real path (`#/sprint/7`, not `/sprint/7`) because the path
+// would cost a FastAPI catch-all and a route grammar the server has to agree
+// with, for a URL that is prettier and does nothing more. Storage is kept beside
+// it, not replaced -- it is what makes a bare URL still land where you were.
+//
+// The sprint key goes in raw (`7`, not `07`): `state.sprint.number` is a number
+// and `TEMPLATE_KEY` is the string `template`, and the route carries the key the
+// code already compares with `===` rather than a second, padded spelling of it.
+function routeHash() {
+  if (state.view === "project") {
+    return state.currentProjectId ? `#/project/${state.currentProjectId}` : "#/project";
+  }
+  if (state.view === "sprint") {
+    const key = state.sprint.number;
+    return key === null || key === undefined ? "#/sprint" : `#/sprint/${key}`;
+  }
+  return `#/${state.view}`;
+}
+
+// The inverse, and deliberately strict: anything unrecognised comes back `null`
+// and is ignored, so a hand-typed hash is never half-applied.
+//
+// **The read is guarded**, for a different cause than the storage one above:
+// `scripts/wire_check.js` and `scripts/map_sweep.js` run this file under a stub
+// with no `location`, where a bare read is a `ReferenceError` that takes the
+// whole harness down.
+function parseHash() {
+  let raw = "";
+  try {
+    raw = location.hash;
+  } catch (_) { return null; }
+
+  const parts = raw.replace(/^#\/?/, "").split("/");
+  const view = parts[0];
+  if (!VIEW_TITLE[view] || parts.length > 2) return null;
+
+  const route = { view, projectId: null, sprint: null };
+  const key = parts[1];
+  if (key === undefined || key === "") return route;
+
+  if (view === "project") {
+    if (!/^\d+$/.test(key)) return null;
+    route.projectId = Number(key);
+    return route;
+  }
+  if (view === "sprint") {
+    if (!isTemplate(key) && !/^\d+$/.test(key)) return null;
+    route.sprint = sprintFileKey(key);
+    return route;
+  }
+  return null;  // portfolio and map carry nothing after the view
+}
+
+// **Push, or replace?** A write that records a move you made pushes -- that entry
+// is the whole point. A write that only settles the URL on where the app actually
+// landed replaces: the boot turning a bare URL into a route, and a pasted route
+// that could not be honoured in full. Pushed, those would leave an entry behind
+// you for a URL the app has already turned down once, and Back would re-enter the
+// view you are standing in.
+//
+// It is not a `isNavigating` guard and does not suppress anything: the apply/push
+// loop is closed by the comparisons in `syncHash` and `applyHash`, and this only
+// picks which of two ways to write. Every `syncHash` clears it, and `applyHash`
+// raises it again before each step that can write mid-route.
+let settlingHash = true;
+
+// Called beside every `saveSession`. Assigning `location.hash` is what pushes the
+// entry, so writing nothing when the URL already says what the state says is also
+// what stops the `hashchange` our own write fires from being applied back: no
+// flag, just a comparison at each end.
+function syncHash() {
+  const settling = settlingHash;
+  settlingHash = false;
+  const wanted = routeHash();
+  if (location.hash === wanted) return;
+  if (settling) history.replaceState(null, "", wanted);
+  else location.hash = wanted;
+}
+
+// What the state actually is, when it could not be what the URL asked for.
+// `replaceState`, never `location.hash`: a push here would make Back walk
+// backwards through the refusals.
+function replaceHash() {
+  if (location.hash !== routeHash()) history.replaceState(null, "", routeHash());
+}
+
+// A Back, a Forward, or a hash typed in.
+//
+// **Every state field the route carries is set before anything is awaited**, and
+// that ordering is load-bearing. `loadSprintFile` and `refreshView` each call
+// `syncHash` on the way out; reached with the route half-applied, `routeHash()`
+// would describe a view nobody asked for and push an entry for it. Set first, the
+// hash already matches and both calls write nothing.
+async function applyHash() {
+  const route = parseHash();
+  if (!route) return;
+
+  // A project id is trusted only as far as the list already loaded; an id that is
+  // not in it is ignored. That is `loadProjects`' own tolerance for a project
+  // deleted since you last looked, and it is why a stale link lands quietly.
+  const wanted = state.projects.some((p) => p.id === route.projectId)
+    ? route.projectId
+    : null;
+  const changed = route.view !== state.view
+    || (wanted !== null && wanted !== state.currentProjectId);
+  state.view = route.view;
+  if (wanted !== null) state.currentProjectId = wanted;
+
+  // Through `switchSprintFile`, never `loadSprintFile`: unsaved work in the file
+  // being left is flushed first, and a write that will not land still refuses.
+  if (route.sprint !== null && route.sprint !== state.sprint.number) {
+    settlingHash = true;
+    try {
+      await switchSprintFile(route.sprint);
+    } catch (_) { /* a hash naming a file that is not there changes nothing */ }
+  }
+  if (changed) {
+    settlingHash = true;
+    await refreshView();
+  }
+
+  // A sprint file with unsaved work refuses to be left, and a Back cannot be
+  // refused -- the browser moved the hash before we heard about it. So the URL is
+  // put back to what is really open, along with any other part of the route that
+  // could not be honoured.
+  settlingHash = false;
+  replaceHash();
+}
+
+window.addEventListener("hashchange", applyHash);
 
 // Before the first load, because `refreshView` reads `state.view` to decide what
 // to fetch and `loadProjects` only picks the first project when nothing is
@@ -792,6 +934,16 @@ function restoreSession() {
   if (VIEW_TITLE[session.view]) state.view = session.view;
   if (typeof session.projectId === "number") state.currentProjectId = session.projectId;
   if (session.sprint !== undefined) rememberedSprint = session.sprint;
+
+  // **A hash outranks the stored session**, field by field: a pasted or
+  // bookmarked link is a request, where storage is only a memory. No hash means
+  // the session still wins outright, so a bare URL opens exactly as it did before
+  // there was a router.
+  const route = parseHash();
+  if (!route) return;
+  state.view = route.view;
+  if (route.projectId !== null) state.currentProjectId = route.projectId;
+  if (route.sprint !== null) routedSprint = route.sprint;
 }
 
 // The sidebar's project list, and the app's picker. It replaced a native
@@ -988,6 +1140,7 @@ async function refreshView() {
   // place that has to remember. The sprint file has its own call in
   // `loadSprintFile`, because switching files never comes back through here.
   saveSession();
+  syncHash();
 }
 
 async function loadPlan() {
