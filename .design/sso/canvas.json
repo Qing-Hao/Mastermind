@@ -1,0 +1,40 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1180, "h": 820, "title": "Settings › Sign-in" },
+    { "file": "Test.dc.html", "x": 1240, "y": 0, "w": 560, "h": 640, "title": "Test connection — the one that always fails" },
+    { "file": "Login.dc.html", "x": 1240, "y": 700, "w": 560, "h": 420, "title": "What you meet when it is on" },
+    { "file": "Storage.dc.html", "x": 0, "y": 880, "w": 700, "h": 620, "title": "Where each thing lives — no user table" },
+    { "file": "Secret.dc.html", "x": 760, "y": 880, "w": 720, "h": 520, "title": "The client secret — A or B" }
+  ],
+  "annotations": [
+    {
+      "id": "brief",
+      "x": 0,
+      "y": -340,
+      "w": 480,
+      "text": "DO YOU NEED A USER DATABASE?\n\nNo — not for a gate.\n\nKeycloak already holds who people are, their password, their MFA and their leavers. A user table in roadmap.db would be a second, staler copy of a directory you do not own.\n\nWhat OIDC actually needs stored:\n- Settings (issuer, client id, claim name, allowlist) — one row in SQLite.\n- Secrets (client secret, session signing key) — environment, never the database.\n- The person — a signed cookie in the browser, holding sub and preferred_username. Not persisted.\n\nA user table only becomes necessary when data belongs to a person: created_by, assignee, per-user preferences, an audit trail. Mastermind has none of those, and the brief forbids them.\n\nSee the Storage artboard below."
+    },
+    {
+      "id": "note-conflict",
+      "x": 1860,
+      "y": 0,
+      "w": 460,
+      "text": "THIS IS DRAWN, NOT AGREED\n\nCLAUDE.md non-negotiable 7 forbids accounts/roles/permissions and external integrations. Keycloak SSO is both.\n\nThe design here is the narrowest reading that could survive: a GATE. One allowlist, no roles, no user rows, nothing attributed to a person.\n\nWhat would break the rule outright, and is deliberately absent: role-to-permission mapping, per-user views, an audit log, ownership on a project.\n\nNothing is built until you say which reading you want."
+    },
+    {
+      "id": "note-lockout",
+      "x": 1860,
+      "y": 700,
+      "w": 460,
+      "text": "THE LOCK-OUT PROBLEM\n\nA localhost tool that gates itself on a remote identity provider can be made unreachable by a typo, an expired secret, a VPN drop or the realm being reconfigured by someone else.\n\nSo the escape hatch is drawn on three artboards, not hidden in a runbook: MASTERMIND_SSO=off at startup skips the gate.\n\nThat env var is also what the test suite sets — 342 tests go through TestClient and must never reach a real realm."
+    },
+    {
+      "id": "note-redirect",
+      "x": 1240,
+      "y": -340,
+      "w": 560,
+      "text": "WHY THE REDIRECT URI ROW FAILS BY DEFAULT\n\nIt is drawn failing because this is the step that fails in real life: Keycloak compares redirect URIs as exact strings, and http://localhost:8000 is not http://127.0.0.1:8000.\n\nThe app already serves on 127.0.0.1 per its own run command, so the panel offers both ways out — send the URI on, or move the app to localhost.\n\nThe copy button matters more than it looks: retyping a URI by hand into an admin console is how this goes wrong twice."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

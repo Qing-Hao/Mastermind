@@ -1,7 +1,10 @@
 # Mastermind
 
 Lightweight internal tool for planning software delivery from roadmap to phases.
-Single user, runs on localhost, all data in one SQLite file.
+All data in one SQLite file. Run it on your own machine, or serve it to a small
+team from a container — two people editing one field is a refusal naming that
+field, never a silent overwrite, and who is in which cell is drawn while they
+are there.
 
 Scope and rules are specified in [PROMPT.md](PROMPT.md). Sprint generation and
 capacity forecasting are deliberately **not** built yet (Phase 2).
@@ -16,6 +19,33 @@ python -m venv .venv
 
 Then open <http://127.0.0.1:8000>.
 
+## Run it for a team
+
+```powershell
+Copy-Item .env.example .env      # then fill in the two secrets
+docker compose up -d --build
+```
+
+Also <http://127.0.0.1:8000>, until you decide otherwise. Two things to do in
+order, and the order is the point:
+
+1. **Arm sign-in** at <http://127.0.0.1:8000/auth/settings>. Keycloak over OIDC:
+   issuer, client id, who may in. Pressing **Turn on** signs you in first and
+   arms the gate only if that works, so a wrong setting refuses to arm rather
+   than locking you out.
+2. **Then** change `compose.yaml`'s published port from `127.0.0.1:8000:8000` to
+   `8000:8000`. Before the gate is armed, anyone who can reach the port can read
+   the whole roadmap and replace it — `POST /api/import` is destructive by
+   design and there is nothing in front of it.
+
+Locked out? Start with `MASTERMIND_SSO=off` in the environment: the gate is
+skipped for that run, the settings page comes back, and nothing configured is
+lost. That is the answer for a rotated secret, a deleted client, a realm that is
+down, or a VPN that is off.
+
+Sign-in stores nothing about a person — no accounts, no roles, no ownership of
+anything. It is a gate, and the session is a signed cookie.
+
 ## Test
 
 ```powershell
@@ -27,6 +57,11 @@ Then open <http://127.0.0.1:8000>.
 Everything lives in `data/roadmap.db` (gitignored). To back up, copy that file,
 or use **Export** at the foot of the sidebar. **Import** replaces the entire
 dataset.
+
+Every start copies the file to `data/backups/roadmap-<timestamp>.db` before it
+migrates anything, keeping the last ten. An export carries no sign-in
+configuration: that describes this deployment rather than the plan, and an export
+is the file that gets emailed.
 
 ## Layout
 

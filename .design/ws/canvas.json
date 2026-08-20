@@ -1,0 +1,54 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1240, "h": 720, "title": "One edit, two windows" },
+    { "file": "Focus.dc.html", "x": 1300, "y": 0, "w": 700, "h": 860, "title": "The guard — a refresh never eats your typing" },
+    { "file": "Sprint.dc.html", "x": 0, "y": 800, "w": 700, "h": 900, "title": "The Sprint tab listens too" },
+    { "file": "Connection.dc.html", "x": 760, "y": 800, "w": 660, "h": 780, "title": "When the line is down" },
+    { "file": "Presence.dc.html", "x": 1480, "y": 940, "w": 640, "h": 720, "title": "Deferred — who is where" }
+  ],
+  "annotations": [
+    {
+      "id": "brief",
+      "x": 0,
+      "y": -340,
+      "w": 500,
+      "text": "WHAT THIS CHANGE IS\n\nLive invalidation, and nothing else. One window saves, every other window re-reads itself. No refresh button, no \"this page is out of date\" banner.\n\nIN: /ws endpoint, an in-process registry, a broadcast fired from the mutating routes, and a client that reconnects with backoff and reloads whole on reconnect.\n\nOUT, deliberately: presence badges (needs a name from SSO), cursors, typing indicators, live co-editing of a sprint file.\n\nCOST: zero new dependencies — uvicorn[standard] already brings websockets, and FastAPI has WebSocket built in. One uvicorn worker, because the registry lives in process memory."
+    },
+    {
+      "id": "confirm",
+      "x": 560,
+      "y": -340,
+      "w": 640,
+      "text": "SETTLED\n\nWHICH TABS FOLLOW — all of them. Project, Portfolio and Map re-read on a change, and the Sprint tab listens on the same socket with the same reload call (its own artboard shows the one carve-out: unsaved text is offered a reload, never given one).\n\nPRESENCE — deferred until SSO supplies a name that cannot be typed.\n\nSTILL OPEN\n\n1. THE FLASH. A row that changed under you washes indigo for 1.6s (the arrival-flash a jump already uses). The alternative is silence — the number simply differs from what you last looked at. Drawn: with the flash.\n\n2. THE DROPPED BADGE. Nothing is drawn while the socket is live; a badge appears only when it is not. The alternative is to draw nothing ever and let it catch up quietly."
+    },
+    {
+      "id": "note-focus",
+      "x": 2060,
+      "y": 0,
+      "w": 460,
+      "text": "THE TRAP THIS AVOIDS\n\nloadPlan() rebuilds the phase table. If it runs while your cursor is in a cell, that input is removed — and Chrome fires blur on a focused element that gets removed, which is the trap editor.js already documents. The blur handler is what saves the field.\n\nSo an unguarded live refresh does not merely interrupt you: it can save a half-typed value, or throw it away.\n\nThe rule: hold the refresh while an input inside the plan table has focus; run it on blur."
+    },
+    {
+      "id": "note-sprint",
+      "x": 0,
+      "y": 1560,
+      "w": 700,
+      "text": "HOW THE SPRINT TAB LISTENS\n\nIt is the highest-collision surface in the app — autosave on blur, a 600ms debounce, a whole file per PUT — so it gains the most from listening and is the one place a blind reload would cost real work.\n\nSo the reload is conditional on one thing only: whether this page has anything unsaved.\n\nCLEAN — reload, exactly like the other tabs.\nDIRTY, SAVING, or already in conflict — do not reload. Raise the save bar's existing \"Changed on disk\" state and pause autosave, which is what a stale mtime does today at the next save. Same bar, same button, same refusal to decide whose version wins; it just arrives when the file changes instead of minutes later.\n\nThe picker's file list refreshes unconditionally — listing files touches nothing you are typing.\n\nThis needs a second broadcast the roadmap rows do not: POST/PUT on a sprint file announces {scope:\"sprint\", number:N}. The deliverable tick already rewrites markers in sprint files, so that write announces both."
+    },
+    {
+      "id": "note-pairs",
+      "x": 760,
+      "y": 1620,
+      "w": 660,
+      "text": "HOW THIS PAIRS WITH WHAT SHIPPED TODAY\n\nThe row guard refuses a write whose expectation of a field has been overtaken. Its cost is that a refusal can arrive minutes after the value moved, because a page holds whatever it last loaded.\n\nLive invalidation shortens that to a round trip: every window's loaded row is refreshed the moment someone writes, so the expectation it states is almost always current.\n\nIt does not replace the guard — a broadcast is a hint that may never arrive, and only the server-side check can actually refuse. They are freshness and refusal, and you want both."
+    },
+    {
+      "id": "note-presence",
+      "x": 2160,
+      "y": 940,
+      "w": 440,
+      "text": "WHY PRESENCE WAITS\n\nThe original plan had a display name typed once and kept in localStorage. That was dropped before it was built: a typed name is self-asserted, anyone can claim to be anyone, and presence that shows who is where is only worth drawing if the who is trustworthy.\n\nSo the name comes from the sign-in claim — which means SSO lands first, and SSO is blocked on questions for your Keycloak admin.\n\nNothing in the socket work has to change when it arrives: the connection is already there, and presence is a second message type on it."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

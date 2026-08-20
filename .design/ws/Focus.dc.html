@@ -1,0 +1,137 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #18181b;
+      background: #fafafa;
+    }
+    a { color: #4f46e5; }
+    a:hover { color: #4338ca; }
+    .card { border: 1px solid #e6e6ea; border-radius: 10px; background: #fff; }
+    .cap { font-size: 11px; font-weight: 600; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.05em; }
+    table { border-collapse: collapse; width: 100%; }
+    th { text-align: left; font-size: 11px; font-weight: 600; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.05em; padding: 0 10px 8px; }
+    td { text-align: left; padding: 7px 10px; border-top: 1px solid #f1f1f4; }
+    .inp { display: block; width: 100%; padding: 5px 8px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff; font: inherit; color: #18181b; }
+    .inp-focus { border-color: #4f46e5; box-shadow: 0 0 0 3px #c7d2fe; }
+    .num { font-variant-numeric: tabular-nums; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: #3f3f46; }
+    .held { display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 999px; background: #f4f4f5; font-size: 12px; color: #52525b; }
+  </style>
+</helmet>
+
+<div style="display: flex; flex-direction: column; gap: 16px; padding: 22px; background: #fafafa; min-height: 100%;">
+
+  <div>
+    <div style="font-size: 16px; font-weight: 600;">A refresh never eats what you are typing</div>
+    <div style="font-size: 13px; color: #71717a; margin-top: 2px;">
+      The one place live updating can do real damage, and the reason it is held rather than applied.
+    </div>
+  </div>
+
+  <!-- state 1: held -->
+  <div class="card" style="padding: 14px 16px;">
+    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+      <span class="cap">While the cursor is in a cell</span>
+      <span class="held">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9"></circle>
+          <path d="M12 7v5l3 2"></path>
+        </svg>
+        update held
+      </span>
+    </div>
+
+    <table>
+      <thead>
+        <tr><th>Name</th><th>Start</th><th>Weeks</th><th>Points</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="width: 46%;"><input class="inp inp-focus" value="Rate limiter behind the gate"></td>
+          <td class="num">2026-08-03</td>
+          <td class="num">4</td>
+          <td class="num">40</td>
+        </tr>
+        <tr>
+          <td>Token refresh</td>
+          <td class="num">2026-08-31</td>
+          <td class="num">2</td>
+          <td class="num">20</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div style="margin-top: 10px; font-size: 12.5px; color: #71717a;">
+      Someone else's change has arrived. The table is <strong>not</strong> rebuilt: your half-typed name stays
+      exactly as you left it, and nothing moves under the caret.
+    </div>
+  </div>
+
+  <!-- the arrow between the states -->
+  <div style="display: flex; align-items: center; gap: 8px; padding-left: 6px; color: #71717a; font-size: 12.5px;">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#71717a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M12 5v14"></path>
+      <path d="m19 12-7 7-7-7"></path>
+    </svg>
+    you tab out, or click away — the cell blurs
+  </div>
+
+  <!-- state 2: applied -->
+  <div class="card" style="padding: 14px 16px;">
+    <div class="cap" style="margin-bottom: 10px;">The moment the cell is no longer yours</div>
+
+    <table>
+      <thead>
+        <tr><th>Name</th><th>Start</th><th>Weeks</th><th>Points</th></tr>
+      </thead>
+      <tbody>
+        <tr style="background: #eef2ff;">
+          <td style="width: 46%;">Rate limiter behind the gate</td>
+          <td class="num">2026-08-03</td>
+          <td class="num">4</td>
+          <td class="num" style="font-weight: 600;">55</td>
+        </tr>
+        <tr>
+          <td>Token refresh</td>
+          <td class="num">2026-08-31</td>
+          <td class="num">2</td>
+          <td class="num">20</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div style="margin-top: 10px; font-size: 12.5px; color: #71717a;">
+      Your own edit saved on blur as it always has; the held refresh runs straight after and brings their 55 with it.
+    </div>
+  </div>
+
+  <div class="card" style="padding: 12px 16px; background: #fff;">
+    <div style="font-size: 12.5px; color: #52525b;">
+      <strong>Why it cannot simply re-render.</strong> <span class="mono">loadPlan()</span> rebuilds the table,
+      which removes the input you are typing in. Chrome fires <span class="mono">blur</span> on a focused element that
+      gets removed — the trap <span class="mono">editor.js</span> already documents — so the row would save a
+      half-typed value, or lose it.
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

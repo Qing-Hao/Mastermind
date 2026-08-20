@@ -1,0 +1,139 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #18181b;
+      background: #fafafa;
+    }
+    a { color: #4f46e5; }
+    a:hover { color: #4338ca; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
+    .box {
+      background: #fff;
+      border: 1px solid #e6e6ea;
+      border-radius: 10px;
+      padding: 16px;
+    }
+    .cap {
+      font-size: 11px; font-weight: 600; color: #a1a1aa;
+      text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .item { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; color: #3f3f46; }
+    .dot { width: 5px; height: 5px; border-radius: 999px; background: #a1a1aa; flex: none; }
+  </style>
+</helmet>
+
+<div style="padding: 24px; display: flex; flex-direction: column; gap: 16px; width: 700px;">
+
+  <div>
+    <div style="font-size: 16px; font-weight: 650; letter-spacing: -0.02em;">Where each thing lives</div>
+    <div style="font-size: 12.5px; color: #71717a; margin-top: 2px;">No new user table. Keycloak is the directory; the settings row is one row.</div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;">
+
+    <div class="box" style="display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; align-items: center; gap: 7px;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 3l7 3v6c0 4.5-3 8-7 9-4-1-7-4.5-7-9V6z"></path>
+        </svg>
+        <span class="cap" style="color: #4338ca;">Keycloak</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <div class="item"><span class="dot"></span><span>Who a person is</span></div>
+        <div class="item"><span class="dot"></span><span>Password, MFA, lockout</span></div>
+        <div class="item"><span class="dot"></span><span>Groups and realm roles</span></div>
+        <div class="item"><span class="dot"></span><span>Joiners and leavers</span></div>
+      </div>
+      <div style="font-size: 11.5px; color: #a1a1aa; border-top: 1px solid #f1f1f4; padding-top: 8px;">Already running. Nothing to build.</div>
+    </div>
+
+    <div class="box" style="display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; align-items: center; gap: 7px;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <ellipse cx="12" cy="6" rx="8" ry="3"></ellipse>
+          <path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"></path>
+          <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"></path>
+        </svg>
+        <span class="cap" style="color: #4338ca;">roadmap.db</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <div class="item"><span class="dot"></span><span class="mono">issuer</span></div>
+        <div class="item"><span class="dot"></span><span class="mono">client_id</span></div>
+        <div class="item"><span class="dot"></span><span class="mono">identity_claim</span></div>
+        <div class="item"><span class="dot"></span><span class="mono">allowlist</span> <span style="color: #a1a1aa;">— two names</span></div>
+      </div>
+      <div style="font-size: 11.5px; color: #a1a1aa; border-top: 1px solid #f1f1f4; padding-top: 8px;">One settings row. No secrets, no people.</div>
+    </div>
+
+    <div class="box" style="display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; align-items: center; gap: 7px;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="4" y="10" width="16" height="10" rx="2"></rect>
+          <path d="M8 10V7a4 4 0 0 1 8 0v3"></path>
+        </svg>
+        <span class="cap" style="color: #4338ca;">Environment</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <div class="item"><span class="dot"></span><span class="mono">MASTERMIND_OIDC_SECRET</span></div>
+        <div class="item"><span class="dot"></span><span class="mono">MASTERMIND_SESSION_KEY</span></div>
+        <div class="item"><span class="dot"></span><span class="mono">MASTERMIND_SSO=off</span> <span style="color: #a1a1aa;">— the way back in</span></div>
+      </div>
+      <div style="font-size: 11.5px; color: #a1a1aa; border-top: 1px solid #f1f1f4; padding-top: 8px;">Same precedent as the model key.</div>
+    </div>
+  </div>
+
+  <!-- the session -->
+  <div class="box" style="display: flex; align-items: center; gap: 14px;">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#71717a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex: none;" aria-hidden="true">
+      <path d="M4 8V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2"></path>
+      <path d="M3 12h11"></path>
+      <path d="m11 9 3 3-3 3"></path>
+    </svg>
+    <div style="flex: 1; min-width: 0;">
+      <div style="font-size: 13px; font-weight: 600;">The signed cookie is the only per-person state, and it lives in the browser</div>
+      <div style="font-size: 12.5px; color: #71717a;">It carries <span class="mono">sub</span>, <span class="mono">preferred_username</span> and an expiry. It is not written to SQLite, so signing out is deleting it.</div>
+    </div>
+  </div>
+
+  <!-- what is NOT built -->
+  <div class="box" style="border-style: dashed; border-color: #d8d8de; background: #fafafa; display: flex; flex-direction: column; gap: 10px;">
+    <div style="display: flex; align-items: center; gap: 7px;">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="9"></circle>
+        <path d="M6 6l12 12"></path>
+      </svg>
+      <span class="cap">Not built, and the brief says so</span>
+    </div>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+      <span style="font-size: 12px; color: #71717a; padding: 3px 10px; border-radius: 999px; background: #fff; border: 1px solid #e6e6ea; text-decoration: line-through;">users table</span>
+      <span style="font-size: 12px; color: #71717a; padding: 3px 10px; border-radius: 999px; background: #fff; border: 1px solid #e6e6ea; text-decoration: line-through;">roles and permissions</span>
+      <span style="font-size: 12px; color: #71717a; padding: 3px 10px; border-radius: 999px; background: #fff; border: 1px solid #e6e6ea; text-decoration: line-through;">created_by on a project</span>
+      <span style="font-size: 12px; color: #71717a; padding: 3px 10px; border-radius: 999px; background: #fff; border: 1px solid #e6e6ea; text-decoration: line-through;">deliverable assignee</span>
+      <span style="font-size: 12px; color: #71717a; padding: 3px 10px; border-radius: 999px; background: #fff; border: 1px solid #e6e6ea; text-decoration: line-through;">per-user preferences</span>
+      <span style="font-size: 12px; color: #71717a; padding: 3px 10px; border-radius: 999px; background: #fff; border: 1px solid #e6e6ea; text-decoration: line-through;">audit log</span>
+    </div>
+    <div style="font-size: 12px; color: #71717a;">The moment one of these is wanted, a user table follows and this stops being a gate. That is the decision to take deliberately, not by drift.</div>
+  </div>
+
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

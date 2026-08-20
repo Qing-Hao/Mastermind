@@ -1,0 +1,116 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #18181b;
+      background: #fafafa;
+    }
+    a { color: #4f46e5; }
+    a:hover { color: #4338ca; }
+    .card { border: 1px solid #e6e6ea; border-radius: 10px; background: #fff; }
+    .cap { font-size: 11px; font-weight: 600; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.05em; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: #3f3f46; }
+    .btn { font: inherit; font-size: 12.5px; padding: 3px 9px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff; color: #3f3f46; cursor: pointer; }
+    .cb { width: 12px; height: 12px; margin: 4px 2px 0 0; flex: none; }
+    .line { display: flex; align-items: flex-start; gap: 6px; min-height: 22px; }
+    .doc { padding: 10px 12px; border: 1px solid #e6e6ea; border-radius: 8px; }
+    .row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid #e6e6ea; border-radius: 6px; font-size: 13px; }
+  </style>
+</helmet>
+
+<div style="display: flex; flex-direction: column; gap: 16px; padding: 22px; background: #fafafa; min-height: 100%;">
+
+  <div>
+    <div style="font-size: 16px; font-weight: 600;">The Sprint tab listens too</div>
+    <div style="font-size: 13px; color: #71717a; margin-top: 2px;">
+      Same socket, same reload call — with the one carve-out this tab has always had: never overwrite work you have not saved.
+    </div>
+  </div>
+
+  <!-- clean: reloads like anywhere else -->
+  <div class="card" style="padding: 14px 16px;">
+    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+      <span class="cap">Nothing unsaved — it just reloads</span>
+      <span style="flex: 1;"></span>
+      <span style="font-size: 12px; color: #a1a1aa;">sprints/03.md</span>
+    </div>
+
+    <div class="doc">
+      <div style="font-size: 15px; font-weight: 600; margin-bottom: 6px;">Committed this fortnight</div>
+      <div class="line" style="background: #eef2ff; border-radius: 3px;">
+        <input class="cb" type="checkbox" checked="checked">
+        <span>Rate limiter behind the gateway — <span style="color: #71717a;">ticked by someone else a second ago</span></span>
+      </div>
+      <div class="line"><input class="cb" type="checkbox"><span>Token refresh on the auth API</span></div>
+      <div class="line"><input class="cb" type="checkbox"><span>Session store swap</span></div>
+    </div>
+
+    <div style="margin-top: 10px; font-size: 12.5px; color: #71717a;">
+      This is the case that happens most: a colleague ticks a deliverable, the server rewrites the marker on that line,
+      and the file you are reading catches up on its own. Today you would find out at your next save, as a refusal.
+    </div>
+  </div>
+
+  <!-- dirty: the existing conflict state, arriving early -->
+  <div class="card" style="padding: 14px 16px;">
+    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+      <span class="cap">Text still in flight — no reload, an offer instead</span>
+    </div>
+
+    <div class="doc">
+      <div style="font-size: 15px; font-weight: 600; margin-bottom: 6px;">Committed this fortnight</div>
+      <div class="line"><input class="cb" type="checkbox" checked="checked"><span>Rate limiter behind the gateway</span></div>
+      <div class="line">
+        <input class="cb" type="checkbox">
+        <span>Token refresh on the auth API — <span style="border-left: 2px solid #4f46e5; margin-left: 1px; padding-left: 3px;">still writing this line when their change arriv</span></span>
+      </div>
+    </div>
+
+    <div style="margin-top: 12px; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid #e6e6ea; border-radius: 8px; background: #fafafa;">
+      <span style="font-size: 13px; color: #b00020; font-weight: 600;">Changed on disk</span>
+      <span style="font-size: 12.5px; color: #71717a; flex: 1;">03.md changed on disk. Autosave is paused.</span>
+      <button class="btn">Reload from disk</button>
+    </div>
+
+    <div style="margin-top: 10px; font-size: 12.5px; color: #71717a;">
+      The same bar the <span class="mono">mtime</span> 409 already raises, and the same reload button — it simply arrives
+      when the file changes rather than when your next save is refused. The question stays yours to answer.
+    </div>
+  </div>
+
+  <!-- the picker -->
+  <div class="card" style="padding: 14px 16px;">
+    <div class="cap" style="margin-bottom: 10px;">The file list refreshes either way</div>
+    <div style="display: flex; flex-direction: column; gap: 6px;">
+      <div class="row" style="background: #eef2ff; border-color: #c7d2fe;">
+        <span style="flex: 1;">04.md — 1 Sep – 12 Sep</span>
+        <span style="font-size: 12px; color: #4f46e5;">new — started elsewhere</span>
+      </div>
+      <div class="row"><span style="flex: 1;">03.md — 18 Aug – 29 Aug</span><span style="font-size: 12px; color: #71717a;">open</span></div>
+      <div class="row"><span style="flex: 1;">02.md — 4 Aug – 15 Aug</span></div>
+    </div>
+    <div style="margin-top: 10px; font-size: 12.5px; color: #71717a;">
+      Listing the files touches nothing you are typing, so it never needs the carve-out.
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

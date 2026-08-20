@@ -1,0 +1,187 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #18181b;
+      background: #fafafa;
+    }
+    a { color: #4f46e5; }
+    a:hover { color: #4338ca; }
+    .win { flex: 1 1 0; min-width: 0; border: 1px solid #e6e6ea; border-radius: 10px; background: #fff; overflow: hidden; }
+    .win-tag { display: flex; align-items: center; gap: 8px; padding: 7px 14px; background: #f4f4f5; border-bottom: 1px solid #e6e6ea; font-size: 12px; color: #52525b; }
+    .topbar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #fff; border-bottom: 1px solid #e6e6ea; }
+    .h1 { font-size: 19px; font-weight: 650; letter-spacing: -0.02em; }
+    .meta { font-size: 12.5px; color: #a1a1aa; margin-top: 1px; }
+    table { border-collapse: collapse; width: 100%; }
+    th { text-align: left; font-size: 11px; font-weight: 600; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.05em; padding: 0 10px 8px; }
+    td { text-align: left; padding: 7px 10px; border-top: 1px solid #f1f1f4; }
+    .inp { display: block; width: 100%; padding: 5px 8px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff; font: inherit; color: #18181b; }
+    .inp-focus { border-color: #4f46e5; box-shadow: 0 0 0 3px #c7d2fe; }
+    .num { font-variant-numeric: tabular-nums; }
+    .step { display: flex; align-items: center; gap: 10px; }
+    .dot-n { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 999px; background: #eef2ff; color: #4f46e5; font-size: 11px; font-weight: 600; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: #3f3f46; }
+  </style>
+</helmet>
+
+<div style="display: flex; flex-direction: column; gap: 18px; padding: 22px; background: #fafafa; min-height: 100%;">
+
+  <div>
+    <div style="font-size: 16px; font-weight: 600;">One edit, two windows</div>
+    <div style="font-size: 13px; color: #71717a; margin-top: 2px;">
+      Nothing is pressed in the right-hand window. No reload, no banner asking to refresh.
+    </div>
+  </div>
+
+  <div style="display: flex; gap: 18px; align-items: stretch;">
+
+    <!-- A: the window that saves -->
+    <div class="win">
+      <div class="win-tag">
+        <span style="display: inline-flex; align-items: center; gap: 6px;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 20h9"></path>
+            <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+          </svg>
+          Your window
+        </span>
+        <span style="color: #a1a1aa;">— you change Points to 55 and tab out</span>
+      </div>
+
+      <div class="topbar">
+        <div style="min-width: 0;">
+          <div class="h1">Gateway hardening</div>
+          <div class="meta">4 phases · 11 deliverables · starts 3 Aug 2026</div>
+        </div>
+      </div>
+
+      <div style="padding: 14px 16px;">
+        <table>
+          <thead>
+            <tr><th>Name</th><th>Start</th><th>Weeks</th><th>Points</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Rate limiter</td>
+              <td class="num">2026-08-03</td>
+              <td class="num">4</td>
+              <td style="width: 84px;"><input class="inp inp-focus num" value="55"></td>
+            </tr>
+            <tr>
+              <td>Token refresh</td>
+              <td class="num">2026-08-31</td>
+              <td class="num">2</td>
+              <td class="num">20</td>
+            </tr>
+            <tr>
+              <td>Session store swap</td>
+              <td class="num">2026-09-14</td>
+              <td class="num">3</td>
+              <td class="num">30</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- B: the window that is only looking -->
+    <div class="win">
+      <div class="win-tag">
+        <span style="display: inline-flex; align-items: center; gap: 6px;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"></path>
+            <circle cx="12" cy="12" r="3"></circle>
+          </svg>
+          Private window
+        </span>
+        <span style="color: #a1a1aa;">— nobody touches it</span>
+      </div>
+
+      <div class="topbar">
+        <div style="min-width: 0;">
+          <div class="h1">Gateway hardening</div>
+          <div class="meta">4 phases · 11 deliverables · starts 3 Aug 2026</div>
+        </div>
+      </div>
+
+      <div style="padding: 14px 16px;">
+        <table>
+          <thead>
+            <tr><th>Name</th><th>Start</th><th>Weeks</th><th>Points</th></tr>
+          </thead>
+          <tbody>
+            <tr style="background: #eef2ff;">
+              <td>Rate limiter</td>
+              <td class="num">2026-08-03</td>
+              <td class="num">4</td>
+              <td class="num" style="font-weight: 600;">55</td>
+            </tr>
+            <tr>
+              <td>Token refresh</td>
+              <td class="num">2026-08-31</td>
+              <td class="num">2</td>
+              <td class="num">20</td>
+            </tr>
+            <tr>
+              <td>Session store swap</td>
+              <td class="num">2026-09-14</td>
+              <td class="num">3</td>
+              <td class="num">30</td>
+            </tr>
+          </tbody>
+        </table>
+        <div style="margin-top: 10px; font-size: 12px; color: #71717a;">
+          The row washes indigo for 1.6s and fades — the same
+          <span class="mono">arrival-flash</span> a jump already uses.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- what happens between the two -->
+  <div style="border: 1px solid #e6e6ea; border-radius: 10px; background: #fff; padding: 14px 16px;">
+    <div style="font-size: 11px; font-weight: 600; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px;">
+      Between the two windows
+    </div>
+    <div style="display: flex; gap: 14px; align-items: stretch;">
+      <div class="step" style="flex: 1 1 0;">
+        <span class="dot-n">1</span>
+        <span style="font-size: 13px;">The PUT lands and the row is written.</span>
+      </div>
+      <div class="step" style="flex: 1 1 0;">
+        <span class="dot-n">2</span>
+        <span style="font-size: 13px;">The route announces it, fire and forget:
+          <span class="mono">{type:"changed", scope:"project", id:12}</span>
+        </span>
+      </div>
+      <div class="step" style="flex: 1 1 0;">
+        <span class="dot-n">3</span>
+        <span style="font-size: 13px;">Every other window calls <span class="mono">loadPlan()</span> — the call it already makes after its own edits.</span>
+      </div>
+    </div>
+    <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid #f1f1f4; font-size: 12.5px; color: #71717a;">
+      No state travels on the wire — the message says only that something moved. A broadcast that fails is swallowed:
+      the database is the record, the socket is a hint, and a hint must never be able to fail a write.
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

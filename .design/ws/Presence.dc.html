@@ -1,0 +1,92 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #18181b;
+      background: #fafafa;
+    }
+    a { color: #4f46e5; }
+    a:hover { color: #4338ca; }
+    .card { border: 1px solid #e6e6ea; border-radius: 10px; background: #fff; }
+    .cap { font-size: 11px; font-weight: 600; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.05em; }
+    .row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; font-size: 13px; }
+    .who { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 999px; background: #eef2ff; color: #4f46e5; font-size: 10px; font-weight: 600; letter-spacing: 0.02em; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: #3f3f46; }
+  </style>
+</helmet>
+
+<div style="display: flex; flex-direction: column; gap: 16px; padding: 22px; background: #fafafa; min-height: 100%;">
+
+  <div>
+    <div style="font-size: 16px; font-weight: 600;">Not in this change — who is where</div>
+    <div style="font-size: 13px; color: #71717a; margin-top: 2px;">
+      Drawn so you can see what is being left out, and why it waits.
+    </div>
+  </div>
+
+  <div class="card" style="padding: 14px 16px; border-style: dashed; border-color: #d8d8de; background: #fff;">
+    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+      <span class="cap">Later — needs a name that cannot be typed</span>
+    </div>
+
+    <div style="opacity: 0.5;">
+      <div class="cap" style="margin-bottom: 6px;">Projects</div>
+      <div class="row" style="background: #eef2ff;">
+        <span style="flex: 1;">Gateway hardening</span>
+        <span class="who">SL</span>
+      </div>
+      <div class="row">
+        <span style="flex: 1;">CURADE mini deployment</span>
+      </div>
+      <div class="row">
+        <span style="flex: 1;">Ledger migration</span>
+        <span class="who">RT</span>
+      </div>
+
+      <div class="cap" style="margin: 14px 0 6px;">Sprint files</div>
+      <div class="row" style="border: 1px solid #e6e6ea;">
+        <span style="flex: 1;">03.md — 18 Aug – 29 Aug</span>
+        <span class="who">RT</span>
+        <span style="font-size: 12px; color: #71717a;">editing</span>
+      </div>
+      <div class="row" style="border: 1px solid #e6e6ea;">
+        <span style="flex: 1;">02.md — 4 Aug – 15 Aug</span>
+      </div>
+    </div>
+
+    <div style="margin-top: 14px; font-size: 12.5px; color: #71717a;">
+      Seeing that someone is already in <span class="mono">03.md</span> so you open something else is the highest-value
+      half of presence — and it is worth nothing if the initials are self-declared. A typed name can be anyone's,
+      so the name comes from the sign-in claim or not at all.
+    </div>
+  </div>
+
+  <div class="card" style="padding: 14px 16px;">
+    <div class="cap" style="margin-bottom: 8px;">And even then, it informs — it never refuses</div>
+    <div style="font-size: 12.5px; color: #52525b;">
+      A badge saying someone is in a file is a hint. Nothing reserves anything, no write is rejected because of who holds
+      what, and the only refusal on a row stays the one already shipped: the field you are overwriting moved.
+      A lock that sticks costs a colleague who cannot type; a hint that goes stale costs nothing.
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

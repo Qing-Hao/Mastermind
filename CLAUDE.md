@@ -1,7 +1,13 @@
 # Mastermind
 
-Single-user internal tool for planning software delivery from roadmap → phases →
-deliverables. Localhost only. All data in one SQLite file.
+Internal tool for planning software delivery from roadmap → phases →
+deliverables. All data in one SQLite file.
+
+**It was single-user and localhost-only, and as of 2026-08-21 it is neither.** A
+small team plans out of one instance, served from a container; two people editing
+one thing is a 409 naming the field, never a silent overwrite, and who is in
+which cell is drawn as a badge. Sign-in is Keycloak's over OIDC — **a gate, not
+an account model**: nothing about a person is stored. See non-negotiable 7.
 
 **This file is routing, not a record.** It says where things live, how to run
 them, and how to work here. It deliberately does not describe what is already
@@ -24,7 +30,8 @@ in step. Before adding a section, ask which of those two jobs it does.
 ## Stack & commands
 
 FastAPI + SQLite (stdlib `sqlite3`) + vanilla JS. No build step, no ORM, no
-migration framework, no auth.
+migration framework. Sign-in is one OIDC redirect and a signed cookie — no auth
+framework and no session store, and `MASTERMIND_SSO=off` removes it entirely.
 
 - `requirements.txt` — one runtime parsing dependency: `markdown-it-py` (4.2.0) +
   `mdit-py-plugins` (0.6.1), for the sprint editor. Not optional, not lazily
@@ -52,7 +59,18 @@ node scripts\css_check.js            # frontend: the [hidden] trap, dead tokens,
 
 .\.venv\Scripts\python.exe -m pip install -r requirements-ai.txt          # optional, sprint review only
 .\.venv\Scripts\python.exe scripts\sprint_review.py --history 3
+
+docker compose up -d --build        # serve it to the team; http://127.0.0.1:8000
+docker compose logs -f              # one worker, so this is the whole story
+docker compose down
 ```
+
+**Serving it to other people.** `compose.yaml` publishes to `127.0.0.1` until
+sign-in is armed at `/auth/settings`, and opening that line to `8000:8000` is the
+deliberate act of letting the office in. With the gate off, anyone who can reach
+the port can read the roadmap and `POST /api/import` over it — that route is
+destructive by design. Secrets come from `.env` (copy `.env.example`); the rest
+of the sign-in configuration is in the database and edited on the page.
 
 > **Run it with one worker.** `/ws` keeps its connection registry in process
 > memory, so a second worker would announce a write to half the open pages and
@@ -65,6 +83,15 @@ node scripts\css_check.js            # frontend: the [hidden] trap, dead tokens,
 > even to be finished. Before touching schema, migrations or anything destructive:
 > stop the server, or point it at a copy. This has already cost the real dataset
 > once — 24 phases and 33 deliverables, recovered from a backup.
+>
+> **Check for one before you start.** Two were found running in August, and a
+> reload server left open is the likeliest explanation for a dataset that changed
+> when nobody was using it:
+> `Get-CimInstance Win32_Process -Filter "Name like '%python%'" | Where-Object { $_.CommandLine -like '*uvicorn*' }`
+>
+> `init_db()` now copies the file to `data/backups/roadmap-<stamp>.db` first,
+> keeping the last ten. That makes the hazard recoverable; it does not make it
+> safe, because the copy is only as old as the last start.
 
 Type checking is pyright, `basic` mode, config in `pyrightconfig.json`.
 `conftest.py` exists only to put the repo root on `sys.path`.
@@ -94,6 +121,7 @@ Type checking is pyright, `basic` mode, config in `pyrightconfig.json`.
 | `scripts/map_sweep.js` | The map's collision sweep and tree dump. Node, no deps — loads the real `app.js` behind a stub DOM. **The map has no test suite; this is its verification.** It drives the real filters rather than reimplementing them. |
 | `scripts/wire_check.js` | Runs `bindEvents()` behind a stub DOM and names every id the frontend asks for that `index.html` does not define. Node, no deps. |
 | `scripts/css_check.js` | The `[hidden]`-versus-`display` trap, a `var()` with neither definition nor fallback, a rule for an id nothing creates, brace balance. Node, no deps. |
+| `Dockerfile`, `compose.yaml`, `.env.example` | How it is served to the team. One worker — the connection registry is process memory. Three mounts: `data/`, `sprints/`, `templates/sprint.md`, each irreplaceable for its own reason. |
 | `.design/*.dc.html` | The UI as artboards, plus `canvas.json`. Source only; the published canvas beside them is gitignored. |
 | `data/roadmap.db` | The dataset. Gitignored. `.bak` is an **old** backup, not a scratch slot. |
 

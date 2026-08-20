@@ -1,0 +1,329 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #18181b;
+      background: #fafafa;
+    }
+    a { color: #4f46e5; }
+    a:hover { color: #4338ca; }
+    label { display: flex; flex-direction: column; font-size: 12px; color: #52525b; gap: 5px; font-weight: 500; }
+    .ctl {
+      font: inherit;
+      width: 100%;
+      padding: 5px 9px;
+      border: 1px solid #d8d8de;
+      border-radius: 6px;
+      background: #fff;
+      color: #18181b;
+    }
+    .ctl.readonly { background: #f4f4f5; color: #52525b; }
+    .ctl.focused { border-color: #4f46e5; outline: 2px solid #c7d2fe; outline-offset: -1px; }
+    .btn {
+      font: inherit; font-size: 13px; font-weight: 500;
+      padding: 5px 12px;
+      border: 1px solid #d8d8de;
+      border-radius: 6px;
+      background: #fff;
+      color: #3f3f46;
+    }
+    .btn-primary { border-color: #4f46e5; background: #4f46e5; color: #fff; }
+    .btn-ghost { border-color: transparent; background: transparent; color: #71717a; }
+    .hint { color: #71717a; font-size: 12.5px; margin: 6px 0 0; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12.5px; }
+    section {
+      background: #fff;
+      border: 1px solid #e6e6ea;
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    h2 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 2px; }
+    .nav-item {
+      display: flex; align-items: center; gap: 10px;
+      width: 100%; padding: 7px 10px;
+      border: 0; border-radius: 7px;
+      background: transparent; color: #52525b;
+      font-size: 13.5px; text-align: left;
+    }
+    .nav-item.active { background: #eef2ff; color: #4338ca; }
+    .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .field-wide { grid-column: 1 / -1; }
+  </style>
+</helmet>
+
+<div style="display: flex; align-items: stretch; min-height: 820px; width: 1180px;">
+
+  <!-- sidebar, 240px -->
+  <div style="flex: 0 0 240px; width: 240px; display: flex; flex-direction: column; gap: 2px; padding: 16px 12px; background: #fff; border-right: 1px solid #e6e6ea;">
+    <div style="display: flex; align-items: center; gap: 8px; padding: 0 8px 16px; color: #4f46e5;">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 17l6-6 4 4 8-8"></path>
+        <path d="M15 7h6v6"></path>
+      </svg>
+      <strong style="font-size: 15px; letter-spacing: -0.02em; color: #18181b;">Mastermind</strong>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 2px;">
+      <div class="nav-item">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+          <path d="M3 9h18"></path>
+        </svg>
+        <span>Project</span>
+      </div>
+      <div class="nav-item">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 19V5"></path>
+          <path d="M8 19v-7"></path>
+          <path d="M13 19V8"></path>
+          <path d="M18 19v-4"></path>
+        </svg>
+        <span>Portfolio</span>
+      </div>
+      <div class="nav-item">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"></circle>
+          <circle cx="12" cy="12" r="9"></circle>
+        </svg>
+        <span>Map</span>
+      </div>
+      <div class="nav-item">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="5" width="18" height="16" rx="2"></rect>
+          <path d="M8 3v4M16 3v4M3 11h18"></path>
+        </svg>
+        <span>Sprint</span>
+      </div>
+      <div class="nav-item active">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path>
+        </svg>
+        <span>Settings</span>
+      </div>
+    </div>
+
+    <div style="height: 1px; background: #f1f1f4; margin: 16px 8px;"></div>
+
+    <div style="display: flex; flex-direction: column; gap: 2px; padding: 0 10px;">
+      <div style="font-size: 11px; font-weight: 600; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.05em; padding-bottom: 6px;">Settings</div>
+      <div style="font-size: 13px; color: #18181b; font-weight: 600; padding: 4px 0;">Sign-in</div>
+      <div style="font-size: 13px; color: #52525b; padding: 4px 0;">Data</div>
+      <div style="font-size: 13px; color: #52525b; padding: 4px 0;">Appearance</div>
+    </div>
+  </div>
+
+  <!-- main column -->
+  <div style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column;">
+
+    <!-- topbar, 68px -->
+    <div style="display: flex; align-items: center; gap: 12px; padding: 12px 24px; background: #fff; border-bottom: 1px solid #e6e6ea;">
+      <div style="min-width: 0;">
+        <div style="display: flex; align-items: center; gap: 9px;">
+          <h1 style="font-size: 19px; font-weight: 650; margin: 0; letter-spacing: -0.02em;">Sign-in</h1>
+          <span style="display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px; background: #f4f4f5; color: #52525b; font-size: 11.5px; font-weight: 600;">
+            <span style="width: 9px; height: 9px; border-radius: 999px; background: #a5d6a7; border: 1.5px solid #2e7d32;"></span>
+            Connected
+          </span>
+        </div>
+        <div style="font-size: 12.5px; color: #a1a1aa; margin-top: 1px;">Keycloak · realm <span class="mono">delivery</span> · last verified 20 Aug 2026, 09:14</div>
+      </div>
+      <div style="flex: 1;"></div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <button class="btn">Test connection</button>
+        <button class="btn btn-primary">Save</button>
+      </div>
+    </div>
+
+    <!-- content -->
+    <div style="padding: 20px; max-width: 940px;">
+
+      <!-- switch -->
+      <section>
+        <div style="display: flex; align-items: flex-start; gap: 16px;">
+          <div style="flex: 1; min-width: 0;">
+            <h2>Single sign-on</h2>
+            <p class="hint" style="margin: 2px 0 0;">When on, every page requires a Keycloak session. Mastermind stores no password and creates no account of its own.</p>
+          </div>
+          <div style="display: flex; align-items: center; gap: 9px; flex: none; padding-top: 2px;">
+            <span style="font-size: 12.5px; color: #52525b; font-weight: 500;">On</span>
+            <div style="width: 38px; height: 22px; border-radius: 999px; background: #4f46e5; padding: 2px; display: flex; justify-content: flex-end;">
+              <div style="width: 18px; height: 18px; border-radius: 999px; background: #fff;"></div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; padding: 9px 12px; border-radius: 6px; background: #fffbeb;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#92400e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-top: 2px;" aria-hidden="true">
+            <path d="M12 9v4"></path>
+            <path d="M12 17h.01"></path>
+            <path d="M10.3 3.9 2.4 17.5A2 2 0 0 0 4.1 20.5h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path>
+          </svg>
+          <div style="font-size: 12.5px; color: #92400e;">
+            A wrong setting here locks you out of your own machine. The escape hatch is an environment variable — start the server with <span class="mono" style="background: #fef3c7; padding: 1px 5px; border-radius: 4px;">MASTERMIND_SSO=off</span> and this page comes back.
+          </div>
+        </div>
+      </section>
+
+      <!-- connection -->
+      <section>
+        <h2>Keycloak</h2>
+        <p class="hint">Taken from your realm's discovery document. Nothing here is a secret.</p>
+
+        <div class="field-grid">
+          <label class="field-wide">
+            Discovery URL
+            <input class="ctl mono focused" type="text" value="https://sso.company.example/realms/delivery/.well-known/openid-configuration" readonly="readonly">
+          </label>
+
+          <label>
+            Client ID
+            <input class="ctl mono" type="text" value="mastermind-local" readonly="readonly">
+          </label>
+
+          <label>
+            Client authentication
+            <div class="ctl" style="display: flex; align-items: center; justify-content: space-between;">
+              <span>Confidential — client secret</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#71717a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+            </div>
+          </label>
+
+          <label class="field-wide">
+            Client secret
+            <div class="ctl readonly" style="display: flex; align-items: center; gap: 9px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2e7d32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: none;" aria-hidden="true">
+                <rect x="4" y="10" width="16" height="10" rx="2"></rect>
+                <path d="M8 10V7a4 4 0 0 1 8 0v3"></path>
+              </svg>
+              <span class="mono">MASTERMIND_OIDC_SECRET</span>
+              <span style="font-size: 11.5px; color: #71717a;">read from the environment · set</span>
+              <span style="flex: 1;"></span>
+              <span style="font-size: 11.5px; color: #a1a1aa;">not stored in roadmap.db</span>
+            </div>
+          </label>
+        </div>
+      </section>
+
+      <!-- what keycloak needs back -->
+      <section>
+        <h2>Give these to your Keycloak admin</h2>
+        <p class="hint">Both must be registered on the client, character for character. <span class="mono">127.0.0.1</span> and <span class="mono">localhost</span> are different entries.</p>
+
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <label>
+            Redirect URI
+            <div style="display: flex; gap: 8px;">
+              <input class="ctl mono readonly" type="text" value="http://127.0.0.1:8000/auth/callback" readonly="readonly">
+              <button class="btn" style="flex: none; display: flex; align-items: center; gap: 6px;">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="9" y="9" width="12" height="12" rx="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+                Copy
+              </button>
+            </div>
+          </label>
+
+          <label>
+            Post-logout redirect URI
+            <div style="display: flex; gap: 8px;">
+              <input class="ctl mono readonly" type="text" value="http://127.0.0.1:8000/" readonly="readonly">
+              <button class="btn" style="flex: none; display: flex; align-items: center; gap: 6px;">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="9" y="9" width="12" height="12" rx="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+                Copy
+              </button>
+            </div>
+          </label>
+        </div>
+      </section>
+
+      <!-- who may sign in -->
+      <section>
+        <h2>Who may sign in</h2>
+        <p class="hint">This is the whole of access control. There are no roles, and no per-user data — see the note beside this canvas.</p>
+
+        <div style="display: flex; flex-direction: column; gap: 9px;">
+          <div style="display: flex; align-items: flex-start; gap: 9px; padding: 9px 12px; border-radius: 6px; border: 1px solid #e6e6ea;">
+            <input type="radio" style="accent-color: #4f46e5; margin: 3px 0 0;" disabled="disabled">
+            <div>
+              <div style="font-size: 13px;">Anyone the realm lets in</div>
+              <div style="font-size: 12px; color: #71717a;">Every colleague with a company account reaches your planning data.</div>
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: flex-start; gap: 9px; padding: 9px 12px; border-radius: 6px; border: 1px solid #4f46e5; background: #eef2ff;">
+            <input type="radio" checked="checked" style="accent-color: #4f46e5; margin: 3px 0 0;" disabled="disabled">
+            <div style="flex: 1; min-width: 0;">
+              <div style="font-size: 13px; color: #4338ca; font-weight: 600;">These identities only</div>
+              <div style="font-size: 12px; color: #52525b;">Matched against the claim below. One row per person.</div>
+
+              <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px;">
+                <span class="mono" style="display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px; background: #fff; border: 1px solid #c7d2fe; color: #3f3f46;">
+                  qing.hao
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M5 5l14 14M19 5L5 19"></path></svg>
+                </span>
+                <span class="mono" style="display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px; background: #fff; border: 1px solid #c7d2fe; color: #3f3f46;">
+                  wei.lim
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M5 5l14 14M19 5L5 19"></path></svg>
+                </span>
+                <span style="display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 999px; border: 1px dashed #c7d2fe; color: #71717a; font-size: 12px;">+ Add</span>
+              </div>
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: flex-start; gap: 9px; padding: 9px 12px; border-radius: 6px; border: 1px solid #e6e6ea;">
+            <input type="radio" style="accent-color: #4f46e5; margin: 3px 0 0;" disabled="disabled">
+            <div style="flex: 1;">
+              <div style="font-size: 13px;">Holders of a realm role</div>
+              <div style="font-size: 12px; color: #71717a;">Keycloak owns the list; Mastermind stores only the role name.</div>
+            </div>
+            <input class="ctl mono" type="text" value="mastermind-user" style="width: 180px; flex: none; opacity: 0.5;" readonly="readonly">
+          </div>
+        </div>
+
+        <div class="field-grid" style="margin-top: 14px;">
+          <label>
+            Identity claim
+            <div class="ctl" style="display: flex; align-items: center; justify-content: space-between;">
+              <span class="mono">preferred_username</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#71717a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+            </div>
+          </label>
+          <label>
+            Session idle timeout
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <input class="ctl" type="text" value="8" style="width: 90px; flex: none;" readonly="readonly">
+              <span style="font-size: 12.5px; color: #71717a;">hours, then Keycloak is asked again</span>
+            </div>
+          </label>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #18181b;
+      background: #fafafa;
+    }
+    a { color: #4f46e5; }
+    a:hover { color: #4338ca; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
+  </style>
+</helmet>
+
+<div style="width: 560px; height: 420px; display: flex; align-items: center; justify-content: center; padding: 24px;">
+
+  <div style="width: 340px; display: flex; flex-direction: column; align-items: center; gap: 20px;">
+
+    <div style="display: flex; align-items: center; gap: 8px; color: #4f46e5;">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 17l6-6 4 4 8-8"></path>
+        <path d="M15 7h6v6"></path>
+      </svg>
+      <strong style="font-size: 17px; letter-spacing: -0.02em; color: #18181b;">Mastermind</strong>
+    </div>
+
+    <div style="width: 100%; background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; padding: 24px; display: flex; flex-direction: column; gap: 16px; align-items: center;">
+      <div style="text-align: center;">
+        <div style="font-size: 15px; font-weight: 600; letter-spacing: -0.01em;">Sign in to continue</div>
+        <div style="font-size: 12.5px; color: #71717a; margin-top: 3px;">This planning file is behind your company account.</div>
+      </div>
+
+      <button style="font: inherit; font-size: 13.5px; font-weight: 500; width: 100%; padding: 9px 12px; border: 1px solid #4f46e5; border-radius: 6px; background: #4f46e5; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 3l7 3v6c0 4.5-3 8-7 9-4-1-7-4.5-7-9V6z"></path>
+        </svg>
+        Continue with company SSO
+      </button>
+
+      <div style="font-size: 11.5px; color: #a1a1aa; text-align: center;">You will be sent to <span class="mono">sso.company.example</span> and back.</div>
+    </div>
+
+    <div style="font-size: 11.5px; color: #a1a1aa; text-align: center; padding: 0 8px;">
+      Locked out? Stop the server and start it with <span class="mono" style="background: #f4f4f5; padding: 1px 5px; border-radius: 4px; color: #52525b;">MASTERMIND_SSO=off</span>.
+    </div>
+
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

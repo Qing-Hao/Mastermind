@@ -1,0 +1,117 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #18181b;
+      background: #fafafa;
+    }
+    a { color: #4f46e5; }
+    a:hover { color: #4338ca; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
+    .row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 12px; border-radius: 6px; }
+    .what { font-size: 13px; color: #18181b; }
+    .said { font-size: 12px; color: #71717a; }
+    .btn {
+      font: inherit; font-size: 13px; font-weight: 500;
+      padding: 5px 12px; border: 1px solid #d8d8de; border-radius: 6px;
+      background: #fff; color: #3f3f46;
+    }
+    .btn-primary { border-color: #4f46e5; background: #4f46e5; color: #fff; }
+  </style>
+</helmet>
+
+<div style="padding: 24px; width: 560px;">
+
+  <div style="background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; padding: 20px; display: flex; flex-direction: column; gap: 14px;">
+
+    <div>
+      <div style="font-size: 15px; font-weight: 600; letter-spacing: -0.01em;">Test connection</div>
+      <div style="font-size: 12.5px; color: #71717a; margin-top: 2px;">A full round trip against the realm, before you turn sign-in on.</div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 3px;">
+
+      <div class="row" style="background: #fff;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2e7d32" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-top: 3px;" aria-hidden="true"><path d="m4 12 5 5L20 6"></path></svg>
+        <div style="flex: 1; min-width: 0;">
+          <div class="what">Discovery document reached</div>
+          <div class="said mono">308 ms · TLS verified against the system store</div>
+        </div>
+      </div>
+
+      <div class="row" style="background: #fff;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2e7d32" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-top: 3px;" aria-hidden="true"><path d="m4 12 5 5L20 6"></path></svg>
+        <div style="flex: 1; min-width: 0;">
+          <div class="what">Issuer matches</div>
+          <div class="said mono">https://sso.company.example/realms/delivery</div>
+        </div>
+      </div>
+
+      <div class="row" style="background: #fff;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2e7d32" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-top: 3px;" aria-hidden="true"><path d="m4 12 5 5L20 6"></path></svg>
+        <div style="flex: 1; min-width: 0;">
+          <div class="what">Signing keys fetched</div>
+          <div class="said">3 keys · RS256 · cached for 1 hour</div>
+        </div>
+      </div>
+
+      <div class="row" style="background: #fff;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2e7d32" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-top: 3px;" aria-hidden="true"><path d="m4 12 5 5L20 6"></path></svg>
+        <div style="flex: 1; min-width: 0;">
+          <div class="what">Client secret accepted</div>
+          <div class="said">Token endpoint answered on a client-credentials probe</div>
+        </div>
+      </div>
+
+      <!-- the one that fails, because it is the one that always fails -->
+      <div class="row" style="background: #fef2f2; align-items: flex-start;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#d84315" stroke-width="2.5" stroke-linecap="round" style="flex: none; margin-top: 3px;" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>
+        <div style="flex: 1; min-width: 0;">
+          <div class="what" style="color: #b3300f;">Redirect URI is not registered on this client</div>
+          <div class="said" style="color: #92400e;">The realm accepts <span class="mono">http://localhost:8000/auth/callback</span>, and this app is served from <span class="mono">127.0.0.1</span>. Keycloak treats those as different.</div>
+          <div style="display: flex; gap: 8px; margin-top: 9px;">
+            <button class="btn" style="border-color: #f0b7a4; color: #b3300f; background: #fff;">Copy the URI to send on</button>
+            <button class="btn" style="border-color: transparent; background: transparent; color: #92400e;">Serve on localhost instead</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="row" style="background: #fff; opacity: 0.45;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="2" style="flex: none; margin-top: 3px;" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle></svg>
+        <div style="flex: 1; min-width: 0;">
+          <div class="what">Claims returned for a real sign-in</div>
+          <div class="said">Waiting on the redirect URI</div>
+        </div>
+      </div>
+
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 8px; border-top: 1px solid #f1f1f4; padding-top: 14px;">
+      <span style="font-size: 12px; color: #a1a1aa;">5 of 6 · sign-in stays off until all pass</span>
+      <span style="flex: 1;"></span>
+      <button class="btn">Close</button>
+      <button class="btn btn-primary">Run again</button>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

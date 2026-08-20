@@ -27,6 +27,8 @@ sprints/
 .design/mastermind-ui-options.html
 .design/charts/mastermind-chart-options.html
 .design/sprint-sync/sprint-deliverable-sync.html
+.design/sso/mastermind-sso-setup.html
+.design/ws/mastermind-live-updates.html
 
 # Provider keys live in the environment. Never in the database - /api/export
 # writes the whole file to JSON and would carry a key straight back out.
