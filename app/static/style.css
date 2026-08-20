@@ -530,6 +530,59 @@ button:disabled:hover { background: var(--surface); }
 .btn-ghost { border-color: transparent; background: transparent; color: var(--muted); }
 .btn-ghost:hover { background: var(--hover); color: var(--ink); }
 
+/* --- presence ---------------------------------------------------------------
+   Who else is in this cell. **Chrome, not data**: a hue means "somebody", never
+   anything about the plan, which is why this sits above the chart rules rather
+   than below them. Six of them, so two people in one table are told apart.
+
+   The held cell is tinted rather than disabled, and that is the design: presence
+   informs and never refuses. You can still type in a cell somebody else is in --
+   the only refusal is the stale-expectation 409, which is about the data having
+   moved rather than whose turn it is. */
+.presence-strip { display: inline-flex; gap: 4px; align-items: center; }
+.presence-strip[hidden] { display: none; }
+
+.presence-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 10px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: var(--faint);
+  user-select: none;
+}
+/* Inside a cell it sits at the right-hand edge, over the input's own padding --
+   a badge in the flow would reflow the column every time somebody arrived. */
+td.presence-held, .sprint-row.presence-held { position: relative; }
+td.presence-held > .presence-badge,
+.sprint-row.presence-held > .presence-badge {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.sprint-row.presence-held > .presence-badge { top: 6px; transform: none; }
+
+td.presence-held input,
+td.presence-held select { background: var(--accent-soft); }
+/* Room for the badge, so a long name does not run underneath it. */
+td.presence-held input { padding-right: 26px; }
+.sprint-row.presence-held { background: var(--accent-soft); border-radius: var(--radius); }
+
+.presence-hue-0 { background: #4f46e5; }
+.presence-hue-1 { background: #0f766e; }
+.presence-hue-2 { background: #b45309; }
+.presence-hue-3 { background: #9d174d; }
+.presence-hue-4 { background: #3f6212; }
+.presence-hue-5 { background: #6d28d9; }
+
 /* --- the sign-in configuration page ---------------------------------------
    `sso.html` only, and the sidebar link that reaches it. */
 .sidebar-link {

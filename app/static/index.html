@@ -108,6 +108,10 @@
       <div id="project-meta" class="topbar-meta" hidden></div>
     </div>
     <span class="spacer"></span>
+    <!-- Who else is here, on whichever tab you are on. Outside `topbar-actions`
+         for the same reason the offline badge is: that block is hidden when no
+         project is open, and presence is not about a project. -->
+    <span id="presence-strip" class="presence-strip" hidden></span>
     <!-- Drawn only while the live connection is gone. Nothing marks it working:
          a page that is up to date is the normal case and says nothing about
          itself. Sits outside `topbar-actions` so it shows on all four tabs. -->
@@ -515,6 +519,12 @@
             <select id="sprint-select"
               title="Newest first. One file per fortnight, in sprints/ — plus the template every one of them is a copy of"></select>
           </label>
+          <!-- Who else has this fortnight open. The high-value half of presence:
+               this is the highest-collision surface in the app, and knowing
+               somebody is in here before you start typing is social locking --
+               cheaper and more honest than a lock, which is why nothing here
+               refuses anything. -->
+          <span id="sprint-presence" class="presence-strip" hidden></span>
           <!-- The template opens in this same editor. It is the last row of the
                picker as well; the button is the way in you can see. -->
           <button id="sprint-template" type="button"

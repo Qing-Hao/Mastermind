@@ -516,6 +516,9 @@ function renderSprintDocument() {
   // Also after the append, and for the same reason: a diagram is measured text,
   // and a detached node has no measurements.
   drawSprintDiagrams(doc);
+
+  // Every row was just replaced, so every badge on one went with it.
+  drawPresence();
 }
 
 // One block's row, rail and all. Its own function because a remote splice
@@ -523,6 +526,11 @@ function renderSprintDocument() {
 // take the caret with it, and the caret may be in a block nobody touched.
 function sprintRow(block, index) {
   const row = element("div", "sprint-row");
+  // What presence names this block by. Position, because that is all a block has
+  // -- the same reason the block API addresses one by `at` plus the text it
+  // expected. It shifts when somebody splices above you, which is why
+  // `applyRemoteSprintSplice` re-announces once it has repainted.
+  row.dataset.presence = `${sprintPresenceScope()}:${index}`;
   row.appendChild(sprintRail(block, index, row));
 
   // A table is edited as a grid and never as raw pipes, so it has no reveal
@@ -4270,6 +4278,10 @@ function applyRemoteSprintSplice(message) {
     renderSprintDocument();
     flashSprintRows(at, fresh.length);
   }
+  // A splice that grew or shrank the document moved every block below it, and a
+  // block index is the only name presence has for one. Say where the caret is
+  // again so the badge follows the block rather than the position.
+  announceHere(true);
   return true;
 }
 
@@ -4285,6 +4297,8 @@ function repaintSprintRows(at, count) {
   }
   flashSprintRows(at, count);
   drawSprintDiagrams(doc);
+  // These rows are new nodes, so any badge that was on one is gone with the old.
+  drawPresence();
 }
 
 // Say which blocks moved under you. The same flash a row that changed elsewhere

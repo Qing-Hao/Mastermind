@@ -124,6 +124,11 @@ let state = {
   // used as a label; nothing about a person is stored anywhere else, here or on
   // the server. Empty means the gate is off.
   signedInAs: "",
+  // Who else is here. `me` is this page's connection id -- two tabs of one
+  // browser are two ids, so it is the connection that is excluded from the
+  // badges, not the person. `said` is the last place announced, so a focus
+  // shuffle that changes nothing sends nothing.
+  presence: { me: null, name: "", users: [], said: null },
   currentProjectId: null,
   plan: null,
   portfolio: null,
@@ -1155,6 +1160,11 @@ async function refreshView() {
   // which is what the load fetches. `renderProjectView` calls it too, so an edit
   // retags the bar without a tab switch.
   renderTopbar();
+  // A render rebuilds the tables, so the badges drawn on the old nodes went with
+  // them. Redraw from the roll this page already holds, and say where this page
+  // is now looking -- a tab switch moves you as surely as a click does.
+  drawPresence();
+  announceHere();
   // Every tab switch and every project opened lands here, so this is the one
   // place that has to remember. The sprint file has its own call in
   // `loadSprintFile`, because switching files never comes back through here.
@@ -1303,7 +1313,8 @@ function milestoneRow(milestone) {
   tickCell.appendChild(tick);
   line.appendChild(tickCell);
 
-  const nameCell = fieldCell(milestone, "name", "text", saveMilestone);
+  const nameCell = fieldCell(milestone, "name", "text", saveMilestone,
+    {}, "milestone");
   nameCell.classList.add("checkpoint-name");
   const mark = element("span", "checkpoint-mark", "◆");
   mark.title = "Checkpoint";
@@ -1316,7 +1327,8 @@ function milestoneRow(milestone) {
   };
   line.appendChild(nameCell);
 
-  line.appendChild(fieldCell(milestone, "target_date", "date", saveMilestone));
+  line.appendChild(fieldCell(milestone, "target_date", "date", saveMilestone,
+    {}, "milestone"));
 
   const spanCell = element("td", "muted", "checkpoint");
   spanCell.colSpan = 4;
@@ -2051,6 +2063,8 @@ function renderPhases() {
     state.focusMilestoneAdder = false;
     $("new-milestone-name").focus();
   }
+  // The table this just rebuilt is where most of the badges live.
+  drawPresence();
 }
 
 function phaseRow(phase, warned) {
@@ -2092,12 +2106,12 @@ function phaseRow(phase, warned) {
   }
   row.appendChild(toggleCell);
 
-  row.appendChild(fieldCell(phase, "name", "text", savePhase));
-  row.appendChild(fieldCell(phase, "start_date", "date", savePhase));
+  row.appendChild(fieldCell(phase, "name", "text", savePhase, {}, "phase"));
+  row.appendChild(fieldCell(phase, "start_date", "date", savePhase, {}, "phase"));
   row.appendChild(fieldCell(phase, "duration_weeks", "number", savePhase,
-    { step: "0.5", min: "0" }));
+    { step: "0.5", min: "0" }, "phase"));
   row.appendChild(fieldCell(phase, "effort_points", "number", savePhase,
-    { step: "1", min: "0" }));
+    { step: "1", min: "0" }, "phase"));
 
   const statusCell = element("td");
   const select = element("select");
@@ -2172,7 +2186,8 @@ function deliverableRow(phase) {
     tickCell.appendChild(tick);
     line.appendChild(tickCell);
 
-    const nameCell = fieldCell(deliverable, "name", "text", saveDeliverable);
+    const nameCell = fieldCell(deliverable, "name", "text", saveDeliverable,
+      {}, "deliverable");
     // Enter on a name already in the list ends up in the adder too, so a
     // correction leaves the cursor where the next one is typed. The flag is set
     // in keydown; the `change` Enter fires next is what saves and re-renders.
@@ -2328,12 +2343,17 @@ async function saveDeliverableOrder(deliverables) {
   await loadPlan();
 }
 
-function fieldCell(record, key, type, save, attributes = {}) {
+function fieldCell(record, key, type, save, attributes = {}, kind = "") {
   const cell = element("td");
   const input = element("input");
   input.type = type;
   input.value = record[key];
   Object.assign(input, attributes);
+  // What presence names this cell by, and the reason every typed field in the
+  // plan gets a badge for free: they all come through here. `kind` is passed
+  // rather than derived, so a renamed save function cannot silently unname a
+  // cell that two people are looking at.
+  if (kind) input.dataset.presence = presenceKey(kind, record.id, key);
   input.onchange = () => {
     const value = type === "number" ? Number(input.value) : input.value;
     // What this row held when it was drawn. The server refuses the write if
@@ -7022,6 +7042,10 @@ function connectLive() {
     // the page has just loaded, so it is already current.
     if (state.live.opened) liveRefresh();
     state.live.opened = true;
+    // Nobody is holding a place for this page while it was away, so the first
+    // thing it says on coming back is where it is.
+    state.presence.said = null;
+    announceHere(true);
   };
 
   socket.onmessage = (event) => {
@@ -7039,6 +7063,10 @@ function connectLive() {
   socket.onclose = () => {
     state.live.socket = null;
     markLiveDown(true);
+    // Their badges are as stale as this page is. Clearing them is the honest
+    // read: while the socket is down, nothing here knows where anybody is.
+    state.presence.users = [];
+    drawPresence();
     scheduleLiveReconnect();
   };
 }
@@ -7054,6 +7082,19 @@ function scheduleLiveReconnect() {
 }
 
 function handleLiveMessage(message) {
+  if (message.type === "welcome") {
+    // Which connection this page is. Two tabs of one browser are two of them, so
+    // this is what stops a badge drawing you as a stranger in your other window.
+    state.presence.me = message.id;
+    state.presence.name = message.name;
+    announceHere(true);
+    return;
+  }
+  if (message.type === "presence") {
+    state.presence.users = message.users || [];
+    drawPresence();
+    return;
+  }
   if (message.type !== "changed") return;
   if (message.scope === "sprint") {
     // Your own save comes back to you, and the mtime is how this page knows: it
@@ -7081,6 +7122,153 @@ function handleLiveMessage(message) {
   // by the counter re-ask exactly as they do after an edit of your own.
   state.roadmapRevision += 1;
   liveRefresh();
+}
+
+// --- presence ---------------------------------------------------------------
+
+// Who else is here, and which cell their caret is in. The badge **informs and
+// never refuses** -- nothing is reserved, no write is blocked, and a stale badge
+// costs a moment's confusion where a stuck lock would cost somebody the ability
+// to type. See PLAN-multi-user.md B6.
+//
+// The name is Keycloak's; with the gate off it is `guest-N`. Nothing about a
+// person is stored at either end: the server holds it beside an open socket and
+// forgets it when the tab closes.
+
+// Six hues, so two people in one table are told apart at a glance. Chrome, not
+// data -- a hue means "somebody", never anything about the plan, which is why
+// this sits above the chart rules in `style.css`.
+const PRESENCE_HUES = 6;
+
+function presenceKey(kind, id, field) {
+  return `${kind}:${id}:${field}`;
+}
+
+// The file a block belongs to, so a block index from one fortnight cannot mark a
+// row in another. `editor.js` stamps it on every row it draws.
+function sprintPresenceScope() {
+  return `sprint:${state.sprint.number}`;
+}
+
+function presenceHue(name) {
+  let total = 0;
+  for (const character of name) total = (total + character.charCodeAt(0)) % 997;
+  return total % PRESENCE_HUES;
+}
+
+function presenceInitials(name) {
+  const parts = name.split(/[.\-_\s]+/).filter(Boolean);
+  if (parts.length > 1) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return name.slice(0, 2).toUpperCase();
+}
+
+// Where this page is looking. `field` is the cell the caret is in, stamped on
+// the input by `fieldCell` and on a sprint row by `sprintRow`.
+function currentPlace() {
+  const active = document.activeElement;
+  // Walked up rather than read off the focused node: a sprint block's caret is
+  // inside a contenteditable child of the row that carries the name, and a table
+  // cell's is inside the cell. The nearest named ancestor is the answer in both.
+  const holder = active && typeof active.closest === "function"
+    ? active.closest("[data-presence]")
+    : null;
+  const field = holder ? holder.dataset.presence : "";
+  const key = state.view === "sprint" ? state.sprint.number : state.currentProjectId;
+  return { view: state.view, key: key === undefined ? null : key, field };
+}
+
+function announceHere(force = false) {
+  const socket = state.live.socket;
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+  const place = currentPlace();
+  const said = state.presence.said;
+  if (!force && said && said.view === place.view && said.key === place.key
+      && said.field === place.field) {
+    return;
+  }
+  state.presence.said = place;
+  try {
+    socket.send(JSON.stringify({ type: "here", ...place }));
+  } catch (_) {
+    // Presence is a hint. A socket that will not take it is not a reason to
+    // interrupt anything the page is doing.
+  }
+}
+
+// The whole of the wiring: one pair of delegated listeners, so a cell drawn by
+// any render gets this for free and no render site has to remember it.
+function watchPresence() {
+  document.addEventListener("focusin", () => announceHere());
+  document.addEventListener("focusout", () => {
+    // After the browser has moved focus on, so tabbing from one cell to the next
+    // announces the new cell rather than a moment of nothing.
+    setTimeout(() => announceHere(), 0);
+  });
+}
+
+function drawPresence() {
+  for (const held of document.querySelectorAll(".presence-held")) {
+    held.classList.remove("presence-held");
+    held.removeAttribute("title");
+  }
+  for (const badge of document.querySelectorAll(".presence-badge")) badge.remove();
+
+  const others = state.presence.users.filter((user) => user.id !== state.presence.me);
+  for (const user of others) {
+    if (!user.field) continue;
+    const input = document.querySelector(`[data-presence="${CSS.escape(user.field)}"]`);
+    if (!input) continue;
+    const holder = input.closest("td, .sprint-row") || input.parentElement;
+    if (!holder) continue;
+    holder.classList.add("presence-held");
+    holder.title = `${user.name} is editing this. You can still type — nothing is locked.`;
+    const badge = element("span", `presence-badge presence-hue-${presenceHue(user.name)}`,
+      presenceInitials(user.name));
+    badge.title = holder.title;
+    holder.appendChild(badge);
+  }
+
+  drawPresenceStrip(others);
+  drawSprintPresence(others);
+}
+
+function drawPresenceStrip(others) {
+  const strip = $("presence-strip");
+  if (!strip) return;
+  strip.textContent = "";
+  strip.hidden = others.length === 0;
+  for (const user of others) {
+    const badge = element("span", `presence-badge presence-hue-${presenceHue(user.name)}`,
+      presenceInitials(user.name));
+    badge.title = `${user.name} — ${describePlace(user)}`;
+    strip.appendChild(badge);
+  }
+}
+
+function describePlace(user) {
+  if (!user.view) return "just arrived";
+  if (user.view === "sprint") {
+    return user.key === null ? "the Sprint tab" : `sprint file ${user.key}`;
+  }
+  return `the ${user.view} view`;
+}
+
+// The Sprint tab's own line, which is the high-value one: it is the highest
+// collision surface in the app, and seeing that somebody is in this fortnight
+// before you open it is social locking -- cheaper and more honest than a lock.
+function drawSprintPresence(others) {
+  const line = $("sprint-presence");
+  if (!line) return;
+  const here = others.filter((user) => user.view === "sprint"
+    && String(user.key) === String(state.sprint.number));
+  line.textContent = "";
+  line.hidden = here.length === 0;
+  for (const user of here) {
+    const badge = element("span", `presence-badge presence-hue-${presenceHue(user.name)}`,
+      presenceInitials(user.name));
+    badge.title = `${user.name} has this file open`;
+    line.appendChild(badge);
+  }
 }
 
 // A refresh must never eat what is being typed. `loadPlan()` rebuilds the phase
@@ -7227,6 +7415,7 @@ async function loadSignInLabel() {
 }
 
 bindEvents();
+watchPresence();
 // Before the first load, so the sidebar is already the width it was left at when
 // the charts measure their container -- `weekGrid` fits its columns to that
 // width, so applying it after would fit them to the wrong one and need a redraw.
