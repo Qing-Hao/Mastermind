@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · Mastermind</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<!-- The gate's own page. Served by `GET /auth/signin`, which is exempt from the
+     gate for the obvious reason. It is a separate document rather than a view
+     inside the app because the app's shell loads a hundred ids and four tabs of
+     data that a signed-out visitor has no business fetching.
+
+     The refusal text arrives as `?error=` and is written into the page as text,
+     never as markup -- the message quotes a claim value the realm supplied. -->
+<body class="signin-page">
+  <main class="signin-card">
+    <div class="signin-brand">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M12 2v4M12 18v4M2 12h4M18 12h4"></path>
+      </svg>
+      <strong>Mastermind</strong>
+    </div>
+
+    <p id="signin-error" class="signin-error" hidden></p>
+
+    <p class="signin-lead">This planner is behind your company sign-in.</p>
+    <a class="btn-primary signin-action" href="/auth/login">Sign in with Keycloak</a>
+
+    <p id="signin-issuer" class="signin-note" hidden></p>
+
+    <!-- The recovery path, drawn rather than left in a runbook: a gate that can
+         only be repaired by someone who remembers a variable is not repairable.
+         See PLAN-sso-keycloak.md C2. -->
+    <div class="signin-recovery">
+      <strong>Locked out?</strong>
+      Start the server with <code>MASTERMIND_SSO=off</code> in its environment.
+      The gate is skipped entirely, the app behaves as it did before SSO, and the
+      Sign-in settings page is reachable again to fix whatever broke.
+    </div>
+  </main>
+
+  <script>
+    // No framework here on purpose: this page must render when the app's own
+    // bundle would not.
+    const parameters = new URLSearchParams(location.search);
+    const message = parameters.get("error");
+    if (message) {
+      const box = document.getElementById("signin-error");
+      box.textContent = message;
+      box.hidden = false;
+    }
+
+    fetch("/auth/status")
+      .then((response) => response.json())
+      .then((status) => {
+        if (!status.issuer) return;
+        const note = document.getElementById("signin-issuer");
+        note.textContent = "Realm: " + status.issuer;
+        note.hidden = false;
+      })
+      .catch(() => {});
+  </script>
+</body>
+</html>

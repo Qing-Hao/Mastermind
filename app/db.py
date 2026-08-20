@@ -18,7 +18,20 @@ CREATE TABLE IF NOT EXISTS settings (
     sprint_length_days                INTEGER NOT NULL DEFAULT 14,
     v1_tolerance_pct                  REAL    NOT NULL DEFAULT 5.0,
     -- The hub of the map view. Free text: whatever the team is called.
-    department_name                   TEXT    NOT NULL DEFAULT ''
+    department_name                   TEXT    NOT NULL DEFAULT '',
+    -- Sign-in configuration. Everything here is non-secret and editable from the
+    -- Sign-in page; the client secret and the cookie key are environment
+    -- variables and never columns, because `export_all` writes this row out.
+    -- `sso_enabled` is not a preference: only a completed round trip that
+    -- satisfied `auth.is_allowed` sets it. See `main.finish_sign_in`.
+    sso_issuer                        TEXT    NOT NULL DEFAULT '',
+    sso_client_id                     TEXT    NOT NULL DEFAULT '',
+    sso_identity_claim                TEXT    NOT NULL DEFAULT 'preferred_username',
+    sso_allowlist                     TEXT    NOT NULL DEFAULT '',
+    sso_mode                          TEXT    NOT NULL DEFAULT 'allowlist'
+                                      CHECK (sso_mode IN ('allowlist', 'any')),
+    sso_enabled                       INTEGER NOT NULL DEFAULT 0
+                                      CHECK (sso_enabled IN (0, 1))
 );
 """
 
@@ -193,6 +206,18 @@ ADDED_COLUMNS = [
     # projects that have no dates -- once work is dated the flag is ignored.
     ("project", "draft_complete", "INTEGER NOT NULL DEFAULT 0 "
                                   "CHECK (draft_complete IN (0, 1))"),
+    # Sign-in configuration, added when the app stopped being localhost-only.
+    # Additions only -- no table rebuild, so `migrate_stage_check` is nowhere
+    # near this. An existing file arrives with the gate off and no issuer, which
+    # is exactly how a file that has never seen SSO should read.
+    ("settings", "sso_issuer", "TEXT NOT NULL DEFAULT ''"),
+    ("settings", "sso_client_id", "TEXT NOT NULL DEFAULT ''"),
+    ("settings", "sso_identity_claim", "TEXT NOT NULL DEFAULT 'preferred_username'"),
+    ("settings", "sso_allowlist", "TEXT NOT NULL DEFAULT ''"),
+    ("settings", "sso_mode", "TEXT NOT NULL DEFAULT 'allowlist' "
+                             "CHECK (sso_mode IN ('allowlist', 'any'))"),
+    ("settings", "sso_enabled", "INTEGER NOT NULL DEFAULT 0 "
+                                "CHECK (sso_enabled IN (0, 1))"),
 ]
 
 # Columns retired after the first release. Deliverables stopped carrying their
@@ -418,12 +443,26 @@ def get_settings():
     return dict(row)
 
 
+def settings_without_sso(settings):
+    """The settings row minus sign-in configuration. See `export_all`."""
+    return {key: value for key, value in settings.items() if not key.startswith("sso_")}
+
+
 def update_settings(fields):
     allowed = {
         "default_velocity_points_per_sprint",
         "sprint_length_days",
         "v1_tolerance_pct",
         "department_name",
+        # Sign-in configuration. `sso_enabled` is writable here because arming
+        # goes through this one door, but the only caller that passes it is the
+        # callback of a real sign-in -- never the settings page.
+        "sso_issuer",
+        "sso_client_id",
+        "sso_identity_claim",
+        "sso_allowlist",
+        "sso_mode",
+        "sso_enabled",
     }
     updates = {key: value for key, value in fields.items() if key in allowed}
     if updates:
@@ -824,7 +863,13 @@ def export_all():
         # written before checkpoints existed cannot say what it was aiming at.
         "version": 10,
         "exported_at": now_iso(),
-        "settings": get_settings(),
+        # Sign-in configuration is stripped rather than exported. It describes
+        # this deployment's gate, not the dataset -- an issuer and an allowlist
+        # mean nothing on the machine an export is carried to, and an export is
+        # the file that gets emailed. `import_all` names its four settings
+        # columns explicitly, so a restore leaves the gate exactly as it found
+        # it. The version does not move: what a consumer reads is unchanged.
+        "settings": settings_without_sso(get_settings()),
         "projects": projects,
         "phases": phases,
         "deliverables": deliverables,
@@ -888,6 +933,9 @@ def import_all(payload):
         connection.execute("DELETE FROM phase")
         connection.execute("DELETE FROM project")
 
+        # The four dataset settings, named one by one. The `sso_*` columns are
+        # deliberately absent: importing somebody's plan must not reconfigure --
+        # or disarm -- the gate on this machine.
         settings = payload.get("settings") or {}
         if settings:
             connection.execute(

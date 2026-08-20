@@ -12,12 +12,14 @@ import tempfile
 from contextlib import asynccontextmanager
 from datetime import date, timedelta
 
-from fastapi import FastAPI, HTTPException, WebSocket
-from fastapi.responses import FileResponse
+from urllib.parse import quote
+
+from fastapi import FastAPI, HTTPException, Request, WebSocket
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import db
+from app import auth, db
 from app.markdown import (
     SpliceRefused,
     document_blocks,
@@ -200,6 +202,303 @@ async def live_updates(socket: WebSocket):
         pass
     finally:
         live_clients.discard(queue)
+
+
+# --- the sign-in gate --------------------------------------------------------
+
+# Keycloak answers "is this you"; nothing about a person is stored. The flow and
+# every pure predicate live in `app.auth`; what is here is assembly and HTTP.
+#
+# **This is a middleware where PLAN-sso-keycloak.md Step B specified a router
+# dependency**, and the exempt set is a named constant so that plan's reason for
+# preferring one -- the exemptions being readable in the code rather than hidden
+# in a prefix match -- still holds. Two things decided it: a dependency runs for
+# `/ws` too and cannot be handed a `Request` there, and only a middleware can
+# turn an unauthenticated page load into a redirect while leaving an API call as
+# a 401.
+EXEMPT_PREFIXES = (
+    # The flow itself, and the page that explains it.
+    "/auth/",
+    # The shell's assets. They carry no data; the API behind them is gated.
+    "/static/",
+)
+
+EXEMPT_PATHS = (
+    # Live invalidation. It carries "something changed" and no data, and it
+    # learns who you are in its own right once presence lands.
+    "/ws",
+)
+
+# The Sign-in settings surface, exempt so a misconfigured gate can always be
+# repaired from the page that configured it.
+#
+# **This exemption is only sound while the app binds loopback**, where anyone who
+# can reach the port can read `data/roadmap.db` off the disk anyway, so gating
+# the page buys nothing against them. The container sets `MASTERMIND_PUBLIC=1`
+# when it binds `0.0.0.0`, and then these gate like everything else and
+# `MASTERMIND_SSO=off` is the way back in.
+SSO_CONFIG_PATHS = ("/api/sso", "/api/sso/test")
+
+
+class SsoConfigIn(BaseModel):
+    # Non-secret configuration only. `enabled` is absent on purpose: arming is a
+    # completed sign-in, never a field somebody can PUT.
+    issuer: str | None = None
+    client_id: str | None = None
+    identity_claim: str | None = None
+    allowlist: str | None = None
+    mode: str | None = None
+
+
+def gate_state():
+    """Whether the gate is armed, and why not when it is not."""
+    settings = db.get_settings()
+    config = auth.config_from_settings(settings)
+    if auth.sso_env_off():
+        return config, False, f"{auth.ENV_SSO}=off"
+    if not config["enabled"]:
+        return config, False, "not armed"
+    if not auth.is_configured(config):
+        # Armed but unusable -- a secret rotated out of the environment, say.
+        # Failing open here would be a silent hole; failing closed would lock
+        # everyone out of the page that fixes it. The Sign-in page is exempt
+        # under loopback, which is what makes closed the safe answer.
+        return config, True, "armed"
+    return config, True, "armed"
+
+
+def signed_in_name(request):
+    """The `preferred_username` of whoever holds a valid cookie, else empty."""
+    session = auth.unseal(request.cookies.get(auth.SESSION_COOKIE, ""), auth.session_key())
+    return (session or {}).get("name", "")
+
+
+def is_exempt(path):
+    if path in EXEMPT_PATHS or path.startswith(EXEMPT_PREFIXES):
+        return True
+    return path in SSO_CONFIG_PATHS and not auth.is_public_binding()
+
+
+@app.middleware("http")
+async def require_sign_in(request, call_next):
+    path = request.url.path
+    _, armed, _ = gate_state()
+    if not armed or is_exempt(path):
+        return await call_next(request)
+
+    if signed_in_name(request):
+        return await call_next(request)
+
+    if path.startswith("/api/"):
+        return JSONResponse({"detail": "Sign in required."}, status_code=401)
+    return RedirectResponse("/auth/signin", status_code=303)
+
+
+def redirect_uri(request):
+    """Where Keycloak sends the browser back. Must match the realm character for character."""
+    override = os.environ.get(auth.ENV_REDIRECT_URI, "").strip()
+    return override or str(request.url_for("sign_in_callback"))
+
+
+def signin_page(error=""):
+    """The sign-in page, with an optional refusal to explain."""
+    destination = "/auth/signin"
+    if error:
+        destination += "?error=" + quote(error)
+    return RedirectResponse(destination, status_code=303)
+
+
+@app.get("/auth/signin")
+def signin():
+    return FileResponse(os.path.join(STATIC_DIR, "signin.html"))
+
+
+@app.get("/auth/status")
+def sign_in_status(request: Request):
+    """Who you are and whether the gate is on. Read by the frontend on boot."""
+    config, armed, reason = gate_state()
+    return {
+        "armed": armed,
+        "reason": reason,
+        "name": signed_in_name(request),
+        "issuer": config["issuer"],
+        "configured": auth.is_configured(config),
+        "env": auth.env_report(),
+    }
+
+
+@app.get("/auth/login")
+def sign_in_start(request: Request, arm: int = 0, next: str = "/"):
+    """Send the browser to Keycloak. `arm=1` is the verify-then-arm round trip."""
+    config = auth.config_from_settings(db.get_settings())
+    if not auth.is_configured(config):
+        return signin_page("Sign-in is not configured yet: an issuer, a client id "
+                           f"and {auth.ENV_CLIENT_SECRET} are all needed.")
+    try:
+        metadata = auth.fetch_metadata(config["issuer"])
+        auth.check_transport(metadata)
+        state, nonce = auth.random_token(), auth.random_token()
+        destination = auth.authorize_url(
+            metadata, config["client_id"], redirect_uri(request), state, nonce
+        )
+    except auth.AuthError as error:
+        return signin_page(str(error))
+
+    response = RedirectResponse(destination, status_code=303)
+    # `next` is a path on this app and never a full URL: an open redirect is one
+    # careless concatenation away otherwise.
+    transaction = auth.new_transaction(state, nonce, local_path(next), bool(arm))
+    response.set_cookie(
+        auth.TRANSACTION_COOKIE,
+        auth.seal(transaction, auth.session_key()),
+        httponly=True,
+        samesite="lax",
+        secure=request.url.scheme == "https",
+        max_age=auth.TRANSACTION_MINUTES * 60,
+        path="/",
+    )
+    return response
+
+
+def local_path(destination):
+    """Keep a redirect target on this app. Anything else becomes the root."""
+    if destination.startswith("/") and not destination.startswith("//"):
+        return destination
+    return "/"
+
+
+@app.get("/auth/callback", name="sign_in_callback")
+def sign_in_callback(request: Request, code: str = "", state: str = "",
+                     error: str = "", error_description: str = ""):
+    """Finish the flow: check the round trip, decide, then set the cookie."""
+    if error:
+        return signin_page(f"Keycloak refused the sign-in: {error} {error_description}".strip())
+
+    transaction = auth.unseal(request.cookies.get(auth.TRANSACTION_COOKIE, ""),
+                              auth.session_key())
+    if not transaction:
+        return signin_page("That sign-in took too long, or the app restarted. Try again.")
+    if not state or state != transaction["state"]:
+        return signin_page("The sign-in came back with the wrong state and was refused.")
+
+    config = auth.config_from_settings(db.get_settings())
+    try:
+        metadata = auth.fetch_metadata(config["issuer"])
+        tokens = auth.exchange_code(metadata, config["client_id"], auth.client_secret(),
+                                    code, redirect_uri(request))
+        claims = auth.claims_from_id_token(tokens["id_token"])
+        auth.check_claims(claims, metadata["issuer"], config["client_id"],
+                          transaction["nonce"])
+    except auth.AuthError as failure:
+        return signin_page(str(failure))
+
+    if not auth.is_allowed(claims, config["mode"], config["allowlist"],
+                           config["identity_claim"]):
+        # Name what was seen. A bare 403 is indistinguishable from a broken realm,
+        # and the usual cause is one character in the allowlist.
+        seen = auth.identity_of(claims, config["identity_claim"]) or "(no value)"
+        return signin_page(
+            f"Signed in to Keycloak as {seen}, which is not on Mastermind's list. "
+            f"The claim being read is `{config['identity_claim']}`."
+        )
+
+    if transaction["arm"]:
+        # Verify-then-arm: the flag flips here, after a real round trip returned
+        # claims that satisfy `is_allowed`, and nowhere else. A misconfiguration
+        # therefore cannot arm itself.
+        db.update_settings({"sso_enabled": 1})
+
+    response = RedirectResponse(local_path(transaction["next"]), status_code=303)
+    response.set_cookie(
+        auth.SESSION_COOKIE,
+        auth.seal(auth.new_session(claims, config["identity_claim"]), auth.session_key()),
+        httponly=True,
+        samesite="lax",
+        secure=request.url.scheme == "https",
+        max_age=auth.SESSION_HOURS * 3600,
+        path="/",
+    )
+    response.delete_cookie(auth.TRANSACTION_COOKIE, path="/")
+    return response
+
+
+@app.get("/auth/logout")
+def sign_out(request: Request):
+    """Drop the cookie, then let Keycloak end its own session."""
+    config = auth.config_from_settings(db.get_settings())
+    destination = "/auth/signin"
+    if auth.is_configured(config):
+        try:
+            metadata = auth.fetch_metadata(config["issuer"])
+            destination = auth.logout_url(
+                metadata, str(request.base_url), config["client_id"]
+            ) or destination
+        except auth.AuthError:
+            # Keycloak being unreachable must not trap somebody in a session.
+            pass
+    response = RedirectResponse(destination, status_code=303)
+    response.delete_cookie(auth.SESSION_COOKIE, path="/")
+    return response
+
+
+@app.get("/api/sso")
+def read_sso_config(request: Request):
+    """The sign-in configuration, plus which environment variables are set."""
+    config, armed, reason = gate_state()
+    return {
+        "issuer": config["issuer"],
+        "client_id": config["client_id"],
+        "identity_claim": config["identity_claim"],
+        "allowlist": config["allowlist"],
+        "mode": config["mode"],
+        "enabled": config["enabled"],
+        "armed": armed,
+        "reason": reason,
+        "name": signed_in_name(request),
+        "env": auth.env_report(),
+        "redirect_uri": redirect_uri(request),
+    }
+
+
+@app.put("/api/sso")
+def write_sso_config(body: SsoConfigIn):
+    """Save configuration. Deliberately cannot arm the gate -- only a sign-in does."""
+    fields = body.model_dump(exclude_unset=True, exclude_none=True)
+    if fields.get("mode") and fields["mode"] not in auth.MODES:
+        raise HTTPException(status_code=400, detail=f"Mode must be one of {auth.MODES}.")
+    db.update_settings({f"sso_{key}": value for key, value in fields.items()})
+    return read_sso_config_body()
+
+
+def read_sso_config_body():
+    config, armed, reason = gate_state()
+    return {**config, "armed": armed, "reason": reason, "env": auth.env_report()}
+
+
+@app.post("/api/sso/test")
+def test_sso_connection():
+    """Fetch the realm's discovery document and report what it says."""
+    config = auth.config_from_settings(db.get_settings())
+    try:
+        metadata = auth.fetch_metadata(config["issuer"])
+        auth.check_transport(metadata)
+    except auth.AuthError as error:
+        return {"ok": False, "detail": str(error)}
+    return {
+        "ok": True,
+        "issuer": metadata["issuer"],
+        "authorization_endpoint": metadata["authorization_endpoint"],
+        "token_endpoint": metadata["token_endpoint"],
+        "end_session_endpoint": metadata.get("end_session_endpoint", ""),
+        "client_secret_set": bool(auth.client_secret()),
+    }
+
+
+@app.post("/api/sso/disarm")
+def disarm_sso():
+    """Turn the gate off from inside. `MASTERMIND_SSO=off` is the way in from outside."""
+    db.update_settings({"sso_enabled": 0})
+    return read_sso_config_body()
 
 
 # --- request bodies ---------------------------------------------------------

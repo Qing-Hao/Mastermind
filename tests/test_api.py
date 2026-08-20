@@ -1,16 +1,20 @@
 """End-to-end API tests mapped to the acceptance criteria in PROMPT.md."""
 
+import base64
+import json
 import os
 import re
 import sqlite3
 import threading
 import time
 from datetime import date, timedelta
+from urllib.parse import parse_qsl, urlsplit
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from app import db, main
+from app import auth, db, main
 from app.main import app
 
 
@@ -3570,3 +3574,292 @@ def test_the_picker_offers_every_deliverable_in_the_roadmap(client):
     # And which phase, because the picker groups by project and a project with
     # thirty deliverables needs a second heading to stay readable.
     assert listed[0]["phase_name"] == "Build"
+
+
+# --- the sign-in gate ---------------------------------------------------------
+
+# A whole OIDC round trip, offline. `auth.http_client` is the one seam both
+# provider calls go through, so a stub realm served by ASGI stands in for
+# Keycloak -- no network, no VPN, nothing that fails when a realm is down.
+
+STUB_ISSUER = "http://realm.test/realms/mastermind"
+
+
+def jwt_of(claims):
+    """A JWT whose payload is `claims`. The signature is junk on purpose.
+
+    Nothing verifies it: the ID token arrives over the back channel, which is the
+    case OIDC Core 3.1.3.7(6) lets TLS validation cover. A test that signed it
+    would be testing a check the app deliberately does not make.
+    """
+    def segment(payload):
+        raw = json.dumps(payload).encode()
+        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+    return f"{segment({'alg': 'RS256'})}.{segment(claims)}.{'x' * 8}"
+
+
+class StubRealm:
+    """Keycloak's two endpoints, and a handle on what the next token will say."""
+
+    def __init__(self):
+        self.claims = {"sub": "abc-123", "preferred_username": "qinghao",
+                       "email": "qinghao@example.com"}
+        self.nonce = ""
+        self.exchanges = 0
+
+    def metadata(self):
+        return {
+            "issuer": STUB_ISSUER,
+            "authorization_endpoint": f"{STUB_ISSUER}/protocol/openid-connect/auth",
+            "token_endpoint": f"{STUB_ISSUER}/protocol/openid-connect/token",
+            "end_session_endpoint": f"{STUB_ISSUER}/protocol/openid-connect/logout",
+        }
+
+    def id_token(self):
+        claims = {
+            "iss": STUB_ISSUER,
+            "aud": "mastermind",
+            "exp": int(time.time()) + 300,
+            "nonce": self.nonce,
+            **self.claims,
+        }
+        return jwt_of(claims)
+
+    def handle(self, request):
+        """Answer one request the way the realm would. Wired in as a transport."""
+        path = request.url.path
+        if path.endswith("/.well-known/openid-configuration"):
+            return httpx.Response(200, json=self.metadata())
+        if path.endswith("/token"):
+            self.exchanges += 1
+            return httpx.Response(200, json={"id_token": self.id_token(),
+                                             "token_type": "Bearer"})
+        return httpx.Response(404, json={"error": "not found"})
+
+
+@pytest.fixture
+def realm(client, monkeypatch):
+    """A configured, reachable stub realm. The gate is not armed yet."""
+    stub = StubRealm()
+    monkeypatch.setattr(
+        auth, "http_client",
+        lambda timeout=None: httpx.Client(transport=httpx.MockTransport(stub.handle)),
+    )
+    monkeypatch.setenv(auth.ENV_CLIENT_SECRET, "shhh")
+    monkeypatch.setenv(auth.ENV_SESSION_KEY, "test-signing-key")
+    # The stub speaks http, which `check_transport` refuses without this. One
+    # test below asserts that refusal.
+    monkeypatch.setenv(auth.ENV_ALLOW_HTTP, "1")
+    monkeypatch.delenv(auth.ENV_SSO, raising=False)
+    monkeypatch.delenv(auth.ENV_PUBLIC, raising=False)
+
+    response = client.put("/api/sso", json={
+        "issuer": STUB_ISSUER,
+        "client_id": "mastermind",
+        "identity_claim": "preferred_username",
+        "allowlist": "qinghao",
+        "mode": "allowlist",
+    })
+    assert response.status_code == 200
+    return stub
+
+
+def start_sign_in(client, realm, arm=False, destination="/"):
+    """Follow `/auth/login` far enough to hold the state the realm was given."""
+    response = client.get(
+        f"/auth/login?arm={1 if arm else 0}&next={destination}", follow_redirects=False
+    )
+    assert response.status_code == 303
+    query = dict(parse_qsl(urlsplit(response.headers["location"]).query))
+    realm.nonce = query["nonce"]
+    return query
+
+
+def sign_in(client, realm, arm=False, destination="/", state=None):
+    query = start_sign_in(client, realm, arm=arm, destination=destination)
+    return client.get(
+        f"/auth/callback?code=abc&state={state or query['state']}", follow_redirects=False
+    )
+
+
+def refusal_of(response):
+    """The message a refused sign-in carries back to the sign-in page."""
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert location.startswith("/auth/signin")
+    return dict(parse_qsl(urlsplit(location).query)).get("error", "")
+
+
+def test_is_allowed_is_pure_and_answers_all_three_ways():
+    claims = {"preferred_username": "Qinghao", "sub": "abc"}
+    assert auth.is_allowed(claims, "allowlist", "qinghao, amir")
+    # Case is a typo, not a different person.
+    assert auth.is_allowed(claims, "allowlist", "QINGHAO")
+    assert not auth.is_allowed(claims, "allowlist", "amir")
+    assert auth.is_allowed(claims, "any", "")
+    # No identity at all is never allowed, whatever the mode.
+    assert not auth.is_allowed({"sub": "abc"}, "any", "")
+    assert auth.parse_allowlist("a, b\nc,\n") == ["a", "b", "c"]
+
+
+def test_a_sealed_cookie_survives_a_round_trip_and_not_a_tamper():
+    payload = auth.new_session({"sub": "abc", "preferred_username": "qinghao"},
+                               "preferred_username")
+    sealed = auth.seal(payload, "key")
+    assert auth.unseal(sealed, "key")["name"] == "qinghao"
+    assert auth.unseal(sealed, "another key") is None
+    body, _, signature = sealed.rpartition(".")
+    assert auth.unseal(f"{body}x.{signature}", "key") is None
+    stale = auth.seal({"name": "qinghao", "exp": time.time() - 1}, "key")
+    assert auth.unseal(stale, "key") is None
+
+
+def test_the_gate_is_off_until_a_real_sign_in_arms_it(client, realm):
+    # Configuration alone changes nothing: the app is as open as it was.
+    assert client.get("/api/projects").status_code == 200
+    assert client.get("/api/sso").json()["armed"] is False
+
+    response = sign_in(client, realm, arm=True)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/"
+    assert auth.SESSION_COOKIE in response.cookies
+
+    status = client.get("/auth/status").json()
+    assert status["armed"] is True
+    assert status["name"] == "qinghao"
+    # And the roadmap still answers, because the cookie is held.
+    assert client.get("/api/projects").status_code == 200
+
+
+def test_a_misconfiguration_cannot_arm_the_gate(client, realm):
+    realm.claims["preferred_username"] = "someone-else"
+
+    message = refusal_of(sign_in(client, realm, arm=True))
+    # The refusal names what was seen and which claim was read: a bare 403 is
+    # indistinguishable from a broken realm.
+    assert "someone-else" in message
+    assert "preferred_username" in message
+    assert client.get("/api/sso").json()["armed"] is False
+
+
+def test_an_armed_gate_refuses_a_stranger_and_answers_an_api_call_with_401(client, realm):
+    sign_in(client, realm, arm=True)
+    client.cookies.clear()
+
+    assert client.get("/api/projects").status_code == 401
+    page = client.get("/", follow_redirects=False)
+    assert page.status_code == 303
+    assert page.headers["location"] == "/auth/signin"
+    # The gate's own page, its assets and the socket stay reachable.
+    assert client.get("/auth/signin").status_code == 200
+    assert client.get("/static/style.css").status_code == 200
+
+
+def test_a_tampered_cookie_is_not_a_session(client, realm):
+    sign_in(client, realm, arm=True)
+    sealed = client.cookies[auth.SESSION_COOKIE]
+    client.cookies.set(auth.SESSION_COOKIE, sealed[:-2] + "xy")
+    assert client.get("/api/projects").status_code == 401
+
+
+def test_the_wrong_state_or_nonce_is_refused(client, realm):
+    assert "state" in refusal_of(sign_in(client, realm, state="not-the-state"))
+
+    query = start_sign_in(client, realm)
+    realm.nonce = "a different sign-in"
+    response = client.get(f"/auth/callback?code=abc&state={query['state']}",
+                          follow_redirects=False)
+    assert "nonce" in refusal_of(response)
+
+
+def test_an_expired_or_foreign_token_is_refused(client, realm):
+    stale = {"iss": STUB_ISSUER, "aud": "mastermind", "exp": time.time() - 3600,
+             "preferred_username": "qinghao"}
+    with pytest.raises(auth.AuthError, match="expired"):
+        auth.check_claims(stale, STUB_ISSUER, "mastermind", nonce="")
+
+    other_realm = {**stale, "exp": time.time() + 60, "iss": "http://elsewhere"}
+    with pytest.raises(auth.AuthError, match="issuer"):
+        auth.check_claims(other_realm, STUB_ISSUER, "mastermind", nonce="")
+
+    other_client = {**stale, "exp": time.time() + 60, "aud": "another-app"}
+    with pytest.raises(auth.AuthError, match="issued for this client"):
+        auth.check_claims(other_client, STUB_ISSUER, "mastermind", nonce="")
+
+
+def test_sso_off_in_the_environment_opens_the_gate_again(client, realm, monkeypatch):
+    sign_in(client, realm, arm=True)
+    client.cookies.clear()
+    assert client.get("/api/projects").status_code == 401
+
+    monkeypatch.setenv(auth.ENV_SSO, "off")
+    assert client.get("/api/projects").status_code == 200
+    # The flag in the database is untouched -- this is a way in, not a way to
+    # disarm by accident.
+    assert client.get("/api/sso").json()["enabled"] is True
+    assert client.get("/api/sso").json()["reason"] == f"{auth.ENV_SSO}=off"
+
+
+def test_the_settings_surface_is_reachable_on_loopback_and_gated_when_public(
+        client, realm, monkeypatch):
+    sign_in(client, realm, arm=True)
+    client.cookies.clear()
+    # Loopback: whoever reaches the port can read the database file anyway, so
+    # gating the page that repairs the gate buys nothing.
+    assert client.get("/api/sso").status_code == 200
+
+    monkeypatch.setenv(auth.ENV_PUBLIC, "1")
+    assert client.get("/api/sso").status_code == 401
+
+
+def test_signing_out_drops_the_cookie_and_visits_the_realm(client, realm):
+    sign_in(client, realm, arm=True)
+    response = client.get("/auth/logout", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"].startswith(
+        f"{STUB_ISSUER}/protocol/openid-connect/logout")
+    assert client.get("/api/projects", follow_redirects=False).status_code == 401
+
+
+def test_a_plain_http_realm_is_refused_without_the_escape_hatch(client, realm, monkeypatch):
+    monkeypatch.delenv(auth.ENV_ALLOW_HTTP, raising=False)
+    result = client.post("/api/sso/test").json()
+    assert result["ok"] is False
+    assert auth.ENV_ALLOW_HTTP in result["detail"]
+
+
+def test_the_connection_test_reports_the_realms_endpoints_and_never_a_secret(client, realm):
+    result = client.post("/api/sso/test").json()
+    assert result["ok"] is True
+    assert result["token_endpoint"].endswith("/token")
+    assert result["client_secret_set"] is True
+    assert "shhh" not in json.dumps(result)
+
+
+def test_the_config_route_never_hands_back_a_secret(client, realm):
+    body = client.get("/api/sso").json()
+    assert body["env"]["client_secret"] == {"name": auth.ENV_CLIENT_SECRET, "set": True}
+    assert "shhh" not in json.dumps(body)
+
+
+def test_the_page_cannot_arm_the_gate_by_writing_a_field(client, realm):
+    client.put("/api/sso", json={"enabled": True, "sso_enabled": 1})
+    assert client.get("/api/sso").json()["enabled"] is False
+    assert client.put("/api/sso", json={"mode": "everyone"}).status_code == 400
+
+
+def test_disarming_from_inside_turns_the_gate_off(client, realm):
+    sign_in(client, realm, arm=True)
+    assert client.post("/api/sso/disarm").json()["enabled"] is False
+    client.cookies.clear()
+    assert client.get("/api/projects").status_code == 200
+
+
+def test_an_export_carries_no_sign_in_configuration(client, realm):
+    settings = client.get("/api/export").json()["settings"]
+    assert not [key for key in settings if key.startswith("sso_")]
+    # And importing somebody's plan does not disarm the gate on this machine.
+    sign_in(client, realm, arm=True)
+    client.post("/api/import", json={"version": 10, "settings": {}, "projects": []})
+    assert client.get("/api/sso").json()["enabled"] is True

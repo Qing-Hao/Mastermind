@@ -530,6 +530,56 @@ button:disabled:hover { background: var(--surface); }
 .btn-ghost { border-color: transparent; background: transparent; color: var(--muted); }
 .btn-ghost:hover { background: var(--hover); color: var(--ink); }
 
+/* --- the sign-in page ------------------------------------------------------
+   `signin.html` only. One card on the page ground, no shell around it: a
+   signed-out visitor gets the gate and nothing else. Every element here is
+   toggled with the `hidden` attribute, so each `display` carries its `[hidden]`
+   guard beside it -- a class setting `display` outranks the UA sheet. */
+.signin-page {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  background: var(--page);
+  padding: 24px;
+}
+.signin-card {
+  width: min(420px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: 28px;
+}
+.signin-brand { display: flex; align-items: center; gap: 8px; color: var(--ink); }
+.signin-lead { margin: 18px 0 14px; color: var(--muted); font-size: 13px; }
+.signin-action { display: inline-block; text-decoration: none; padding: 8px 14px; }
+.signin-action[hidden] { display: none; }
+.signin-error {
+  display: block;
+  margin: 16px 0 0;
+  padding: 10px 12px;
+  border: 1px solid #f0c2c2;
+  border-radius: var(--radius);
+  background: #fdf2f2;
+  color: #b00020;
+  font-size: 13px;
+}
+.signin-error[hidden] { display: none; }
+.signin-note { display: block; margin: 14px 0 0; color: var(--faint); font-size: 12px; }
+.signin-note[hidden] { display: none; }
+.signin-recovery {
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line-soft);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.signin-recovery code {
+  background: var(--hover);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
 table { border-collapse: collapse; width: 100%; }
 /* `border-top` rather than `border-bottom`, so a table inside a card does not
    draw a line under its last row a few pixels above the card's own edge. */
