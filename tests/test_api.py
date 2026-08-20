@@ -2554,6 +2554,39 @@ def test_a_refused_sprint_save_announces_nothing(client, sprints):
         assert socket.receive_json()["scope"] == "roadmap"
 
 
+def test_a_splice_is_announced_with_the_new_mtime(client, splice_file):
+    """Step 3 rests entirely on this: the broadcast is how a remote splice
+    reaches the other windows at all."""
+    with client.websocket_connect("/ws") as socket:
+        assert wait_for_clients(1)
+        spliced = client.patch("/api/sprints/1/blocks", json=tick())
+        assert spliced.status_code == 200, spliced.text
+        assert socket.receive_json() == {
+            "type": "changed", "scope": "sprint", "key": 1,
+            "mtime": spliced.json()["mtime"],
+        }
+
+
+def test_a_refused_splice_announces_nothing(client, splice_file):
+    with client.websocket_connect("/ws") as socket:
+        assert wait_for_clients(1)
+        refused = client.patch("/api/sprints/1/blocks", json={
+            "at": 2, "expect": ["- [ ] Nobody wrote this"], "blocks": [{"raw": "x"}]})
+        assert refused.status_code == 409
+        # Nothing was written, so the next message is the one that follows it.
+        client.put("/api/settings", json={"sprint_length_days": 14})
+        assert socket.receive_json()["scope"] == "roadmap"
+
+
+def test_a_template_splice_announces_under_the_template_key(client, template):
+    with client.websocket_connect("/ws") as socket:
+        assert wait_for_clients(1)
+        spliced = client.patch("/api/template/blocks", json={
+            "at": 2, "expect": ["**Sprint Goal:**"], "blocks": [{"raw": "**Goal:**"}]})
+        assert spliced.status_code == 200, spliced.text
+        assert socket.receive_json()["key"] == "template"
+
+
 def test_a_template_save_announces_under_the_template_key(client, template):
     payload = read_template(client)
     with client.websocket_connect("/ws") as socket:
