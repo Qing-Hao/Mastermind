@@ -138,7 +138,8 @@
          a page that is up to date is the normal case and says nothing about
          itself. Sits outside `topbar-actions` so it shows on all four tabs. -->
     <span id="live-down" class="live-down"
-          title="Not receiving other people's changes. Reconnecting — what you see may be out of date."
+          data-tip="Not receiving other people's changes"
+          data-tip-body="Reconnecting — what you see may be out of date."
           hidden>offline</span>
     <div id="topbar-actions" class="topbar-actions" hidden>
       <button id="layout-phases"
@@ -225,14 +226,22 @@
           <div class="field-grid">
             <label>Start date <input id="project-start" type="date"></label>
             <label>Stage
-              <select id="project-stage" title="The three things only you can say. Everything between them — drafted, dated, running, late — is worked out from the plan and today's date. Closed means finished with, whether or not the work was completed.">
+              <!-- The panel skin rather than a `title`: the sentence is teaching
+                   rather than labelling, and the three words it is teaching
+                   about read as a list rather than as more of the sentence. -->
+              <select id="project-stage"
+                data-tip="The three things only you can say"
+                data-tip-body="Everything between them — drafted, dated, running, late — is worked out from the plan and today's date. Closed means finished with, whether or not the work was completed."
+                data-tip-meta="idea · committed · closed">
                 <option value="idea">idea</option>
                 <option value="planned">committed</option>
                 <option value="done">closed</option>
               </select>
             </label>
             <label>Tier
-              <select id="project-tier" title="Priority, 1 highest. Untiered means nobody has ranked it yet — the map can filter on this">
+              <select id="project-tier"
+                data-tip="Priority, 1 highest"
+                data-tip-body="Untiered means nobody has ranked it yet — the map can filter on this.">
                 <option value="0">untiered</option>
                 <option value="1">1</option>
                 <option value="2">2</option>
@@ -249,7 +258,8 @@
               <span class="track-picker">
                 <input id="project-track" type="text"
                   placeholder="e.g. Source Expansion / MCP"
-                  title="Free-text grouping, used to cluster the map view. A slash splits it into track and subtrack.">
+                  data-tip="Free-text grouping"
+                  data-tip-body="Used to cluster the map view. A slash splits it into track and subtrack.">
               </span>
             </label>
           </div>
@@ -469,9 +479,11 @@
                ranking to draw. -->
           <span class="map-filters">
             <span class="filter-group" id="tier-filter"
-              title="Show only these tiers. Filtering resizes the track wedges, so hiding the noise widens what is left."></span>
+              data-tip="Show only these tiers"
+              data-tip-body="Filtering resizes the track wedges, so hiding the noise widens what is left."></span>
             <span class="filter-group" id="status-filter"
-              title="Both start off, so the map opens on committed work. Ideas are still listed in full under Future directions, and finished work has no bearing on where the team is pointed next."></span>
+              data-tip="Ideas and finished work"
+              data-tip-body="Both start off, so the map opens on committed work. Ideas are still listed in full under Future directions, and finished work has no bearing on where the team is pointed next."></span>
           </span>
         </div>
         <div id="map-canvas"></div>
@@ -539,7 +551,8 @@
         <div class="row">
           <label>File
             <select id="sprint-select"
-              title="Newest first. One file per fortnight, in sprints/ — plus the template every one of them is a copy of"></select>
+              data-tip="Newest first"
+              data-tip-body="One file per fortnight, in sprints/ — plus the template every one of them is a copy of."></select>
           </label>
           <!-- Who else has this fortnight open. The high-value half of presence:
                this is the highest-collision surface in the app, and knowing
@@ -550,7 +563,8 @@
           <!-- The template opens in this same editor. It is the last row of the
                picker as well; the button is the way in you can see. -->
           <button id="sprint-template" type="button"
-            title="Edit templates/sprint.md — what the next New sprint copies. No file already on disk changes.">Edit template</button>
+            data-tip="Edit templates/sprint.md"
+            data-tip-body="What the next New sprint copies. No file already on disk changes.">Edit template</button>
           <span class="spacer"></span>
           <span id="sprint-view-switch" class="mode-switch"
                 title="The document, or the whole file as text (Esc returns)">

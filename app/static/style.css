@@ -728,6 +728,93 @@ button:disabled:hover { background: var(--surface); }
 .btn-ghost { border-color: transparent; background: transparent; color: var(--muted); }
 .btn-ghost:hover { background: var(--hover); color: var(--ink); }
 
+/* --- tooltips ---------------------------------------------------------------
+   One element for the whole app, moved and refilled on each hover -- see the
+   tooltip section in `app.js` for why it is a real element rather than a
+   `::after`, and why `title` is still what a call site writes.
+
+   Two skins, because the hints are two different things. Most are a label of a
+   handful of words, and wear the pill: dark, tight, arrowless, gone as soon as
+   it is read. A few are teaching -- what a stage means, what a filter does to
+   the wedges -- and those carry `data-tip-body` and get the panel, where a
+   title line, a paragraph and a line of derived numbers can each be their own
+   thing instead of running together into forty words of one colour.
+
+   **Chrome, not data**, so it sits above the chart rules: the pill's ink and
+   the panel's white are the same ink and the same white as everything else up
+   here, and neither says anything about a plan.
+
+   `position: fixed` is load-bearing twice over. The sidebar list and the
+   swimlane strip scroll, and would clip anything positioned inside them; and
+   the map's nodes are SVG, where the pseudo-element this replaced does not
+   render at all. Nothing sets `display` here, and nothing toggles it with the
+   `hidden` attribute -- it is shown by adding a class, so the `[hidden]` trap
+   has nothing to catch. */
+.tip-layer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  /* Above the ⋯ menu and the drawer, which top out at 70. A tooltip is the one
+     thing that is always allowed over whatever it is describing. */
+  z-index: 90;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(3px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  text-align: left;
+}
+.tip-layer.is-shown { opacity: 1; transform: translateY(0); }
+
+.tip-layer.tip-pill {
+  max-width: 240px;
+  padding: 5px 9px;
+  border-radius: 5px;
+  background: var(--ink);
+  color: #fafafa;
+  font-size: 12px;
+  line-height: 1.4;
+  /* The map's node hints and the project rows are written with newlines in
+     them; the pill is the reason those survive. */
+  white-space: pre-line;
+  box-shadow: 0 6px 16px -8px rgba(0, 0, 0, 0.55);
+}
+
+.tip-layer.tip-panel {
+  width: 288px;
+  padding: 11px 13px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink-3);
+  font-size: 12.5px;
+  line-height: 1.5;
+  box-shadow: 0 2px 4px rgba(24, 24, 27, 0.05), 0 14px 32px -10px rgba(24, 24, 27, 0.28);
+}
+.tip-head {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+.tip-body { display: block; white-space: pre-line; }
+/* The derived half of a hint -- the stage names, the counts -- kept apart from
+   the sentence explaining them. */
+.tip-meta {
+  display: block;
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line-soft);
+  color: var(--muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tip-layer { transition: none; transform: none; }
+  .tip-layer.is-shown { transform: none; }
+}
+
 /* --- presence ---------------------------------------------------------------
    Who else is in this cell. **Chrome, not data**: a hue means "somebody", never
    anything about the plan, which is why this sits above the chart rules rather

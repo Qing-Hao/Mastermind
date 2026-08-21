@@ -379,6 +379,190 @@ function element(tag, className, text) {
   return node;
 }
 
+// --- tooltips ---------------------------------------------------------------
+// One element for the whole app, moved and refilled each time a hint is shown.
+//
+// **`title` is still how a hint is written**, and no call site changed to get
+// this. The first hover over an element carrying a native `title` -- or, on the
+// map, an SVG `<title>` child -- moves the text onto `data-tip`, drops the
+// native attribute so the browser's own box stops competing, and leaves an
+// `aria-label` behind so the name a screen reader reads is the one that was
+// already there. A later `.title =` write is hoisted again on the next hover,
+// which is what lets the presence badges, the sync picker and the window
+// controls keep rewriting their hints without knowing any of this exists.
+// `clearTip` is the other half of that bargain, for the one place that takes a
+// hint away again.
+//
+// A real element rather than a `::after` for two reasons that are not style:
+// the sidebar list and the swimlane strip scroll, and would clip a
+// pseudo-element positioned inside them; and the map draws its nodes in SVG,
+// where a pseudo-element does not render at all. Fixed positioning is what
+// makes both go away.
+//
+// Two skins. `data-tip` alone is the pill; adding `data-tip-body` -- and
+// optionally `data-tip-meta` -- makes it the panel, for the handful of hints
+// that are teaching rather than labelling. The content picks, not a length
+// threshold: two hints of similar length should not look like different
+// things.
+
+const TIP_DELAY_IN = 140;    // long enough that crossing a toolbar shows nothing
+const TIP_DELAY_OUT = 80;    // short enough that it never trails the pointer
+const TIP_GAP = 8;           // target to tooltip
+const TIP_EDGE = 8;          // tooltip to viewport
+
+const tip = { layer: null, target: null, timer: null };
+
+function tipLayer() {
+  if (!tip.layer) {
+    tip.layer = element("div", "tip-layer");
+    tip.layer.setAttribute("role", "tooltip");
+    document.body.appendChild(tip.layer);
+  }
+  return tip.layer;
+}
+
+// Move a native hint onto `data-tip`, once per write. An empty `title` is a
+// hint being cleared rather than a hint of no words -- `.title = ""` is how the
+// project heading drops the one it carries when the name fits.
+function hoistTip(el) {
+  const native = el.getAttribute("title");
+  if (native !== null) {
+    el.removeAttribute("title");
+    if (native === "") el.removeAttribute("data-tip");
+    else adoptTip(el, native);
+  }
+  // SVG has no `title` attribute; the map writes a `<title>` child instead.
+  if (el.namespaceURI === SVG_NS) {
+    const own = el.querySelector(":scope > title");
+    if (own) {
+      const text = own.textContent || "";
+      own.remove();
+      if (text) adoptTip(el, text);
+    }
+  }
+}
+
+function adoptTip(el, text) {
+  el.setAttribute("data-tip", text);
+  // Only where there is nothing else naming the element: a hint is the
+  // accessible name a `title` was already providing, not a replacement for one
+  // somebody wrote deliberately.
+  if (!el.hasAttribute("aria-label")) el.setAttribute("aria-label", text);
+}
+
+// Take a hint away, both halves of it. `drawPresence` is the caller: it drops
+// the "somebody is editing this" line by hand every redraw, and before this
+// existed a hoisted copy would have outlived the person it named.
+function clearTip(el) {
+  const hoisted = el.getAttribute("data-tip");
+  el.removeAttribute("title");
+  el.removeAttribute("data-tip");
+  if (hoisted !== null && el.getAttribute("aria-label") === hoisted) {
+    el.removeAttribute("aria-label");
+  }
+  if (tip.target === el) hideTip();
+}
+
+function fillTip(el) {
+  const head = el.getAttribute("data-tip") || "";
+  const body = el.getAttribute("data-tip-body");
+  const meta = el.getAttribute("data-tip-meta");
+  const layer = tipLayer();
+  layer.textContent = "";
+  layer.className = `tip-layer ${body ? "tip-panel" : "tip-pill"}`;
+  if (!body) {
+    layer.textContent = head;
+    return;
+  }
+  layer.appendChild(element("span", "tip-head", head));
+  layer.appendChild(element("span", "tip-body", body));
+  if (meta) layer.appendChild(element("span", "tip-meta", meta));
+}
+
+// Centred above, flipped under when the target is against the top of the
+// window, and never off either side. Measured after filling, because the panel
+// and the pill are different heights and a wrapped pill is any height at all.
+function placeTip(el) {
+  const layer = tipLayer();
+  const box = el.getBoundingClientRect();
+  const own = layer.getBoundingClientRect();
+  const left = Math.max(TIP_EDGE, Math.min(
+    box.left + (box.width / 2) - (own.width / 2),
+    window.innerWidth - own.width - TIP_EDGE));
+  let top = box.top - own.height - TIP_GAP;
+  if (top < TIP_EDGE) top = box.bottom + TIP_GAP;
+  layer.style.left = `${Math.round(left)}px`;
+  layer.style.top = `${Math.round(top)}px`;
+}
+
+function showTip(el) {
+  hoistTip(el);
+  if (!el.getAttribute("data-tip")) {
+    hideTip();
+    return;
+  }
+  tip.target = el;
+  fillTip(el);
+  placeTip(el);
+  tipLayer().classList.add("is-shown");
+}
+
+function hideTip() {
+  clearTimeout(tip.timer);
+  tip.timer = null;
+  tip.target = null;
+  if (tip.layer) tip.layer.classList.remove("is-shown");
+}
+
+// The nearest ancestor carrying a hint in any of the three forms it can still
+// be in: already hoisted, a native attribute not hovered yet, or the map's SVG
+// child element.
+function tipTarget(node) {
+  for (let at = node; at instanceof Element; at = at.parentElement) {
+    if (at.hasAttribute("data-tip") || at.hasAttribute("title")) return at;
+    if (at.namespaceURI === SVG_NS && at.querySelector(":scope > title")) return at;
+  }
+  return null;
+}
+
+function bindTooltips() {
+  document.addEventListener("pointerover", (event) => {
+    // A redraw can take the described element out from under a shown tooltip --
+    // nothing fires `pointerout` when a node is simply replaced.
+    if (tip.target && !tip.target.isConnected) hideTip();
+    const el = tipTarget(event.target);
+    if (!el || el === tip.target) return;
+    clearTimeout(tip.timer);
+    tip.timer = setTimeout(() => showTip(el), TIP_DELAY_IN);
+  });
+
+  document.addEventListener("pointerout", (event) => {
+    if (!tipTarget(event.target)) return;
+    clearTimeout(tip.timer);
+    tip.timer = setTimeout(hideTip, TIP_DELAY_OUT);
+  });
+
+  // A press has answered whatever the hint was going to say, and a panel parked
+  // over the field you just clicked into is in the way of typing.
+  document.addEventListener("pointerdown", hideTip, true);
+
+  // Keyboard only, and shown immediately: arriving by Tab is deliberate in a
+  // way that crossing a row with the pointer is not, and `:focus-visible` is
+  // what tells that apart from the focus a click leaves behind.
+  document.addEventListener("focusin", (event) => {
+    const el = tipTarget(event.target);
+    if (el && el.matches(":focus-visible")) showTip(el);
+  });
+  document.addEventListener("focusout", hideTip);
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hideTip();
+  });
+  // Capturing, because the thing that scrolls is a pane rather than the window,
+  // and a fixed tooltip would otherwise sit still while its target left.
+  window.addEventListener("scroll", hideTip, true);
+}
+
 // --- week grid (shared by both charts) --------------------------------------
 
 // Charts are laid out in whole-week columns starting on a Monday so that bars,
@@ -6192,15 +6376,21 @@ function levelNode(at, depth, point, place, hue) {
   // one level of the path. Both are things the picture cannot say for itself,
   // so the tooltip says them: the full path, what is underneath it, and -- when
   // the rings ran out -- the stored values that were folded into this node.
-  const lines = [
-    at.path.join(` ${SUBTRACK_SEPARATOR} `),
-    `${at.total} project${at.total === 1 ? "" : "s"}`,
-  ];
+  //
+  // Written as `data-tip` rather than the SVG `<title>` this was: the folded
+  // case is a sentence plus a list, which is the panel skin, and a `<title>` can
+  // only ever be one run of text. `aria-label` carries what the `<title>` did.
+  const path = at.path.join(` ${SUBTRACK_SEPARATOR} `);
+  const count = `${at.total} project${at.total === 1 ? "" : "s"}`;
   if (at.flattened) {
-    lines.push(`flattened — the map draws ${MAX_DRAWN_DEPTH} levels:`,
-      ...[...at.folded].sort());
+    group.setAttribute("data-tip", path);
+    group.setAttribute("data-tip-body", `${count}. Flattened — the map draws `
+      + `${MAX_DRAWN_DEPTH} levels, so what sits below this is folded in.`);
+    group.setAttribute("data-tip-meta", [...at.folded].sort().join(" · "));
+  } else {
+    group.setAttribute("data-tip", `${path}\n${count}`);
   }
-  group.appendChild(svgElement("title", {}, lines.join("\n")));
+  group.setAttribute("aria-label", `${path}, ${count}`);
   return group;
 }
 
@@ -6323,11 +6513,12 @@ function projectNode(project, point, radius, place, branch) {
   ], place, "map-label"));
 
   // The full name and goal live in the tooltip, since the label is truncated.
-  group.appendChild(svgElement("title", {}, [
-    `${project.name} — ${project.derived_stage}${delivered ? ", delivered" : ""}`,
-    tier === 0 ? "untiered" : `tier ${tier}`,
-    `${project.effort_points} pts`,
-    project.phases_total ? `${project.phases_done}/${project.phases_total} phases done` : null,
+  // Ten lines of equal weight was what the SVG `<title>` could offer; the panel
+  // skin can separate the three kinds of thing they are. The name and stage are
+  // the head, what somebody wrote about the project is the body, and the counts
+  // are the rule of numbers under it.
+  const head = `${project.name} — ${project.derived_stage}${delivered ? ", delivered" : ""}`;
+  const said = [
     // What the node is filled to, and how that number was arrived at. On the
     // tooltip rather than the label: the map's label clearances are sized
     // against the height of the label block, so a fourth line would move every
@@ -6335,7 +6526,13 @@ function projectNode(project, point, radius, place, branch) {
     // note is built here rather than shared with the swimlane's.
     project.completion === null || project.completion === undefined ? null
       : `${percentText(project.completion)} complete — each phase an equal `
-        + `share, filled by the deliverables under it`,
+        + `share, filled by the deliverables under it.`,
+    project.goal || null,
+  ].filter(Boolean);
+  const counts = [
+    tier === 0 ? "untiered" : `tier ${tier}`,
+    `${project.effort_points} pts`,
+    project.phases_total ? `${project.phases_done}/${project.phases_total} phases done` : null,
     project.deliverables_total
       ? `${project.deliverables_done}/${project.deliverables_total} deliverables ticked`
       : null,
@@ -6343,8 +6540,17 @@ function projectNode(project, point, radius, place, branch) {
       ? `${project.milestones_reached}/${project.milestones_total} milestones reached`
       : null,
     project.next_date ? `next ${project.next_date}` : null,
-    project.goal || null,
-  ].filter(Boolean).join("\n")));
+  ].filter(Boolean);
+  if (said.length) {
+    group.setAttribute("data-tip", head);
+    group.setAttribute("data-tip-body", said.join("\n"));
+    group.setAttribute("data-tip-meta", counts.join(" · "));
+  } else {
+    // Nothing to explain, so nothing to open a panel for: an idea with no goal
+    // is a name and a row of numbers.
+    group.setAttribute("data-tip", `${head}\n${counts.join(" · ")}`);
+  }
+  group.setAttribute("aria-label", `${head}. ${counts.join(", ")}`);
 
   const open = () => openProject(project.id);
   group.onclick = open;
@@ -6919,6 +7125,10 @@ function refreshTrackPickers() {
 // --- events -----------------------------------------------------------------
 
 function bindEvents() {
+  // First, and delegated on `document`: everything wired below this line draws
+  // elements carrying hints, and none of them has to know about it.
+  bindTooltips();
+
   $("tab-project").onclick = async () => {
     state.view = "project";
     await refreshView();
@@ -7511,7 +7721,10 @@ function watchPresence() {
 function drawPresence() {
   for (const held of document.querySelectorAll(".presence-held")) {
     held.classList.remove("presence-held");
-    held.removeAttribute("title");
+    // Both halves: by now the hint may have been hoisted onto `data-tip`, and
+    // dropping only the native attribute would leave a departed collaborator
+    // named on a cell nobody is in.
+    clearTip(held);
   }
   for (const badge of document.querySelectorAll(".presence-badge")) badge.remove();
   for (const note of document.querySelectorAll(".presence-note")) note.remove();
