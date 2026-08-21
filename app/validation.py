@@ -428,6 +428,7 @@ def check_phase_overdue(phase, today):
     return PlanWarning(
         rule="V6",
         phase_id=phase["id"],
+        project_id=phase.get("project_id"),
         message=(
             f"'{phase['name']}' ended {end.isoformat()} but is still "
             f"'{phase.get('status')}'."

@@ -331,6 +331,121 @@
    `[hidden]`. Without this the badge never goes away. */
 .live-down[hidden] { display: none; }
 
+/* --- what is past its date --------------------------------------------------
+   The bell and its panel. **It is not there at all when nothing is late** -- a
+   grey bell with a zero on it is furniture, and a plan with nothing past its
+   date is the normal case, which is the argument the offline badge above makes
+   for being absent while the connection is fine.
+
+   The one colour here is the overdue rung's, and it is the one thing on this
+   side of the file that is honestly *data*: the red means late, the same late
+   the map and the sidebar dot draw. Everything else is the chrome's grey.
+
+   A readout and not a notification -- nothing is dismissed, nothing is marked
+   read, nothing here knows who is looking. See non-negotiable 7. */
+.late-menu { position: relative; display: inline-flex; }
+
+.late-bell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-h);
+  height: var(--control-h);
+  padding: 0;
+  border: 1px solid #ffd9c2;
+  border-radius: var(--radius);
+  background: #fff4ed;
+  color: #9a3412;
+  cursor: pointer;
+}
+.late-bell:hover { background: #ffe4d3; color: #7c2d12; }
+.late-bell svg { width: 18px; height: 18px; }
+/* Load-bearing: the rule above sets `display`, and the bell is folded away with
+   the `hidden` attribute whenever the count is zero. See `.mode-switch[hidden]`. */
+.late-bell[hidden] { display: none; }
+
+/* Sat on the corner rather than beside the glyph: the bar is a row of 33px
+   controls and a bell that grew wider with the count would move presence along
+   with it. */
+.late-count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--stage-overdue-line);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+.late-count[hidden] { display: none; }
+
+/* Wider than the ⋯ menu because it holds sentences rather than fields, and
+   capped so a dataset with thirty late things scrolls instead of running off the
+   bottom of the window.
+
+   **Written as `.menu-panel.late-panel` on purpose.** `.menu-panel` sets a
+   260px width at the same specificity a bare `.late-panel` would have, and it is
+   defined further down the file, so source order would silently win and the
+   panel would draw at the ⋯ menu's width. Qualifying it settles that without
+   depending on where in the file this block sits. */
+.menu-panel.late-panel {
+  width: 380px;
+  max-height: 70vh;
+  overflow-y: auto;
+  gap: 12px;
+}
+
+.late-head { display: flex; align-items: baseline; gap: 8px; }
+.late-title { font-size: 13px; font-weight: 700; }
+.late-asof { font-size: 11.5px; color: var(--faint); }
+
+.late-group { display: flex; flex-direction: column; gap: 2px; }
+.late-project {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-3);
+  margin-bottom: 2px;
+}
+
+/* A row is the way back to the project it is about, so it is a `<button>` and is
+   in the tab order for free -- `.lane-twisty`'s reasoning. It carries the
+   warning list's own wash, so a V6 reads the same here as it does in the project
+   view. */
+.late-row {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: #fffbeb;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  text-align: left;
+  cursor: pointer;
+}
+.late-row:hover { background: #fef3c7; border-color: #fde68a; }
+.late-message { flex: 1; }
+.late-days { flex: 0 0 auto; font-weight: 600; color: #9a3412; white-space: nowrap; }
+
+.late-foot {
+  padding-top: 10px;
+  border-top: 1px solid var(--line-soft);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
 /* --- the ⋯ menu ----------------------------------------------------------
    Rename, the global settings and Delete: everything about the open project you
    touch rarely, and the one thing that must not be a click away from `New

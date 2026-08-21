@@ -108,6 +108,28 @@
       <div id="project-meta" class="topbar-meta" hidden></div>
     </div>
     <span class="spacer"></span>
+    <!-- What is past its date, across every committed project. Outside
+         `topbar-actions` with presence and the offline badge, and for the same
+         reason: that block is hidden when no project is open, and this is not
+         about the open project.
+
+         It is a **readout, not a notification**. Everyone sees the same list, it
+         is derived from dates already on the plan, and nothing about it is
+         stored -- no dismissal, no "new since you looked", nothing keyed by a
+         person. See non-negotiable 7, and `Scope.dc.html` for the line it must
+         not cross. Filled by `drawLate`. -->
+    <span class="late-menu">
+      <button id="late-alert" class="late-bell" aria-expanded="false"
+              aria-haspopup="true" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 8a6 6 0 0 0-12 0c0 5-2 6-2 6h16s-2-1-2-6"></path>
+          <path d="M10.5 19a1.8 1.8 0 0 0 3 0"></path>
+        </svg>
+        <span id="late-count" class="late-count" hidden></span>
+      </button>
+      <div id="late-panel" class="menu-panel late-panel" hidden></div>
+    </span>
     <!-- Who else is here, on whichever tab you are on. Outside `topbar-actions`
          for the same reason the offline badge is: that block is hidden when no
          project is open, and presence is not about a project. -->

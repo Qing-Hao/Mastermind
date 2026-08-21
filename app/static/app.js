@@ -290,6 +290,20 @@ let state = {
   // load for the same reason: the picker offers across projects, and the open
   // project is not the whole roadmap.
   allDeliverables: [],
+  // What is past its date, as `/api/late` last answered it. `asOf` is the date
+  // that answer was computed for, which is the only thing that goes stale
+  // without a write to notice: nothing lands at midnight, so a page left open
+  // overnight would hold yesterday's count until somebody typed. See
+  // `watchTheClock`.
+  //
+  // Held rather than derived from `state.plan` because the question is about
+  // every project and the plan is one -- and it is thrown away on reload like
+  // every other read here. Nothing about it is stored at either end.
+  late: { groups: [], count: 0, asOf: "" },
+  // What each rule number means, from `/api/rules`, for the tooltip on a `.rule`
+  // chip. Read once at boot: the sentences are a constant, and they live beside
+  // the rules in `validation.py` so this page carries no second copy.
+  ruleSummary: {},
   // The socket that says somebody else wrote something. `opened` is what tells a
   // reconnect from the first connect: coming back means messages were missed, so
   // the view is reloaded whole; connecting for the first time does not, because
@@ -1133,6 +1147,135 @@ function renderTopbar() {
   actions.hidden = false;
 }
 
+// --- what is past its date --------------------------------------------------
+
+// The bell in the top bar and the panel under it. **A readout, not a
+// notification.** Everyone connected sees the same list, it is derived from
+// dates already on the plan, and nothing about it is remembered: no dismissal,
+// no snooze, no "new since you last looked". Each of those would be a row keyed
+// by a person, which is the line non-negotiable 7 draws and the line the sign-in
+// gate is built not to cross.
+//
+// It rides the socket message that already exists rather than adding one. Every
+// write announces `changed`, every page re-reads on it, and the count is read
+// off that re-read -- so nothing is queued for a page that is shut and the
+// connection registry is untouched.
+
+// How often to check whether the date has rolled over under an open page. Once a
+// minute is far more often than needed for a thing that happens at midnight, and
+// still nothing: it compares two strings and returns.
+const CLOCK_TICK_MS = 60000;
+
+async function refreshLate() {
+  try {
+    const payload = await api("/api/late");
+    state.late = {
+      groups: payload.groups,
+      count: payload.count,
+      asOf: payload.as_of,
+    };
+  } catch (_) {
+    // Not worth a toast, for `reloadCurrentView`'s reason: nobody asked for this
+    // read, and the next write -- or the next tab switch -- comes back to it.
+    // The bell keeps drawing what it last knew rather than blanking.
+    return;
+  }
+  drawLate();
+}
+
+// **Silent when there is nothing late.** Not a grey bell with a zero on it: a
+// plan with nothing past its date is the normal case, and it should say nothing
+// about itself -- the same argument the offline badge beside it makes for being
+// absent while the connection is fine.
+function drawLate() {
+  const bell = $("late-alert");
+  const count = $("late-count");
+  const nothing = state.late.count === 0;
+
+  bell.hidden = nothing;
+  count.hidden = nothing;
+  if (nothing) {
+    closeLate();
+    return;
+  }
+
+  count.textContent = String(state.late.count);
+  bell.title = `${state.late.count} thing${state.late.count === 1 ? "" : "s"}`
+    + " past its date. Nothing here reschedules itself.";
+  if (!$("late-panel").hidden) renderLatePanel();
+}
+
+function renderLatePanel() {
+  const panel = $("late-panel");
+  panel.innerHTML = "";
+
+  const head = element("div", "late-head");
+  head.appendChild(element("span", "late-title", "Past their date"));
+  head.appendChild(element("span", "pill pill-warn", String(state.late.count)));
+  head.appendChild(element("span", "spacer"));
+  head.appendChild(element("span", "late-asof", `as of ${state.late.asOf}`));
+  panel.appendChild(head);
+
+  for (const group of state.late.groups) {
+    const block = element("div", "late-group");
+
+    const title = element("div", "late-project");
+    if (group.derived_stage) {
+      title.appendChild(
+        element("span", `project-dot stage-${group.derived_stage}`));
+    }
+    title.appendChild(element("span", null, group.name));
+    block.appendChild(title);
+
+    for (const item of group.items) {
+      // A row is a way back to the project it is about -- the same move
+      // `.lane-title` makes on the portfolio. It reads; nothing here writes.
+      const row = element("button", "late-row");
+      row.type = "button";
+      row.appendChild(ruleChip(item.rule));
+      row.appendChild(element("span", "late-message", item.message));
+      row.appendChild(element("span", "late-days", agoText(item.days_late)));
+      row.title = `Open ${group.name}.`;
+      row.onclick = () => {
+        closeLate();
+        openProject(group.project_id);
+      };
+      block.appendChild(row);
+    }
+
+    panel.appendChild(block);
+  }
+
+  const foot = element("div", "late-foot",
+    "A row leaves when the date moves or the work closes. Nothing here is"
+    + " dismissed or marked read.");
+  panel.appendChild(foot);
+}
+
+function agoText(days) {
+  if (days === 1) return "1 day";
+  return `${days} days`;
+}
+
+function openLate(open) {
+  $("late-panel").hidden = !open;
+  $("late-alert").setAttribute("aria-expanded", String(open));
+  if (open) renderLatePanel();
+}
+
+function closeLate() {
+  openLate(false);
+}
+
+// Nothing writes at midnight, so no message arrives to say the date moved and
+// every other read on this page is triggered by one. This is the one thing on
+// the page that goes stale by sitting still.
+function watchTheClock() {
+  setInterval(() => {
+    if (state.late.asOf && state.late.asOf !== todayISO()) refreshLate();
+  }, CLOCK_TICK_MS);
+}
+
 async function refreshView() {
   const isProject = state.view === "project";
   const isPortfolio = state.view === "portfolio";
@@ -1166,6 +1309,10 @@ async function refreshView() {
   // which is what the load fetches. `renderProjectView` calls it too, so an edit
   // retags the bar without a tab switch.
   renderTopbar();
+  // Not awaited: the bell is about every project and this tab switch is about
+  // one, so nothing on screen is waiting for the answer. It draws itself when it
+  // arrives.
+  refreshLate();
   // A render rebuilds the tables, so the badges drawn on the old nodes went with
   // them. Redraw from the roll this page already holds, and say where this page
   // is now looking -- a tab switch moves you as surely as a click does.
@@ -1584,10 +1731,23 @@ function renderWarnings() {
 
   for (const warning of warnings) {
     const item = element("li");
-    item.appendChild(element("span", "rule", warning.rule));
+    item.appendChild(ruleChip(warning.rule));
     item.appendChild(document.createTextNode(` ${warning.message}`));
     list.appendChild(item);
   }
+}
+
+// The chip carrying a rule number, with what that number means on its tooltip.
+// **The one place a chip is built**, so the project view, the dependency list and
+// the alert panel cannot end up explaining V6 three different ways -- and the
+// sentence itself comes from `validation.py` over `/api/rules`, so none of them
+// is a copy at all. Silent if the read has not landed: a chip with no tooltip is
+// what this was before, not a broken one.
+function ruleChip(rule) {
+  const chip = element("span", "rule", rule);
+  const summary = state.ruleSummary[rule];
+  if (summary) chip.title = `${rule} — ${summary}`;
+  return chip;
 }
 
 function warnedPhaseIds() {
@@ -3243,7 +3403,7 @@ function renderPortfolioDependencies() {
     const warning = violated.get(
       `${dep.predecessor_project_id}->${dep.successor_project_id}`);
     if (warning) {
-      item.appendChild(element("span", "rule", "V2"));
+      item.appendChild(ruleChip("V2"));
       item.appendChild(element("span", "muted", warning.message));
     }
     list.appendChild(item);
@@ -6772,6 +6932,16 @@ function bindEvents() {
   $("project-menu-panel").onclick = (event) => event.stopPropagation();
   document.addEventListener("click", () => projectMenu(false));
 
+  // The bell, the same way: the panel's own `hidden` is the truth, a press
+  // outside closes it, and the panel stops its own clicks so pressing a row does
+  // not race the document handler that would close it.
+  $("late-alert").onclick = (event) => {
+    event.stopPropagation();
+    openLate($("late-panel").hidden);
+  };
+  $("late-panel").onclick = (event) => event.stopPropagation();
+  document.addEventListener("click", () => closeLate());
+
   // Both reveals, and the topbar's primary action is the third caller. Focus
   // follows, because the button's whole purpose is to get you into the first
   // field -- and pressing it again folds the row back.
@@ -6800,6 +6970,7 @@ function bindEvents() {
     if (event.key !== "Escape") return;
     closeFortnight();
     projectMenu(false);
+    closeLate();
     // Esc out of the raw file view too, but only from outside the textarea:
     // inside it, Esc is how you leave the box, and the blur that follows is what
     // re-splits the document. Leaving the view first would throw that away.
@@ -7520,6 +7691,10 @@ async function reloadCurrentView() {
       await loadProjects();  // the first project somebody else created
     }
     renderTopbar();
+    // Every write announces itself to every page, this one included, so this is
+    // the one hook the count needs: somebody else moving a date and you closing
+    // a phase both arrive here.
+    refreshLate();
   } catch (_) {
     // A failed read is not worth a toast: it was not asked for, and the next
     // message -- or the reconnect -- comes back to it.
@@ -7593,14 +7768,28 @@ async function loadSignInLabel() {
   }
 }
 
+// What each V-number means, for the tooltip on a `.rule` chip. A constant, read
+// once, and a failure only costs the tooltips -- every chip still draws.
+async function loadRuleSummary() {
+  try {
+    state.ruleSummary = await api("/api/rules");
+  } catch (_) {
+    state.ruleSummary = {};
+  }
+}
+
 bindEvents();
 watchPresence();
+watchTheClock();
 // Before the first load, so the sidebar is already the width it was left at when
 // the charts measure their container -- `weekGrid` fits its columns to that
 // width, so applying it after would fit them to the wrong one and need a redraw.
 applySidebar(sidebarCollapsed());
 restoreSession();
 loadSignInLabel();
+// Before the first `refreshLate`, so the chips the panel draws already have
+// their tooltips rather than gaining them on the second read.
+loadRuleSummary();
 loadProjects();
 // After the first read, not before: the socket's job is to say what changed
 // *since*, and its own first open deliberately reloads nothing.
