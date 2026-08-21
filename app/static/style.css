@@ -20,6 +20,7 @@
   --accent-hover: #4338ca;
   --accent-soft: #eef2ff;      /* selected rows, quiet accent fills */
   --accent-ring: #c7d2fe;      /* the focus ring, and nothing else */
+  --accent-glow: rgba(79, 70, 229, 0.18);  /* a focused control's halo */
 
   /* Ink, in four weights. `--ink` is text, `--muted` is a hint or a readout,
      `--faint` is a column heading or a placeholder -- never body text. */
@@ -491,11 +492,19 @@ textarea {
   background: var(--surface);
   color: var(--ink);
 }
+/* The border carries the focus, and the halo sits outside it. An `outline` drawn
+   at `-1px` was the earlier treatment and it hid the cue it came with: 2px of
+   pale ring painted over the 1px indigo border, so a focused field read the same
+   weight as an unfocused one and clicking a box looked like nothing happened.
+   The transparent outline is not decoration -- forced-colors mode drops
+   `box-shadow` entirely and forces that outline to a system colour, which is the
+   only focus indicator left there. */
 input:not([type="checkbox"]):not([type="radio"]):focus,
 select:focus,
 textarea:focus {
-  outline: 2px solid var(--accent-ring);
-  outline-offset: -1px;
+  outline: 2px solid transparent;
+  outline-offset: 1px;
+  box-shadow: 0 0 0 3px var(--accent-glow);
   border-color: var(--accent);
 }
 input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
