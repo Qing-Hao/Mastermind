@@ -48,7 +48,16 @@
   </div>
 
   <div style="padding: 11px 13px; border-radius: 6px; background: #fffbeb; font-size: 12.5px; color: #3f3f46;">
-    <strong>Green is already taken.</strong> Today it means <em>delivered</em> &mdash; every checkpoint ticked. Making <em>active</em> green needs the two told apart, or the ramp says &ldquo;good&rdquo; twice and means two things. Two ways below.
+    <strong>Green was already taken.</strong> It meant <em>delivered</em> &mdash; every checkpoint ticked. Making <em>active</em> green needed the two told apart, or the ramp would say &ldquo;good&rdquo; twice and mean two things.
+    <strong>Option B was chosen and is built.</strong>
+  </div>
+
+  <div style="padding: 11px 13px; border-radius: 6px; background: #ecfdf5; border: 1px solid #a7f3d0; font-size: 12.5px; color: #3f3f46;">
+    <strong>Two things the drawing did not settle, decided while building.</strong>
+    The dot went from 9px to 12px, and only because a tick inside 6px of usable space is a smudge &mdash; it is drawn from
+    two rotated borders rather than a glyph, so it stays crisp and loads nothing.
+    And the tick reaches the picker, the top bar, the swimlane and the alert panel, but <strong>not the map</strong>: a node
+    already carries a percentage in its middle and a tick would land on it. The map keeps telling the two apart by colour.
   </div>
 
   <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px;">
@@ -73,7 +82,7 @@
 
     <!-- Option A -->
     <div style="padding: 14px; background: #fff; border: 1px solid #c7d2fe; border-radius: 10px;">
-      <div class="cap" style="margin-bottom: 8px; color: #4f46e5;">Option A &mdash; green is running</div>
+      <div class="cap" style="margin-bottom: 8px; color: #a1a1aa;">Option A &mdash; green is running &middot; not chosen</div>
       <div class="col">
         <div class="rung"><span class="d" style="border-color: #bbb;"></span><span class="name">idea</span></div>
         <div class="rung"><span class="d" style="border-color: #9fa8da;"></span><span class="name">planning</span></div>
@@ -99,8 +108,8 @@
     </div>
 
     <!-- Option B -->
-    <div style="padding: 14px; background: #fff; border: 1px solid #c7d2fe; border-radius: 10px;">
-      <div class="cap" style="margin-bottom: 8px; color: #4f46e5;">Option B &mdash; green stays good, depth separates</div>
+    <div style="padding: 14px; background: #fff; border: 2px solid #2e7d32; border-radius: 10px;">
+      <div class="cap" style="margin-bottom: 8px; color: #2e7d32;">Option B &mdash; green stays good, depth separates &middot; built</div>
       <div class="col">
         <div class="rung"><span class="d" style="border-color: #bbb;"></span><span class="name">idea</span></div>
         <div class="rung"><span class="d" style="border-color: #9fa8da;"></span><span class="name">planning</span></div>

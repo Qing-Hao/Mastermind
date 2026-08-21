@@ -6,8 +6,8 @@
     { "file": "Scope.dc.html", "x": 1200, "y": 1030, "w": 940, "h": 880, "title": "What this must not become" }
   ],
   "annotations": [
-    { "id": "brief", "x": 0, "y": -180, "w": 620, "text": "Four asks, drawn before any code.\n\nThe bell and the ramp both reopen decisions already on the record — see \"What this must not become\", bottom right. The scroll jump is a straight bug." },
-    { "id": "pick-one", "x": 2200, "y": 300, "w": 260, "text": "Option A or B?\n\nB is the recommendation: green keeps meaning good, and pale-vs-deep is the move blue already makes." }
+    { "id": "brief", "x": 0, "y": -180, "w": 620, "text": "Four asks — drawn first, then built.\n\nOption B and B1 were chosen; the bell went ahead. Seven commits, 1c276b5..7ac37fc.\n\nOne panel changed after measuring: the portfolio jump was not what the first drawing said it was." },
+    { "id": "pick-one", "x": 2200, "y": 300, "w": 260, "text": "B was chosen and is built.\n\nGreen keeps meaning good; pale-vs-deep is the move blue already makes between dated and active." }
   ],
   "launch": { "view": "canvas" }
 }
