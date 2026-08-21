@@ -13,8 +13,9 @@
 
 /* --- tokens --------------------------------------------------------------
    One accent, and it is indigo rather than any of the chart colours: blue is a
-   planned phase, green is delivered, red is late, amber is today, purple is a
-   checkpoint. An accent drawn from that set would be read as a state. */
+   planned phase, green is work running or delivered, red is late, amber is
+   today, purple is a checkpoint. An accent drawn from that set would be read as
+   a state. */
 :root {
   --accent: #4f46e5;
   --accent-hover: #4338ca;
@@ -64,16 +65,27 @@
    sidebar draws it as a dot; the shapes differ, and the colours must not.
    `delivered` is the eighth entry rather than an eighth rung: `done` is reached
    two ways, and only "every checkpoint achieved" earns the green -- see the map
-   section far below for why a manual close keeps the grey. */
+   section far below for why a manual close keeps the grey.
+
+   **`active` moved from blue to green on 2026-08-21, and `delivered` went deep
+   to make room.** The ramp used to run pale blue to full blue across `dated` and
+   `active`, with green reserved for delivered. Green now says *running* as well,
+   and the two are told apart the way blue told its own pair apart: pale is
+   `active`, deep is `delivered`. Nothing else in the ramp changed meaning, and
+   `done` keeps its grey precisely because it is not delivery.
+
+   The deep fill is safe under the map's percentage: `.map-percent` carries a
+   white halo behind its glyphs, which is what already keeps it legible where it
+   crosses the completion fill's edge. */
 :root {
   --stage-idea-fill: #fff;        --stage-idea-line: #bbb;
   --stage-planning-fill: #fff;    --stage-planning-line: #9fa8da;
   --stage-planned-fill: #fff;     --stage-planned-line: #5c6bc0;
   --stage-dated-fill: #d5e6f7;    --stage-dated-line: #5c6bc0;
-  --stage-active-fill: #90caf9;   --stage-active-line: #5c6bc0;
+  --stage-active-fill: #a5d6a7;   --stage-active-line: #2e7d32;
   --stage-overdue-fill: #ffccbc;  --stage-overdue-line: #d84315;
   --stage-done-fill: #cfd8dc;     --stage-done-line: #90a4ae;
-  --stage-delivered-fill: #a5d6a7; --stage-delivered-line: #2e7d32;
+  --stage-delivered-fill: #2e7d32; --stage-delivered-line: #1b5e20;
 
   /* One indigo for all three ranks: the digit is the cue, and a paler pip could
      not carry white 10px text. Shared by the map's pip and the sidebar's. */
@@ -222,13 +234,18 @@
 .project-row.is-idea .project-name { color: var(--muted); }
 
 /* The rung, as a dot in the map's own colours. Hollow means no dates in both
-   places. What a 9px dot cannot carry is the map's dash on an idea, or the
-   heavier rim on an overdue project; the border width does what it can and the
-   row's tooltip says the word. */
+   places. What a dot cannot carry is the map's dash on an idea, or the heavier
+   rim on an overdue project; the border width does what it can and the row's
+   tooltip says the word.
+
+   **12px rather than the 9px it was**, because a finished project now carries a
+   tick inside the dot and a tick inside 6px of usable space is a smudge. That is
+   the only reason the size moved. */
 .project-dot {
+  position: relative;
   flex: none;
-  width: 9px;
-  height: 9px;
+  width: 12px;
+  height: 12px;
   border-radius: 999px;
   border: 1.5px solid var(--stage-planned-line);
   background: var(--stage-planned-fill);
@@ -247,6 +264,55 @@
 .project-dot.stage-done.delivered {
   background: var(--stage-delivered-fill);
   border-color: var(--stage-delivered-line);
+}
+
+/* **Finished work wears a tick, not just a colour.** Grey and green told a
+   closed project from a delivered one; neither told either from a project still
+   running, because all three were the same filled circle and only the hue
+   differed. The tick is the part that reads at a glance, and it reads the same
+   whether you can separate those two greens or not.
+
+   Two borders rotated 45deg rather than a glyph or an SVG: it inherits nothing,
+   loads nothing, and stays crisp at 12px where a font tick would not. Positioned
+   off the dot, which is why `.project-dot` is `relative` above. */
+.project-dot.stage-done::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 3px;
+  height: 6px;
+  border: solid var(--stage-done-line);
+  border-width: 0 1.7px 1.7px 0;
+  transform: translate(-50%, -60%) rotate(45deg);
+}
+/* White on the deep green, the way the tier pip's digit sits on its indigo. */
+.project-dot.stage-done.delivered::after { border-color: #fff; }
+
+/* **The beat says the work is running, not that the page is connected.**
+   `active` means today falls inside the project's span -- derived from the
+   calendar, and true whether or not anybody is typing. The offline badge two
+   controls along is the one that talks about the socket, and the tooltips are
+   worded to keep the two apart.
+
+   Only where a handful of dots sit still and are read as a list: the picker and
+   the top bar badge. **Not the map** -- forty circles pulsing at once is a
+   strobe, not a status -- and not a swimlane, where the eye is following bars
+   across a calendar. */
+@keyframes stage-beat {
+  0%   { box-shadow: 0 0 0 0 rgba(46, 125, 50, 0.45); }
+  70%  { box-shadow: 0 0 0 5px rgba(46, 125, 50, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(46, 125, 50, 0); }
+}
+.project-row .project-dot.stage-active,
+.stage-badge .project-dot.stage-active {
+  animation: stage-beat 2s ease-out infinite;
+}
+/* Someone who has asked for less motion is asking for less of exactly this. The
+   colour still says `active`; only the pulse goes. */
+@media (prefers-reduced-motion: reduce) {
+  .project-row .project-dot.stage-active,
+  .stage-badge .project-dot.stage-active { animation: none; }
 }
 
 /* The rank, as the digit the map's pip carries. Untiered wears a `?` in the
@@ -3077,7 +3143,13 @@ body.resizing-column { cursor: col-resize; user-select: none; }
    the sidebar's project dots as well: the map draws a rung as a circle and the
    list draws it as a dot, and the two must not be able to disagree about which
    colour a rung is. Only the *shape* of a rung lives here -- the stroke widths,
-   and the dash on an idea, neither of which a 9px dot can carry. */
+   and the dash on an idea, neither of which a 12px dot can carry.
+
+   **The dot's tick is not drawn here, and neither is its heartbeat.** A node
+   already carries a number in its middle and a tick would land on top of it; the
+   map tells `done` from `delivered` by colour, with room for the percentage the
+   dot has no room for. The beat is left off for `stage-beat`'s reason: forty
+   circles pulsing at once is a strobe. */
 .map-node { cursor: pointer; }
 .map-node circle:not(.map-pip) {
   fill: var(--stage-active-fill);

@@ -5640,7 +5640,11 @@ const STAGE_LEGEND = [
   ["planning", "planning", "Committed, but with no work named or nothing to aim at."],
   ["planned", "planned", "Work named and a checkpoint set. Waiting only for dates."],
   ["dated", "dated", "On the calendar, not started."],
-  ["active", "active", "Today falls inside the project's span."],
+  // Green, and beating where it is drawn as a dot. The wording says what the
+  // rung is derived from, because the colour now shares a hue with delivered and
+  // the beat could be misread as something about the live connection.
+  ["active", "active", "Today falls inside the project's span. Nobody has to be "
+    + "working on it for this to be true."],
   ["overdue", "overdue", "The last phase end has passed with phases still open."],
   ["done", "done · closed", "Closed by hand with checkpoints outstanding — "
     + "descoped or cancelled as often as finished."],
