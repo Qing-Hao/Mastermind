@@ -23,14 +23,17 @@ services:
       - "127.0.0.1:8000:8000"
 
     environment:
-      # Sign-in configuration lives in the database and is edited at
-      # /auth/settings. Only the secrets are here.
+      # All sign-in configuration, secrets included, lives in the database and is
+      # edited at /auth/settings. The first two here are fallbacks, read only
+      # where that page's field is empty -- useful for a first boot, and for a
+      # deployment set up before those fields existed.
       #
       # The client secret from Keycloak. Without it the app cannot complete a
       # code exchange, and the Sign-in page will say so.
       MASTERMIND_OIDC_SECRET: ${MASTERMIND_OIDC_SECRET:-}
-      # Signs the session cookie. Unset is not fatal, it is forgetful: a
-      # per-process key is generated and every restart signs everybody out.
+      # Signs the session cookie. Unset in both places is not fatal, it is
+      # forgetful: a per-process key is generated and every restart signs
+      # everybody out.
       MASTERMIND_SESSION_KEY: ${MASTERMIND_SESSION_KEY:-}
       # The way back in when the realm is down, the secret was rotated, or the
       # client was deleted: set this to `off`, `docker compose up -d`, repair it
@@ -45,6 +48,7 @@ services:
       # Keycloak compares the redirect URI character for character. Set this to
       # the URL the browser actually uses -- behind a proxy, or on a host name,
       # the one derived from the request will not match what is registered.
+      # Also a field on the Sign-in page, which wins over this when filled in.
       MASTERMIND_OIDC_REDIRECT_URI: ${MASTERMIND_OIDC_REDIRECT_URI:-}
 
     volumes:

@@ -170,11 +170,24 @@ the text above, **the amendment wins** — the code follows the amendments.
    that, not dropped: the moment a row is keyed by a person, this is the tracker
    the brief forbids.
 
-   The client secret and the cookie signing key are environment variables and are
-   never stored in the database, for the reason the AI provider key already is:
-   `/api/export` writes the settings row to JSON. Sign-in configuration lives in
-   the settings row and is stripped from the export — a gate describes the
-   deployment, not the dataset.
+   The whole gate is configured on its own page, secrets included: the client
+   secret, the cookie signing key, the redirect URI override and the plain-http
+   flag are columns in the settings row, and the environment variables that used
+   to hold them are read only where a column is empty. **Amended 2026-08-21** —
+   they were environment-only until then, on the argument that `/api/export`
+   writes the settings row to JSON. That argument was answered rather than
+   abandoned: every sign-in column is named `sso_` and the whole prefix is
+   stripped from the export, so the JSON carries none of it. The cost, accepted
+   deliberately, is that `data/roadmap.db` and its backups are now
+   secret-bearing files — clear the secret before sharing one.
+
+   Two stay in the environment and are not columns. `MASTERMIND_SSO=off` is the
+   recovery hatch, and a hatch stored inside the thing it rescues is no hatch.
+   `MASTERMIND_PUBLIC` describes the socket and decides whether the Sign-in page
+   itself is gated; as a column it could lock away the page that edits it.
+
+   The AI provider key is unchanged and still environment-only — it belongs to a
+   CLI script with no page to configure it on.
 
 Deliverables inside a phase are treated as **sequential**, so durations sum. Work
 that genuinely runs in parallel belongs in separate phases.

@@ -33,12 +33,21 @@ import httpx
 
 # --- environment -------------------------------------------------------------
 
-# Secrets live in the environment and never in the database. The precedent is
-# the AI provider key, and the reason is the same: `/api/export` writes the whole
-# settings row to JSON, so a secret stored there walks straight back out. A
-# redaction rule would be a new rule guarding a mistake, rather than not making
-# it. The settings page shows a variable's *name* and whether it is set, never
-# its value.
+# Every value below is configured on the Sign-in page and stored in the settings
+# row; these variables are the fallback for a deployment that predates those
+# columns, and are read only where the column is empty. The rule that keeps the
+# secrets out of `/api/export` is `db.settings_without_sso`, which strips the
+# whole `sso_` prefix -- see the comment on the settings table.
+#
+# Two exceptions, both deliberate, and both environment-only:
+#
+# `MASTERMIND_SSO=off` is the recovery hatch -- a rotated secret, a deleted
+# client, a realm that is down. Stored in the database it would be unreachable
+# in exactly the situations it exists for.
+#
+# `MASTERMIND_PUBLIC` describes the socket rather than the deployment, and it
+# decides whether `/api/sso` is exempt from sign-in. A column for it would let
+# the page that edits it lock itself away.
 ENV_SSO = "MASTERMIND_SSO"
 ENV_CLIENT_SECRET = "MASTERMIND_OIDC_SECRET"
 ENV_SESSION_KEY = "MASTERMIND_SESSION_KEY"
@@ -106,8 +115,40 @@ def is_public_binding():
     return os.environ.get(ENV_PUBLIC, "").strip().lower() in ("1", "true", "yes")
 
 
-def client_secret():
-    return os.environ.get(ENV_CLIENT_SECRET, "")
+DATABASE = "database"
+ENVIRONMENT = "environment"
+
+
+def resolve(settings, column, variable):
+    """A configured value and where it came from: the settings row, then the environment.
+
+    Empty in the row means "not configured here", which is what makes the
+    environment a fallback rather than a competitor -- a deployment that predates
+    these columns keeps working until somebody types a value on the page.
+    """
+    stored = str((settings or {}).get(column) or "").strip()
+    if stored:
+        return stored, DATABASE
+    from_environment = os.environ.get(variable, "").strip()
+    if from_environment:
+        return from_environment, ENVIRONMENT
+    return "", ""
+
+
+def client_secret(settings=None):
+    return resolve(settings, "sso_client_secret", ENV_CLIENT_SECRET)[0]
+
+
+def redirect_uri_override(settings=None):
+    """The registered redirect URI, when the request's own is not what Keycloak has."""
+    return resolve(settings, "sso_redirect_uri", ENV_REDIRECT_URI)[0]
+
+
+def allows_http(settings=None):
+    """Whether a plain-http token endpoint is accepted. See `check_transport`."""
+    if (settings or {}).get("sso_allow_http"):
+        return True
+    return os.environ.get(ENV_ALLOW_HTTP, "").strip().lower() in ("1", "true", "yes")
 
 
 def mask_secret(secret, tail=4):
@@ -125,12 +166,27 @@ def mask_secret(secret, tail=4):
     return "•" * (len(secret) - tail) + secret[-tail:]
 
 
-def env_report():
-    """Which environment variables are set. Names and booleans, never values."""
+def secret_report(settings, column, variable):
+    """A secret as the page may see it: masked, its length, and which source won."""
+    value, source = resolve(settings, column, variable)
     return {
-        "client_secret": {"name": ENV_CLIENT_SECRET, "set": bool(client_secret())},
-        "session_key": {"name": ENV_SESSION_KEY,
-                        "set": bool(os.environ.get(ENV_SESSION_KEY, ""))},
+        "name": variable,
+        "set": bool(value),
+        "source": source,
+        "masked": mask_secret(value),
+        "length": len(value),
+    }
+
+
+def env_report(settings=None):
+    """Where each configured value came from. Masked secrets, never whole ones."""
+    return {
+        "client_secret": secret_report(settings, "sso_client_secret", ENV_CLIENT_SECRET),
+        "session_key": secret_report(settings, "sso_session_key", ENV_SESSION_KEY),
+        "redirect_uri": {"name": ENV_REDIRECT_URI,
+                         "value": redirect_uri_override(settings),
+                         "source": resolve(settings, "sso_redirect_uri", ENV_REDIRECT_URI)[1]},
+        "allow_http": {"name": ENV_ALLOW_HTTP, "set": allows_http(settings)},
         "sso_env_off": sso_env_off(),
         "sso_env_name": ENV_SSO,
         "public_binding": is_public_binding(),
@@ -140,13 +196,14 @@ def env_report():
 _fallback_session_key = secrets.token_urlsafe(32)
 
 
-def session_key():
+def session_key(settings=None):
     """The cookie signing key, or a per-process one so sign-in still works.
 
     An unset key is not fatal, it is forgetful: every restart invalidates every
     session. The Sign-in page says so rather than letting it be discovered.
+    Changing it on the page is the same event -- everyone signs in again.
     """
-    return os.environ.get(ENV_SESSION_KEY, "") or _fallback_session_key
+    return resolve(settings, "sso_session_key", ENV_SESSION_KEY)[0] or _fallback_session_key
 
 
 def config_from_settings(settings):
@@ -162,9 +219,9 @@ def config_from_settings(settings):
     }
 
 
-def is_configured(config):
+def is_configured(config, settings=None):
     """True when there is enough to attempt a sign-in at all."""
-    return bool(config["issuer"] and config["client_id"] and client_secret())
+    return bool(config["issuer"] and config["client_id"] and client_secret(settings))
 
 
 def parse_allowlist(text):
@@ -243,16 +300,17 @@ def fetch_metadata(issuer, timeout=DISCOVERY_TIMEOUT_SECONDS):
     return metadata
 
 
-def check_transport(metadata):
+def check_transport(metadata, settings=None):
     """Refuse a plain-http token endpoint, which the no-signature rule needs TLS for."""
     if urlsplit(metadata["token_endpoint"]).scheme == "https":
         return
-    if os.environ.get(ENV_ALLOW_HTTP, "").strip().lower() in ("1", "true", "yes"):
+    if allows_http(settings):
         return
     raise AuthError(
         "The token endpoint is not https. The ID token's signature is not checked "
-        f"locally, which is only sound over TLS. Set {ENV_ALLOW_HTTP}=1 to accept "
-        "this on a development realm."
+        "locally, which is only sound over TLS. Tick \"Accept a plain-http realm\" "
+        f"on the Sign-in page, or set {ENV_ALLOW_HTTP}=1, to accept this on a "
+        "development realm."
     )
 
 
@@ -279,9 +337,9 @@ def logout_url(metadata, post_logout_uri, client_id):
 
 
 def exchange_code(metadata, client_id, secret, code, redirect_uri,
-                  timeout=DISCOVERY_TIMEOUT_SECONDS):
+                  timeout=DISCOVERY_TIMEOUT_SECONDS, settings=None):
     """Swap an authorization code for tokens. Back channel, client secret, TLS."""
-    check_transport(metadata)
+    check_transport(metadata, settings)
     try:
         with http_client(timeout) as client:
             response = client.post(

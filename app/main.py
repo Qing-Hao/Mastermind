@@ -288,7 +288,7 @@ def live_name(socket):
     _, armed, _ = gate_state()
     if armed:
         session = auth.unseal(socket.cookies.get(auth.SESSION_COOKIE, ""),
-                              auth.session_key())
+                              auth.session_key(db.get_settings()))
         if session and session.get("name"):
             return session["name"]
     guest_count += 1
@@ -434,13 +434,21 @@ SSO_CONFIG_PATHS = ("/api/sso", "/api/sso/test")
 
 
 class SsoConfigIn(BaseModel):
-    # Non-secret configuration only. `enabled` is absent on purpose: arming is a
-    # completed sign-in, never a field somebody can PUT.
+    # `enabled` is absent on purpose: arming is a completed sign-in, never a
+    # field somebody can PUT.
     issuer: str | None = None
     client_id: str | None = None
     identity_claim: str | None = None
     allowlist: str | None = None
     mode: str | None = None
+    # The secrets and the two deployment overrides. `exclude_unset` is what makes
+    # them safe to send from a page that only ever shows a mask: a field left out
+    # keeps what is stored, and a field sent empty is the deliberate clear. A
+    # save that echoed the mask back would otherwise store the dots.
+    client_secret: str | None = None
+    session_key: str | None = None
+    redirect_uri: str | None = None
+    allow_http: bool | None = None
 
 
 def gate_state():
@@ -451,7 +459,7 @@ def gate_state():
         return config, False, f"{auth.ENV_SSO}=off"
     if not config["enabled"]:
         return config, False, "not armed"
-    if not auth.is_configured(config):
+    if not auth.is_configured(config, settings):
         # Armed but unusable -- a secret rotated out of the environment, say.
         # Failing open here would be a silent hole; failing closed would lock
         # everyone out of the page that fixes it. The Sign-in page is exempt
@@ -462,7 +470,8 @@ def gate_state():
 
 def signed_in_name(request):
     """The `preferred_username` of whoever holds a valid cookie, else empty."""
-    session = auth.unseal(request.cookies.get(auth.SESSION_COOKIE, ""), auth.session_key())
+    session = auth.unseal(request.cookies.get(auth.SESSION_COOKIE, ""),
+                          auth.session_key(db.get_settings()))
     return (session or {}).get("name", "")
 
 
@@ -489,7 +498,7 @@ async def require_sign_in(request, call_next):
 
 def redirect_uri(request):
     """Where Keycloak sends the browser back. Must match the realm character for character."""
-    override = os.environ.get(auth.ENV_REDIRECT_URI, "").strip()
+    override = auth.redirect_uri_override(db.get_settings())
     return override or str(request.url_for("sign_in_callback"))
 
 
@@ -515,27 +524,29 @@ def sign_in_settings():
 @app.get("/auth/status")
 def sign_in_status(request: Request):
     """Who you are and whether the gate is on. Read by the frontend on boot."""
+    settings = db.get_settings()
     config, armed, reason = gate_state()
     return {
         "armed": armed,
         "reason": reason,
         "name": signed_in_name(request),
         "issuer": config["issuer"],
-        "configured": auth.is_configured(config),
-        "env": auth.env_report(),
+        "configured": auth.is_configured(config, settings),
+        "env": auth.env_report(settings),
     }
 
 
 @app.get("/auth/login")
 def sign_in_start(request: Request, arm: int = 0, next: str = "/"):
     """Send the browser to Keycloak. `arm=1` is the verify-then-arm round trip."""
-    config = auth.config_from_settings(db.get_settings())
-    if not auth.is_configured(config):
+    settings = db.get_settings()
+    config = auth.config_from_settings(settings)
+    if not auth.is_configured(config, settings):
         return signin_page("Sign-in is not configured yet: an issuer, a client id "
-                           f"and {auth.ENV_CLIENT_SECRET} are all needed.")
+                           "and a client secret are all needed.")
     try:
         metadata = auth.fetch_metadata(config["issuer"])
-        auth.check_transport(metadata)
+        auth.check_transport(metadata, settings)
         state, nonce = auth.random_token(), auth.random_token()
         destination = auth.authorize_url(
             metadata, config["client_id"], redirect_uri(request), state, nonce
@@ -549,7 +560,7 @@ def sign_in_start(request: Request, arm: int = 0, next: str = "/"):
     transaction = auth.new_transaction(state, nonce, local_path(next), bool(arm))
     response.set_cookie(
         auth.TRANSACTION_COOKIE,
-        auth.seal(transaction, auth.session_key()),
+        auth.seal(transaction, auth.session_key(settings)),
         httponly=True,
         samesite="lax",
         secure=request.url.scheme == "https",
@@ -573,18 +584,20 @@ def sign_in_callback(request: Request, code: str = "", state: str = "",
     if error:
         return signin_page(f"Keycloak refused the sign-in: {error} {error_description}".strip())
 
+    settings = db.get_settings()
     transaction = auth.unseal(request.cookies.get(auth.TRANSACTION_COOKIE, ""),
-                              auth.session_key())
+                              auth.session_key(settings))
     if not transaction:
         return signin_page("That sign-in took too long, or the app restarted. Try again.")
     if not state or state != transaction["state"]:
         return signin_page("The sign-in came back with the wrong state and was refused.")
 
-    config = auth.config_from_settings(db.get_settings())
+    config = auth.config_from_settings(settings)
     try:
         metadata = auth.fetch_metadata(config["issuer"])
-        tokens = auth.exchange_code(metadata, config["client_id"], auth.client_secret(),
-                                    code, redirect_uri(request))
+        tokens = auth.exchange_code(metadata, config["client_id"],
+                                    auth.client_secret(settings), code,
+                                    redirect_uri(request), settings=settings)
         claims = auth.claims_from_id_token(tokens["id_token"])
         auth.check_claims(claims, metadata["issuer"], config["client_id"],
                           transaction["nonce"])
@@ -610,7 +623,8 @@ def sign_in_callback(request: Request, code: str = "", state: str = "",
     response = RedirectResponse(local_path(transaction["next"]), status_code=303)
     response.set_cookie(
         auth.SESSION_COOKIE,
-        auth.seal(auth.new_session(claims, config["identity_claim"]), auth.session_key()),
+        auth.seal(auth.new_session(claims, config["identity_claim"]),
+                  auth.session_key(settings)),
         httponly=True,
         samesite="lax",
         secure=request.url.scheme == "https",
@@ -642,7 +656,8 @@ def sign_out(request: Request):
 
 @app.get("/api/sso")
 def read_sso_config(request: Request):
-    """The sign-in configuration, plus which environment variables are set."""
+    """The sign-in configuration. Secrets come back masked and never whole."""
+    settings = db.get_settings()
     config, armed, reason = gate_state()
     return {
         "issuer": config["issuer"],
@@ -654,7 +669,7 @@ def read_sso_config(request: Request):
         "armed": armed,
         "reason": reason,
         "name": signed_in_name(request),
-        "env": auth.env_report(),
+        "env": auth.env_report(settings),
         "redirect_uri": redirect_uri(request),
     }
 
@@ -662,7 +677,11 @@ def read_sso_config(request: Request):
 @app.put("/api/sso")
 def write_sso_config(body: SsoConfigIn):
     """Save configuration. Deliberately cannot arm the gate -- only a sign-in does."""
-    fields = body.model_dump(exclude_unset=True, exclude_none=True)
+    # `exclude_unset` is the whole safety of writing a secret from a page that
+    # shows a mask: what the caller did not send is not written. `exclude_none`
+    # is not used, so an explicit "" still reaches the column and clears it.
+    fields = body.model_dump(exclude_unset=True)
+    fields = {key: value for key, value in fields.items() if value is not None}
     if fields.get("mode") and fields["mode"] not in auth.MODES:
         raise HTTPException(status_code=400, detail=f"Mode must be one of {auth.MODES}.")
     db.update_settings({f"sso_{key}": value for key, value in fields.items()})
@@ -670,31 +689,37 @@ def write_sso_config(body: SsoConfigIn):
 
 
 def read_sso_config_body():
+    settings = db.get_settings()
     config, armed, reason = gate_state()
-    return {**config, "armed": armed, "reason": reason, "env": auth.env_report()}
+    return {**config, "armed": armed, "reason": reason,
+            "env": auth.env_report(settings)}
 
 
 @app.post("/api/sso/test")
 def test_sso_connection():
     """Fetch the realm's discovery document and report what it says."""
-    config = auth.config_from_settings(db.get_settings())
+    settings = db.get_settings()
+    config = auth.config_from_settings(settings)
     try:
         metadata = auth.fetch_metadata(config["issuer"])
-        auth.check_transport(metadata)
+        auth.check_transport(metadata, settings)
     except auth.AuthError as error:
         return {"ok": False, "detail": str(error)}
+    secret = auth.secret_report(settings, "sso_client_secret", auth.ENV_CLIENT_SECRET)
     return {
         "ok": True,
         "issuer": metadata["issuer"],
         "authorization_endpoint": metadata["authorization_endpoint"],
         "token_endpoint": metadata["token_endpoint"],
         "end_session_endpoint": metadata.get("end_session_endpoint", ""),
-        "client_secret_set": bool(auth.client_secret()),
+        "client_secret_set": secret["set"],
         # The only place any part of a secret leaves the process, and it is the
-        # last four characters of one the operator already holds. Non-negotiable
-        # 7 keeps secrets out of the database and the export; this is neither.
-        "client_secret_masked": auth.mask_secret(auth.client_secret()),
-        "client_secret_length": len(auth.client_secret()),
+        # last four characters of one the operator already holds in the realm
+        # console. `source` is the other half of the answer: a value typed on the
+        # page and a stale variable in the environment look identical without it.
+        "client_secret_masked": secret["masked"],
+        "client_secret_length": secret["length"],
+        "client_secret_source": secret["source"],
     }
 
 

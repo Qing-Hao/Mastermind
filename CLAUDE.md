@@ -184,12 +184,24 @@ and argument are in `PROMPT.md`, `feature_request.md` and `git log`.
    integration; FR-6 needs a store). **The test before adding to it: does this
    need to remember who is looking?**
 
-   **Secrets are read from the environment and never stored in the database.**
-   Two of them now — the AI provider key and `MASTERMIND_OIDC_SECRET`, plus
-   `MASTERMIND_SESSION_KEY` — and the reason is the same for all three:
-   `/api/export` writes the settings row to JSON and would carry a secret
-   straight out. Sign-in *configuration* is in the settings row and stripped from
-   the export, because a gate describes this deployment rather than the dataset.
+   **The gate is configured on its own page, secrets included** *(changed
+   2026-08-21 — it was environment-only before, and PROMPT.md amendment 4 carries
+   the argument).* Client secret, session key, redirect URI override and the
+   plain-http flag are `sso_` columns in the settings row; the matching
+   environment variables are a fallback, read only where a column is empty.
+   `db.settings_without_sso` strips the whole `sso_` prefix from `/api/export`,
+   which is the one line keeping a secret out of the JSON — **a sign-in column
+   added without that prefix walks straight into the file.**
+
+   **`data/roadmap.db` is therefore a secret-bearing file**, along with every copy
+   in `data/backups/` and any `.bak`. Clear the secret on the page before handing
+   one to anybody.
+
+   **Two are not columns and must not become columns.** `MASTERMIND_SSO=off` is
+   the recovery hatch, unreachable from inside a gate that is broken;
+   `MASTERMIND_PUBLIC` decides whether the Sign-in page is itself gated, and as a
+   column it could lock away the page that edits it. The AI provider key stays
+   environment-only too — it belongs to a CLI script with no page.
 8. **Still not to be built without asking** (PROMPT.md Phase 2): sprint generation
    from a project's date range, `sprint_goal` as a column, allocating deliverables
    into sprints against velocity, the delivery forecast. And **nothing sums points

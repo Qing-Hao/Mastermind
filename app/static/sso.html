@@ -47,7 +47,10 @@
 
     <section class="config-card">
       <h2>Keycloak</h2>
-      <p class="hint">Taken from your realm's discovery document. Nothing here is a secret.</p>
+      <p class="hint">
+        The first three come from your realm's discovery document and its client.
+        The secret is the one value on this page that is one.
+      </p>
       <div class="config-grid">
         <label class="config-wide">Issuer URL
           <input id="sso-issuer" type="url" placeholder="https://keycloak.example.com/realms/delivery">
@@ -59,15 +62,28 @@
           <input id="sso-claim" type="text" placeholder="preferred_username">
         </label>
       </div>
+      <div class="config-grid">
+        <label class="config-wide">Client secret
+          <input id="sso-secret" type="password" autocomplete="off"
+                 placeholder="leave blank to keep what is stored">
+        </label>
+      </div>
       <p class="hint">
-        The client is <strong>confidential</strong>: its secret is read from
+        The client is <strong>confidential</strong>, so the secret is what makes
+        the back-channel exchange possible. Stored:
+        <span id="sso-secret-state">unknown</span>. Typing a new one replaces it;
+        Clear removes it and falls back to
         <code id="sso-secret-name">MASTERMIND_OIDC_SECRET</code> in the server's
-        environment — <span id="sso-secret-state">unknown</span>. It is never
-        stored in <code>roadmap.db</code>, because an export would carry it out.
+        environment, if that is set.
+      </p>
+      <p class="hint config-warn">
+        It is stored in <code>roadmap.db</code>. The export strips it, the file
+        does not — clear it before sharing the database or a backup.
       </p>
       <div class="config-row">
         <button id="sso-save" class="btn-primary">Save</button>
         <button id="sso-test">Test connection</button>
+        <button id="sso-secret-clear">Clear secret</button>
       </div>
       <pre id="sso-test-result" class="config-result" hidden></pre>
     </section>
@@ -85,6 +101,40 @@
       <label class="config-wide">Post-logout redirect URI
         <input id="sso-post-logout" type="text" readonly>
       </label>
+      <p class="hint">
+        The redirect URI is derived from the address you reached this page by.
+        Override it when the browser arrives by a different name than the server
+        sees — behind a proxy, or on a host name.
+      </p>
+      <label class="config-wide">Redirect URI override
+        <input id="sso-redirect-override" type="text"
+               placeholder="leave blank to use the derived one above">
+      </label>
+    </section>
+
+    <section class="config-card">
+      <h2>Session and transport</h2>
+      <label class="config-wide">Session key
+        <input id="sso-session-key" type="password" autocomplete="off"
+               placeholder="leave blank to keep what is stored">
+      </label>
+      <p class="hint">
+        Signs the session cookie. Stored:
+        <span id="sso-session-state">unknown</span>. Changing it signs everybody
+        out, including you. Any long random string will do.
+      </p>
+      <label class="config-choice">
+        <input type="checkbox" id="sso-allow-http">
+        <span>Accept a plain-http realm</span>
+      </label>
+      <p class="hint">
+        The ID token's signature is not checked locally, which is only sound over
+        TLS. Tick this for a development realm served over <code>http://</code>
+        and nothing else.
+      </p>
+      <div class="config-row">
+        <button id="sso-session-clear">Clear session key</button>
+      </div>
     </section>
 
     <section class="config-card">
@@ -138,6 +188,14 @@
       $(config.mode === "any" ? "sso-mode-any" : "sso-mode-allowlist").checked = true;
       $("sso-redirect").value = config.redirect_uri || "";
       $("sso-post-logout").value = location.origin + "/";
+      // Secrets are never sent back, so the boxes stay empty and a blank save
+      // keeps what is stored. Only the override is a value the page can hold.
+      $("sso-redirect-override").value = config.env.redirect_uri.source === "database"
+        ? config.env.redirect_uri.value
+        : "";
+      $("sso-allow-http").checked = config.env.allow_http.set;
+      $("sso-secret").value = "";
+      $("sso-session-key").value = "";
 
       const armed = config.armed;
       $("sso-state").textContent = armed
@@ -152,12 +210,24 @@
 
       const secret = config.env.client_secret;
       $("sso-secret-name").textContent = secret.name;
-      $("sso-secret-state").textContent = secret.set ? "set" : "not set";
+      $("sso-secret-state").textContent = describe(secret);
+      $("sso-session-state").textContent = describe(config.env.session_key);
       $("sso-env-name").textContent = config.env.sso_env_name;
       $("sso-session-note").textContent = config.env.session_key.set
         ? ""
-        : config.env.session_key.name + " is not set, so a per-process key signs "
-          + "the session cookie: restarting the server signs everybody out.";
+        : "No session key is set, so a per-process one signs the session cookie: "
+          + "restarting the server signs everybody out.";
+    }
+
+    // Which source won, said in words. A value typed on this page and a stale
+    // variable in the server's environment are indistinguishable without it —
+    // and the environment is only read when the stored value is empty.
+    function describe(entry) {
+      if (!entry.set) return "not set";
+      const where = entry.source === "database"
+        ? "on this page"
+        : "from " + entry.name + " in the environment";
+      return entry.masked + " (" + entry.length + " chars), set " + where;
     }
 
     async function load() {
@@ -180,7 +250,13 @@
         identity_claim: $("sso-claim").value.trim() || "preferred_username",
         allowlist: $("sso-allowlist").value,
         mode: $("sso-mode-any").checked ? "any" : "allowlist",
+        redirect_uri: $("sso-redirect-override").value.trim(),
+        allow_http: $("sso-allow-http").checked,
       };
+      // A secret goes only when one was typed. Sending the empty box would clear
+      // what is stored, which is what Clear is for and this is not.
+      if ($("sso-secret").value) body.client_secret = $("sso-secret").value;
+      if ($("sso-session-key").value) body.session_key = $("sso-session-key").value;
       const response = await fetch("/api/sso", {
         method: "PUT",
         headers: {"Content-Type": "application/json"},
@@ -194,6 +270,22 @@
 
     $("sso-save").onclick = save;
 
+    // The explicit empty. `save()` never sends one, so this is the only way a
+    // stored secret is removed from the page.
+    async function clearSecret(field, label) {
+      const response = await fetch("/api/sso", {
+        method: "PUT",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({[field]: ""}),
+      });
+      message(response.ok ? label + " cleared." : "Could not clear it.",
+              response.ok ? "ok" : "");
+      await load();
+    }
+
+    $("sso-secret-clear").onclick = () => clearSecret("client_secret", "Client secret");
+    $("sso-session-clear").onclick = () => clearSecret("session_key", "Session key");
+
     $("sso-test").onclick = async () => {
       await save();
       const result = await (await fetch("/api/sso/test", {method: "POST"})).json();
@@ -206,7 +298,8 @@
           + "token:         " + result.token_endpoint + "\n"
           + "end session:   " + (result.end_session_endpoint || "(none published)") + "\n"
           + "client secret: " + (result.client_secret_set
-              ? result.client_secret_masked + " (" + result.client_secret_length + " chars)"
+              ? result.client_secret_masked + " (" + result.client_secret_length
+                + " chars, from the " + result.client_secret_source + ")"
               : "NOT SET")
         : result.detail;
     };

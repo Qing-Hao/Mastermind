@@ -901,6 +901,13 @@ td.presence-held:has(.presence-take:not([hidden])) input { padding-right: 78px; 
   overflow-x: auto;
 }
 .config-result[hidden] { display: none; }
+/* The secret is in `roadmap.db` now, so the file is shareable only after it is
+   cleared. Said once, in the one place the value is typed. */
+.config-warn {
+  border-left: 3px solid #d9a441;
+  padding-left: 10px;
+  color: var(--ink);
+}
 /* The one success spelling of the error box, so a save and a refusal land in the
    same place on the page rather than two. */
 .signin-error.config-ok { border-color: #bcd8bd; background: #f2f9f2; color: #2e7d32; }

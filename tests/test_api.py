@@ -4286,8 +4286,77 @@ def test_masking_hides_a_short_secret_whole_and_a_long_one_but_its_tail():
 
 def test_the_config_route_never_hands_back_a_secret(client, realm):
     body = client.get("/api/sso").json()
-    assert body["env"]["client_secret"] == {"name": auth.ENV_CLIENT_SECRET, "set": True}
+    assert body["env"]["client_secret"] == {
+        "name": auth.ENV_CLIENT_SECRET, "set": True,
+        "source": auth.ENVIRONMENT, "masked": "••••", "length": 4,
+    }
     assert "shhh" not in json.dumps(body)
+
+
+def test_a_stored_secret_beats_the_environment_and_says_which_it_used(client, realm):
+    # The fixture set the environment; the page has not been used yet.
+    assert client.post("/api/sso/test").json()["client_secret_source"] == auth.ENVIRONMENT
+
+    client.put("/api/sso", json={"client_secret": "0123456789abcdef0123456789abQ4f2"})
+    result = client.post("/api/sso/test").json()
+    assert result["client_secret_source"] == auth.DATABASE
+    assert result["client_secret_masked"].endswith("Q4f2")
+    assert result["client_secret_length"] == 32
+    assert "0123456789abcdef0123456789ab" not in json.dumps(result)
+
+    # Cleared, the environment is the fallback again rather than nothing.
+    client.put("/api/sso", json={"client_secret": ""})
+    assert client.post("/api/sso/test").json()["client_secret_source"] == auth.ENVIRONMENT
+
+
+def test_a_save_that_omits_a_secret_leaves_the_stored_one_alone(client, realm):
+    """The page shows a mask, so an ordinary save must not write anything back."""
+    client.put("/api/sso", json={"client_secret": "0123456789abcdef0123456789abQ4f2"})
+    client.put("/api/sso", json={"issuer": STUB_ISSUER, "client_id": "mastermind",
+                                 "allowlist": "qinghao", "mode": "allowlist"})
+    result = client.post("/api/sso/test").json()
+    assert result["client_secret_source"] == auth.DATABASE
+    assert result["client_secret_length"] == 32
+
+
+def test_the_stored_session_key_signs_the_cookie_and_changing_it_signs_everybody_out(
+        client, realm):
+    client.put("/api/sso", json={"session_key": "a-stored-signing-key"})
+    sign_in(client, realm, arm=True)
+    assert client.get("/api/projects").status_code == 200
+
+    client.put("/api/sso", json={"session_key": "a-different-signing-key"})
+    assert client.get("/api/projects", follow_redirects=False).status_code == 401
+
+
+def test_the_stored_redirect_uri_overrides_the_one_derived_from_the_request(client, realm):
+    client.put("/api/sso", json={"redirect_uri": "https://mastermind.example.com/auth/callback"})
+    assert client.get("/api/sso").json()["redirect_uri"] == (
+        "https://mastermind.example.com/auth/callback")
+
+    query = start_sign_in(client, realm)
+    assert query["redirect_uri"] == "https://mastermind.example.com/auth/callback"
+
+    client.put("/api/sso", json={"redirect_uri": ""})
+    assert client.get("/api/sso").json()["redirect_uri"].endswith("/auth/callback")
+
+
+def test_the_stored_flag_accepts_a_plain_http_realm_without_the_variable(client, realm,
+                                                                        monkeypatch):
+    monkeypatch.delenv(auth.ENV_ALLOW_HTTP, raising=False)
+    assert client.post("/api/sso/test").json()["ok"] is False
+
+    client.put("/api/sso", json={"allow_http": True})
+    assert client.post("/api/sso/test").json()["ok"] is True
+
+
+def test_the_export_carries_no_sign_in_column_at_all(client, realm):
+    client.put("/api/sso", json={"client_secret": "0123456789abcdef0123456789abQ4f2",
+                                 "session_key": "a-stored-signing-key"})
+    payload = client.get("/api/export").json()
+    assert not any(key.startswith("sso_") for key in payload["settings"])
+    assert "0123456789abcdef0123456789abQ4f2" not in json.dumps(payload)
+    assert "a-stored-signing-key" not in json.dumps(payload)
 
 
 def test_the_page_cannot_arm_the_gate_by_writing_a_field(client, realm):

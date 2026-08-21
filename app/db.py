@@ -19,9 +19,16 @@ CREATE TABLE IF NOT EXISTS settings (
     v1_tolerance_pct                  REAL    NOT NULL DEFAULT 5.0,
     -- The hub of the map view. Free text: whatever the team is called.
     department_name                   TEXT    NOT NULL DEFAULT '',
-    -- Sign-in configuration. Everything here is non-secret and editable from the
-    -- Sign-in page; the client secret and the cookie key are environment
-    -- variables and never columns, because `export_all` writes this row out.
+    -- Sign-in configuration, secrets included, all of it editable from the
+    -- Sign-in page. `export_all` writes this row out, so every `sso_` column is
+    -- stripped from the export by `settings_without_sso` -- that strip is what
+    -- keeps a secret out of the JSON, and it is a prefix test, so a sign-in
+    -- column added without the prefix would walk straight into the file.
+    --
+    -- The file itself is therefore secret-bearing: `data/roadmap.db`, every copy
+    -- under `data/backups/`, and any `.bak` beside them. Clear the two secret
+    -- columns before handing the file to anybody.
+    --
     -- `sso_enabled` is not a preference: only a completed round trip that
     -- satisfied `auth.is_allowed` sets it. See `main.finish_sign_in`.
     sso_issuer                        TEXT    NOT NULL DEFAULT '',
@@ -31,7 +38,14 @@ CREATE TABLE IF NOT EXISTS settings (
     sso_mode                          TEXT    NOT NULL DEFAULT 'allowlist'
                                       CHECK (sso_mode IN ('allowlist', 'any')),
     sso_enabled                       INTEGER NOT NULL DEFAULT 0
-                                      CHECK (sso_enabled IN (0, 1))
+                                      CHECK (sso_enabled IN (0, 1)),
+    -- Empty means "fall back to the environment variable", which is how a
+    -- deployment configured before these columns existed keeps working.
+    sso_client_secret                 TEXT    NOT NULL DEFAULT '',
+    sso_session_key                   TEXT    NOT NULL DEFAULT '',
+    sso_redirect_uri                  TEXT    NOT NULL DEFAULT '',
+    sso_allow_http                    INTEGER NOT NULL DEFAULT 0
+                                      CHECK (sso_allow_http IN (0, 1))
 );
 """
 
@@ -218,6 +232,15 @@ ADDED_COLUMNS = [
                              "CHECK (sso_mode IN ('allowlist', 'any'))"),
     ("settings", "sso_enabled", "INTEGER NOT NULL DEFAULT 0 "
                                 "CHECK (sso_enabled IN (0, 1))"),
+    # The secrets and the two deployment overrides, moved out of the environment
+    # so the whole gate is configured on its own page. Empty means "read the
+    # environment variable instead", so a file that arrives from the previous
+    # arrangement gains four empty columns and behaves exactly as it did.
+    ("settings", "sso_client_secret", "TEXT NOT NULL DEFAULT ''"),
+    ("settings", "sso_session_key", "TEXT NOT NULL DEFAULT ''"),
+    ("settings", "sso_redirect_uri", "TEXT NOT NULL DEFAULT ''"),
+    ("settings", "sso_allow_http", "INTEGER NOT NULL DEFAULT 0 "
+                                   "CHECK (sso_allow_http IN (0, 1))"),
 ]
 
 # Columns retired after the first release. Deliverables stopped carrying their
@@ -498,7 +521,12 @@ def get_settings():
 
 
 def settings_without_sso(settings):
-    """The settings row minus sign-in configuration. See `export_all`."""
+    """The settings row minus sign-in configuration. See `export_all`.
+
+    A prefix test, and the reason every sign-in column is named `sso_`: two of
+    them hold secrets, and this is the single line standing between them and the
+    JSON that gets emailed.
+    """
     return {key: value for key, value in settings.items() if not key.startswith("sso_")}
 
 
@@ -517,6 +545,14 @@ def update_settings(fields):
         "sso_allowlist",
         "sso_mode",
         "sso_enabled",
+        # Secrets and deployment overrides. Absent from the caller's dict means
+        # "leave the stored value alone" -- the page shows a mask, and a save
+        # that echoed the mask back would store the dots. Present and empty is
+        # the deliberate clear. `main.write_sso_config` decides which it is.
+        "sso_client_secret",
+        "sso_session_key",
+        "sso_redirect_uri",
+        "sso_allow_http",
     }
     updates = {key: value for key, value in fields.items() if key in allowed}
     if updates:
