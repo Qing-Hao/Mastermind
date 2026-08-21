@@ -1157,6 +1157,39 @@ def write_settings(body: SettingsIn):
 # --- projects ---------------------------------------------------------------
 
 
+def milestone_tally(milestones, project_id):
+    """How many of a project's checkpoints are reached, and how many there are.
+
+    The pair the delivered/closed split reads. `done` is reached two ways -- every
+    checkpoint achieved, or the manual close -- and only the first is work
+    *delivered*; the second is as often cancelled or descoped as finished. The
+    ladder derives `done` from checkpoints, so checkpoints are what the split has
+    to count.
+
+    Sits here rather than in `validation` because it is a tally of rows for a
+    payload and no rule reads it: `milestones_all_achieved` is the ladder's own
+    answer to the same question and stays the one the stage is derived from.
+    """
+    own = milestones.get(project_id, [])
+    return sum(1 for m in own if m["achieved"]), len(own)
+
+
+def with_milestone_tally(projects, milestones):
+    """Attach `milestones_reached` and `milestones_total`. Never stored.
+
+    On the project list as well as the graph since 2026-08-21: the sidebar dot
+    and the top bar badge drew a delivered project the same grey as a cancelled
+    one, because only `/api/graph` carried the tally to tell them apart. The
+    list already reads the milestones for the ladder, so this is two fields off
+    a dict it is holding anyway.
+    """
+    for project in projects:
+        reached, total = milestone_tally(milestones, project["id"])
+        project["milestones_reached"] = reached
+        project["milestones_total"] = total
+    return projects
+
+
 def with_derived_stage(projects, phases, deliverables, milestones, today):
     """Tag each project with `derived_stage`, leaving the stored one alone.
 
@@ -1196,6 +1229,9 @@ def read_projects():
     today = date.today()
     projects = with_derived_stage(
         db.list_projects(), phases, deliverables, milestones, today)
+    # What tells a project that reached every checkpoint from one that was closed
+    # by hand. Both read `done`, and only the first is work delivered.
+    with_milestone_tally(projects, milestones)
     # Stable, so the db ordering survives inside each of the three groups.
     rank = {STAGE_DONE: 2, STAGE_IDEA: 1}
     projects.sort(key=lambda project: rank.get(project["derived_stage"], 0))
@@ -1329,6 +1365,9 @@ def read_portfolio():
     # stage has to be derived from them as well -- a lane claiming `planning`
     # while the picker says `done` would be two answers to one question.
     with_derived_stage(projects, owned, deliverables, milestones, date.today())
+    # So a swimlane's dot can tell a delivered project from a cancelled one, the
+    # same as the picker and the top bar.
+    with_milestone_tally(projects, milestones)
 
     return {
         "projects": projects,
@@ -1379,6 +1418,7 @@ def read_late():
     # does not use.
     with_derived_stage(projects, phases, db.deliverables_by_project(),
                        milestones, today)
+    with_milestone_tally(projects, milestones)
     groups = overdue_items(projects, phases, milestones, today)
     return {
         "groups": groups,
@@ -2325,6 +2365,7 @@ def read_graph():
         phases = grouped.get(project["id"], [])
         progress = project_progress(phases)
         delivered = deliverable_progress(deliverables.get(project["id"], []))
+        reached, checkpoints = milestone_tally(milestones, project["id"])
         nodes.append({
             "id": project["id"],
             "name": project["name"],
@@ -2350,13 +2391,12 @@ def read_graph():
             # The same field rides on `/api/portfolio`, so the two charts cannot
             # disagree about how far along a project is. Display only, rule 4.
             "completion": completion_fraction(phases, by_phase),
-            # The map's green splits `done` into delivered and merely closed, and
-            # since the ladder derives `done` from checkpoints, that is what the
-            # split has to read. The phase tally beside it stays on the label:
-            # it still says how much of the work is finished.
-            "milestones_reached": sum(
-                1 for m in milestones.get(project["id"], []) if m["achieved"]),
-            "milestones_total": len(milestones.get(project["id"], [])),
+            # The green splits `done` into delivered and merely closed. The phase
+            # tally beside it stays on the label: it still says how much of the
+            # work is finished. Same pair as `/api/projects`, from the same
+            # helper, so the map and the sidebar cannot disagree.
+            "milestones_reached": reached,
+            "milestones_total": checkpoints,
             "effort_points": project_effort_points(phases),
             "next_date": next_phase_boundary(phases, today),
         })

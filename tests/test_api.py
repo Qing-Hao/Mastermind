@@ -3476,6 +3476,43 @@ def test_late_falls_silent_when_the_work_closes(client):
     assert client.get("/api/late").json()["count"] == 0
 
 
+def test_the_milestone_tally_rides_on_the_project_list_and_the_portfolio(client):
+    """What tells a delivered project from one closed by hand, off the map.
+
+    Both read `done`; only "every checkpoint achieved" is work delivered. The
+    tally was on `/api/graph` alone, so the sidebar dot and the top bar badge
+    drew a cancelled project and a finished one exactly the same grey.
+    """
+    project = make_project(client, "Payments", start="2026-01-05")
+    make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+    beta = checkpoint(client, project, target_date="2026-03-02")
+    checkpoint(client, project, name="Launch", target_date="2026-04-01")
+
+    listed = client.get("/api/projects").json()[0]
+    assert (listed["milestones_reached"], listed["milestones_total"]) == (0, 2)
+
+    client.put(f"/api/milestones/{beta['id']}", json={"achieved": True})
+    listed = client.get("/api/projects").json()[0]
+    assert (listed["milestones_reached"], listed["milestones_total"]) == (1, 2)
+
+    lane = client.get("/api/portfolio").json()["projects"][0]
+    assert (lane["milestones_reached"], lane["milestones_total"]) == (1, 2)
+
+
+def test_the_map_and_the_project_list_agree_about_the_tally(client):
+    """One helper feeds both, so the two surfaces cannot disagree."""
+    project = make_project(client, "Payments", start="2026-01-05")
+    make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+    done = checkpoint(client, project, target_date="2026-03-02")
+    client.put(f"/api/milestones/{done['id']}", json={"achieved": True})
+
+    listed = client.get("/api/projects").json()[0]
+    node = [n for n in client.get("/api/graph").json()["projects"]
+            if n["id"] == project["id"]][0]
+    assert (node["milestones_reached"], node["milestones_total"]) == (
+        listed["milestones_reached"], listed["milestones_total"])
+
+
 def test_rules_names_every_number_a_chip_can_carry(client):
     """V3 refuses a write and never reaches a chip; V5 is deleted."""
     rules = client.get("/api/rules").json()

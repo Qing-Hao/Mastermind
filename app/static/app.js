@@ -1006,6 +1006,35 @@ function restoreSession() {
 // No stored order of its own: `db.list_projects` sorts done last and ideas just
 // above, and `GET /api/projects` re-sorts on the derived stage, so the middle of
 // this list is the work in flight.
+// **`done` is two different things wearing one name.** Every checkpoint reached
+// is work delivered; a manual close with checkpoints outstanding is work that
+// stopped, which is as often cancelled or descoped as finished -- CLAUDE.md is
+// explicit that the stored close is "not delivered but closed without
+// finishing". Only the first earns the green: painting a cancelled project as a
+// success is worse than leaving it grey.
+//
+// This reads the milestone tally, not the phase one, because the ladder derives
+// `done` from checkpoints. The map asked this question inline until 2026-08-21,
+// when the tally started riding on `/api/projects` as well and three more
+// surfaces needed the same answer. **One definition, four callers.**
+//
+// False where the tally is absent, which is what keeps a payload that does not
+// carry it drawing exactly as it did before.
+function isDelivered(project) {
+  return project.derived_stage === "done"
+    && project.milestones_total > 0
+    && project.milestones_reached === project.milestones_total;
+}
+
+// The rung as a dot: the picker's, the top bar badge's, the swimlane's and the
+// alert panel's, which is why it is built in one place. The colours are
+// `.project-dot.stage-*` in `style.css`, defined once and worn by all four.
+function projectDot(project) {
+  const dot = element("span", `project-dot stage-${project.derived_stage}`);
+  if (isDelivered(project)) dot.classList.add("delivered");
+  return dot;
+}
+
 function renderProjectList() {
   const list = $("project-list");
   list.innerHTML = "";
@@ -1031,7 +1060,7 @@ function renderProjectList() {
     // list's version of the dashed rim the map draws round it.
     if (project.derived_stage === "idea") row.classList.add("is-idea");
 
-    row.appendChild(element("span", `project-dot stage-${project.derived_stage}`));
+    row.appendChild(projectDot(project));
     row.appendChild(element("span", "project-name", project.name));
 
     const tier = project.tier || 0;
@@ -1124,7 +1153,10 @@ function renderTopbar() {
 
   badge.hidden = false;
   badge.innerHTML = "";
-  badge.appendChild(element("span", `project-dot stage-${project.derived_stage}`));
+  badge.appendChild(projectDot(project));
+  // The word stays `done` either way. The dot is what says which kind, the same
+  // as it does in the picker beside it -- a second vocabulary in the label would
+  // be a rung the ladder does not have.
   badge.appendChild(element("span", null, project.derived_stage));
   badge.title = "Worked out from the plan and today's date. Only idea, committed"
     + " and closed are yours to set.";
@@ -1220,10 +1252,7 @@ function renderLatePanel() {
     const block = element("div", "late-group");
 
     const title = element("div", "late-project");
-    if (group.derived_stage) {
-      title.appendChild(
-        element("span", `project-dot stage-${group.derived_stage}`));
-    }
+    if (group.derived_stage) title.appendChild(projectDot(group));
     title.appendChild(element("span", null, group.name));
     block.appendChild(title);
 
@@ -2694,7 +2723,7 @@ function laneName(title, twisty, hue, meta) {
 // picker's dot -- one colour table, and this surface adds only its size.
 function laneMeta(project) {
   const meta = element("div", "lane-meta");
-  meta.appendChild(element("span", `project-dot stage-${project.derived_stage}`));
+  meta.appendChild(projectDot(project));
   const track = trackPath(project.track);
   meta.appendChild(element("span", "lane-rung",
     track.length ? `${project.derived_stage} · ${track[0]}` : project.derived_stage));
@@ -6133,22 +6162,10 @@ function projectNode(project, point, radius, place, branch) {
   // Styled off the derived stage, not the stored one. The map used to show a
   // project as committed-not-started until somebody remembered to change the
   // field by hand; now the picture ages by itself as dates pass.
-  // `done` is two different things wearing one name. Every checkpoint reached is
-  // work delivered; a manual close with checkpoints outstanding is work that
-  // stopped, which is as often cancelled or descoped as finished -- CLAUDE.md is
-  // explicit that the stored close is "not delivered but closed without
-  // finishing". Only the first earns the green: painting a cancelled project as
-  // a success is worse than leaving it grey.
-  //
-  // This reads the milestone tally, not the phase one. It read phases until the
-  // ladder moved onto checkpoints, and leaving it there would have been wrong in
-  // both directions: a project that reached every checkpoint with phases still
-  // open would have been painted grey, and a cancelled one whose phases happened
-  // to be ticked would have been painted green -- exactly the case the split
-  // exists to prevent.
-  const delivered = project.derived_stage === "done"
-    && project.milestones_total > 0
-    && project.milestones_reached === project.milestones_total;
+  // The split between work delivered and work merely stopped. It used to be
+  // asked here and only here; `isDelivered` is now the one definition, because
+  // the picker, the top bar and the alert panel ask it too.
+  const delivered = isDelivered(project);
 
   const group = svgElement("g", {
     class: `map-node stage-${project.derived_stage} tier-${tier}`

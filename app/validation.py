@@ -875,8 +875,13 @@ def overdue_items(projects, phases_by_project, milestones_by_project, today):
             "name": project["name"],
             # Whatever the caller derived, if it derived one. The panel draws the
             # project's dot beside its name and this is the same rung the sidebar
-            # shows; absent, the dot is simply not drawn.
+            # shows; absent, the dot is simply not drawn. The tally travels with
+            # it for the same reason: a project can have reached every checkpoint
+            # and still have a phase past its end, and the dot has to say which
+            # kind of `done` that is.
             "derived_stage": project.get("derived_stage", ""),
+            "milestones_reached": project.get("milestones_reached", 0),
+            "milestones_total": project.get("milestones_total", 0),
             "items": items,
         })
 
