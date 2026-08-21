@@ -738,19 +738,23 @@ def next_phase_boundary(phases, today):
 
 
 def validate_plan(project, phases, settings=None, deliverables_by_phase=None,
-                  today=None):
-    """Run V1, V4, V6 and V7 across one project and return every warning found.
+                  today=None, milestones=None):
+    """Run V1, V4, V6, V7 and V8 across one project and return every warning.
 
     V2 is not here: it compares two projects, so it needs the whole portfolio
     and lives in `validate_portfolio`. V3 is excluded too -- a cycle blocks the
     edit that would create it, so it is checked by `find_dependency_cycle` at
     write time rather than being reported as an ignorable warning.
 
-    `today` and `deliverables_by_phase` are the inputs the two newer rules need,
-    and both default to None, which **skips that rule** rather than inventing the
-    input. This module stays pure: reading the clock here would make every test
-    of it depend on the day it runs, so the caller supplies the date the same way
-    `next_phase_boundary` has always required it.
+    `today`, `deliverables_by_phase` and `milestones` are the inputs the three
+    newer rules need, and each defaults to None, which **skips that rule** rather
+    than inventing the input. This module stays pure: reading the clock here
+    would make every test of it depend on the day it runs, so the caller supplies
+    the date the same way `next_phase_boundary` has always required it.
+
+    V8 runs outside the phase loop because a checkpoint hangs off the project and
+    not off a phase -- which is also why its warning names `milestone_id` and
+    leaves `phase_id` empty.
     """
     settings = {**DEFAULT_SETTINGS, **(settings or {})}
     velocity = effective_velocity(project, settings)
@@ -776,6 +780,12 @@ def validate_plan(project, phases, settings=None, deliverables_by_phase=None,
             )
             if empty:
                 warnings.append(empty)
+
+    if milestones is not None and today is not None:
+        for milestone in milestones:
+            late = check_milestone_overdue(milestone, today)
+            if late:
+                warnings.append(late)
 
     return warnings
 

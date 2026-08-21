@@ -1222,7 +1222,10 @@ def read_project_plan(project_id: int):
 
     `dependencies` are the project-to-project links this project sits at either
     end of, so the view can show both what blocks it and what it blocks. The
-    warning list merges its own V1/V4 findings with the V2 findings that name it.
+    warning list merges its own V1/V4/V6/V7/V8 findings with the V2 findings that
+    name it. V8 rides here as well as on `/api/late` deliberately: a bell saying
+    a checkpoint is late, over a project view that says nothing about it, would
+    be two answers to one question.
 
     Each phase also carries `offset_weeks`, its place in the plan measured in
     weeks from the start rather than on a calendar. That is what lets the
@@ -1244,7 +1247,8 @@ def read_project_plan(project_id: int):
     milestones = db.list_milestones(project_id)
     settings = db.get_settings()
     today = date.today()
-    warnings = validate_plan(project, phases, settings, grouped, today)
+    warnings = validate_plan(project, phases, settings, grouped, today,
+                             milestones)
     warnings += warnings_touching(project_id, portfolio_warnings())
     offsets = relative_layout(phases)
     # Read once and used twice, the shape the portfolio route already has. The

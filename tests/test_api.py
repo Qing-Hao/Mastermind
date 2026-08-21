@@ -3382,6 +3382,49 @@ def test_ticking_a_milestone_stores_a_flag_and_deleting_a_project_takes_it(tmp_p
         db.set_db_path(db.DEFAULT_DB_PATH)
 
 
+def checkpoint(client, project, name="Ethics sign-off", target_date="",
+               achieved=False):
+    response = client.post(f"/api/projects/{project['id']}/milestones", json={
+        "name": name, "target_date": target_date, "achieved": achieved,
+    })
+    assert response.status_code == 201
+    return response.json()
+
+
+def test_v8_reaches_the_project_view(client):
+    """The bell is not the only place a late checkpoint is said out loud."""
+    project = make_project(client, "Payments", start="2026-01-05")
+    beta = checkpoint(client, project, target_date="2020-01-01")
+
+    v8 = [w for w in plan_of(client, project["id"])["warnings"]
+          if w["rule"] == "V8"]
+    assert len(v8) == 1
+    assert v8[0]["milestone_id"] == beta["id"]
+    assert v8[0]["project_id"] == project["id"]
+    # A checkpoint hangs off the project, so there is no phase to name.
+    assert v8[0]["phase_id"] is None
+    assert "2020-01-01" in v8[0]["message"]
+
+
+def test_v8_is_silent_once_the_checkpoint_is_ticked(client):
+    project = make_project(client, "Payments", start="2026-01-05")
+    beta = checkpoint(client, project, target_date="2020-01-01")
+    assert client.put(f"/api/milestones/{beta['id']}",
+                      json={"achieved": True}).status_code == 200
+
+    assert not [w for w in plan_of(client, project["id"])["warnings"]
+                if w["rule"] == "V8"]
+
+
+def test_v8_says_nothing_about_an_undated_checkpoint(client):
+    """No date is not a late date. The project view is where that gets chased."""
+    project = make_project(client, "Payments", start="2026-01-05")
+    checkpoint(client, project)
+
+    assert not [w for w in plan_of(client, project["id"])["warnings"]
+                if w["rule"] == "V8"]
+
+
 # --- deliverable links --------------------------------------------------------
 
 # `[#D-42]` in a sprint file means deliverable 42, in a table row or on a list
