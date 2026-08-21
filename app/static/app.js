@@ -2736,6 +2736,11 @@ function laneMeta(project) {
 function laneTwisty(project, open) {
   const twisty = element("button", "lane-twisty", open ? "▾" : "▸");
   twisty.type = "button";
+  // Which lane this one belongs to, so the redraw it triggers can hand focus
+  // back to its replacement. Without it the press destroys the element the
+  // keyboard was on and focus falls to `<body>` -- from where the next Tab
+  // starts at the top of the document and takes the view with it.
+  twisty.dataset.project = String(project.id);
   twisty.setAttribute("aria-expanded", String(open));
   twisty.title = open
     ? `Fold ${project.name} back to one bar`
@@ -2944,7 +2949,42 @@ function renderCheckpointHorizon() {
   strip.appendChild(days);
 }
 
+// What a redraw of this chart destroys and cannot put back by itself.
+//
+// `renderPortfolio` empties `#portfolio-chart` and builds it again, so the scroll
+// box around it loses the place you had paged to -- fold one lane and the chart
+// snaps back to the first week of the window. Focus goes the same way: the
+// twisty you pressed no longer exists, focus falls to `<body>`, and the next Tab
+// starts at the top of the document rather than beside the lane you were reading.
+//
+// Both are saved and put back **synchronously, inside the same call**. A restore
+// on a timer is a visible jump and back.
+function portfolioPlace() {
+  const box = $("portfolio-scroll");
+  const held = document.activeElement;
+  return {
+    left: box ? box.scrollLeft : 0,
+    // Only a lane twisty is worth chasing: it is the one control on this chart
+    // that both takes focus and is rebuilt under it.
+    twisty: held && held.classList && held.classList.contains("lane-twisty")
+      ? held.dataset.project
+      : null,
+  };
+}
+
+function restorePortfolioPlace(place) {
+  const box = $("portfolio-scroll");
+  // Clamped by the browser if the new chart is narrower than the old one, which
+  // is the honest answer -- there is no place left to go back to.
+  if (box) box.scrollLeft = place.left;
+  if (!place.twisty) return;
+  const twisty = document.querySelector(
+    `.lane-twisty[data-project="${place.twisty}"]`);
+  if (twisty) twisty.focus();
+}
+
 function renderPortfolio() {
+  const place = portfolioPlace();
   renderPortfolioHeadline();
   renderCheckpointHorizon();
   renderWindowBar($("portfolio-window"));
@@ -3070,6 +3110,9 @@ function renderPortfolio() {
   // Redrawn from the slice already in hand: the chart moving underneath it
   // does not change which fortnight you opened.
   renderFortnightDrawer();
+
+  // Last, once everything that decides the chart's width is attached.
+  restorePortfolioPlace(place);
 }
 
 // What the rails stand for. Only the tracks with a lane on this chart are
