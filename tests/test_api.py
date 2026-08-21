@@ -2730,9 +2730,12 @@ def test_a_backup_that_cannot_be_written_does_not_stop_the_app(client, tmp_path,
 
 # --- presence -----------------------------------------------------------------
 
-# Who is where, drawn as a badge on the cell they are in. Advisory: it informs,
-# it never refuses. The only refusal on a row is the stale-expectation 409, which
-# is about the data having moved rather than whose turn it is.
+# Who is where, drawn as a badge on the cell they are in. A field belongs to the
+# caret that reached it first and the other pages draw it read-only -- but that is
+# a hold and not a lock, and the difference is what the second half of this
+# section is about. No write consults it: the only refusal on a row is still the
+# stale-expectation 409, which is about the data having moved rather than whose
+# turn it is.
 
 
 def next_presence(socket, timeout=2.0):
@@ -2751,9 +2754,13 @@ def test_a_page_is_told_who_it_is_and_who_else_is_here(client):
         # With the gate off there is no name to be had, and a typed one would be
         # the self-asserted label B1 rejected. So: honestly anonymous.
         assert welcome["name"].startswith("guest-")
-        assert next_presence(one) == [
+        roll = next_presence(one)
+        # `idle_ms` is a stopwatch and cannot be asserted exactly; it has its own
+        # test below.
+        assert [{key: user[key] for key in
+                 ("id", "name", "view", "key", "field", "holding")} for user in roll] == [
             {"id": welcome["id"], "name": welcome["name"],
-             "view": "", "key": None, "field": ""}]
+             "view": "", "key": None, "field": "", "holding": ""}]
 
         with client.websocket_connect("/ws") as two:
             two.receive_json()
@@ -2796,6 +2803,155 @@ def test_the_name_comes_from_keycloak_once_the_gate_is_armed(client, realm):
     sign_in(client, realm, arm=True)
     with client.websocket_connect("/ws") as socket:
         assert socket.receive_json()["name"] == "qinghao"
+
+
+# --- holds: the caret that got there first ------------------------------------
+
+# **A hold is a caret, not a lease**, and that is what these tests are pinning
+# down: it dies with the socket, it never takes a field off somebody who is
+# typing, and it moves off anybody who has stopped for `HOLD_IDLE_SECONDS`. The
+# write path knows none of it -- `test_presence_never_refuses_a_write` above is
+# still true and is the one that says so.
+
+GOAL_FIELD = "project:1:goal"
+TRACK_FIELD = "project:1:track"
+
+
+def here(field, view="project", key=1):
+    return {"type": "here", "view": view, "key": key, "field": field}
+
+
+def own_id(socket):
+    """This page's own connection id, off the first message on the socket."""
+    message = socket.receive_json()
+    assert message["type"] == "welcome"
+    return message["id"]
+
+
+def wait_until(predicate, timeout=2.0):
+    """Wait for the loop to catch up with a message just sent.
+
+    Asserted against the registry rather than the socket on purpose: a *refused*
+    take announces nothing, and a test that waited on a message for it would
+    block until the suite gave up rather than fail.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return False
+
+
+def roll_until(socket, connection_id, wanted, timeout=2.0):
+    """Read rolls until this connection's entry satisfies `wanted`."""
+    deadline = time.time() + timeout
+    last = None
+    while time.time() < deadline:
+        message = socket.receive_json()
+        if message.get("type") != "presence":
+            continue
+        for user in message["users"]:
+            if user["id"] == connection_id:
+                last = user
+                if wanted(user):
+                    return user
+    raise AssertionError(f"no roll matched; the last one said {last}")
+
+
+def test_a_caret_holds_the_field_it_lands_in(client):
+    """And the roll says so, which is what the other pages draw."""
+    with client.websocket_connect("/ws") as socket:
+        mine = own_id(socket)
+        assert wait_for_clients(1)
+        socket.send_json(here(GOAL_FIELD))
+        entry = roll_until(socket, mine, lambda user: user["holding"] == GOAL_FIELD)
+        assert entry["field"] == GOAL_FIELD
+        assert entry["idle_ms"] < 2000
+
+
+def test_a_second_caret_does_not_take_a_held_field(client):
+    """Both carets are in the box; only the first one owns it."""
+    with client.websocket_connect("/ws") as one, client.websocket_connect("/ws") as two:
+        first, second = own_id(one), own_id(two)
+        assert wait_for_clients(2)
+        one.send_json(here(GOAL_FIELD))
+        assert wait_until(lambda: main.live_clients[first].holding == GOAL_FIELD)
+
+        two.send_json(here(GOAL_FIELD))
+        assert wait_until(lambda: main.live_clients[second].place["field"] == GOAL_FIELD)
+        assert main.live_clients[second].holding == ""
+        assert main.live_clients[first].holding == GOAL_FIELD
+
+
+def test_a_hold_is_given_up_when_the_caret_moves_on(client):
+    with client.websocket_connect("/ws") as socket:
+        mine = own_id(socket)
+        assert wait_for_clients(1)
+        socket.send_json(here(GOAL_FIELD))
+        assert wait_until(lambda: main.live_clients[mine].holding == GOAL_FIELD)
+
+        socket.send_json(here(TRACK_FIELD))
+        assert wait_until(lambda: main.live_clients[mine].holding == TRACK_FIELD)
+        assert main.field_holder(GOAL_FIELD) is None
+
+
+def test_a_hold_dies_with_the_socket(client):
+    """The reason this is not a lease: there is nothing left to expire."""
+    with client.websocket_connect("/ws") as socket:
+        mine = own_id(socket)
+        assert wait_for_clients(1)
+        socket.send_json(here(GOAL_FIELD))
+        assert wait_until(lambda: main.live_clients[mine].holding == GOAL_FIELD)
+
+    assert wait_for_clients(0)
+    assert main.field_holder(GOAL_FIELD) is None
+
+
+def test_a_fresh_hold_cannot_be_taken(client):
+    """Somebody typing keeps their field, whatever the other page asks for."""
+    with client.websocket_connect("/ws") as one, client.websocket_connect("/ws") as two:
+        first, second = own_id(one), own_id(two)
+        assert wait_for_clients(2)
+        one.send_json(here(GOAL_FIELD))
+        assert wait_until(lambda: main.live_clients[first].holding == GOAL_FIELD)
+
+        two.send_json({"type": "take", "field": GOAL_FIELD})
+        assert not wait_until(
+            lambda: main.live_clients[second].holding == GOAL_FIELD, timeout=0.4)
+        assert main.live_clients[first].holding == GOAL_FIELD
+
+
+def test_an_idle_hold_can_be_taken(client):
+    """The lunch break case: the field moves, and the holder loses it."""
+    with client.websocket_connect("/ws") as one, client.websocket_connect("/ws") as two:
+        first, second = own_id(one), own_id(two)
+        assert wait_for_clients(2)
+        one.send_json(here(GOAL_FIELD))
+        assert wait_until(lambda: main.live_clients[first].holding == GOAL_FIELD)
+
+        # Thirty seconds of nothing, without the test waiting thirty seconds.
+        main.live_clients[first].active_at -= main.HOLD_IDLE_SECONDS + 1
+        two.send_json({"type": "take", "field": GOAL_FIELD})
+        assert wait_until(lambda: main.live_clients[second].holding == GOAL_FIELD)
+        assert main.live_clients[first].holding == ""
+
+
+def test_typing_puts_a_hold_back_out_of_reach(client):
+    """`active` is a keystroke, and it is what the countdown is counting."""
+    with client.websocket_connect("/ws") as one, client.websocket_connect("/ws") as two:
+        first, second = own_id(one), own_id(two)
+        assert wait_for_clients(2)
+        one.send_json(here(GOAL_FIELD))
+        assert wait_until(lambda: main.live_clients[first].holding == GOAL_FIELD)
+
+        main.live_clients[first].active_at -= main.HOLD_IDLE_SECONDS + 1
+        one.send_json({"type": "active"})
+        assert wait_until(lambda: main.live_clients[first].idle_ms() < 1000)
+
+        two.send_json({"type": "take", "field": GOAL_FIELD})
+        assert not wait_until(
+            lambda: main.live_clients[second].holding == GOAL_FIELD, timeout=0.4)
 
 
 def test_a_page_that_talks_nonsense_is_ignored_rather_than_dropped(client):

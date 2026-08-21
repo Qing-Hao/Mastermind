@@ -544,10 +544,15 @@ button:disabled:hover { background: var(--surface); }
    anything about the plan, which is why this sits above the chart rules rather
    than below them. Six of them, so two people in one table are told apart.
 
-   The held cell is tinted rather than disabled, and that is the design: presence
-   informs and never refuses. You can still type in a cell somebody else is in --
-   the only refusal is the stale-expectation 409, which is about the data having
-   moved rather than whose turn it is. */
+   **A field belongs to the caret that reached it first**, and everyone else draws
+   it read-only with a line saying whose it is. That is a hold, not a lock: it
+   dies with the tab, and once the holder has been quiet for 30 seconds the Take
+   button appears beside the line and moves it. Nothing on the write path knows a
+   hold exists -- the stale-expectation 409 is still the only refusal on a row.
+
+   Two things are deliberately never held: a sprint block, which has a 409 of its
+   own and would be worse read-only mid-paragraph, and a tick, which is never
+   stamped at all. */
 .presence-strip { display: inline-flex; gap: 4px; align-items: center; }
 .presence-strip[hidden] { display: none; }
 
@@ -584,6 +589,71 @@ td.presence-held select { background: var(--accent-soft); }
 /* Room for the badge, so a long name does not run underneath it. */
 td.presence-held input { padding-right: 26px; }
 .sprint-row.presence-held { background: var(--accent-soft); border-radius: var(--radius); }
+
+/* A field somebody else holds. Readable and selectable -- `readOnly`, not
+   `disabled` -- because the text being typed is often the thing you opened the
+   row to read. The dashed edge is what says it will not take a keystroke; the
+   wash alone said "somebody is here", which is a different sentence.
+
+   The selector mirrors the control rule above rather than being a bare class,
+   and that is load-bearing: `input:not([type="checkbox"]):not([type="radio"])`
+   outranks a single class, so a plain `.presence-locked` was drawing dashes on
+   the Goal textarea and nothing at all on every `input` in the phase table. */
+input.presence-locked:not([type="checkbox"]):not([type="radio"]),
+select.presence-locked,
+textarea.presence-locked {
+  border-style: dashed;
+  color: var(--ink-3);
+  cursor: default;
+}
+input.presence-locked:not([type="checkbox"]):not([type="radio"]):focus,
+select.presence-locked:focus,
+textarea.presence-locked:focus {
+  box-shadow: none;
+  border-color: var(--field);
+}
+
+/* Who has it, and the way to take it. In a cell it floats over the input's own
+   right-hand padding so the column does not reflow when somebody arrives; under
+   a project field it is a line of its own, which is where the eye already is. */
+.presence-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 5px;
+  font-size: 12px;
+  color: var(--muted);
+}
+td.presence-held > .presence-note,
+.sprint-row.presence-held > .presence-note {
+  position: absolute;
+  top: 50%;
+  right: 30px;
+  transform: translateY(-50%);
+  margin-top: 0;
+}
+/* The name is already on the badge in a cell, and the cell has no room for it
+   twice. */
+td.presence-held > .presence-note > .presence-note-text { display: none; }
+/* Room for the button, but **only once it is showing**: it appears half a minute
+   after the badge does, and reserving its width through the countdown would jog
+   the text sideways for no reason. Truncating beats a button drawn over the name
+   underneath it. `:has` is the only way to say this without the render tracking
+   a class the timer would have to keep in step. */
+td.presence-held:has(.presence-take:not([hidden])) input { padding-right: 78px; }
+
+.presence-take {
+  font-size: 11.5px;
+  padding: 2px 8px;
+  border-color: var(--field);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.presence-take:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); }
+/* Toggled with the `hidden` attribute while the holder is still typing, and
+   `.presence-note` sets `display` on its children -- without this guard the
+   button would sit there through the whole countdown. */
+.presence-take[hidden] { display: none; }
 
 .presence-hue-0 { background: #4f46e5; }
 .presence-hue-1 { background: #0f766e; }

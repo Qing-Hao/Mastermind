@@ -10,6 +10,7 @@ import json
 import os
 import re
 import tempfile
+import time
 from contextlib import asynccontextmanager
 from datetime import date, timedelta
 
@@ -108,21 +109,40 @@ app = FastAPI(title="Mastermind", lifespan=lifespan)
 # repairs it.
 LIVE_QUEUE_LIMIT = 64
 
+# **How long a still caret keeps a field before somebody else may take it.**
+# The hold stops two people typing into one box; this is what stops it becoming a
+# lunch break somebody else waits out. Short enough that a colleague is not stuck,
+# long enough that a hold is never taken out from under someone mid-sentence.
+# Enforced here rather than in the browser: the button appearing is a courtesy,
+# the refusal is the rule.
+HOLD_IDLE_SECONDS = 30
+
 class LiveClient:
     """One open page: its queue, who is at it, and where they are looking.
 
     `place` is the whole of presence -- a view, the project or sprint file inside
     it, and the field the caret is in. It is held here and nowhere else: no row,
     no column, no file. Closing the tab forgets it.
+
+    `holding` is the one field this page has claimed, and `active_at` is when it
+    last typed into it. Both live beside the socket for the same reason `place`
+    does: a hold that outlived the tab holding it would be a lease, and this is
+    not one.
     """
 
     def __init__(self, name):
         self.queue: asyncio.Queue = asyncio.Queue(maxsize=LIVE_QUEUE_LIMIT)
         self.name = name
         self.place = {"view": "", "key": None, "field": ""}
+        self.holding = ""
+        self.active_at = time.monotonic()
+
+    def idle_ms(self):
+        return int((time.monotonic() - self.active_at) * 1000)
 
     def presence(self, connection_id):
-        return {"id": connection_id, "name": self.name, **self.place}
+        return {"id": connection_id, "name": self.name, **self.place,
+                "holding": self.holding, "idle_ms": self.idle_ms()}
 
 
 live_clients: dict[int, LiveClient] = {}
@@ -201,6 +221,60 @@ def announce_presence():
     announce({"type": "presence", "users": presence_roll()})
 
 
+def field_holder(field):
+    """The connection holding `field`, or None.
+
+    Scanned rather than indexed. A dict of field to connection would be faster and
+    would be a second structure to fall out of step with the roll -- a hold left
+    behind by a socket that has gone is exactly the stuck lock this design is
+    trying not to have. The hold lives on the client that owns it, so it cannot
+    outlive it.
+    """
+    if not field:
+        return None
+    for connection_id, client in live_clients.items():
+        if client.holding == field:
+            return connection_id
+    return None
+
+
+def move_hold(client, field):
+    """Give up whatever this page held and take `field` if nobody else has it.
+
+    **Never takes a field from somebody else** -- that is what `take` is for, and
+    it has the idle rule on it. Returns whether anything moved.
+    """
+    if client.holding == field:
+        return False
+    client.holding = ""
+    if field and field_holder(field) is None:
+        client.holding = field
+    return True
+
+
+def take_hold(connection_id, client, field):
+    """Take a held field off an idle holder. Returns whether it moved.
+
+    The one place a hold changes hands, and the whole of the rule: a holder who
+    has typed within `HOLD_IDLE_SECONDS` keeps it. This refuses a *take*, never a
+    write -- whoever asked can still type and can still save, and the 409 on the
+    row is unchanged. See the non-negotiables in CLAUDE.md.
+    """
+    if not field:
+        return False
+    holder = field_holder(field)
+    if holder == connection_id:
+        return False
+    if holder is not None:
+        other = live_clients[holder]
+        if other.idle_ms() < HOLD_IDLE_SECONDS * 1000:
+            return False
+        other.holding = ""
+    client.holding = field
+    client.active_at = time.monotonic()
+    return True
+
+
 def live_name(socket):
     """Who this socket belongs to: the Keycloak claim, or a guest number.
 
@@ -219,11 +293,13 @@ def live_name(socket):
     return f"guest-{guest_count}"
 
 
-async def _listen(socket, client):
-    """Take `here` messages until the page goes away.
+async def _listen(socket, client, connection_id):
+    """Take `here`, `active` and `take` until the page goes away.
 
-    The only thing a page says upward. It carries where the caret is, which is
-    what the other pages draw -- see `applyPresence` in `app.js`.
+    Everything a page says upward. `here` carries where the caret is, which is
+    what the other pages draw -- see `drawPresence` in `app.js`. `active` says
+    the caret is still typing, so a hold does not go stale under it. `take` asks
+    for a field somebody else has stopped typing in.
     """
     while True:
         event = await socket.receive()
@@ -236,7 +312,23 @@ async def _listen(socket, client):
             message = json.loads(text)
         except ValueError:
             continue
-        if message.get("type") != "here":
+        kind = message.get("type")
+
+        if kind == "active":
+            # A keystroke in the held field. Only worth telling anybody about
+            # while this page holds something -- otherwise nobody is counting.
+            client.active_at = time.monotonic()
+            if client.holding:
+                announce_presence()
+            continue
+
+        if kind == "take":
+            if take_hold(connection_id, client,
+                         str(message.get("field", ""))[:80]):
+                announce_presence()
+            continue
+
+        if kind != "here":
             continue
         place = {
             "view": str(message.get("view", ""))[:40],
@@ -247,8 +339,13 @@ async def _listen(socket, client):
             # because it is echoed to every other page.
             "field": str(message.get("field", ""))[:80],
         }
-        if place != client.place:
-            client.place = place
+        moved = place != client.place
+        client.place = place
+        client.active_at = time.monotonic()
+        # The caret arriving is what claims a field, and the caret leaving is
+        # what gives it up. A field somebody else already holds stays theirs --
+        # this page draws it as held and offers `take` once they go quiet.
+        if move_hold(client, place["field"]) or moved:
             announce_presence()
 
 
@@ -256,10 +353,15 @@ async def _listen(socket, client):
 async def live_updates(socket: WebSocket):
     """One socket per open page: writes are announced down it, presence both ways.
 
-    Presence is **advisory and never a lease**. Nothing here reserves anything and
-    no write is refused because of who holds what -- the only refusal on a row is
-    the stale-expectation 409, which is about the data having moved rather than
-    whose turn it is. See PLAN-multi-user.md B6.
+    **A hold is a caret, not a lease.** A field belongs to the caret that reached
+    it first, and the other pages draw it read-only -- but nothing on the write
+    path consults it. `PUT /api/projects` does not know a hold exists, so a second
+    client, a script or a curl still writes, and the stale-expectation 409 is
+    still the only refusal on a row. What the hold buys is that two people do not
+    type into one box unaware; what it deliberately does not buy is a lock.
+
+    It cannot strand anybody either: it dies with the socket, and `take` moves it
+    off a holder who has stopped typing for `HOLD_IDLE_SECONDS`.
     """
     global next_connection_id
     await socket.accept()
@@ -277,7 +379,7 @@ async def live_updates(socket: WebSocket):
             await socket.send_json(await client.queue.get())
 
     tasks = {asyncio.create_task(pump()),
-             asyncio.create_task(_listen(socket, client))}
+             asyncio.create_task(_listen(socket, client, connection_id))}
     try:
         done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
         for task in pending:

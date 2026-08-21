@@ -128,7 +128,13 @@ let state = {
   // browser are two ids, so it is the connection that is excluded from the
   // badges, not the person. `said` is the last place announced, so a focus
   // shuffle that changes nothing sends nothing.
-  presence: { me: null, name: "", users: [], said: null },
+  //
+  // `heard` is when the roll arrived, which is what the idle countdown is
+  // measured from: the server sends how long a holder has been quiet, this page
+  // adds the time since. Nothing compares two clocks. `pinged` throttles the
+  // keystroke ping, and `tick` is the one-second timer that reveals a Take
+  // button, running only while somebody else is holding something.
+  presence: { me: null, name: "", users: [], said: null, heard: 0, pinged: 0, tick: null },
   currentProjectId: null,
   plan: null,
   portfolio: null,
@@ -1236,6 +1242,11 @@ function renderProjectView() {
   // kinds and there is no milestone render of its own to call.
   renderPhases();
   renderDependencies();
+  // Every row above was just rebuilt, and a rebuilt input is an unheld one. The
+  // roll this page is already holding is redrawn onto it rather than waited for:
+  // otherwise a write landing anywhere in the plan quietly unlocks every field
+  // somebody else is in, until the next time anyone moves their caret.
+  drawPresence();
 }
 
 function renderUnscheduled() {
@@ -1256,8 +1267,25 @@ function renderUnscheduled() {
   }
 }
 
+// The seven fields of the project itself. Unlike a phase or a deliverable they
+// are not built by `fieldCell`, so presence has to be stamped here -- without it
+// a caret in the Goal box announces the view and no field, and two people rewrote
+// the same paragraph with nothing on screen to say so.
+const PROJECT_FIELDS = {
+  "project-name": "name",
+  "project-goal": "goal",
+  "project-start": "start_date",
+  "project-stage": "stage",
+  "project-tier": "tier",
+  "project-track": "track",
+  "project-velocity": "velocity_override",
+};
+
 function renderProjectFields() {
   const project = state.plan.project;
+  for (const [id, key] of Object.entries(PROJECT_FIELDS)) {
+    $(id).dataset.presence = presenceKey("project", project.id, key);
+  }
   $("project-goal").value = project.goal || "";
   $("project-name").value = project.name;
   $("project-start").value = project.start_date;
@@ -7092,6 +7120,10 @@ function handleLiveMessage(message) {
   }
   if (message.type === "presence") {
     state.presence.users = message.users || [];
+    // The moment the roll was read, not the moment it was sent: the idle values
+    // in it are elapsed times, so adding local time to them needs no agreement
+    // about what o'clock it is at either end.
+    state.presence.heard = Date.now();
     drawPresence();
     return;
   }
@@ -7126,10 +7158,15 @@ function handleLiveMessage(message) {
 
 // --- presence ---------------------------------------------------------------
 
-// Who else is here, and which cell their caret is in. The badge **informs and
-// never refuses** -- nothing is reserved, no write is blocked, and a stale badge
-// costs a moment's confusion where a stuck lock would cost somebody the ability
-// to type. See PLAN-multi-user.md B6.
+// Who else is here, and which cell their caret is in. **A field belongs to the
+// caret that reached it first**, and the rest of the office draws it read-only
+// with a line naming whose it is.
+//
+// That is a hold and not a lock, and the difference is the whole design: it dies
+// with the tab that owns it, `take` moves it off anybody who has stopped typing
+// for 30 seconds, and no write consults it -- the stale-expectation 409 is still
+// the only refusal on a row. A stale badge costs a moment's confusion; a stuck
+// lock would cost somebody the ability to type. See PLAN-multi-user.md B6.
 //
 // The name is Keycloak's; with the gate off it is `guest-N`. Nothing about a
 // person is stored at either end: the server holds it beside an open socket and
@@ -7139,6 +7176,29 @@ function handleLiveMessage(message) {
 // data -- a hue means "somebody", never anything about the plan, which is why
 // this sits above the chart rules in `style.css`.
 const PRESENCE_HUES = 6;
+
+// **The field belongs to the caret that got there first.** Everyone else draws it
+// read-only, which is the whole of the change: two people no longer type into one
+// box without knowing. It is not a lock and cannot strand anybody -- the hold
+// dies with the tab, and once the holder has been quiet this long the Take button
+// appears and moves it. The server holds the same number and is the one that
+// decides; this is what draws the button.
+const HOLD_IDLE_MS = 30000;
+// One ping per five seconds of typing is enough to keep a hold fresh, and is the
+// difference between presence traffic and a keylogger's worth of it. It also sets
+// the slack on the countdown: a holder can read as idle up to this much early.
+const ACTIVITY_PING_MS = 5000;
+
+function sendLive(message) {
+  const socket = state.live.socket;
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+  try {
+    socket.send(JSON.stringify(message));
+  } catch (_) {
+    // Presence is a hint. A socket that will not take it is not a reason to
+    // interrupt anything the page is doing.
+  }
+}
 
 function presenceKey(kind, id, field) {
   return `${kind}:${id}:${field}`;
@@ -7187,12 +7247,7 @@ function announceHere(force = false) {
     return;
   }
   state.presence.said = place;
-  try {
-    socket.send(JSON.stringify({ type: "here", ...place }));
-  } catch (_) {
-    // Presence is a hint. A socket that will not take it is not a reason to
-    // interrupt anything the page is doing.
-  }
+  sendLive({ type: "here", ...place });
 }
 
 // The whole of the wiring: one pair of delegated listeners, so a cell drawn by
@@ -7204,6 +7259,18 @@ function watchPresence() {
     // announces the new cell rather than a moment of nothing.
     setTimeout(() => announceHere(), 0);
   });
+  // **Typing is what keeps a hold, not the caret sitting in the box.** A caret
+  // parked in a field while its owner is at lunch is exactly the case the Take
+  // button exists for, so the ping is on `input` and never on focus.
+  document.addEventListener("input", (event) => {
+    const target = event.target;
+    if (!target || typeof target.closest !== "function") return;
+    if (!target.closest("[data-presence]")) return;
+    const now = Date.now();
+    if (now - state.presence.pinged < ACTIVITY_PING_MS) return;
+    state.presence.pinged = now;
+    sendLive({ type: "active" });
+  });
 }
 
 function drawPresence() {
@@ -7212,6 +7279,8 @@ function drawPresence() {
     held.removeAttribute("title");
   }
   for (const badge of document.querySelectorAll(".presence-badge")) badge.remove();
+  for (const note of document.querySelectorAll(".presence-note")) note.remove();
+  releaseHolds();
 
   const others = state.presence.users.filter((user) => user.id !== state.presence.me);
   for (const user of others) {
@@ -7220,16 +7289,120 @@ function drawPresence() {
     if (!input) continue;
     const holder = input.closest("td, .sprint-row") || input.parentElement;
     if (!holder) continue;
+    const held = user.holding === user.field && lockable(user.field);
     holder.classList.add("presence-held");
-    holder.title = `${user.name} is editing this. You can still type — nothing is locked.`;
+    holder.title = held
+      ? `${user.name} is editing this. It frees when they move on.`
+      : `${user.name} is editing this. You can still type — nothing is locked.`;
     const badge = element("span", `presence-badge presence-hue-${presenceHue(user.name)}`,
       presenceInitials(user.name));
     badge.title = holder.title;
-    holder.appendChild(badge);
+    // In a table cell the badge floats over the input's own padding, so a column
+    // does not reflow when somebody arrives. Anywhere else -- the project's own
+    // fields -- the holder is a `section` or a `label` laying its children out in
+    // a column, where a floated badge would stretch into a bar. There it goes in
+    // the line under the field instead, beside the name.
+    const cell = holder.matches("td, .sprint-row");
+    if (cell) holder.appendChild(badge);
+    if (!cell || held) {
+      const note = element("span", "presence-note");
+      if (!cell) note.appendChild(badge);
+      note.appendChild(element("span", "presence-note-text", `${user.name} is editing this`));
+      if (held) note.appendChild(takeButton(input, user, note, cell));
+      holder.appendChild(note);
+    }
+    if (held) lockField(input);
   }
 
   drawPresenceStrip(others);
   drawSprintPresence(others);
+  watchTakeable();
+}
+
+// **What may be held, and what may not.** Sprint blocks are left alone on
+// purpose: the editor already refuses a conflicting block with a 409 of its own,
+// and a contenteditable that goes read-only under a caret mid-paragraph is a
+// worse trade than the refusal it would save. Ticks are never reached because a
+// checkbox is never stamped -- a deliverable's `done` is its only state, and
+// taking it away would be a scheduling opinion the tool does not get to have.
+//
+// A box **you** have the caret in is not an exception, and that is deliberate:
+// the two cases where it happens are somebody taking a field off you after you
+// went quiet, and losing the race for a box two people clicked at once. Both are
+// exactly what the read-only edge and the line under it are there to say. Your
+// text is never touched -- `readOnly` refuses keystrokes and nothing else.
+function lockable(field) {
+  return !field.startsWith("sprint:");
+}
+
+// `readOnly` rather than `disabled` wherever it exists: a disabled field leaves
+// the tab order and stops being selectable, and the text somebody else is typing
+// is often the thing you opened the row to read. A `select` has no `readOnly`, so
+// that one is disabled.
+function lockField(input) {
+  input.classList.add("presence-locked");
+  if (input.tagName === "SELECT") input.disabled = true;
+  else input.readOnly = true;
+}
+
+// The way out. Hidden until the holder has been quiet for `HOLD_IDLE_MS`, which
+// is the whole reason a hold cannot strand anybody.
+function takeButton(input, user, note, cell) {
+  // One word in a table cell, where the button sits over the input's own text and
+  // every character of it covers a character of theirs.
+  const take = element("button", "presence-take", cell ? "Take" : "Take the field");
+  take.type = "button";
+  take.title = `Take this field from ${user.name}`;
+  // When the button may appear: what the server said was left of the wait, plus
+  // however long this roll has been sitting here. One timer re-checks it.
+  take.dataset.takeableAt = String(
+    state.presence.heard + Math.max(0, HOLD_IDLE_MS - (user.idle_ms || 0)));
+  take.hidden = Date.now() < Number(take.dataset.takeableAt);
+  take.onclick = () => {
+    sendLive({ type: "take", field: input.dataset.presence });
+    // Opened here rather than on the answer: the server has the same idle rule
+    // and the next roll redraws either way, so a refused take closes again in
+    // the time it takes to arrive.
+    releaseField(input);
+    note.remove();
+    input.focus();
+  };
+  return take;
+}
+
+function releaseField(input) {
+  input.classList.remove("presence-locked");
+  if (input.tagName === "SELECT") input.disabled = false;
+  else input.readOnly = false;
+}
+
+function releaseHolds() {
+  for (const input of document.querySelectorAll(".presence-locked")) releaseField(input);
+}
+
+// One timer for the whole page, and only while somebody else is holding
+// something: the countdown is the only thing on screen that changes without a
+// message arriving.
+function watchTakeable() {
+  const waiting = document.querySelectorAll(".presence-take[hidden]").length;
+  if (!waiting) {
+    clearInterval(state.presence.tick);
+    state.presence.tick = null;
+    return;
+  }
+  if (state.presence.tick) return;
+  state.presence.tick = setInterval(() => {
+    const now = Date.now();
+    let left = 0;
+    for (const take of document.querySelectorAll(".presence-take")) {
+      take.hidden = now < Number(take.dataset.takeableAt);
+      if (take.hidden) left += 1;
+    }
+    if (!left) {
+      clearInterval(state.presence.tick);
+      state.presence.tick = null;
+    }
+  }, 1000);
 }
 
 function drawPresenceStrip(others) {
@@ -7250,6 +7423,12 @@ function describePlace(user) {
   if (user.view === "sprint") {
     return user.key === null ? "the Sprint tab" : `sprint file ${user.key}`;
   }
+  // The project is named where it can be. `key` already travels and the name is
+  // already in `state.projects`, so this costs nothing on the wire -- and "the
+  // project view" reads the same whether somebody is in this plan or another
+  // one, which is the question the badge is being hovered to answer.
+  const project = state.projects.find((one) => one.id === user.key);
+  if (project) return `${project.name} — project view`;
   return `the ${user.view} view`;
 }
 
