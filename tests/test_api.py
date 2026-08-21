@@ -3425,6 +3425,64 @@ def test_v8_says_nothing_about_an_undated_checkpoint(client):
                 if w["rule"] == "V8"]
 
 
+# --- what is past its date --------------------------------------------------
+
+
+def test_late_gathers_both_rules_under_the_project_they_belong_to(client):
+    project = make_project(client, "Payments", start="2020-01-01")
+    make_phase(client, project["id"], "Design", "2020-01-01", 1, 10)
+    beta = checkpoint(client, project, target_date="2020-03-02")
+
+    payload = client.get("/api/late").json()
+    assert payload["count"] == 2
+    assert payload["as_of"] == date.today().isoformat()
+    assert len(payload["groups"]) == 1
+
+    group = payload["groups"][0]
+    assert group["project_id"] == project["id"] and group["name"] == "Payments"
+    assert group["derived_stage"] == "overdue"
+    # Worst first, and both rules in one list.
+    assert [item["rule"] for item in group["items"]] == ["V6", "V8"]
+    assert group["items"][0]["days_late"] > group["items"][1]["days_late"]
+    assert group["items"][1]["milestone_id"] == beta["id"]
+
+
+def test_late_is_empty_when_nothing_has_slipped(client):
+    project = make_project(client, "Payments", start="2099-01-05")
+    make_phase(client, project["id"], "Design", "2099-01-05", 4, 40)
+    checkpoint(client, project, target_date="2099-06-01")
+
+    payload = client.get("/api/late").json()
+    assert payload == {"groups": [], "count": 0,
+                       "as_of": date.today().isoformat()}
+
+
+def test_late_never_counts_an_idea(client):
+    """An uncommitted idea has no date to be late against."""
+    idea = make_direction(client, "Caching")
+    client.post(f"/api/projects/{idea['id']}/milestones",
+                json={"name": "Spike", "target_date": "2020-01-01"})
+
+    assert client.get("/api/late").json()["count"] == 0
+
+
+def test_late_falls_silent_when_the_work_closes(client):
+    """It leaves because the plan changed -- there is nothing to dismiss."""
+    project = make_project(client, "Payments", start="2020-01-01")
+    beta = checkpoint(client, project, target_date="2020-03-02")
+    assert client.get("/api/late").json()["count"] == 1
+
+    client.put(f"/api/milestones/{beta['id']}", json={"achieved": True})
+    assert client.get("/api/late").json()["count"] == 0
+
+
+def test_rules_names_every_number_a_chip_can_carry(client):
+    """V3 refuses a write and never reaches a chip; V5 is deleted."""
+    rules = client.get("/api/rules").json()
+    assert sorted(rules) == ["V1", "V2", "V4", "V6", "V7", "V8"]
+    assert "checkpoint" in rules["V8"]
+
+
 # --- deliverable links --------------------------------------------------------
 
 # `[#D-42]` in a sprint file means deliverable 42, in a table row or on a list

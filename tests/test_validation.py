@@ -18,6 +18,8 @@ from app.validation import (
     check_milestone_overdue,
     check_phase_done_without_deliverables,
     check_phase_overdue,
+    days_late,
+    overdue_items,
     project_effort_points,
     completion_fraction,
     deliverable_progress,
@@ -755,6 +757,69 @@ def test_v8_is_quiet_on_the_day_it_is_due():
     due_today = milestone(4, target_date=DURING.isoformat())
     assert check_milestone_overdue(due_today, DURING) is None
     assert check_milestone_overdue(due_today, AFTER) is not None
+
+
+# --- what is past its date, across everything -------------------------------
+
+
+def open_phase(phase_id, name, start, project_id=1):
+    return {**make_phase(phase_id, name, start=start, weeks=1, points=10),
+            "project_id": project_id, "status": "planned"}
+
+
+def test_days_late_counts_only_backwards():
+    """Today and anything ahead of it are zero, never negative."""
+    assert days_late("2026-01-05", "2026-01-20") == 15
+    assert days_late("2026-01-20", "2026-01-20") == 0
+    assert days_late("2026-02-20", "2026-01-20") == 0
+    assert days_late(None, "2026-01-20") == 0
+
+
+def test_overdue_items_carries_both_rules_worst_first():
+    phases = {1: [open_phase(1, "Design", "2026-01-05"),      # ends 2026-01-12
+                  open_phase(2, "Build", "2026-05-04")]}      # ends 2026-05-11
+    milestones = {1: [milestone(9, "Ethics sign-off",
+                                target_date="2026-03-02")]}
+    groups = overdue_items([PROJECT], phases, milestones, date(2026, 6, 1))
+
+    assert len(groups) == 1
+    assert groups[0]["project_id"] == 1 and groups[0]["name"] == "Payments"
+    # Worst first: Design slipped in January, the checkpoint in March, Build in
+    # May. Both rules are in one list, ordered by how late rather than by kind.
+    assert [(item["rule"], item["days_late"]) for item in groups[0]["items"]] == [
+        ("V6", 140), ("V8", 91), ("V6", 21)]
+
+
+def test_overdue_items_drops_a_project_with_nothing_late():
+    phases = {1: [open_phase(1, "Design", "2026-01-05")],
+              2: [open_phase(3, "Ship", "2026-09-07", project_id=2)]}
+    groups = overdue_items([PROJECT, LEDGER], phases, {}, date(2026, 6, 1))
+
+    assert [group["project_id"] for group in groups] == [1]
+
+
+def test_overdue_items_looks_only_at_the_projects_it_is_given():
+    """`projects` is the filter -- an idea never reaches this at all."""
+    phases = {1: [open_phase(1, "Design", "2026-01-05")],
+              2: [open_phase(3, "Ship", "2026-01-05", project_id=2)]}
+    groups = overdue_items([LEDGER], phases, {}, date(2026, 6, 1))
+
+    assert [group["project_id"] for group in groups] == [2]
+
+
+def test_overdue_items_asks_the_rules_rather_than_the_dates():
+    """A done phase and a ticked checkpoint are both silent, as V6 and V8 say."""
+    phases = {1: [{**open_phase(1, "Design", "2026-01-05"), "status": "done"}]}
+    milestones = {1: [milestone(9, achieved=1, target_date="2026-03-02")]}
+    assert overdue_items([PROJECT], phases, milestones, date(2026, 6, 1)) == []
+
+
+def test_overdue_items_orders_projects_by_their_worst():
+    phases = {1: [open_phase(1, "Design", "2026-05-04")],
+              2: [open_phase(3, "Ship", "2026-01-05", project_id=2)]}
+    groups = overdue_items([PROJECT, LEDGER], phases, {}, date(2026, 6, 1))
+
+    assert [group["project_id"] for group in groups] == [2, 1]
 
 
 # --- the fortnight slice ----------------------------------------------------

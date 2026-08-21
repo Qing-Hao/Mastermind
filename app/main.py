@@ -31,6 +31,7 @@ from app.markdown import (
 )
 from app.validation import (
     FORTNIGHT_DAYS,
+    RULE_SUMMARY,
     STAGE_DONE,
     STAGE_IDEA,
     UNSCHEDULED,
@@ -43,6 +44,7 @@ from app.validation import (
     fortnight_window,
     is_scheduled,
     next_phase_boundary,
+    overdue_items,
     phase_end_date,
     project_effort_points,
     project_progress,
@@ -1336,6 +1338,52 @@ def read_portfolio():
         "unscheduled_count": len(phases) - len(scheduled),
         "dependencies": db.list_all_dependencies(with_names=True),
         "warnings": [warning.as_dict() for warning in portfolio_warnings()],
+    }
+
+
+@app.get("/api/rules")
+def read_rules():
+    """What each rule number means, one sentence each.
+
+    A `.rule` chip is bare text on screen and a V-number explains nothing on its
+    own. The sentences live in `validation.py` beside the rules they describe,
+    and this hands them to the frontend rather than letting a second copy sit in
+    `app.js` and drift. Constant: it reads nothing and takes no arguments.
+    """
+    return RULE_SUMMARY
+
+
+@app.get("/api/late")
+def read_late():
+    """Everything past its date, grouped by project. The alert's whole payload.
+
+    Reads only, derives everything, and stores nothing -- there is no read state,
+    no dismissal and nothing keyed by a person here, which is what keeps this a
+    readout rather than the notification system non-negotiable 7 rules out. Every
+    open page gets the same answer.
+
+    Ideas are excluded by `SCHEDULABLE_STAGES`, as they are from the portfolio:
+    an uncommitted idea has no date to be late against.
+
+    `as_of` is the date the answer was computed for. A page left open overnight
+    is the one case nothing re-reads by itself -- no write lands at midnight --
+    so the frontend compares this against its own clock rather than trusting a
+    count of unknown age.
+    """
+    today = date.today()
+    projects = db.list_projects(stages=SCHEDULABLE_STAGES)
+    phases = db.phases_by_project()
+    milestones = db.milestones_by_project()
+    # Only so each group can carry the project's rung for its dot. The ladder
+    # needs deliverables, and this is the one read here that the alert itself
+    # does not use.
+    with_derived_stage(projects, phases, db.deliverables_by_project(),
+                       milestones, today)
+    groups = overdue_items(projects, phases, milestones, today)
+    return {
+        "groups": groups,
+        "count": sum(len(group["items"]) for group in groups),
+        "as_of": today.isoformat(),
     }
 
 

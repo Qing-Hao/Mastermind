@@ -816,6 +816,73 @@ def validate_portfolio(projects, phases_by_project, dependencies):
     return warnings
 
 
+def days_late(due, today):
+    """Whole days since `due` passed. Zero while it is today or still ahead.
+
+    Derived here rather than in the browser for the reason every other derived
+    date is: two implementations of "how late" would be free to disagree, and
+    this one is read next to the message the rule already wrote.
+    """
+    if due is None:
+        return 0
+    return max((as_date(today) - as_date(due)).days, 0)
+
+
+def overdue_items(projects, phases_by_project, milestones_by_project, today):
+    """Everything past its date across the whole dataset, grouped by project.
+
+    **V6 and V8 only.** This is not a portfolio-wide warning list -- that was
+    built, removed at the requester's instruction, and is FR-2. It answers one
+    question, *what is past its date*, which is the question a rule about whether
+    an estimate hangs together cannot help with and would only bury: V1 fires on
+    every phase in the real dataset (FR-19).
+
+    It **calls the two rules rather than re-deriving them**, so there is exactly
+    one definition of late and the boundary cases -- a done phase, a ticked or
+    undated checkpoint, something due today -- are answered once.
+
+    Reads whatever it is given: `projects` decides what is looked at at all, so
+    handing it the schedulable set is what keeps ideas out. Groups with nothing
+    late are dropped rather than sent empty.
+
+    Worst first, within a group and between them, because the panel is read from
+    the top and the oldest slip is the one to open. Nothing is stored, nothing is
+    repaired, and nothing here knows who is reading it.
+    """
+    groups = []
+    for project in projects:
+        items = []
+
+        for phase in phases_by_project.get(project["id"], []):
+            late = check_phase_overdue(phase, today)
+            if late:
+                items.append({**late.as_dict(),
+                              "days_late": days_late(phase_end_date(phase), today)})
+
+        for milestone in milestones_by_project.get(project["id"], []):
+            late = check_milestone_overdue(milestone, today)
+            if late:
+                due = as_optional_date(milestone.get("target_date"))
+                items.append({**late.as_dict(),
+                              "days_late": days_late(due, today)})
+
+        if not items:
+            continue
+        items.sort(key=lambda item: -item["days_late"])
+        groups.append({
+            "project_id": project["id"],
+            "name": project["name"],
+            # Whatever the caller derived, if it derived one. The panel draws the
+            # project's dot beside its name and this is the same rung the sidebar
+            # shows; absent, the dot is simply not drawn.
+            "derived_stage": project.get("derived_stage", ""),
+            "items": items,
+        })
+
+    groups.sort(key=lambda group: -group["items"][0]["days_late"])
+    return groups
+
+
 # --- The fortnight slice ----------------------------------------------------
 
 # A *slice* is one fortnight of the roadmap, cut out and flattened for reading:
