@@ -174,6 +174,16 @@ and argument are in `PROMPT.md`, `feature_request.md` and `git log`.
    assignee, an audit log, per-user preferences. Presence shows a name it was
    handed; it does not record one.
 
+   **A readout is not a notification, and the difference is memory.** The overdue
+   bell (`GET /api/late`) counts what is past its date, derived on read from the
+   rows and today. Everyone sees the same list and nothing about it is stored, so
+   it is the same genus as the offline badge beside it. It becomes the forbidden
+   thing the moment it remembers: a dismissal, a snooze, a "new since you last
+   looked", a per-person mute — each is a row keyed by a person. Push, email and
+   a history of what was late last week are out for their own reasons (external
+   integration; FR-6 needs a store). **The test before adding to it: does this
+   need to remember who is looking?**
+
    **Secrets are read from the environment and never stored in the database.**
    Two of them now — the AI provider key and `MASTERMIND_OIDC_SECRET`, plus
    `MASTERMIND_SESSION_KEY` — and the reason is the same for all three:

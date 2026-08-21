@@ -240,6 +240,26 @@ wrong and no entry at all invites someone to build it again in six months. The
 original argument for it is preserved below, because it was not a bad argument —
 it was overruled, which is a different thing.
 
+> **2026-08-21 — a narrow slice of this shipped, and this entry is still
+> won't-build.** The requester asked for an overdue alert in the top bar; it is
+> `GET /api/late` and the bell beside presence. Read what it is *not* before
+> reading this as a reversal:
+>
+> - **One question, not every rule.** V6 and V8 — what is past its date. V1, V2,
+>   V4 and V7 are absent, which is what makes FR-19 stop mattering here: the
+>   thirty V1s that would have buried the real findings are not in the answer.
+> - **Not on the Portfolio page.** The instruction that killed this was *"i dont
+>   want it to show on portfolio page"*, and the bell is in the top bar on all
+>   four tabs. The locality argument that won is untouched: a rule about whether
+>   an estimate hangs together is still read only in the project it belongs to.
+> - **V8 is new** (`check_milestone_overdue`) and rides on the project view as
+>   well, so nothing is said in the bell that the project cannot say for itself.
+>
+> The two things this entry said would be needed first are still true and still
+> unbuilt: a list carrying V1/V4/V7 across every project, and V2 filtered out of
+> it. **If the ask ever widens back to "every rule, everywhere", it is this
+> entry again**, with FR-19 in front of it.
+
 **What it was.** V1/V4/V6/V7 across every project on the Portfolio tab, grouped
 by project above the chart. `validate_plan` answers for one project and
 `validate_portfolio` runs only V2, so *"what is late across everything"* — framed
