@@ -4264,7 +4264,24 @@ def test_the_connection_test_reports_the_realms_endpoints_and_never_a_secret(cli
     assert result["ok"] is True
     assert result["token_endpoint"].endswith("/token")
     assert result["client_secret_set"] is True
+    assert result["client_secret_masked"] == "••••"
+    assert result["client_secret_length"] == 4
     assert "shhh" not in json.dumps(result)
+
+
+def test_the_connection_test_shows_the_tail_of_a_realistic_secret(client, realm, monkeypatch):
+    monkeypatch.setenv(auth.ENV_CLIENT_SECRET, "0123456789abcdef0123456789abQ4f2")
+    result = client.post("/api/sso/test").json()
+    assert result["client_secret_masked"].endswith("Q4f2")
+    assert result["client_secret_length"] == 32
+    assert "0123456789abcdef0123456789ab" not in json.dumps(result)
+
+
+def test_masking_hides_a_short_secret_whole_and_a_long_one_but_its_tail():
+    assert auth.mask_secret("") == ""
+    assert auth.mask_secret("shhh") == "••••"
+    assert auth.mask_secret("12345678") == "•" * 8
+    assert auth.mask_secret("123456789") == "•" * 5 + "6789"
 
 
 def test_the_config_route_never_hands_back_a_secret(client, realm):

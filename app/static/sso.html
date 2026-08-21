@@ -205,7 +205,9 @@
           + "authorize:     " + result.authorization_endpoint + "\n"
           + "token:         " + result.token_endpoint + "\n"
           + "end session:   " + (result.end_session_endpoint || "(none published)") + "\n"
-          + "client secret: " + (result.client_secret_set ? "set" : "NOT SET")
+          + "client secret: " + (result.client_secret_set
+              ? result.client_secret_masked + " (" + result.client_secret_length + " chars)"
+              : "NOT SET")
         : result.detail;
     };
 

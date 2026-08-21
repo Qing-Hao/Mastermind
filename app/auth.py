@@ -110,6 +110,21 @@ def client_secret():
     return os.environ.get(ENV_CLIENT_SECRET, "")
 
 
+def mask_secret(secret, tail=4):
+    """Dots plus the last few characters, so the operator can tell which secret loaded.
+
+    A Keycloak secret is 32 characters and the operator has the full value in the
+    realm console; four of them are what makes "the stale one is still in the
+    environment" visible. Anything short enough for the tail to be a meaningful
+    fraction of it is masked whole -- that includes every test fixture.
+    """
+    if not secret:
+        return ""
+    if len(secret) <= tail * 2:
+        return "•" * len(secret)
+    return "•" * (len(secret) - tail) + secret[-tail:]
+
+
 def env_report():
     """Which environment variables are set. Names and booleans, never values."""
     return {

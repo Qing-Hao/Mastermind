@@ -690,6 +690,11 @@ def test_sso_connection():
         "token_endpoint": metadata["token_endpoint"],
         "end_session_endpoint": metadata.get("end_session_endpoint", ""),
         "client_secret_set": bool(auth.client_secret()),
+        # The only place any part of a secret leaves the process, and it is the
+        # last four characters of one the operator already holds. Non-negotiable
+        # 7 keeps secrets out of the database and the export; this is neither.
+        "client_secret_masked": auth.mask_secret(auth.client_secret()),
+        "client_secret_length": len(auth.client_secret()),
     }
 
 
