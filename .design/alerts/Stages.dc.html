@@ -1,0 +1,155 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #18181b;
+      background: #fafafa;
+    }
+    a { color: #4f46e5; }
+    a:hover { color: #4338ca; }
+    .cap { font-size: 11px; font-weight: 600; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.05em; }
+    .col { display: flex; flex-direction: column; gap: 2px; }
+    .rung { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 6px; font-size: 12.5px; color: #3f3f46; }
+    .rung:hover { background: #f4f4f5; }
+    .name { font-weight: 600; width: 76px; flex: 0 0 auto; }
+    .say { color: #71717a; font-size: 12px; }
+    .d {
+      width: 13px; height: 13px; border-radius: 50%;
+      border: 1.5px solid #5c6bc0; background: #fff;
+      display: inline-flex; align-items: center; justify-content: center;
+      flex: 0 0 auto;
+    }
+    .beat { animation: beat 1.9s ease-out infinite; }
+    @keyframes beat {
+      0%   { box-shadow: 0 0 0 0 rgba(46, 125, 50, 0.45); }
+      70%  { box-shadow: 0 0 0 7px rgba(46, 125, 50, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(46, 125, 50, 0); }
+    }
+    .note { font-size: 12px; color: #71717a; }
+  </style>
+</helmet>
+
+<div style="display: flex; flex-direction: column; gap: 16px; padding: 22px; background: #fafafa; min-height: 100%;">
+
+  <div>
+    <div style="font-size: 16px; font-weight: 600;">The stage ramp &mdash; and the collision to settle first</div>
+    <div style="font-size: 13px; color: #71717a; margin-top: 2px;">
+      Seven rungs plus <em>delivered</em>. These are the map's colours lifted into tokens; the sidebar dot, the top bar badge and the map circle all wear them, so a change here lands in three places at once.
+    </div>
+  </div>
+
+  <div style="padding: 11px 13px; border-radius: 6px; background: #fffbeb; font-size: 12.5px; color: #3f3f46;">
+    <strong>Green is already taken.</strong> Today it means <em>delivered</em> &mdash; every checkpoint ticked. Making <em>active</em> green needs the two told apart, or the ramp says &ldquo;good&rdquo; twice and means two things. Two ways below.
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px;">
+
+    <!-- Today -->
+    <div style="padding: 14px; background: #fff; border: 1px solid #e6e6ea; border-radius: 10px;">
+      <div class="cap" style="margin-bottom: 8px;">Today</div>
+      <div class="col">
+        <div class="rung"><span class="d" style="border-color: #bbb;"></span><span class="name">idea</span></div>
+        <div class="rung"><span class="d" style="border-color: #9fa8da;"></span><span class="name">planning</span></div>
+        <div class="rung"><span class="d" style="border-color: #5c6bc0;"></span><span class="name">planned</span></div>
+        <div class="rung"><span class="d" style="background: #d5e6f7;"></span><span class="name">dated</span></div>
+        <div class="rung"><span class="d" style="background: #90caf9;"></span><span class="name">active</span></div>
+        <div class="rung"><span class="d" style="background: #ffccbc; border-color: #d84315; border-width: 2.5px;"></span><span class="name">overdue</span></div>
+        <div class="rung"><span class="d" style="background: #cfd8dc; border-color: #90a4ae;"></span><span class="name">done</span></div>
+        <div class="rung"><span class="d" style="background: #a5d6a7; border-color: #2e7d32;"></span><span class="name">delivered</span></div>
+      </div>
+      <div class="note" style="margin-top: 10px;">
+        Blue runs from pale to full across <em>dated</em> and <em>active</em>. Grey is a project closed by hand; green is one that met every checkpoint.
+      </div>
+    </div>
+
+    <!-- Option A -->
+    <div style="padding: 14px; background: #fff; border: 1px solid #c7d2fe; border-radius: 10px;">
+      <div class="cap" style="margin-bottom: 8px; color: #4f46e5;">Option A &mdash; green is running</div>
+      <div class="col">
+        <div class="rung"><span class="d" style="border-color: #bbb;"></span><span class="name">idea</span></div>
+        <div class="rung"><span class="d" style="border-color: #9fa8da;"></span><span class="name">planning</span></div>
+        <div class="rung"><span class="d" style="border-color: #5c6bc0;"></span><span class="name">planned</span></div>
+        <div class="rung"><span class="d" style="background: #d5e6f7;"></span><span class="name">dated</span><span class="say">blue &mdash; on the calendar</span></div>
+        <div class="rung"><span class="d beat" style="background: #66bb6a; border-color: #2e7d32;"></span><span class="name">active</span><span class="say">green, beating</span></div>
+        <div class="rung"><span class="d" style="background: #ffccbc; border-color: #d84315; border-width: 2.5px;"></span><span class="name">overdue</span></div>
+        <div class="rung">
+          <span class="d" style="background: #fff; border-color: #90a4ae;">
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#90a4ae" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13l5 5L20 6"></path></svg>
+          </span><span class="name">done</span><span class="say">grey tick</span>
+        </div>
+        <div class="rung">
+          <span class="d" style="background: #fff; border-color: #2e7d32;">
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#2e7d32" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13l5 5L20 6"></path></svg>
+          </span><span class="name">delivered</span><span class="say">green tick</span>
+        </div>
+      </div>
+      <div class="note" style="margin-top: 10px;">
+        <strong>Fill means alive, tick means finished.</strong> Both ends drop their fill, so the only filled dots on screen are work in flight and work that is late.<br>
+        <span style="color: #9a3412;">Cost:</span> two hollow dots at the bottom of the ramp read alike at 13px until you look at the hue.
+      </div>
+    </div>
+
+    <!-- Option B -->
+    <div style="padding: 14px; background: #fff; border: 1px solid #c7d2fe; border-radius: 10px;">
+      <div class="cap" style="margin-bottom: 8px; color: #4f46e5;">Option B &mdash; green stays good, depth separates</div>
+      <div class="col">
+        <div class="rung"><span class="d" style="border-color: #bbb;"></span><span class="name">idea</span></div>
+        <div class="rung"><span class="d" style="border-color: #9fa8da;"></span><span class="name">planning</span></div>
+        <div class="rung"><span class="d" style="border-color: #5c6bc0;"></span><span class="name">planned</span></div>
+        <div class="rung"><span class="d" style="background: #d5e6f7;"></span><span class="name">dated</span><span class="say">blue &mdash; on the calendar</span></div>
+        <div class="rung"><span class="d beat" style="background: #a5d6a7; border-color: #2e7d32;"></span><span class="name">active</span><span class="say">pale green, beating</span></div>
+        <div class="rung"><span class="d" style="background: #ffccbc; border-color: #d84315; border-width: 2.5px;"></span><span class="name">overdue</span></div>
+        <div class="rung">
+          <span class="d" style="background: #cfd8dc; border-color: #90a4ae;">
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#546e7a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13l5 5L20 6"></path></svg>
+          </span><span class="name">done</span><span class="say">grey, ticked</span>
+        </div>
+        <div class="rung">
+          <span class="d" style="background: #2e7d32; border-color: #2e7d32;">
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13l5 5L20 6"></path></svg>
+          </span><span class="name">delivered</span><span class="say">deep green, ticked</span>
+        </div>
+      </div>
+      <div class="note" style="margin-top: 10px;">
+        <strong>Pale green is running, deep green is delivered</strong> &mdash; the same move blue already makes between <em>dated</em> and <em>active</em>, one hue over. The tick is what separates finished from unfinished at every size.<br>
+        <span style="color: #2e7d32;">Recommended:</span> nothing in the ramp changes meaning, and grey keeps saying &ldquo;closed by hand, not delivered&rdquo;.
+      </div>
+    </div>
+
+  </div>
+
+  <div style="display: flex; gap: 12px;">
+    <div style="flex: 1; padding: 12px 14px; background: #fff; border: 1px solid #e6e6ea; border-radius: 10px;">
+      <div class="cap" style="margin-bottom: 8px;">Where the beat is, and is not</div>
+      <div class="note">
+        On the sidebar dot and the top bar badge &mdash; a dozen at most, and they sit still. <strong>Not on the map</strong>, where forty circles pulsing is a strobe, and not on a chart bar. <span style="color: #52525b;">Off entirely under <span style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px;">prefers-reduced-motion</span>.</span>
+      </div>
+    </div>
+    <div style="flex: 1; padding: 12px 14px; background: #fff; border: 1px solid #e6e6ea; border-radius: 10px;">
+      <div class="cap" style="margin-bottom: 8px;">The beat says &ldquo;running&rdquo;, not &ldquo;live&rdquo;</div>
+      <div class="note">
+        <em>active</em> is derived from today's date sitting inside the project's span &mdash; it is not a heartbeat from the socket and nobody has to be typing. Worth wording the tooltip so the two are not confused with the offline badge next to it.
+      </div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

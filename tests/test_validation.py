@@ -15,6 +15,7 @@ from app.validation import (
     implied_weeks,
     next_phase_boundary,
     phase_end_date,
+    check_milestone_overdue,
     check_phase_done_without_deliverables,
     check_phase_overdue,
     project_effort_points,
@@ -719,6 +720,41 @@ def test_validate_plan_skips_the_newer_rules_without_their_inputs():
     assert [w.rule for w in validate_plan(PROJECT, phases)] == []
     with_both = validate_plan(PROJECT, phases, None, {}, AFTER)
     assert [w.rule for w in with_both] == ["V7"]
+
+
+# --- V8 ---------------------------------------------------------------------
+
+
+def test_v8_fires_once_a_checkpoint_target_date_has_passed():
+    late = {**milestone(4, "Ethics sign-off", target_date="2026-02-11"),
+            "project_id": 1}
+    warning = check_milestone_overdue(late, AFTER)
+    assert warning is not None
+    assert warning.rule == "V8"
+    assert warning.milestone_id == 4
+    assert warning.project_id == 1
+    # V8 belongs to a project and to no phase, which is the whole reason
+    # `milestone_id` had to exist.
+    assert warning.phase_id is None
+    assert "2026-02-11" in warning.message
+
+
+def test_v8_is_quiet_once_the_checkpoint_is_ticked():
+    """A checkpoint reached late is not a problem to fix. V6's rule, V6's reason."""
+    reached = milestone(4, achieved=1, target_date="2026-02-11")
+    assert check_milestone_overdue(reached, AFTER) is None
+
+
+def test_v8_skips_an_undated_checkpoint():
+    """`""` is unscheduled, here as everywhere else. Chased up in the project view."""
+    assert check_milestone_overdue(milestone(4), AFTER) is None
+
+
+def test_v8_is_quiet_on_the_day_it_is_due():
+    """Due today is not late, matching V6's boundary exactly."""
+    due_today = milestone(4, target_date=DURING.isoformat())
+    assert check_milestone_overdue(due_today, DURING) is None
+    assert check_milestone_overdue(due_today, AFTER) is not None
 
 
 # --- the fortnight slice ----------------------------------------------------

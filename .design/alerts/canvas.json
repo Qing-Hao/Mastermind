@@ -1,0 +1,13 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 940, "h": 900, "title": "Late — the bell and its panel" },
+    { "file": "Stages.dc.html", "x": 1060, "y": 0, "w": 1080, "h": 900, "title": "Stage ramp — dated, active, done" },
+    { "file": "Twisty.dc.html", "x": 0, "y": 1030, "w": 1080, "h": 720, "title": "Portfolio — the scroll jump" },
+    { "file": "Scope.dc.html", "x": 1200, "y": 1030, "w": 940, "h": 880, "title": "What this must not become" }
+  ],
+  "annotations": [
+    { "id": "brief", "x": 0, "y": -180, "w": 620, "text": "Four asks, drawn before any code.\n\nThe bell and the ramp both reopen decisions already on the record — see \"What this must not become\", bottom right. The scroll jump is a straight bug." },
+    { "id": "pick-one", "x": 2200, "y": 300, "w": 260, "text": "Option A or B?\n\nB is the recommendation: green keeps meaning good, and pale-vs-deep is the move blue already makes." }
+  ],
+  "launch": { "view": "canvas" }
+}

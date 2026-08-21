@@ -1,0 +1,120 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #18181b;
+      background: #fafafa;
+    }
+    a { color: #4f46e5; }
+    a:hover { color: #4338ca; }
+    .cap { font-size: 11px; font-weight: 600; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.05em; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: #3f3f46; }
+    .frame { flex: 1; padding: 12px; background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; }
+    .vp { border: 1px solid #d8d8de; border-radius: 6px; background: #fafafa; height: 168px; overflow: hidden; position: relative; }
+    .lane { display: flex; align-items: center; gap: 6px; padding: 3px 6px; }
+    .lname { font-size: 10px; font-weight: 700; color: #333; width: 62px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .bar { height: 9px; border-radius: 2px; background: #90caf9; }
+    .tw { font-size: 9px; color: #71717a; width: 10px; }
+    .step { font-size: 12px; color: #52525b; }
+    .num { display: inline-flex; align-items: center; justify-content: center; width: 17px; height: 17px; border-radius: 999px; background: #eef2ff; color: #4f46e5; font-size: 10px; font-weight: 700; flex: 0 0 auto; }
+  </style>
+</helmet>
+
+<div style="display: flex; flex-direction: column; gap: 16px; padding: 22px; background: #fafafa; min-height: 100%;">
+
+  <div>
+    <div style="font-size: 16px; font-weight: 600;">Opening a lane throws the page back to the top</div>
+    <div style="font-size: 13px; color: #71717a; margin-top: 2px;">
+      The twisty is fine; the redraw under it is not. <span class="mono">laneTwisty</span> calls <span class="mono">renderPortfolio()</span>, whose first act is <span class="mono">chart.innerHTML = ""</span>.
+    </div>
+  </div>
+
+  <div style="display: flex; gap: 14px;">
+
+    <div class="frame">
+      <div class="cap" style="margin-bottom: 8px;">1 &middot; Where you were</div>
+      <div class="vp">
+        <div style="position: absolute; top: -74px; left: 0; right: 0; padding: 6px;">
+          <div class="lane"><span class="tw">&#9656;</span><span class="lname">Gateway</span><span class="bar" style="width: 92px; margin-left: 30px;"></span></div>
+          <div class="lane"><span class="tw">&#9656;</span><span class="lname">Ledger</span><span class="bar" style="width: 64px; margin-left: 72px;"></span></div>
+          <div class="lane"><span class="tw">&#9656;</span><span class="lname">Atlas</span><span class="bar" style="width: 110px; margin-left: 12px;"></span></div>
+          <div class="lane"><span class="tw">&#9656;</span><span class="lname">Beacon</span><span class="bar" style="width: 48px; margin-left: 118px;"></span></div>
+          <div class="lane" style="background: #eef2ff; border-radius: 4px;"><span class="tw" style="color: #4f46e5;">&#9656;</span><span class="lname">CURADE</span><span class="bar" style="width: 86px; margin-left: 46px;"></span></div>
+          <div class="lane"><span class="tw">&#9656;</span><span class="lname">Harbour</span><span class="bar" style="width: 70px; margin-left: 24px;"></span></div>
+          <div class="lane"><span class="tw">&#9656;</span><span class="lname">Meridian</span><span class="bar" style="width: 54px; margin-left: 96px;"></span></div>
+        </div>
+      </div>
+      <div class="step" style="margin-top: 8px;">Nine lanes down, scrolled sideways into September. You click <span class="mono">&#9656;</span> on CURADE.</div>
+    </div>
+
+    <div class="frame" style="border-color: #ffd9c2; background: #fff;">
+      <div class="cap" style="margin-bottom: 8px; color: #9a3412;">2 &middot; For one frame the chart is empty</div>
+      <div class="vp" style="background: #fff;">
+        <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #a1a1aa; font-size: 12px;">
+          <span class="mono" style="color: #9a3412;">chart.innerHTML = ""</span>
+        </div>
+      </div>
+      <div class="step" style="margin-top: 8px;">The document loses its height. The browser clamps <span class="mono">scrollY</span> to what is left &mdash; and the scroll box's <span class="mono">scrollLeft</span> goes with the element that held it.</div>
+    </div>
+
+    <div class="frame">
+      <div class="cap" style="margin-bottom: 8px;">3 &middot; Where you are now</div>
+      <div class="vp">
+        <div style="position: absolute; top: 0; left: 0; right: 0; padding: 6px;">
+          <div class="lane"><span class="tw">&#9656;</span><span class="lname">Gateway</span><span class="bar" style="width: 66px; margin-left: 8px;"></span></div>
+          <div class="lane"><span class="tw">&#9656;</span><span class="lname">Ledger</span><span class="bar" style="width: 48px; margin-left: 40px;"></span></div>
+          <div class="lane"><span class="tw">&#9656;</span><span class="lname">Atlas</span><span class="bar" style="width: 84px;"></span></div>
+          <div class="lane"><span class="tw">&#9656;</span><span class="lname">Beacon</span><span class="bar" style="width: 36px; margin-left: 86px;"></span></div>
+          <div class="lane"><span class="tw">&#9656;</span><span class="lname">CURADE</span><span class="bar" style="width: 58px; margin-left: 22px;"></span></div>
+        </div>
+        <div style="position: absolute; left: 0; right: 0; top: 0; height: 3px; background: #d84315;"></div>
+      </div>
+      <div class="step" style="margin-top: 8px;">Top of the page, back at the start of the window, and the twisty you pressed no longer exists &mdash; so the keyboard is on <span class="mono">&lt;body&gt;</span>.</div>
+    </div>
+
+  </div>
+
+  <div style="display: flex; gap: 14px;">
+    <div class="frame" style="border-color: #c7d2fe;">
+      <div class="cap" style="margin-bottom: 8px; color: #4f46e5;">The fix &mdash; hold the three things the redraw drops</div>
+      <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 2px;">
+        <div style="display: flex; gap: 9px; align-items: flex-start;"><span class="num">1</span><span class="step"><strong>Page offset.</strong> Read <span class="mono">window.scrollY</span> before the redraw, set it back after &mdash; the chart is taller again by then, so nothing is clamped.</span></div>
+        <div style="display: flex; gap: 9px; align-items: flex-start;"><span class="num">2</span><span class="step"><strong>Window offset.</strong> Same for <span class="mono">#portfolio-scroll.scrollLeft</span>, or you open a lane and lose the month you were reading.</span></div>
+        <div style="display: flex; gap: 9px; align-items: flex-start;"><span class="num">3</span><span class="step"><strong>Focus.</strong> The new twisty for that project takes focus back, so Enter-Enter folds and unfolds one lane instead of falling off the page.</span></div>
+      </div>
+      <div class="step" style="margin-top: 10px; color: #71717a;">
+        Restore synchronously, in the same call &mdash; not in a <span class="mono">setTimeout</span>. Anything asynchronous is a visible jump and back.
+      </div>
+    </div>
+
+    <div class="frame">
+      <div class="cap" style="margin-bottom: 8px;">Why not the smaller change</div>
+      <div class="step">
+        Redrawing only the lane that opened would avoid the problem outright, but the lane's height feeds the grid body and the today line above it, so a partial redraw is a second layout path to keep in step with the whole one. <strong>Save and restore is three lines and one function;</strong> the surgical version is a rewrite of <span class="mono">renderPortfolio</span> that nothing tests.
+      </div>
+      <div class="step" style="margin-top: 10px; color: #71717a;">
+        Same wrapper covers the other redraws on this tab &mdash; the window bar, a drag that drops, a write arriving over the socket. Every one of them is <span class="mono">chart.innerHTML = ""</span> today.
+      </div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

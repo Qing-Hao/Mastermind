@@ -1,14 +1,32 @@
-"""Plan validation rules V1-V4, plus the derived views the frontend reads.
+"""Every plan validation rule, plus the derived views the frontend reads.
+
+The rules, in one place, because a V-number on screen says nothing by itself:
+
+    V1  effort points and duration weeks disagree, given velocity
+    V2  a project starts before the one it depends on finishes
+    V4  a phase starts before its own project does
+    V6  a phase's derived end has passed and it is not done
+    V7  a phase is closed but names nothing it delivered
+    V8  a checkpoint is past its target date and is not ticked
+
+`RULE_SUMMARY` below carries the same list as one-line sentences, because the
+frontend needs to say this in a tooltip and a second copy of it there would
+drift. **Both are the same six.**
+
+Two numbers are missing and neither is dormant -- numbering is never reused, so
+a gap means look in `git log`:
+
+- **V3 is not a warning.** It is `find_dependency_cycle`, and it refuses the
+  write that would create the cycle (409). A cycle is malformed data rather than
+  a scheduling opinion, which is the whole distinction: everything above reports
+  something bad about a good plan, V3 refuses to store a broken one.
+- **V5 is deleted.** It cross-checked a bottom-up deliverable rollup against the
+  phase estimate; a deliverable now only names something the phase produces, so
+  there is nothing to roll up and the phase estimate stands alone.
 
 Pure functions only: no database, no framework, no I/O. Every rule reports a
 problem and never repairs it -- the timeline must never auto-reschedule, so a
-plan is allowed to sit in a warning state indefinitely. V3 (dependency cycles)
-is the sole exception: a cycle is malformed data rather than a scheduling
-opinion, so callers are expected to reject the edit outright.
-
-V5 cross-checked a bottom-up deliverable rollup against the phase estimate. It
-is gone: a deliverable now only names something the phase produces, so there is
-nothing to roll up and the phase estimate stands alone.
+plan is allowed to sit in a warning state indefinitely.
 
 Dependencies link **projects**, not phases: the question this tool answers is
 which piece of committed work has to land before another can begin. Ordering
@@ -57,14 +75,33 @@ DEFAULT_SETTINGS = {
     "v1_tolerance_pct": 5.0,
 }
 
+# What each rule checks, in one sentence, for the chip that carries its number.
+# A `.rule` chip is bare text on screen and a V-number explains nothing on its
+# own, so this is what the tooltip says. It lives here rather than in `app.js`
+# because the rules do: a copy in the frontend would drift the first time one of
+# these changed wording. Served by `GET /api/rules`.
+#
+# V3 is absent deliberately -- it refuses a write and never reaches a chip. See
+# the module docstring.
+RULE_SUMMARY = {
+    "V1": "The effort points and the duration in weeks disagree, given velocity.",
+    "V2": "This project starts before the one it depends on finishes.",
+    "V4": "The phase starts before its own project does.",
+    "V6": "The phase's end date has passed and it is not done.",
+    "V7": "The phase is closed but names nothing it delivered.",
+    "V8": "The checkpoint is past its target date and is not ticked.",
+}
+
 
 @dataclass(frozen=True)
 class PlanWarning:
-    """A single detected problem. `rule` is one of V1, V2, V3, V4.
+    """A single detected problem. `rule` is one of the numbers in `RULE_SUMMARY`.
 
-    A warning names whatever it is about: V1 and V4 point at a phase, V2 points
-    at the two projects either side of a dependency. Both pairs of fields are
-    always present in `as_dict` so the frontend can read one shape.
+    A warning names whatever it is about: V1, V4, V6 and V7 point at a phase, V2
+    points at the two projects either side of a dependency, and V8 points at a
+    checkpoint, which belongs to a project and to no phase at all. Every id field
+    is always present in `as_dict`, whichever rule filled it in, so the frontend
+    reads one shape and asks which fields are set rather than which rule it is.
     """
 
     rule: str
@@ -73,6 +110,7 @@ class PlanWarning:
     related_phase_id: int | None = None
     project_id: int | None = None
     related_project_id: int | None = None
+    milestone_id: int | None = None
 
     def as_dict(self):
         return {
@@ -82,6 +120,7 @@ class PlanWarning:
             "related_phase_id": self.related_phase_id,
             "project_id": self.project_id,
             "related_project_id": self.related_project_id,
+            "milestone_id": self.milestone_id,
         }
 
 
@@ -392,6 +431,35 @@ def check_phase_overdue(phase, today):
         message=(
             f"'{phase['name']}' ended {end.isoformat()} but is still "
             f"'{phase.get('status')}'."
+        ),
+    )
+
+
+def check_milestone_overdue(milestone, today):
+    """V8: the checkpoint's target date has passed and it is not ticked.
+
+    V6's counterpart for the other dated thing on a plan. Nothing found a late
+    checkpoint before this, which mattered more once the ladder started deriving
+    `done` from checkpoints rather than phases: the one object designed to carry
+    the decision that a project is finished could sit weeks past its date without
+    a word being said about it.
+
+    Skipped while undated -- `target_date` follows the same `""` convention every
+    other date here does -- and skipped once achieved, because a checkpoint
+    reached late is not a problem to fix. Both are V6's rules, for V6's reasons.
+    """
+    if milestone.get("achieved"):
+        return None
+    due = as_optional_date(milestone.get("target_date"))
+    if due is None or due >= as_date(today):
+        return None
+
+    return PlanWarning(
+        rule="V8",
+        project_id=milestone.get("project_id"),
+        milestone_id=milestone["id"],
+        message=(
+            f"'{milestone['name']}' was due {due.isoformat()} and is not ticked."
         ),
     )
 

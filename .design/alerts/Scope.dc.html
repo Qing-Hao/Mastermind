@@ -1,0 +1,117 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #18181b;
+      background: #fafafa;
+    }
+    a { color: #4f46e5; }
+    a:hover { color: #4338ca; }
+    .cap { font-size: 11px; font-weight: 600; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.05em; }
+    .card { padding: 14px 16px; background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; }
+    .item { display: flex; gap: 9px; align-items: flex-start; font-size: 12.5px; color: #3f3f46; padding: 4px 0; }
+    .tick { flex: 0 0 auto; margin-top: 3px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: #3f3f46; }
+  </style>
+</helmet>
+
+<div style="display: flex; flex-direction: column; gap: 16px; padding: 22px; background: #fafafa; min-height: 100%;">
+
+  <div>
+    <div style="font-size: 16px; font-weight: 600;">Two things to settle before this is built</div>
+    <div style="font-size: 13px; color: #71717a; margin-top: 2px;">
+      Neither is a reason not to do it. Both are decisions already on the record that this reopens.
+    </div>
+  </div>
+
+  <div class="card" style="border-color: #ffd9c2;">
+    <div class="cap" style="color: #9a3412; margin-bottom: 6px;">1 &middot; FR-2 was built, then removed &mdash; at your instruction</div>
+    <div style="font-size: 12.5px; color: #3f3f46;">
+      On 15 Aug a panel listing every project's warnings above the Portfolio chart was built and reverted the same day:
+      <em>&ldquo;warning just keep within the project is good enough&rdquo;</em>, <em>&ldquo;remove it, i dont want it to show on portfolio page&rdquo;</em>.
+      The argument that lost was frequency; the argument that won was locality &mdash; a rule is read where you can act on it.
+    </div>
+    <div style="font-size: 12.5px; color: #3f3f46; margin-top: 10px;">
+      <strong>What is different here.</strong> That panel carried every rule, and V1 fires on all thirty phases of the real dataset (FR-19), so the real findings were buried. This carries one question &mdash; <em>what is past its date</em> &mdash; and it lives in the top bar, on every tab, rather than on the Portfolio page you said no to. It is still the same reversal, and it is yours to make.
+    </div>
+  </div>
+
+  <div class="card" style="border-color: #ffd9c2;">
+    <div class="cap" style="color: #9a3412; margin-bottom: 6px;">2 &middot; Non-negotiable 7 lists notifications under never build</div>
+    <div style="font-size: 12.5px; color: #3f3f46;">
+      A count derived from dates already on screen is a <em>readout</em>, the same genus as the offline badge beside it. It becomes a notification system the moment it remembers anything about a person &mdash; and the gate stores nothing about anyone by design.
+    </div>
+  </div>
+
+  <div style="display: flex; gap: 14px;">
+
+    <div class="card" style="flex: 1;">
+      <div class="cap" style="margin-bottom: 8px; color: #2e7d32;">Stays inside the line</div>
+      <div class="item">
+        <svg class="tick" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2e7d32" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13l5 5L20 6"></path></svg>
+        <span>Computed on read, from <span class="mono">today</span> and the rows. No table, no column, no cache.</span>
+      </div>
+      <div class="item">
+        <svg class="tick" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2e7d32" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13l5 5L20 6"></path></svg>
+        <span>Everyone sees the same list. Nothing is addressed to anyone.</span>
+      </div>
+      <div class="item">
+        <svg class="tick" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2e7d32" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13l5 5L20 6"></path></svg>
+        <span>Reports only. A late phase stays late until someone moves the date or closes the work &mdash; nothing reschedules.</span>
+      </div>
+      <div class="item">
+        <svg class="tick" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2e7d32" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13l5 5L20 6"></path></svg>
+        <span>Rides the socket message that already exists. No new event, nothing queued for a page that is shut.</span>
+      </div>
+    </div>
+
+    <div class="card" style="flex: 1;">
+      <div class="cap" style="margin-bottom: 8px; color: #9a3412;">Crosses it &mdash; not in this build</div>
+      <div class="item">
+        <svg class="tick" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#d84315" stroke-width="3.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+        <span>Dismiss, snooze, or &ldquo;mark read&rdquo; &mdash; every one of them is a row keyed by a person.</span>
+      </div>
+      <div class="item">
+        <svg class="tick" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#d84315" stroke-width="3.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+        <span>&ldquo;New since you last looked&rdquo; &mdash; needs a last-seen stamp per person.</span>
+      </div>
+      <div class="item">
+        <svg class="tick" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#d84315" stroke-width="3.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+        <span>Email, desktop push, or a toast that interrupts &mdash; an external integration and a feed.</span>
+      </div>
+      <div class="item">
+        <svg class="tick" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#d84315" stroke-width="3.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+        <span>A record of what was late last week &mdash; that is FR-6, slippage memory, and it needs a store.</span>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="card">
+    <div class="cap" style="margin-bottom: 6px;">One new rule is needed &mdash; V8</div>
+    <div style="font-size: 12.5px; color: #3f3f46;">
+      V6 already finds a phase past its end. <strong>Nothing finds a checkpoint past its <span class="mono">target_date</span> and not ticked</strong> &mdash; so a milestone can sit weeks late and no rule says a word. That is a pure function in <span class="mono">validation.py</span> taking <span class="mono">today</span>, tested in <span class="mono">test_validation.py</span>.
+      <span style="color: #71717a;">V8 because V3 and V5 are deleted, not dormant, and numbers are never reused.</span>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
