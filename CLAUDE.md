@@ -36,7 +36,9 @@ framework and no session store, and `MASTERMIND_SSO=off` removes it entirely.
 - `requirements.txt` — one runtime parsing dependency: `markdown-it-py` (4.2.0) +
   `mdit-py-plugins` (0.6.1), for the sprint editor. Not optional, not lazily
   imported. Pure Python, so still no build step. linkify stays **off** (it needs a
-  third package and raises at render time without it).
+  third package and raises at render time without it). Also `python-dotenv`,
+  which `uvicorn[standard]` already installs — named explicitly because
+  `app/config.py` imports it, and a transitive dependency is not a promise.
 - `requirements-ai.txt` — `pydantic-ai`, for `scripts/sprint_review.py` only.
   Lazily imported; the app installs, serves and passes its tests without it. The
   model key is read from the environment and **never** the database.
@@ -104,7 +106,7 @@ Type checking is pyright, `basic` mode, config in `pyrightconfig.json`.
 | `app/db.py` | Schema, CRUD, `migrate`, export/import. Rows in/out as plain dicts. The only module that touches SQLite. |
 | `app/markdown.py` | Splits a markdown file into blocks, renders one to HTML, serialises a table back. **Pure functions, no I/O** — the `validation.py` genre. **Knows nothing about sprints, and must not.** |
 | `app/auth.py` | The OIDC sign-in flow and its pure predicates — `is_allowed`, the claim checks, the signed cookie. The `validation.py` genre, different subject: scheduling rules do not live here and OIDC does not live there. **A gate, not an account model.** |
-| `app/config.py` | Reads `.env` into `os.environ` at import of `app.main`. Environment beats file; does nothing under pytest, because the real `.env` holds the client secret and often `MASTERMIND_SSO=off`. No parsing dependency — the file is four keys. |
+| `app/config.py` | Reads `.env` into `os.environ` at import of `app.main`, via `python-dotenv` with `override=False`. Environment beats file; does nothing under pytest, because the real `.env` holds the client secret and often `MASTERMIND_SSO=off`. |
 | `app/main.py` | FastAPI routes. Thin — assembly and HTTP only, no business logic. |
 | `app/static/index.html` | The shell. Deleting an element here is a migration — see Working style. |
 | `app/static/signin.html`, `sso.html` | The gate's own two documents: the sign-in page and the Sign-in configuration page. Separate from the shell **so they work when the shell cannot** — no project, gate never armed, or gate armed and broken. |
