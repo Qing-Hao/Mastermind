@@ -49,9 +49,11 @@ python -m venv .venv
 Open <http://127.0.0.1:8000>. The database is created on first start at
 `data/roadmap.db`.
 
-Tests:
+Tests (`requirements-dev.txt` adds pytest on top of the runtime install above —
+the served image carries only the runtime file):
 
 ```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 

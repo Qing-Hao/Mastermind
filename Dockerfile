@@ -2,7 +2,13 @@
 #
 # No build step to reproduce here: no ORM, no bundler, no node. One layer of pip
 # and a copy of the source, which is why this is a single stage.
-FROM python:3.12-slim
+#
+# Pinned by digest, not by tag: `python:3.12-slim` moves with every patch release
+# and every base rebuild, so the tag alone means a rebuild next quarter is a
+# different image from the one that was tested. The digest is the multi-arch
+# index, so it still resolves on arm64. To bump it deliberately:
+#   docker pull python:3.12-slim && docker images python:3.12-slim --digests
+FROM python:3.12-slim@sha256:2c941e860699f878900b0edc2403613c234d4b32eda3cc9fa7036991a2a63c4a
 
 # Unbuffered so `docker compose logs` shows a traceback as it happens rather than
 # when the buffer fills; no .pyc files on a volume nobody reads them from.
@@ -11,10 +17,12 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Ahead of the source, so an edit to a route does not reinstall the four
-# dependencies. `requirements-ai.txt` is deliberately **not** installed: the
-# sprint review is a CLI script, its dependency is heavy, and its provider key
-# belongs in an environment rather than in a running server.
+# Ahead of the source, so an edit to a route does not reinstall the six
+# dependencies. Two files are deliberately **not** installed: `requirements-ai.txt`,
+# because the sprint review is a CLI script whose dependency is heavy and whose
+# provider key belongs in an environment rather than a running server; and
+# `requirements-dev.txt`, because a test runner in a served image is weight
+# nobody runs.
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 

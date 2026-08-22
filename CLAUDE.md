@@ -39,6 +39,13 @@ framework and no session store, and `MASTERMIND_SSO=off` removes it entirely.
   third package and raises at render time without it). Also `python-dotenv`,
   which `uvicorn[standard]` already installs — named explicitly because
   `app/config.py` imports it, and a transitive dependency is not a promise.
+  **Pinned exactly (`==`), because the Dockerfile installs this file** and a
+  rebuild months later must be the application that was tested. Bump a line on
+  purpose, then run the suite.
+- `requirements-dev.txt` — `-r requirements.txt` plus `pytest`. Runtime and test
+  are split so the image carries no test runner; `httpx` stays on the runtime
+  side, because `app/auth.py` imports it for the OIDC code exchange and
+  `TestClient` only happens to share it.
 - `requirements-ai.txt` — `pydantic-ai`, for `scripts/sprint_review.py` only.
   Lazily imported; the app installs, serves and passes its tests without it. The
   model key is read from the environment and **never** the database.
@@ -47,7 +54,7 @@ framework and no session store, and `MASTERMIND_SSO=off` removes it entirely.
   offline; a test enforces that no frontend file names an external origin.
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt   # runtime + pytest
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000   # http://127.0.0.1:8000
 .\.venv\Scripts\python.exe -m pytest -q
 

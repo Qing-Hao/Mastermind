@@ -1,0 +1,9 @@
+# Everything needed to run the suite on a developer machine.
+#
+# Separate from `requirements.txt` because the Dockerfile installs that one, and
+# a test runner in a served image is weight nobody runs. `httpx` is not here: the
+# app itself imports it for the OIDC code exchange, so it belongs in the runtime
+# file even though `TestClient` also uses it.
+-r requirements.txt
+
+pytest==9.1.1

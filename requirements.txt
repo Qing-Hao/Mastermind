@@ -1,12 +1,20 @@
-fastapi>=0.115
-uvicorn[standard]>=0.32
-pytest>=8.0
-httpx>=0.27
+# Runtime only. Test-only dependencies live in `requirements-dev.txt`, which
+# installs this file first -- the image never carries them.
+#
+# Pinned exactly, and deliberately: this file is installed into an image that may
+# be rebuilt months after it was last verified, and a `>=` there means the rebuild
+# is a different application from the one that was tested. Bump a line on purpose,
+# then run the suite.
+fastapi==0.141.1
+uvicorn[standard]==0.52.1
+# The OIDC code exchange in `app/auth.py`. Also what `TestClient` runs on, so it
+# is a runtime dependency that the tests happen to share -- not a test dependency.
+httpx==0.28.1
 # The sprint editor renders markdown blocks server-side. Not optional, unlike
 # requirements-ai.txt: the Sprint tab cannot draw a file without them.
-markdown-it-py>=4.2
-mdit-py-plugins>=0.6.1
+markdown-it-py==4.2.0
+mdit-py-plugins==0.6.1
 # Reads `.env` on a developer machine -- see `app/config.py`. Already installed
 # either way: `uvicorn[standard]` above depends on it. Named here because the app
 # imports it directly, and a transitive dependency is not a promise.
-python-dotenv>=1.0
+python-dotenv==1.2.2
