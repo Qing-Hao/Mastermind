@@ -21,7 +21,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import auth, db
+from app import auth, config, db
 from app.markdown import (
     SpliceRefused,
     document_blocks,
@@ -57,6 +57,11 @@ from app.validation import (
     validate_plan,
     validate_portfolio,
 )
+
+# At import rather than in `lifespan`, so anything reading the environment during
+# module setup sees the file too. It never overwrites a variable already set, and
+# it does nothing under pytest -- see `app/config.py`.
+config.load_env()
 
 # Projects that occupy real time. An idea has not been committed to, so it is
 # kept off the portfolio timeline.
