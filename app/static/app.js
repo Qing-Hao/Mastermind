@@ -246,7 +246,13 @@ let state = {
     // from. `table` is the same promise one construct down, for a cell write.
     disk: null,
     // clean | dirty | saving | saved | failed
-    status: "clean", error: "",
+    //
+    // `refusals` counts 409s in a row, and only a landed write clears it. A
+    // refusal usually makes the next attempt land -- the file has been adopted,
+    // so what it was refused for is what this page now quotes -- but a run of
+    // blocks two places in the file say word for word is refused however often
+    // it is asked, and a timer retrying that would ask forever.
+    status: "clean", error: "", refusals: 0,
     // Which block is being typed in, which line of it when that block is a list
     // -- null for every other type, which is edited whole -- and the text in that
     // box if a commit failed and it is being kept rather than thrown away.

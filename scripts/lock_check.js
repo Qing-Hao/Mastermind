@@ -132,7 +132,7 @@ function load() {
     state, sprintCellField, sprintLocked, sprintTableHeld, setSprintLocked,
     lockField, releaseField, copyGrid, diskBlocks, sameGridShape, changedCells,
     sprintCellWrites, sprintSplices, currentPlace, SPRINT_UNSAVED,
-    applyRemoteSprintCells,
+    applyRemoteSprintCells, refuseSprintWrite, SPRINT_REFUSAL_LIMIT,
   };`;
 
   vm.runInContext(
@@ -322,6 +322,50 @@ function run() {
 
   check("a refused write is no longer a state the editor sits in",
     !probe.SPRINT_UNSAVED.has("conflict"));
+
+  // A refusal takes the file as it stands and keeps saving. What stops it is a
+  // run of them: a splice two places in the file answer word for word is refused
+  // however often it is asked, and a timer retrying that would ask forever.
+  const refusal = (text) => ({
+    status: 409,
+    message: text,
+    detail: { current: { mtime: 9, blocks: [{ index: 0, type: "paragraph", raw: "theirs", gap: "\n\n" }] } },
+  });
+
+  // Nobody has a caret anywhere, so every block takes the file's version -- the
+  // answer a project field gives, and the reason nothing is left owed after it.
+  state.sprint.editing = null;
+  state.sprint.blocks = [{ index: 0, type: "paragraph", raw: "mine", gap: "\n\n" }];
+  state.sprint.disk = probe.diskBlocks([{ raw: "was", gap: "\n\n" }]);
+  state.sprint.refusals = 0;
+  probe.refuseSprintWrite(refusal("Somebody got there first."));
+  check("a refusal takes the file as it stands", state.sprint.mtime === 9);
+  check("a block nobody is in takes their version",
+    state.sprint.blocks[0].raw === "theirs", state.sprint.blocks[0].raw);
+  check("so nothing is left owed", state.sprint.status === "saved", state.sprint.status);
+  check("and the run is cleared", state.sprint.refusals === 0);
+
+  // A block with a caret in it keeps what is being typed, so this page still
+  // owes a write -- and if that write keeps being refused, the retrying stops.
+  state.sprint.refusals = 0;
+  state.sprint.editing = 0;
+  for (let attempt = 1; attempt <= probe.SPRINT_REFUSAL_LIMIT; attempt += 1) {
+    state.sprint.blocks = [{ index: 0, type: "paragraph", raw: "still mine", gap: "\n\n" }];
+    state.sprint.disk = probe.diskBlocks([{ raw: "theirs", gap: "\n\n" }]);
+    probe.refuseSprintWrite(refusal("Somebody got there first."));
+    if (attempt === 1) {
+      check("the block being typed in keeps what is in it",
+        state.sprint.blocks[0].raw === "still mine", state.sprint.blocks[0].raw);
+    }
+    if (attempt < probe.SPRINT_REFUSAL_LIMIT) {
+      check(`refusal ${attempt} keeps saving`, state.sprint.status === "dirty",
+        state.sprint.status);
+    }
+  }
+  check("a run of refusals stops retrying and says so",
+    state.sprint.status === "failed", state.sprint.status);
+  check("and the message is the one the server gave",
+    state.sprint.error === "Somebody got there first.", state.sprint.error);
 }
 
 try {

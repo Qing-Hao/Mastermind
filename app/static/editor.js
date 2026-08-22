@@ -168,6 +168,7 @@ async function loadSprintFile(number) {
     mtime: payload.mtime,
     status: "clean",
     error: "",
+    refusals: 0,
     editing: null,
     editingLine: null,
     draft: null,
@@ -210,7 +211,8 @@ function resetSprint() {
   clearTimeout(sprintSaveTimer);
   Object.assign(state.sprint, {
     number: null, name: "", blocks: [], disk: null, mtime: null,
-    status: "clean", error: "", editing: null, editingLine: null, draft: null,
+    status: "clean", error: "", refusals: 0,
+    editing: null, editingLine: null, draft: null,
   });
 }
 
@@ -4274,6 +4276,9 @@ async function saveSprint() {
     if (sprint.number !== number) return;
     sprint.status = "saved";
     sprint.error = "";
+    // A landed write is what makes the next refusal a fresh one rather than the
+    // fourth of a run that is going nowhere.
+    sprint.refusals = 0;
   } catch (failure) {
     if (sprint.number !== number) return;
     if (failure.status === 409) refuseSprintWrite(failure);
@@ -4327,9 +4332,18 @@ async function refreshSprintFiles() {
 // answer to the event a project field answers with a toast and a redraw, and one
 // tool should not have two answers to one thing. The guard itself is unchanged:
 // nothing is merged, and nothing overwrites a value it did not quote back.
+// How many refusals in a row before this stops retrying by itself. Adopting the
+// file usually makes the next attempt land, because what it was refused for is
+// now what this page is quoting -- but not always: a run of blocks that two
+// places in the file say word for word is `ambiguous` however often it is asked,
+// and a timer retrying that would ask forever. Then it stops, says so, and the
+// Retry button and the next keystroke are both still there.
+const SPRINT_REFUSAL_LIMIT = 3;
+
 function refuseSprintWrite(failure) {
   const sprint = state.sprint;
   const current = failure.detail && failure.detail.current;
+  sprint.refusals += 1;
   if (current && Array.isArray(current.blocks)) {
     sprint.mtime = current.mtime;
     adoptSprintBlocks(current.blocks, failure.message);
@@ -4339,9 +4353,20 @@ function refuseSprintWrite(failure) {
     showToast(failure.message);
     reloadSprintFromDisk();
   }
-  sprint.error = "";
-  if (sprintOwesAWrite()) scheduleSprintSave();
-  else sprint.status = "saved";
+
+  if (!sprintOwesAWrite()) {
+    sprint.status = "saved";
+    sprint.error = "";
+    sprint.refusals = 0;
+    return;
+  }
+  if (sprint.refusals < SPRINT_REFUSAL_LIMIT) {
+    sprint.error = "";
+    scheduleSprintSave();
+    return;
+  }
+  sprint.status = "failed";
+  sprint.error = failure.message;
 }
 
 function sprintOwesAWrite() {
@@ -4370,10 +4395,14 @@ function renderSprintStatus() {
 
   if (sprint.status === "failed") {
     const retry = element("button", "save-action", "Retry");
-    retry.onclick = saveSprint;
+    retry.onclick = () => {
+      // Pressing it is a deliberate act, so it also buys back the automatic
+      // attempts a run of refusals used up.
+      sprint.refusals = 0;
+      saveSprint();
+    };
     bar.append(element("span", "muted", sprint.error), retry);
   }
-
 }
 
 function sprintHasUnsavedWork() {
