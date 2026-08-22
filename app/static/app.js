@@ -239,12 +239,13 @@ let state = {
   // a read or a successful write.
   sprint: {
     files: [], number: null, name: "", blocks: [], mtime: null,
-    // What the server last said is on disk, as `{raw, gap}`. A save quotes its
-    // blocks as the run it expects to replace, so it is never the live `blocks`
-    // above: an inline surface respells the block it is typed in, and a write
-    // naming what this page holds would be refused by the file it came from.
+    // What the server last said is on disk, as `{raw, gap, table}`. A save quotes
+    // its blocks as the run it expects to replace, so it is never the live
+    // `blocks` above: an inline surface respells the block it is typed in, and a
+    // write naming what this page holds would be refused by the file it came
+    // from. `table` is the same promise one construct down, for a cell write.
     disk: null,
-    // clean | dirty | saving | saved | failed | conflict
+    // clean | dirty | saving | saved | failed
     status: "clean", error: "",
     // Which block is being typed in, which line of it when that block is a list
     // -- null for every other type, which is edited whole -- and the text in that
@@ -7827,6 +7828,10 @@ function handleLiveMessage(message) {
     // inside it. That is the whole point of the block API: an edit of theirs
     // elsewhere in the file is not a conflict with an edit of yours.
     if (message.splice && applyRemoteSprintSplice(message)) return;
+    // A cell write refused by the line above, because the block it replaced is a
+    // block this page is inside. Two people in one table is exactly what the
+    // cell door was cut for, so it merges by cell rather than falling through.
+    if (message.splice && applyRemoteSprintCells(message)) return;
     // Unsaved work in the open file is answered on the spot, by the save bar,
     // and nothing is re-read -- see `liveSprintChanged`.
     if (liveSprintChanged(message.key)) return;
@@ -7921,7 +7926,11 @@ function currentPlace() {
   const holder = active && typeof active.closest === "function"
     ? active.closest("[data-presence]")
     : null;
-  const field = holder ? holder.dataset.presence : "";
+  // Furniture inside a named element claims nothing: a block's rail and a
+  // table's grips are buttons that sit inside the thing they move, and pressing
+  // one is not editing it. `editor.js` stamps the flag.
+  const skip = holder && active.closest("[data-presence-skip]");
+  const field = holder && !skip ? holder.dataset.presence : "";
   const key = state.view === "sprint" ? state.sprint.number : state.currentProjectId;
   return { view: state.view, key: key === undefined ? null : key, field };
 }
@@ -7979,9 +7988,11 @@ function drawPresence() {
     if (!user.field) continue;
     const input = document.querySelector(`[data-presence="${CSS.escape(user.field)}"]`);
     if (!input) continue;
-    const holder = input.closest("td, .sprint-row") || input.parentElement;
+    // `th` for a table's header cells, which are cells like any other and would
+    // otherwise fall through to the whole block.
+    const holder = input.closest("td, th, .sprint-row") || input.parentElement;
     if (!holder) continue;
-    const held = user.holding === user.field && lockable(user.field);
+    const held = user.holding === user.field;
     holder.classList.add("presence-held");
     holder.title = held
       ? `${user.name} is editing this. It frees when they move on.`
@@ -7994,7 +8005,7 @@ function drawPresence() {
     // fields -- the holder is a `section` or a `label` laying its children out in
     // a column, where a floated badge would stretch into a bar. There it goes in
     // the line under the field instead, beside the name.
-    const cell = holder.matches("td, .sprint-row");
+    const cell = holder.matches("td, th, .sprint-row");
     if (cell) holder.appendChild(badge);
     if (!cell || held) {
       const note = element("span", "presence-note");
@@ -8011,38 +8022,43 @@ function drawPresence() {
   watchTakeable();
 }
 
-// **What may be held, and what may not.** Sprint blocks are left alone on
-// purpose: the editor already refuses a conflicting block with a 409 of its own,
-// and a contenteditable that goes read-only under a caret mid-paragraph is a
-// worse trade than the refusal it would save. Ticks are never reached because a
-// checkbox is never stamped -- a deliverable's `done` is its only state, and
-// taking it away would be a scheduling opinion the tool does not get to have.
+// **Everything a caret can be in is holdable, sprint blocks and table cells
+// included** *(changed 2026-08-22 -- they were the exception, and PLAN-multi-user
+// B6 carries the argument that was revisited)*. A block is a box like a field is
+// a box; the difference was that the editor answered a collision with a wall
+// saying "Changed on disk", and it no longer does -- a refused write is a toast
+// and a re-read now, the same answer the roadmap's rows have always given.
+//
+// Ticks are still never reached, because a checkbox is never stamped: a
+// deliverable's `done` is its only state, and taking it away would be a
+// scheduling opinion the tool does not get to have.
 //
 // A box **you** have the caret in is not an exception, and that is deliberate:
 // the two cases where it happens are somebody taking a field off you after you
 // went quiet, and losing the race for a box two people clicked at once. Both are
 // exactly what the read-only edge and the line under it are there to say. Your
-// text is never touched -- `readOnly` refuses keystrokes and nothing else.
-function lockable(field) {
-  return !field.startsWith("sprint:");
-}
+// text is never touched -- a lock refuses keystrokes and nothing else.
 
 // `readOnly` rather than `disabled` wherever it exists: a disabled field leaves
 // the tab order and stops being selectable, and the text somebody else is typing
 // is often the thing you opened the row to read. A `select` has no `readOnly`, so
-// that one is disabled.
-function lockField(input) {
-  input.classList.add("presence-locked");
-  if (input.tagName === "SELECT") input.disabled = true;
-  else input.readOnly = true;
+// that one is disabled. A sprint block and a table cell have neither, so those
+// go to `editor.js`, which knows what a locked one refuses.
+function lockField(node) {
+  node.classList.add("presence-locked");
+  if (node.matches(".sprint-row, .sprint-cell-host")) setSprintLocked(node, true);
+  else if (node.tagName === "SELECT") node.disabled = true;
+  else node.readOnly = true;
 }
 
 // The way out. Hidden until the holder has been quiet for `HOLD_IDLE_MS`, which
 // is the whole reason a hold cannot strand anybody.
 function takeButton(input, user, note, cell) {
   // One word in a table cell, where the button sits over the input's own text and
-  // every character of it covers a character of theirs.
-  const take = element("button", "presence-take", cell ? "Take" : "Take the field");
+  // every character of it covers a character of theirs. A block has the room for
+  // a sentence and needs it: what is being taken is a paragraph, not a box.
+  const take = element("button", "presence-take",
+    input.matches(".sprint-row") ? "Take the block" : cell ? "Take" : "Take the field");
   take.type = "button";
   take.title = `Take this field from ${user.name}`;
   // When the button may appear: what the server said was left of the wait, plus
@@ -8057,15 +8073,20 @@ function takeButton(input, user, note, cell) {
     // the time it takes to arrive.
     releaseField(input);
     note.remove();
-    input.focus();
+    // A cell opens by being clicked, and that is the gesture rather than a
+    // second way in. A field takes the caret directly; a block is left as it is,
+    // so the take does not also decide where in the paragraph you meant to be.
+    if (input.matches(".sprint-cell-host")) input.click();
+    else input.focus();
   };
   return take;
 }
 
-function releaseField(input) {
-  input.classList.remove("presence-locked");
-  if (input.tagName === "SELECT") input.disabled = false;
-  else input.readOnly = false;
+function releaseField(node) {
+  node.classList.remove("presence-locked");
+  if (node.matches(".sprint-row, .sprint-cell-host")) setSprintLocked(node, false);
+  else if (node.tagName === "SELECT") node.disabled = false;
+  else node.readOnly = false;
 }
 
 function releaseHolds() {
@@ -8301,6 +8322,10 @@ async function loadRuleSummary() {
 
 bindEvents();
 watchPresence();
+// The other half of presence: what a block or a cell somebody else is in
+// refuses. Capture-phase and delegated on the document, so it is armed before
+// the Sprint tab has drawn anything.
+watchSprintLocks();
 watchTheClock();
 // Before the first load, so the sidebar is already the width it was left at when
 // the charts measure their container -- `weekGrid` fits its columns to that

@@ -2,7 +2,8 @@
 //
 // Its own file rather than more of app.js, which is already 2,800 lines. Loaded
 // before app.js, so everything here is defined by the time app.js boots; it
-// reads `state`, `api`, `$` and `element` from there, and touches none of them
+// reads `state`, `api`, `$`, `element`, `showToast` and the presence helpers
+// (`sprintPresenceScope`, `announceHere`) from there, and touches none of them
 // until something calls in.
 //
 // Three things about it are load-bearing:
@@ -34,11 +35,16 @@ const SPRINT_STATUS_TEXT = {
   saving: "Saving…",
   saved: "Saved",
   failed: "Save failed",
-  conflict: "Changed on disk",
 };
 
 // A save is only worth blocking a page unload for while it has not landed.
-const SPRINT_UNSAVED = new Set(["dirty", "saving", "failed", "conflict"]);
+//
+// There is no `conflict` here any more *(changed 2026-08-22)*. A write refused
+// because somebody got there first is news rather than a state: the file is
+// taken as it stands, a toast says whose value won, and autosave carries on --
+// see `refuseSprintWrite`. What used to be a mode with a reload button in it is
+// now the answer a project field has always given.
+const SPRINT_UNSAVED = new Set(["dirty", "saving", "failed"]);
 
 let sprintSaveTimer = null;
 
@@ -1923,6 +1929,9 @@ function sprintTag(block) {
 
 function sprintRail(block, index, row) {
   const rail = element("div", "sprint-rail");
+  // Chrome, not content: pressing the grip is not editing the block, so it must
+  // not claim the block's hold. `currentPlace` skips anything under this flag.
+  rail.dataset.presenceSkip = "1";
   rail.appendChild(element("span", "sprint-tag", sprintTag(block)));
 
   const grip = element("button", "grip-handle", "⠿");
@@ -2800,6 +2809,9 @@ function sprintTable(block, index) {
   table.appendChild(cols);
 
   const grips = element("tr", "sprint-colgrips");
+  // The same flag the block's rail carries: a grip is furniture, and taking a
+  // hold on the table by pressing one would lock a grid nobody is typing in.
+  grips.dataset.presenceSkip = "1";
   grips.appendChild(element("th", "sprint-corner"));
   grid.head.forEach((_, column) => {
     const cell = element("th", "sprint-colgrip");
@@ -2814,7 +2826,9 @@ function sprintTable(block, index) {
   const head = element("tr");
   // The header row gets no grip: GFM has no table without a header row, so it can
   // neither be moved nor removed. Its cells are reordered by moving the columns.
-  head.appendChild(element("th", "sprint-gutter"));
+  const corner = element("th", "sprint-gutter");
+  corner.dataset.presenceSkip = "1";
+  head.appendChild(corner);
   grid.head.forEach((_, column) => {
     head.appendChild(sprintCellHost(block, index, -1, column));
   });
@@ -2825,6 +2839,7 @@ function sprintTable(block, index) {
   grid.rows.forEach((row, r) => {
     const tr = element("tr");
     const gutter = element("td", "sprint-gutter");
+    gutter.dataset.presenceSkip = "1";
     gutter.appendChild(gridGrip(block, index, "row", r, tr));
     tr.appendChild(gutter);
     row.forEach((_, column) => {
@@ -3027,6 +3042,10 @@ function sprintCellHost(block, index, r, column) {
   // The class is what tells the cursor apart from the gutter and grip cells,
   // which are the same two tags and are not "click here to type".
   const host = element(r === -1 ? "th" : "td", "sprint-cell-host");
+  // What presence names this cell by, and the reason a table is the one block
+  // two people can be inside at once: the nearest `[data-presence]` above the
+  // caret is the cell, so the block's own key is never claimed from in here.
+  host.dataset.presence = sprintCellField(index, r, column);
   host.title = "Click to edit";
   host.onclick = (event) => {
     // A table lives inside a `.sprint-row` with drag handlers of its own.
@@ -3636,8 +3655,12 @@ function gridGrip(block, index, kind, position, target) {
   grip.type = "button";
   grip.title = `Drag to move this ${what} · click to insert or delete`;
   grip.setAttribute("aria-label", `This ${what}`);
-  grip.onmousedown = () => { target.draggable = true; };
+  grip.onmousedown = () => { target.draggable = !sprintTableHeld(index); };
   grip.onclick = () => {
+    // Moving or deleting a row is structure, so it waits the same way the
+    // `+ Row` button does. Opening the menu at all would offer a gesture that
+    // then refuses itself.
+    if (refuseWhileHeld(index)) return;
     // Disarmed again, because a click is not a drag: a completed drag ends in
     // `ondragend`, but a click that only opened the menu would leave the row
     // draggable, and the next press *in one of its cells* would drag it instead of
@@ -3844,6 +3867,10 @@ function sprintTableTools(block, index) {
   const tools = element("div", "sprint-table-tools");
 
   const change = (apply) => () => {
+    // A row or a column arriving renumbers every cell below or right of it, so
+    // this waits for the cells somebody else is in -- unlike typing in a cell,
+    // which is exactly what a cell write is addressed to survive.
+    if (refuseWhileHeld(index)) return;
     apply();
     tableEdited(block);
     renderSprintDocument();
@@ -3992,7 +4019,21 @@ const DEFAULT_GAP = "\n\n";
 
 const blockGap = (block) => block.gap ?? DEFAULT_GAP;
 
-const diskBlocks = (blocks) => blocks.map((block) => ({ raw: block.raw, gap: blockGap(block) }));
+// A copy, never the live grid: a cell being typed in mutates `block.table` in
+// place, and what the disk snapshot has to keep saying is what the file says.
+const copyGrid = (grid) => ({
+  head: grid.head.slice(),
+  align: (grid.align || []).slice(),
+  rows: grid.rows.map((row) => row.slice()),
+});
+
+const diskBlocks = (blocks) => blocks.map((block) => ({
+  raw: block.raw,
+  gap: blockGap(block),
+  // Only a table has one, and only a table needs one: it is what a cell write
+  // quotes back as the text it believes it is replacing.
+  table: block.table ? copyGrid(block.table) : null,
+}));
 
 const sameSprintBlock = (one, two) => one.raw === two.raw && blockGap(one) === blockGap(two);
 
@@ -4058,8 +4099,129 @@ async function writeSprintSplices(number) {
       }),
     });
     if (sprint.number !== number) return;
-    sprint.mtime = landed.mtime;
-    sprint.disk = diskBlocks(landed.blocks);
+    adoptLandedWrite(landed);
+  }
+}
+
+// --- writing cells ------------------------------------------------------------
+//
+// **A table is the one block two people can be inside at once**, so it is the one
+// block a save does not rewrite whole. What goes to `PATCH .../cells` is the
+// cells this page actually changed, each quoting the text the file last said --
+// and the reply is the other person's table with those cells in it.
+//
+// The fallback is deliberate and is the whole shape of the feature: anything
+// structural -- a row or a column arriving or leaving, an alignment change --
+// moves what every other cell is addressed by, so it goes back to being a
+// whole-block splice.
+
+const sameCellText = (one, other) => cellText(one) === cellText(other);
+
+function sameGridShape(was, now) {
+  return was.rows.length === now.rows.length
+    && was.head.length === now.head.length
+    && now.rows.every((row, r) => row.length === was.rows[r].length)
+    && (was.align || []).join(" ") === (now.align || []).join(" ");
+}
+
+function changedCells(was, now) {
+  const cells = [];
+  was.head.forEach((value, column) => {
+    if (!sameCellText(value, now.head[column])) {
+      cells.push({ r: -1, c: column, expect: value, text: now.head[column] });
+    }
+  });
+  was.rows.forEach((row, r) => row.forEach((value, column) => {
+    if (!sameCellText(value, now.rows[r][column])) {
+      cells.push({ r, c: column, expect: value, text: now.rows[r][column] });
+    }
+  }));
+  return cells;
+}
+
+// What one save owes as cells rather than as blocks. A table whose shape moved is
+// left out and reaches `sprintSplices` as an ordinary changed block.
+function sprintCellWrites(disk, live) {
+  const writes = [];
+  const count = Math.min(disk.length, live.length);
+  for (let at = 0; at < count; at += 1) {
+    const was = disk[at].table;
+    const now = live[at] && live[at].table;
+    if (!was || !now || !sameGridShape(was, now)) continue;
+    const cells = changedCells(was, now);
+    if (cells.length) writes.push({ at, head: was.head.slice(), cells });
+  }
+  return writes;
+}
+
+async function writeSprintCells(number, writes) {
+  const sprint = state.sprint;
+  for (const write of writes) {
+    const landed = await api(`${sprintEndpoint(number)}/cells`, {
+      method: "PATCH",
+      body: JSON.stringify(write),
+    });
+    if (sprint.number !== number) return;
+    const at = landed.at;
+    adoptLandedWrite(landed);
+    // The table the file now holds is this page's cells **and** anybody else's,
+    // so it is taken back rather than kept: without this the next diff would
+    // send their cell back as a change of ours.
+    adoptLandedGrid(at, landed.blocks[at], write.cells);
+  }
+}
+
+// The file as the write left it, adopted as the new `disk`. The live blocks are
+// left alone -- one of them may be open under a caret -- except when the write
+// found the document a different length than this page thinks it is, which means
+// somebody added or removed a block while this save was in flight. There the
+// live copy is stale in a way no diff can express, so it is re-read whole.
+function adoptLandedWrite(landed) {
+  const sprint = state.sprint;
+  sprint.mtime = landed.mtime;
+  sprint.disk = diskBlocks(landed.blocks);
+  if (landed.blocks.length === sprint.blocks.length) return;
+  adoptSprintBlocks(landed.blocks,
+    "The file changed shape while you were editing, so it was re-read.");
+}
+
+// One table, brought back into step with the file after a cell write of ours.
+// The cells this page just sent keep whatever is in them now -- somebody typing
+// on is not something to undo -- and every other cell takes the file's value.
+function adoptLandedGrid(at, landed, sent) {
+  const block = state.sprint.blocks[at];
+  if (!block || !block.table || !landed || !landed.table) return;
+  if (!sameGridShape(block.table, landed.table)) return;
+
+  const mine = new Set(sent.map((cell) => `${cell.r}:${cell.c}`));
+  const moved = [];
+  const consider = (r, column, value) => {
+    if (mine.has(`${r}:${column}`)) return;
+    if (sameCellText(cellValue(block.table, r, column), value)) return;
+    writeCell(block.table, r, column, value);
+    moved.push({ r, c: column });
+  };
+  landed.table.head.forEach((value, column) => consider(-1, column, value));
+  landed.table.rows.forEach((row, r) => row.forEach((value, column) => consider(r, column, value)));
+
+  block.raw = landed.raw;
+  block.html = landed.html;
+  block.tableEdited = false;
+  if (moved.length) repaintSprintCells(at, moved);
+}
+
+// Redraw the cells that moved, and nothing else. A cell that is open is skipped:
+// its caret owns it, and the grid behind it already holds the new value.
+function repaintSprintCells(at, cells) {
+  const node = $("sprint-document").children[at];
+  const block = state.sprint.blocks[at];
+  if (!node || !block || !block.table) return;
+  for (const { r, c } of cells) {
+    const view = node.querySelector(`.sprint-cell-view[data-r="${r}"][data-c="${c}"]`);
+    if (!view) continue;
+    const fresh = sprintCellView(block, at, r, c);
+    view.replaceWith(fresh);
+    flashArrival(fresh);
   }
 }
 
@@ -4078,8 +4240,7 @@ async function writeSprintWholeFile(number) {
 
 function scheduleSprintSave() {
   const sprint = state.sprint;
-  // Nothing is written over a file that changed on disk, including by a timer.
-  if (sprint.status === "conflict" || sprint.number === null) return;
+  if (sprint.number === null) return;
   clearTimeout(sprintSaveTimer);
   sprint.status = "dirty";
   renderSprintStatus();
@@ -4088,7 +4249,7 @@ function scheduleSprintSave() {
 
 async function saveSprint() {
   const sprint = state.sprint;
-  if (sprint.number === null || sprint.status === "conflict") return;
+  if (sprint.number === null) return;
   clearTimeout(sprintSaveTimer);
 
   const number = sprint.number;
@@ -4096,7 +4257,15 @@ async function saveSprint() {
   renderSprintStatus();
 
   try {
-    // Grids become markdown first, so what is written below is never stale.
+    // Cells first, and before the grids are serialised: a table written cell by
+    // cell has its `raw` adopted from the reply, so serialising it here would
+    // only produce a block splice that undid somebody else's cell.
+    if (sprint.disk) {
+      await writeSprintCells(number, sprintCellWrites(sprint.disk, sprint.blocks));
+      if (sprint.number !== number) return;
+    }
+    // Whatever grid is still flagged becomes markdown, so what is written below
+    // is never stale. A table that changed shape is one of these.
     await serialiseEditedTables();
     if (sprint.number !== number) return;
     if (sprint.disk) await writeSprintSplices(number);
@@ -4107,14 +4276,11 @@ async function saveSprint() {
     sprint.error = "";
   } catch (failure) {
     if (sprint.number !== number) return;
-    // 409: someone else -- you, in an editor -- wrote the file since it was
-    // read, or the block this was about is no longer where it was. Autosaving
-    // stops here, and neither the mtime nor `disk` is updated to what the
-    // refusal carried: adopting it would arm the next save to overwrite the
-    // very change this refused to. The reload button is the only way forward,
-    // exactly as it was before a save could name one block.
-    sprint.status = failure.status === 409 ? "conflict" : "failed";
-    sprint.error = failure.message;
+    if (failure.status === 409) refuseSprintWrite(failure);
+    else {
+      sprint.status = "failed";
+      sprint.error = failure.message;
+    }
   }
   renderSprintStatus();
   if (sprint.status === "saved") await refreshSprintFiles();
@@ -4151,6 +4317,50 @@ async function refreshSprintFiles() {
   renderSprintScope();
 }
 
+// **A refused write is news, not a mode.** Somebody wrote the block or the cell
+// this save was about before it landed, so the file already holds their version:
+// it is taken as it stands, said out loud, and autosave carries on. Whatever
+// this page still owes goes out on the next debounce.
+//
+// What this replaces was a wall -- `Changed on disk`, autosave stopped, and a
+// reload button that threw the unsaved session away. It was the Sprint tab's
+// answer to the event a project field answers with a toast and a redraw, and one
+// tool should not have two answers to one thing. The guard itself is unchanged:
+// nothing is merged, and nothing overwrites a value it did not quote back.
+function refuseSprintWrite(failure) {
+  const sprint = state.sprint;
+  const current = failure.detail && failure.detail.current;
+  if (current && Array.isArray(current.blocks)) {
+    sprint.mtime = current.mtime;
+    adoptSprintBlocks(current.blocks, failure.message);
+  } else {
+    // A whole-file `PUT` refuses with the mtime and no blocks, so there is
+    // nothing to adopt and the file is re-read instead.
+    showToast(failure.message);
+    reloadSprintFromDisk();
+  }
+  sprint.error = "";
+  if (sprintOwesAWrite()) scheduleSprintSave();
+  else sprint.status = "saved";
+}
+
+function sprintOwesAWrite() {
+  const sprint = state.sprint;
+  if (!sprint.disk) return true;
+  return sprintCellWrites(sprint.disk, sprint.blocks).length > 0
+    || sprintSplices(sprint.disk, sprint.blocks).length > 0;
+}
+
+async function reloadSprintFromDisk() {
+  const number = state.sprint.number;
+  try {
+    await loadSprintFile(number);
+  } catch (_) {
+    return;   // The next message, or the next save, comes back to it.
+  }
+  if (state.sprint.number === number) renderSprintView();
+}
+
 function renderSprintStatus() {
   const sprint = state.sprint;
   const bar = $("sprint-status");
@@ -4164,41 +4374,31 @@ function renderSprintStatus() {
     bar.append(element("span", "muted", sprint.error), retry);
   }
 
-  if (sprint.status === "conflict") {
-    const reload = element("button", "save-action", "Reload from disk");
-    reload.onclick = async () => {
-      if (!confirm(`${sprint.name} changed on disk. Reload it and lose the edits `
-        + "this page has not saved?")) return;
-      await loadSprintFile(sprint.number);
-      renderSprintView();
-    };
-    bar.append(element("span", "muted", sprint.error), reload);
-  }
 }
 
 function sprintHasUnsavedWork() {
   return SPRINT_UNSAVED.has(state.sprint.status);
 }
 
-// Somebody else wrote the file this page has open. **The contract this tab has
-// always had holds: never overwrite work that has not been saved.**
+// Somebody else wrote the file this page has open, in a way no splice could
+// repeat -- a whole-file save, a tick pushed into it, a block run this page does
+// not hold the text of. **The contract this tab has always had holds: never
+// overwrite work that has not been saved.**
 //
 // So there are two answers, and this function is only the second one. A clean
-// file is re-read like any other view, by the caller. A file with unsaved work is
-// not re-read at all -- it raises the save bar's existing `Changed on disk` state
-// and stops autosaving, which is what a stale mtime does today at the next save.
-// Same bar, same button, same refusal to decide whose version wins; it simply
-// arrives when the file changes rather than minutes later when a save is refused.
+// file is re-read like any other view, by the caller. A file with unsaved work
+// **writes it now** rather than waiting out the debounce: what does not collide
+// lands, what does is refused and answered by `refuseSprintWrite`, and either
+// way this page ends up holding the file as it stands. Nothing is decided here
+// about whose version wins, which is the same refusal to decide the wall made --
+// it just no longer costs the session.
 //
 // Returns true when it has dealt with the message and nothing else should.
 function liveSprintChanged(key) {
   const sprint = state.sprint;
   if (sprint.number === null || sprintFileKey(key) !== sprint.number) return false;
   if (!sprintHasUnsavedWork()) return false;
-  clearTimeout(sprintSaveTimer);
-  sprint.status = "conflict";
-  sprint.error = `${sprint.name} changed on disk.`;
-  renderSprintStatus();
+  saveSprint();
   return true;
 }
 
@@ -4285,20 +4485,115 @@ function applyRemoteSprintSplice(message) {
   return true;
 }
 
+// Somebody else's **cell** write, arriving. The splice above is tried first and
+// covers the case where nothing of this page's is in that table; this is the case
+// the cell write exists for -- their cell and yours in one grid, which the splice
+// path has to refuse because the block it replaces is a block this page is in.
+//
+// Applied cell by cell into the live grid. A cell **you** have an unsaved change
+// in takes their value too and says so: that is the answer a project field
+// gives, and after the hold on the cell it takes a deliberate Take to reach at
+// all.
+function applyRemoteSprintCells(message) {
+  const sprint = state.sprint;
+  const splice = message.splice;
+  if (sprint.number === null || sprintFileKey(message.key) !== sprint.number) return false;
+  if (!sprint.disk || !splice || !Array.isArray(splice.cells) || !splice.cells.length) return false;
+  const landed = splice.blocks && splice.blocks[0];
+  if (!landed || !landed.table || !Array.isArray(splice.expect)) return false;
+
+  // Which block that is here: named by the text it replaced, the way a splice
+  // is placed. Not by `at` -- the two documents may be numbered differently.
+  const at = sprint.disk.findIndex((block) => block.raw === splice.expect[0]);
+  if (at < 0) return false;
+  const block = sprint.blocks[at];
+  const was = sprint.disk[at].table;
+  if (!block || !block.table || !was) return false;
+  // A shape this page does not share is not a grid these coordinates address.
+  if (!sameGridShape(block.table, landed.table) || !sameGridShape(was, block.table)) return false;
+
+  const mine = new Set(changedCells(was, block.table).map((cell) => `${cell.r}:${cell.c}`));
+  let over = 0;
+  for (const cell of splice.cells) {
+    if (mine.has(`${cell.r}:${cell.c}`)) over += 1;
+    closeSprintCell(at, cell.r, cell.c);
+    writeCell(block.table, cell.r, cell.c, cell.text);
+  }
+
+  block.raw = landed.raw;
+  block.html = landed.html;
+  // Every remaining edit of this page's is a cell, and the next save finds it by
+  // diffing the grids -- so the flag that would re-serialise the whole table,
+  // and write their cell back out as ours, comes off.
+  block.tableEdited = false;
+  sprint.disk[at] = { raw: landed.raw, gap: sprint.disk[at].gap, table: copyGrid(landed.table) };
+  sprint.mtime = message.mtime;
+
+  repaintSprintCells(at, splice.cells);
+  if (over) {
+    showToast("Somebody else wrote a cell you had unsaved changes in. The file holds theirs.");
+  }
+  return true;
+}
+
+// A cell open for editing when somebody else's value lands in it. Blurred rather
+// than replaced under the caret: the blur is the editor's own commit-and-close,
+// so the box goes back to being a view and the grid behind it is what draws.
+function closeSprintCell(at, r, column) {
+  const node = $("sprint-document").children[at];
+  const open = node && node.querySelector(`.sprint-cell[data-r="${r}"][data-c="${column}"]`);
+  if (open && document.activeElement === open) open.blur();
+}
+
 // Replace the rows a splice covers and nothing else: every other row keeps its
 // node, its handlers and -- the point of the exercise -- the caret inside it.
 function repaintSprintRows(at, count) {
+  const rows = [];
+  for (let index = at; index < at + count; index += 1) rows.push(index);
+  repaintSprintIndexes(rows);
+}
+
+// The same, for rows that are not a run: a file re-read after a refusal changed
+// the blocks it changed, wherever they are.
+function repaintSprintIndexes(indexes) {
   const doc = $("sprint-document");
-  for (let index = at; index < at + count; index += 1) {
+  for (const index of indexes) {
     const row = sprintRow(state.sprint.blocks[index], index);
     const old = doc.children[index];
     if (old) doc.replaceChild(row, old);
     else doc.insertBefore(row, doc.querySelector(".sprint-placeholder"));
+    flashArrival(row);
   }
-  flashSprintRows(at, count);
   drawSprintDiagrams(doc);
   // These rows are new nodes, so any badge that was on one is gone with the old.
   drawPresence();
+}
+
+// **The file, taken as it stands.** Reached two ways -- a write refused because
+// somebody got there first, and a landed write that found the document a
+// different shape than this page thought.
+//
+// Every block takes the file's version **except the ones a caret is in**: those
+// hold text somebody is typing, and typing is what overwriting means. That is
+// the answer a project field gives -- the refusal is a toast, the value on
+// screen becomes theirs, and the box you are actually in stays yours.
+function adoptSprintBlocks(fresh, note) {
+  const sprint = state.sprint;
+  const before = sprint.blocks;
+  // Indexes only mean the same thing on both sides while the lengths agree.
+  const keep = fresh.length === before.length ? new Set(openSprintRows()) : new Set();
+  const changed = [];
+
+  sprint.blocks = fresh.map((block, index) => {
+    if (keep.has(index)) return before[index];
+    if (!before[index] || before[index].raw !== block.raw) changed.push(index);
+    return Object.assign({}, block, { index });
+  });
+  sprint.disk = diskBlocks(fresh);
+
+  if (keep.size) repaintSprintIndexes(changed);
+  else renderSprintDocument();
+  if (note) showToast(note);
 }
 
 // Say which blocks moved under you. The same flash a row that changed elsewhere
@@ -4310,6 +4605,89 @@ function flashSprintRows(at, count) {
     const row = doc.children[index];
     if (row) flashArrival(row);
   }
+}
+
+// --- held by somebody else ----------------------------------------------------
+//
+// **A block belongs to the caret that reached it first, and a cell to the caret
+// in that cell.** The rest of the office draws it with a badge and cannot type
+// into it; after `HOLD_IDLE_SECONDS` of nobody typing, the Take button beside it
+// moves the hold. All of that machinery is presence's, in `app.js` -- what is
+// here is the two things it cannot know: which node a hold names, and what a
+// locked node refuses.
+//
+// It is still not a lease. No write consults it, the server refuses nothing on
+// its account, and it dies with the tab that holds it. What it buys is that two
+// people no longer type into one box unaware.
+//
+// The refusal is **one delegated listener** rather than a guard on each gesture.
+// A table alone has cell clicks, line checkboxes, grips, menus and a paste path;
+// a guard per gesture is a guard somebody adds a gesture next to.
+const SPRINT_LOCK_REFUSED = ["mousedown", "click", "keydown", "dragstart", "paste", "beforeinput"];
+
+function watchSprintLocks() {
+  for (const kind of SPRINT_LOCK_REFUSED) {
+    document.addEventListener(kind, (event) => {
+      const target = event.target;
+      if (!target || typeof target.closest !== "function") return;
+      if (!target.closest("[data-locked='1']")) return;
+      // A link is there to be followed whoever is typing beside it, the same
+      // exception a cell and a list line already make for one.
+      if (event.type === "click" && target.closest("a")) return;
+      event.preventDefault();
+      event.stopPropagation();
+    }, true);
+  }
+}
+
+// What presence calls one cell. The block's own key with the coordinates on the
+// end, so a cell and the block around it are two unrelated strings -- one person
+// in a cell leaves the rest of the grid open, which is the whole point of it
+// being finer than the block.
+function sprintCellField(index, r, column) {
+  return `${sprintPresenceScope()}:${index}:cell:${r}:${column}`;
+}
+
+// Locked, or inside something locked. A cell carries the flag itself; every
+// other kind of block carries it on the row.
+function sprintLocked(node) {
+  return !!(node && typeof node.closest === "function" && node.closest("[data-locked='1']"));
+}
+
+// Presence has taken this node, or given it back. Called by `lockField` in
+// `app.js`, which is where the same decision is made for a project field.
+//
+// **A hold arriving under an open editor closes it rather than freezing it.** The
+// text is already committed -- every keystroke writes the block or the grid, and
+// autosave is 600ms behind at worst -- so a blur commits nothing new and leaves
+// the box as a view. Deferred out of the render that locked it: committing
+// inside `drawPresence` would re-enter the draw that is still running.
+function setSprintLocked(node, locked) {
+  const was = node.dataset.locked === "1";
+  if (locked) node.dataset.locked = "1";
+  else delete node.dataset.locked;
+  if (!locked || was) return;
+
+  const active = document.activeElement;
+  if (!active || !node.contains(active) || active === node) return;
+  setTimeout(() => {
+    if (node.dataset.locked === "1" && typeof active.blur === "function") active.blur();
+  }, 0);
+}
+
+// Whether anybody else is in a cell of this table. Structure waits for them:
+// adding or removing a row or a column moves what every other cell is addressed
+// by, so it is the one table gesture a cell hold has to refuse.
+function sprintTableHeld(index) {
+  const scope = `${sprintPresenceScope()}:${index}:cell:`;
+  return state.presence.users.some((user) => user.id !== state.presence.me
+    && user.holding && user.holding.startsWith(scope));
+}
+
+function refuseWhileHeld(index) {
+  if (!sprintTableHeld(index)) return false;
+  showToast("Somebody is editing a cell of this table. Its rows and columns are held until they move on.");
+  return true;
 }
 
 // Autosave makes this rare, and rare is exactly when it matters: a failed save

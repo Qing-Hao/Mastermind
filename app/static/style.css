@@ -914,8 +914,9 @@ button:disabled:hover { background: var(--surface); }
 }
 /* Inside a cell it sits at the right-hand edge, over the input's own padding --
    a badge in the flow would reflow the column every time somebody arrived. */
-td.presence-held, .sprint-row.presence-held { position: relative; }
+td.presence-held, th.presence-held, .sprint-row.presence-held { position: relative; }
 td.presence-held > .presence-badge,
+th.presence-held > .presence-badge,
 .sprint-row.presence-held > .presence-badge {
   position: absolute;
   top: 50%;
@@ -930,6 +931,26 @@ td.presence-held select { background: var(--accent-soft); }
 /* Room for the badge, so a long name does not run underneath it. */
 td.presence-held input { padding-right: 26px; }
 .sprint-row.presence-held { background: var(--accent-soft); border-radius: var(--radius); }
+
+/* A sprint block or a table cell somebody else is in. There is no `readOnly` on
+   either -- a block is a `div` and a cell is a `contenteditable` -- so what says
+   "this will not take a keystroke" is the edge and the cursor, and what enforces
+   it is the delegated guard in `editor.js`. Selectable on purpose: the text
+   being typed is usually why you looked. */
+.sprint-cell-host.presence-held { background: var(--accent-soft); }
+.sprint-cell-host.presence-held > .presence-badge { top: 4px; transform: none; }
+.sprint-row.presence-locked,
+.sprint-cell-host.presence-locked {
+  outline: 1px dashed var(--field);
+  outline-offset: -1px;
+  cursor: default;
+}
+.sprint-row.presence-locked .sprint-block,
+.sprint-row.presence-locked .sprint-line,
+.sprint-cell-host.presence-locked .sprint-cell-view { color: var(--ink-3); }
+/* The grips a locked block still draws would otherwise say they can be dragged,
+   and the guard refuses the drag. */
+.sprint-row.presence-locked .sprint-rail { opacity: 0.35; }
 
 /* A field somebody else holds. Readable and selectable -- `readOnly`, not
    `disabled` -- because the text being typed is often the thing you opened the
@@ -966,6 +987,7 @@ textarea.presence-locked:focus {
   color: var(--muted);
 }
 td.presence-held > .presence-note,
+th.presence-held > .presence-note,
 .sprint-row.presence-held > .presence-note {
   position: absolute;
   top: 50%;
@@ -975,7 +997,8 @@ td.presence-held > .presence-note,
 }
 /* The name is already on the badge in a cell, and the cell has no room for it
    twice. */
-td.presence-held > .presence-note > .presence-note-text { display: none; }
+td.presence-held > .presence-note > .presence-note-text,
+th.presence-held > .presence-note > .presence-note-text { display: none; }
 /* Room for the button, but **only once it is showing**: it appears half a minute
    after the badge does, and reserving its width through the countdown would jog
    the text sideways for no reason. Truncating beats a button drawn over the name
