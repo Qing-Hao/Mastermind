@@ -3453,7 +3453,7 @@ def test_late_is_empty_when_nothing_has_slipped(client):
     checkpoint(client, project, target_date="2099-06-01")
 
     payload = client.get("/api/late").json()
-    assert payload == {"groups": [], "count": 0,
+    assert payload == {"groups": [], "count": 0, "ready": [], "ready_count": 0,
                        "as_of": date.today().isoformat()}
 
 
@@ -3474,6 +3474,71 @@ def test_late_falls_silent_when_the_work_closes(client):
 
     client.put(f"/api/milestones/{beta['id']}", json={"achieved": True})
     assert client.get("/api/late").json()["count"] == 0
+
+
+def test_late_carries_the_phases_waiting_to_be_closed(client):
+    """The alert's second list: finished work the plan has not been told about.
+
+    Counted apart from the overdue one, because the bell draws two marks and a
+    slipped date is not the same news as a finished phase.
+    """
+    project = make_project(client, "Payments", start="2099-01-05")
+    phase = make_phase(client, project["id"], "Design", "2099-01-05", 4, 40)
+    first = make_deliverable(client, phase["id"], "Wireframes")
+    second = make_deliverable(client, phase["id"], "Copy")
+
+    payload = client.get("/api/late").json()
+    assert payload["ready_count"] == 0 and payload["ready"] == []
+
+    client.put(f"/api/deliverables/{first['id']}", json={"done": True})
+    assert client.get("/api/late").json()["ready_count"] == 0
+
+    client.put(f"/api/deliverables/{second['id']}", json={"done": True})
+    payload = client.get("/api/late").json()
+    assert payload["count"] == 0 and payload["ready_count"] == 1
+    group = payload["ready"][0]
+    assert group["project_id"] == project["id"] and group["name"] == "Payments"
+    assert group["items"][0]["phase_id"] == phase["id"]
+    assert group["items"][0]["name"] == "Design"
+
+
+def test_ticking_every_deliverable_leaves_the_phase_status_alone(client):
+    """**Rule 4, over HTTP.** The tick reports; only a write closes a phase.
+
+    The alert offers it and the page draws a button; nothing between the tick
+    and the stored status is automatic, which is the whole shape of this feature.
+    """
+    project = make_project(client, "Payments", start="2099-01-05")
+    phase = make_phase(client, project["id"], "Design", "2099-01-05", 4, 40)
+    only = make_deliverable(client, phase["id"], "Wireframes")
+
+    client.put(f"/api/deliverables/{only['id']}", json={"done": True})
+    plan = client.get(f"/api/projects/{project['id']}").json()
+    assert plan["phases"][0]["status"] == "planned"
+    assert client.get("/api/late").json()["ready_count"] == 1
+
+    # The write the button makes, and the row leaves because the plan changed.
+    client.put(f"/api/phases/{phase['id']}", json={"status": "done"})
+    assert client.get("/api/late").json()["ready_count"] == 0
+
+
+def test_a_deliverable_added_after_a_phase_closed_does_not_reopen_it(client):
+    """Nothing repairs. The status stays where somebody put it (non-negotiable 1).
+
+    The page says so on the row -- `done` beside an unticked count -- but the
+    stored value does not move, and this readout does not claim it back either:
+    a closed phase has no button left to offer.
+    """
+    project = make_project(client, "Payments", start="2099-01-05")
+    phase = make_phase(client, project["id"], "Design", "2099-01-05", 4, 40)
+    only = make_deliverable(client, phase["id"], "Wireframes")
+    client.put(f"/api/deliverables/{only['id']}", json={"done": True})
+    client.put(f"/api/phases/{phase['id']}", json={"status": "done"})
+
+    make_deliverable(client, phase["id"], "Copy")
+    plan = client.get(f"/api/projects/{project['id']}").json()
+    assert plan["phases"][0]["status"] == "done"
+    assert client.get("/api/late").json()["ready_count"] == 0
 
 
 def test_the_milestone_tally_rides_on_the_project_list_and_the_portfolio(client):

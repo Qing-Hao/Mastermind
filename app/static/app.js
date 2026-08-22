@@ -290,16 +290,18 @@ let state = {
   // load for the same reason: the picker offers across projects, and the open
   // project is not the whole roadmap.
   allDeliverables: [],
-  // What is past its date, as `/api/late` last answered it. `asOf` is the date
-  // that answer was computed for, which is the only thing that goes stale
-  // without a write to notice: nothing lands at midnight, so a page left open
-  // overnight would hold yesterday's count until somebody typed. See
-  // `watchTheClock`.
+  // What wants attention, as `/api/late` last answered it: `groups` is past its
+  // date, `ready` is finished but still open. `asOf` is the date that answer was
+  // computed for, which is the only thing that goes stale without a write to
+  // notice: nothing lands at midnight, so a page left open overnight would hold
+  // yesterday's count until somebody typed. See `watchTheClock`.
   //
   // Held rather than derived from `state.plan` because the question is about
   // every project and the plan is one -- and it is thrown away on reload like
-  // every other read here. Nothing about it is stored at either end.
-  late: { groups: [], count: 0, asOf: "" },
+  // every other read here. Nothing about it is stored at either end: no page
+  // remembers which of these rows it has already shown you, which is what keeps
+  // the bell a readout. A missed toast costs nothing because of this line.
+  late: { groups: [], count: 0, ready: [], readyCount: 0, asOf: "" },
   // What each rule number means, from `/api/rules`, for the tooltip on a `.rule`
   // chip. Read once at boot: the sentences are a constant, and they live beside
   // the rules in `validation.py` so this page carries no second copy.
@@ -1388,6 +1390,8 @@ async function refreshLate() {
     state.late = {
       groups: payload.groups,
       count: payload.count,
+      ready: payload.ready || [],
+      readyCount: payload.ready_count || 0,
       asOf: payload.as_of,
     };
   } catch (_) {
@@ -1399,25 +1403,44 @@ async function refreshLate() {
   drawLate();
 }
 
-// **Silent when there is nothing late.** Not a grey bell with a zero on it: a
-// plan with nothing past its date is the normal case, and it should say nothing
-// about itself -- the same argument the offline badge beside it makes for being
-// absent while the connection is fine.
+// **Silent when there is nothing to say.** Not a grey bell with a zero on it: a
+// plan with nothing past its date and nothing waiting to be closed is the normal
+// case, and it should say nothing about itself -- the same argument the offline
+// badge beside it makes for being absent while the connection is fine.
+//
+// Two marks, either one enough to show the bell. Amber is late, green is ready
+// to close, and they are never added together: one number for both would make
+// the same red mean a slipped date and a finished phase.
 function drawLate() {
   const bell = $("late-alert");
   const count = $("late-count");
-  const nothing = state.late.count === 0;
+  const ready = $("ready-count");
+  const nothing = state.late.count === 0 && state.late.readyCount === 0;
 
   bell.hidden = nothing;
-  count.hidden = nothing;
+  count.hidden = state.late.count === 0;
+  ready.hidden = state.late.readyCount === 0;
+  // The bell's own amber says "something slipped". With nothing late it would be
+  // saying that about a plan where nothing has, before you opened it.
+  bell.classList.toggle("is-ready-only",
+    state.late.count === 0 && state.late.readyCount > 0);
   if (nothing) {
     closeLate();
     return;
   }
 
   count.textContent = String(state.late.count);
-  bell.title = `${state.late.count} thing${state.late.count === 1 ? "" : "s"}`
-    + " past its date. Nothing here reschedules itself.";
+  ready.textContent = String(state.late.readyCount);
+  bell.title = [
+    state.late.count
+      ? `${state.late.count} thing${state.late.count === 1 ? "" : "s"} past its`
+        + " date. Nothing here reschedules itself."
+      : "",
+    state.late.readyCount
+      ? `${state.late.readyCount} phase${state.late.readyCount === 1 ? "" : "s"}`
+        + " finished but still open. Closing one is your click, not the tool's."
+      : "",
+  ].filter(Boolean).join(" ");
   if (!$("late-panel").hidden) renderLatePanel();
 }
 
@@ -1425,44 +1448,124 @@ function renderLatePanel() {
   const panel = $("late-panel");
   panel.innerHTML = "";
 
+  // Two sections, drawn only when they hold something, and the order is the
+  // order to act in: a slipped date is a decision, a finished phase is a click.
+  if (state.late.count) {
+    lateSection(panel, "Past their date", "pill-warn", state.late.count,
+      state.late.groups, lateRow);
+  }
+  if (state.late.readyCount) {
+    lateSection(panel, "Ready to close", "pill-ready", state.late.readyCount,
+      state.late.ready, readyRow);
+  }
+
+  const foot = element("div", "late-foot",
+    "A row leaves when the date moves, the work closes or the phase is marked"
+    + " done. Nothing here is dismissed or marked read.");
+  panel.appendChild(foot);
+}
+
+// One heading and its project groups. Both sections share this so a group header
+// -- the dot, the name, the milestone tally behind it -- has one spelling; only
+// the row inside differs, which is the only place the two lists disagree.
+function lateSection(panel, title, pillClass, count, groups, drawRow) {
   const head = element("div", "late-head");
-  head.appendChild(element("span", "late-title", "Past their date"));
-  head.appendChild(element("span", "pill pill-warn", String(state.late.count)));
+  head.appendChild(element("span", "late-title", title));
+  head.appendChild(element("span", `pill ${pillClass}`, String(count)));
   head.appendChild(element("span", "spacer"));
   head.appendChild(element("span", "late-asof", `as of ${state.late.asOf}`));
   panel.appendChild(head);
 
-  for (const group of state.late.groups) {
+  for (const group of groups) {
     const block = element("div", "late-group");
 
-    const title = element("div", "late-project");
-    if (group.derived_stage) title.appendChild(projectDot(group));
-    title.appendChild(element("span", null, group.name));
-    block.appendChild(title);
+    const heading = element("div", "late-project");
+    if (group.derived_stage) heading.appendChild(projectDot(group));
+    heading.appendChild(element("span", null, group.name));
+    block.appendChild(heading);
 
-    for (const item of group.items) {
-      // A row is a way back to the project it is about -- the same move
-      // `.lane-title` makes on the portfolio. It reads; nothing here writes.
-      const row = element("button", "late-row");
-      row.type = "button";
-      row.appendChild(ruleChip(item.rule));
-      row.appendChild(element("span", "late-message", item.message));
-      row.appendChild(element("span", "late-days", agoText(item.days_late)));
-      row.title = `Open ${group.name}.`;
-      row.onclick = () => {
-        closeLate();
-        openProject(group.project_id);
-      };
-      block.appendChild(row);
-    }
-
+    for (const item of group.items) block.appendChild(drawRow(item, group));
     panel.appendChild(block);
   }
+}
 
-  const foot = element("div", "late-foot",
-    "A row leaves when the date moves or the work closes. Nothing here is"
-    + " dismissed or marked read.");
-  panel.appendChild(foot);
+// A row is a way back to the project it is about -- the same move `.lane-title`
+// makes on the portfolio. It reads; nothing here writes.
+function lateRow(item, group) {
+  const row = element("button", "late-row");
+  row.type = "button";
+  row.appendChild(ruleChip(item.rule));
+  row.appendChild(element("span", "late-message", item.message));
+  row.appendChild(element("span", "late-days", agoText(item.days_late)));
+  row.title = `Open ${group.name}.`;
+  row.onclick = () => {
+    closeLate();
+    openProject(group.project_id);
+  };
+  return row;
+}
+
+// The one row in this panel that writes, and it writes only what you clicked:
+// this phase, to `done`. It carries no rule chip because it is not a rule --
+// nothing derives from the tick, and this button is the person rule 4 requires.
+// The name is still a way back to the project, as on an overdue row.
+function readyRow(item, group) {
+  const row = element("div", "late-row late-row-ready");
+
+  const open = element("button", "late-message late-message-link", item.message);
+  open.type = "button";
+  open.title = `Open ${group.name}.`;
+  open.onclick = () => {
+    closeLate();
+    openProject(group.project_id);
+  };
+  row.appendChild(open);
+
+  const close = element("button", "late-close-btn", "Mark done");
+  close.type = "button";
+  close.title = `Set '${item.name}' to done. Nothing else changes.`;
+  close.onclick = async () => {
+    close.disabled = true;
+    await closePhase(item.phase_id, item.name);
+  };
+  row.appendChild(close);
+  return row;
+}
+
+// Marking a phase done, from wherever it was asked for -- the bell, a row chip
+// or the toast that follows a tick. One write, no `expect`: it is a status
+// somebody set out loud, and the reload puts the answer on screen either way.
+//
+// The undo is the whole reason a misclick is cheap. `in_progress` rather than
+// whatever it was before, because the button is only ever offered on a phase
+// with every deliverable ticked, and that is where such a phase was standing.
+async function closePhase(phaseId, name) {
+  try {
+    await api(`/api/phases/${phaseId}`, {
+      method: "PUT",
+      body: JSON.stringify({ status: "done" }),
+    });
+  } catch (failure) {
+    reportStaleWrite(failure);
+    return;
+  }
+  showToast(`'${name}' marked done.`, async () => {
+    await api(`/api/phases/${phaseId}`, {
+      method: "PUT",
+      body: JSON.stringify({ status: "in_progress" }),
+    });
+    await afterPhaseClose();
+  }, { undoTitle: `Put '${name}' back to in progress` });
+  await afterPhaseClose();
+}
+
+// The two reads a status write invalidates. `loadPlan` guards itself on there
+// being an open project, which matters here in a way it does not for `savePhase`:
+// the bell reaches every project, so closing a phase from it does not mean that
+// project is the one on screen -- or that any is.
+async function afterPhaseClose() {
+  await loadPlan();
+  await refreshLate();
 }
 
 function agoText(days) {
@@ -2497,12 +2600,14 @@ function phaseRow(phase, warned) {
   };
   toggleCell.appendChild(toggle);
   // Ticked-off count, so a collapsed phase still says how far along it is.
-  // Display only: it never feeds a warning and never sets phase.status.
-  if (phase.deliverables.length > 0) {
-    const doneCount = phase.deliverables.filter((d) => d.done).length;
-    const tally = element("span", "done-count",
-      `${doneCount}/${phase.deliverables.length}`);
-    tally.title = `${doneCount} of ${phase.deliverables.length} deliverables done`;
+  // Display only: it never feeds a warning and never sets phase.status by
+  // itself. What it does do in two of its three states is offer, which is a
+  // different thing -- see `deliverableTally`.
+  const tally = deliverableTally(phase);
+  if (tally) {
+    // The column is `width: 1%`, so without this the chip breaks between the
+    // count and its tick and shoves the twisty onto a line of its own.
+    toggleCell.className = "tally-cell";
     toggleCell.appendChild(tally);
   }
   row.appendChild(toggleCell);
@@ -2514,18 +2619,7 @@ function phaseRow(phase, warned) {
   row.appendChild(fieldCell(phase, "effort_points", "number", savePhase,
     { step: "1", min: "0" }, "phase"));
 
-  const statusCell = element("td");
-  const select = element("select");
-  for (const status of ["planned", "in_progress", "done"]) {
-    const option = element("option", null, status);
-    option.value = status;
-    select.appendChild(option);
-  }
-  select.value = phase.status;
-  select.onchange = () => savePhase(phase.id,
-    { status: select.value, expect: { status: phase.status } });
-  statusCell.appendChild(select);
-  row.appendChild(statusCell);
+  row.appendChild(statusCell(phase));
 
   row.appendChild(element("td", "muted", phase.end_date || "unscheduled"));
 
@@ -2546,6 +2640,85 @@ function phaseRow(phase, warned) {
   row.appendChild(actionCell);
 
   return { line: row, grip, extra: isOpen ? deliverableRow(phase) : null };
+}
+
+// What the three statuses are called on screen, and the only place they are
+// spelled for a reader. `in_progress` is a column value, not a label -- it was
+// being shown raw, underscore and all, in the one control the plan is steered by.
+const STATUS_LABEL = {
+  planned: "Planned",
+  in_progress: "In progress",
+  done: "Done",
+};
+
+// The status cell: a coloured dot, then the picker. All three remain a manual
+// choice -- **nothing here derives a status from a tick**, which is rule 4, and
+// nothing repairs one, which is non-negotiable 1. The dot is what the cell was
+// missing: a column of identical grey selects says nothing at a glance, and a
+// status you cannot read without focusing is a status you stop maintaining.
+//
+// The colours are the chrome's, not the charts': `.bar.status-*` on the timeline
+// stays exactly as drawn, because a bar's colour is data. This is a control.
+function statusCell(phase) {
+  const cell = element("td", "status-cell");
+  cell.appendChild(element("span", `status-dot status-dot-${phase.status}`));
+
+  const select = element("select", "status-select");
+  for (const status of ["planned", "in_progress", "done"]) {
+    const option = element("option", null, STATUS_LABEL[status]);
+    option.value = status;
+    select.appendChild(option);
+  }
+  select.value = phase.status;
+  select.title = "Set by hand. Nothing moves this for you.";
+  select.onchange = () => savePhase(phase.id,
+    { status: select.value, expect: { status: phase.status } });
+  cell.appendChild(select);
+  return cell;
+}
+
+// The tally beside the toggle, in one of three states. Null for a phase naming
+// no deliverables: 0 of 0 is not a fraction of anything, the same refusal
+// `deliverable_progress` makes on the server.
+//
+// - **Ready**: every deliverable ticked, status not `done`. A button, and the
+//   durable half of the toast that fired when the last box went green -- a
+//   missed toast costs nothing because this is still here. Pressing it writes;
+//   the tick never does.
+// - **Stale**: status `done`, but a deliverable under it is not ticked --
+//   usually because one was added after the phase was closed. Said, and only
+//   said. It cannot be a rule: rule 4 forbids a rule reading the tick, which is
+//   why `check_phase_done_without_deliverables` reads presence instead.
+// - **Plain**: the count, as it always was.
+function deliverableTally(phase) {
+  const named = phase.deliverables || [];
+  if (named.length === 0) return null;
+  const ticked = named.filter((one) => one.done).length;
+  const text = `${ticked}/${named.length}`;
+
+  if (phase.status !== "done" && ticked === named.length) {
+    const chip = element("button", "done-count done-count-ready", `${text} ✓`);
+    chip.type = "button";
+    chip.title = `Every deliverable is ticked. Mark '${phase.name}' done.`;
+    chip.onclick = async (event) => {
+      event.stopPropagation();
+      chip.disabled = true;
+      await closePhase(phase.id, phase.name);
+    };
+    return chip;
+  }
+
+  if (phase.status === "done" && ticked < named.length) {
+    const chip = element("span", "done-count done-count-stale", text);
+    chip.title = `'${phase.name}' is marked done, but ${named.length - ticked} of`
+      + ` its ${named.length} deliverables ${named.length - ticked === 1
+        ? "is" : "are"} not ticked. Nothing has changed the status.`;
+    return chip;
+  }
+
+  const tally = element("span", "done-count", text);
+  tally.title = `${ticked} of ${named.length} deliverables done`;
+  return tally;
 }
 
 function deliverableRow(phase) {
@@ -2809,8 +2982,9 @@ async function saveDeliverable(deliverableId, fields) {
 async function saveDeliverableTick(deliverableId, done) {
   await saveDeliverable(deliverableId, { done });
   const marks = await pushDeliverableMarks(deliverableId, done);
-  announceMarks(deliverableId, done, marks,
-    () => saveDeliverableTick(deliverableId, !done));
+  announceTick(deliverableId, done, marks,
+    () => saveDeliverableTick(deliverableId, !done),
+    phaseJustFinished(deliverableId));
 }
 
 // Both directions are listed together: what this project waits on, and what
@@ -4397,15 +4571,36 @@ function hideToast() {
   toast.timer = null;
 }
 
-function showToast(text, undo) {
+// `extras.action` is an offer rather than a reversal -- `{label, title, run}`,
+// drawn before Undo because it is the thing you would click. It is how a toast
+// can hand you the next step without the tool taking it for you: the one caller
+// is the tick that finishes a phase, and the button it draws is the person rule
+// 4 requires between a tick and a stored status.
+//
+// `extras.undoTitle` because Undo's own tooltip used to name the sprint marker,
+// which is a lie on any toast that is not about a tick.
+function showToast(text, undo, extras) {
   hideToast();
   const node = element("div", "app-toast");
   node.appendChild(element("span", "app-toast-text", text));
 
+  const offer = extras && extras.action;
+  if (offer) {
+    const act = element("button", "app-toast-act", offer.label);
+    act.type = "button";
+    act.title = offer.title || "";
+    act.onclick = () => {
+      hideToast();
+      offer.run();
+    };
+    node.appendChild(act);
+  }
+
   if (undo) {
     const back = element("button", "app-toast-undo", "Undo");
     back.type = "button";
-    back.title = "Put the marker back and clear the tick";
+    back.title = (extras && extras.undoTitle)
+      || "Put the marker back and clear the tick";
     back.onclick = () => {
       hideToast();
       undo();
@@ -4842,7 +5037,10 @@ async function toggleLinkedDeliverable(id, done) {
   });
   const marks = await pushDeliverableMarks(id, done);
   renderSprintView();
-  announceMarks(id, done, marks, () => toggleLinkedDeliverable(id, !done));
+  // No ready-to-close offer here: a Sprint-tab tick reaches deliverables the
+  // open plan does not hold, so there is no phase to name. The bell counts them
+  // all -- see `phaseJustFinished`.
+  announceTick(id, done, marks, () => toggleLinkedDeliverable(id, !done), null);
 }
 
 // --- the tick, going out to the files ----------------------------------------
@@ -4959,16 +5157,62 @@ function cellMarkerFor(marker, done) {
   return marker.replace(/\[[ xX]\]/, done ? "[x]" : "[ ]");
 }
 
-// Said out loud, because a file changing while you were not typing in it is the
-// one edit here nobody asked for directly. Silent when nothing changed, which is
-// most ticks: most deliverables are in no sprint file at all.
-function announceMarks(id, done, marks, undo) {
+// Said out loud, for two reasons that share one toast. A sprint file changing
+// while you were not typing in it is the one edit here nobody asked for
+// directly; a phase whose last deliverable just went green is the one moment
+// the tool knows something you would want to act on. Silent when neither
+// happened, which is most ticks: most deliverables are in no sprint file, and
+// most ticks are not the last one.
+//
+// **`ready` is an offer, never a write.** The tool has noticed; the status still
+// moves only when you press the button, which is the line rule 4 draws and the
+// reason nothing here sets `phase.status` itself.
+function announceTick(id, done, marks, undo, ready) {
   const names = marks.changed.map((one) => one.name);
   if (marks.mine) names.push(state.sprint.name || "the open file");
-  if (names.length === 0) return;
 
-  showToast(`${deliverableName(id)} ${done ? "ticked" : "unticked"} — `
-    + `${names.join(" and ")} updated.`, undo);
+  const parts = [];
+  if (names.length) {
+    parts.push(`${deliverableName(id)} ${done ? "ticked" : "unticked"} — `
+      + `${names.join(" and ")} updated.`);
+  }
+  if (ready) {
+    parts.push(`'${ready.name}' now has all ${ready.total} deliverable`
+      + `${ready.total === 1 ? "" : "s"} ticked.`);
+  }
+  if (parts.length === 0) return;
+
+  showToast(parts.join(" "), undo, ready ? {
+    action: {
+      label: "Mark done",
+      title: `Set '${ready.name}' to done. Nothing else changes.`,
+      run: () => closePhase(ready.id, ready.name),
+    },
+  } : undefined);
+}
+
+// The phase the ticked deliverable belongs to, if that tick was the last one it
+// was waiting for. Read from `state.plan`, which `saveDeliverable` has just
+// reloaded, so it is the server's answer rather than a guess made locally.
+//
+// **Null on any tick outside the open project** -- a Sprint-tab tick reaches
+// deliverables this plan does not hold, and there is no phase name here to offer.
+// Nothing is lost by that: the bell is the durable half of this and it counts
+// every project. The toast is a shortcut, never the record.
+//
+// A phase naming no deliverables is never ready, and one already `done` has
+// nothing to offer -- the same two skips `phases_ready_to_close` makes, because
+// this is the same question asked one project at a time.
+function phaseJustFinished(deliverableId) {
+  if (!state.plan) return null;
+  for (const phase of state.plan.phases) {
+    const named = phase.deliverables || [];
+    if (!named.some((row) => row.id === deliverableId)) continue;
+    if (phase.status === "done") return null;
+    if (!named.length || !named.every((row) => row.done)) return null;
+    return { id: phase.id, name: phase.name, total: named.length };
+  }
+  return null;
 }
 
 // Whichever list is in hand. `allDeliverables` is the Sprint tab's read of the

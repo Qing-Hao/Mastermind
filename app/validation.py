@@ -889,6 +889,73 @@ def overdue_items(projects, phases_by_project, milestones_by_project, today):
     return groups
 
 
+def phases_ready_to_close(projects, phases_by_project, deliverables_by_phase):
+    """Phases with every deliverable ticked that nobody has marked done yet.
+
+    **A readout, not a rule, and that distinction is the whole design.** Rule 4
+    forbids the tick from firing a rule or setting a stored value, so this
+    returns no `PlanWarning`, writes nothing, and repairs nothing. It reports a
+    phase whose ticks and whose status disagree; closing the phase stays the
+    explicit act non-negotiable 5 asks for. Someone still presses the button.
+
+    `overdue_items` is the genus -- derived on read, the same answer for every
+    open page, nothing stored and nothing keyed by a person -- which is what
+    keeps the alert a readout under non-negotiable 7. Both ride `/api/late`.
+
+    Two skips, each a decision:
+
+    - **A phase naming no deliverables is never ready.** 0 of 0 is not complete,
+      the same 0-of-0 refusal `deliverable_progress` and `completion_fraction`
+      make. Its absence is what V7 is for.
+    - **A phase already `done` is skipped**, whatever its ticks say. It has no
+      button left to press, and reopening one is not this function's business.
+
+    Takes no `today`: nothing here is dated. Groups with nothing ready are
+    dropped rather than sent empty, and the order is the order the phases were
+    given -- the plan's own sequence. There is no date to sort by and inventing
+    one would be inventing urgency.
+    """
+    groups = []
+    for project in projects:
+        items = []
+
+        for phase in phases_by_project.get(project["id"], []):
+            if phase.get("status") == "done":
+                continue
+            named = deliverables_by_phase.get(phase["id"], [])
+            if not named:
+                continue
+            ticked = sum(1 for item in named if item.get("done"))
+            if ticked < len(named):
+                continue
+            items.append({
+                "phase_id": phase["id"],
+                "name": phase["name"],
+                "done": ticked,
+                "total": len(named),
+                "message": (
+                    f"'{phase['name']}' has all {len(named)} deliverable"
+                    f"{'' if len(named) == 1 else 's'} ticked"
+                    " and is not marked done."
+                ),
+            })
+
+        if not items:
+            continue
+        groups.append({
+            "project_id": project["id"],
+            "name": project["name"],
+            # The same three the overdue groups carry, so one panel draws one
+            # kind of group header rather than two that can drift apart.
+            "derived_stage": project.get("derived_stage", ""),
+            "milestones_reached": project.get("milestones_reached", 0),
+            "milestones_total": project.get("milestones_total", 0),
+            "items": items,
+        })
+
+    return groups
+
+
 # --- The fortnight slice ----------------------------------------------------
 
 # A *slice* is one fortnight of the roadmap, cut out and flattened for reading:

@@ -20,6 +20,7 @@ from app.validation import (
     check_phase_overdue,
     days_late,
     overdue_items,
+    phases_ready_to_close,
     project_effort_points,
     completion_fraction,
     deliverable_progress,
@@ -820,6 +821,87 @@ def test_overdue_items_orders_projects_by_their_worst():
     groups = overdue_items([PROJECT, LEDGER], phases, {}, date(2026, 6, 1))
 
     assert [group["project_id"] for group in groups] == [2, 1]
+
+
+# --- phases waiting to be closed --------------------------------------------
+
+# The alert's second list. A readout, not a rule: it reports that a phase's ticks
+# and its status disagree, and every one of these tests is about it *reporting*.
+# Rule 4 is the last one, and it is the important one.
+
+
+def ticked(deliverable_id, phase_id, done=1, name="Wireframes"):
+    return {**deliverable(deliverable_id, phase_id, name), "done": done}
+
+
+def test_ready_to_close_names_a_phase_with_every_box_ticked():
+    phases = {1: [open_phase(1, "Design", "2026-01-05")]}
+    by_phase = {1: [ticked(10, 1), ticked(11, 1, name="Copy")]}
+    groups = phases_ready_to_close([PROJECT], phases, by_phase)
+
+    assert len(groups) == 1
+    assert groups[0]["project_id"] == 1 and groups[0]["name"] == "Payments"
+    item = groups[0]["items"][0]
+    assert item["phase_id"] == 1 and item["name"] == "Design"
+    assert (item["done"], item["total"]) == (2, 2)
+    assert item["message"] == (
+        "'Design' has all 2 deliverables ticked and is not marked done.")
+
+
+def test_ready_to_close_is_silent_while_a_box_is_open():
+    phases = {1: [open_phase(1, "Design", "2026-01-05")]}
+    by_phase = {1: [ticked(10, 1), ticked(11, 1, done=0, name="Copy")]}
+
+    assert phases_ready_to_close([PROJECT], phases, by_phase) == []
+
+
+def test_ready_to_close_skips_a_phase_already_done():
+    """It has no button left to offer, whatever its ticks say."""
+    phases = {1: [{**open_phase(1, "Design", "2026-01-05"), "status": "done"}]}
+    by_phase = {1: [ticked(10, 1)]}
+
+    assert phases_ready_to_close([PROJECT], phases, by_phase) == []
+
+
+def test_ready_to_close_never_calls_an_empty_phase_ready():
+    """0 of 0 is not complete -- `deliverable_progress`'s refusal, one level up.
+
+    A phase that names nothing is V7's business, not this one's.
+    """
+    phases = {1: [open_phase(1, "Design", "2026-01-05")]}
+
+    assert phases_ready_to_close([PROJECT], phases, {}) == []
+    assert phases_ready_to_close([PROJECT], phases, {1: []}) == []
+
+
+def test_ready_to_close_drops_a_project_with_nothing_ready():
+    phases = {1: [open_phase(1, "Design", "2026-01-05")],
+              2: [open_phase(3, "Ship", "2026-01-05", project_id=2)]}
+    by_phase = {1: [ticked(10, 1, done=0)], 3: [ticked(30, 3)]}
+    groups = phases_ready_to_close([PROJECT, LEDGER], phases, by_phase)
+
+    assert [group["project_id"] for group in groups] == [2]
+
+
+def test_ready_to_close_looks_only_at_the_projects_it_is_given():
+    """`projects` is the filter, exactly as it is for `overdue_items`."""
+    phases = {1: [open_phase(1, "Design", "2026-01-05")],
+              2: [open_phase(3, "Ship", "2026-01-05", project_id=2)]}
+    by_phase = {1: [ticked(10, 1)], 3: [ticked(30, 3)]}
+    groups = phases_ready_to_close([LEDGER], phases, by_phase)
+
+    assert [group["project_id"] for group in groups] == [2]
+
+
+def test_ready_to_close_changes_nothing_it_reads():
+    """**Rule 4.** The tick sets no stored value -- this one reports and stops."""
+    phase = open_phase(1, "Design", "2026-01-05")
+    rows = [ticked(10, 1)]
+    phases_ready_to_close([PROJECT], {1: [phase]}, {1: rows})
+
+    assert phase == open_phase(1, "Design", "2026-01-05")
+    assert phase["status"] == "planned"
+    assert rows == [ticked(10, 1)]
 
 
 # --- the fortnight slice ----------------------------------------------------

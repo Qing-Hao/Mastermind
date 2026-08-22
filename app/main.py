@@ -46,6 +46,7 @@ from app.validation import (
     next_phase_boundary,
     overdue_items,
     phase_end_date,
+    phases_ready_to_close,
     project_effort_points,
     project_progress,
     project_span,
@@ -1424,12 +1425,24 @@ def read_rules():
 
 @app.get("/api/late")
 def read_late():
-    """Everything past its date, grouped by project. The alert's whole payload.
+    """What wants attention today, grouped by project. The alert's whole payload.
+
+    Two lists, not one, and they are different questions: `groups` is everything
+    past its date, `ready` is every phase whose deliverables are all ticked that
+    nobody has marked done. They travel together because they fill one panel and
+    one panel should be one request -- but they are counted separately, and the
+    bell draws two marks, because a slipped date and a finished phase are not
+    the same news and one red number for both would say they were.
 
     Reads only, derives everything, and stores nothing -- there is no read state,
     no dismissal and nothing keyed by a person here, which is what keeps this a
     readout rather than the notification system non-negotiable 7 rules out. Every
-    open page gets the same answer.
+    open page gets the same answer. `ready` joins under exactly that test: it is
+    recomputed from the rows every time and forgets that you saw it.
+
+    Nothing here closes a phase. `ready` reports the disagreement between the
+    ticks and the status; the write is still a button someone presses, which is
+    what rule 4 and non-negotiable 5 between them require.
 
     Ideas are excluded by `SCHEDULABLE_STAGES`, as they are from the portfolio:
     an uncommitted idea has no date to be late against.
@@ -1437,22 +1450,30 @@ def read_late():
     `as_of` is the date the answer was computed for. A page left open overnight
     is the one case nothing re-reads by itself -- no write lands at midnight --
     so the frontend compares this against its own clock rather than trusting a
-    count of unknown age.
+    count of unknown age. It dates both lists, though only the overdue one can
+    go stale by sitting still.
     """
     today = date.today()
     projects = db.list_projects(stages=SCHEDULABLE_STAGES)
     phases = db.phases_by_project()
     milestones = db.milestones_by_project()
-    # Only so each group can carry the project's rung for its dot. The ladder
-    # needs deliverables, and this is the one read here that the alert itself
-    # does not use.
-    with_derived_stage(projects, phases, db.deliverables_by_project(),
-                       milestones, today)
+    # Read once and used twice: the stage ladder wants them by project, and
+    # `phases_ready_to_close` wants the same rows by phase. Regrouping beats a
+    # second query for every deliverable in the database.
+    deliverables = db.deliverables_by_project()
+    by_phase = {}
+    for rows in deliverables.values():
+        for row in rows:
+            by_phase.setdefault(row["phase_id"], []).append(row)
+    with_derived_stage(projects, phases, deliverables, milestones, today)
     with_milestone_tally(projects, milestones)
     groups = overdue_items(projects, phases, milestones, today)
+    ready = phases_ready_to_close(projects, phases, by_phase)
     return {
         "groups": groups,
         "count": sum(len(group["items"]) for group in groups),
+        "ready": ready,
+        "ready_count": sum(len(group["items"]) for group in ready),
         "as_of": today.isoformat(),
     }
 

@@ -108,16 +108,21 @@
       <div id="project-meta" class="topbar-meta" hidden></div>
     </div>
     <span class="spacer"></span>
-    <!-- What is past its date, across every committed project. Outside
-         `topbar-actions` with presence and the offline badge, and for the same
-         reason: that block is hidden when no project is open, and this is not
-         about the open project.
+    <!-- What wants attention, across every committed project: what is past its
+         date, and what is finished but still open. Outside `topbar-actions` with
+         presence and the offline badge, and for the same reason: that block is
+         hidden when no project is open, and this is not about the open project.
 
-         It is a **readout, not a notification**. Everyone sees the same list, it
-         is derived from dates already on the plan, and nothing about it is
-         stored -- no dismissal, no "new since you looked", nothing keyed by a
+         It is a **readout, not a notification**. Everyone sees the same lists,
+         both are derived from rows already on the plan, and nothing about them
+         is stored -- no dismissal, no "new since you looked", nothing keyed by a
          person. See non-negotiable 7, and `Scope.dc.html` for the line it must
-         not cross. Filled by `drawLate`. -->
+         not cross. Filled by `drawLate`.
+
+         Two counts rather than one, because a slipped date and a finished phase
+         are different news: the amber mark is late, the green is ready to close,
+         and folding them into one number would make red mean both. Either one
+         alone is enough to show the bell. -->
     <span class="late-menu">
       <button id="late-alert" class="late-bell" aria-expanded="false"
               aria-haspopup="true" hidden>
@@ -127,6 +132,7 @@
           <path d="M10.5 19a1.8 1.8 0 0 0 3 0"></path>
         </svg>
         <span id="late-count" class="late-count" hidden></span>
+        <span id="ready-count" class="late-count late-count-ready" hidden></span>
       </button>
       <div id="late-panel" class="menu-panel late-panel" hidden></div>
     </span>

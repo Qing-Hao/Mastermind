@@ -436,12 +436,28 @@
 .late-bell:hover { background: #ffe4d3; color: #7c2d12; }
 .late-bell svg { width: 18px; height: 18px; }
 /* Load-bearing: the rule above sets `display`, and the bell is folded away with
-   the `hidden` attribute whenever the count is zero. See `.mode-switch[hidden]`. */
+   the `hidden` attribute whenever both counts are zero. See `.mode-switch[hidden]`. */
 .late-bell[hidden] { display: none; }
+
+/* Nothing late, only phases waiting to be closed: the bell's own amber is the
+   colour of a slipped date, and wearing it for a plan where nothing has slipped
+   would be the bell telling you the wrong thing before you opened it. Set by
+   `drawLate`. */
+.late-bell.is-ready-only {
+  border-color: #c3e0c4;
+  background: #f2f9f2;
+  color: #2e7d32;
+}
+.late-bell.is-ready-only:hover { background: #e4f2e5; color: #1b5e20; }
 
 /* Sat on the corner rather than beside the glyph: the bar is a row of 33px
    controls and a bell that grew wider with the count would move presence along
-   with it. */
+   with it.
+
+   **Two marks, never summed.** Red is past its date, green is finished and still
+   open, and they take opposite corners so either can be absent without the other
+   moving. One number for both would make the same red mean a slipped date and a
+   finished phase -- see the comment on the bell in `index.html`. */
 .late-count {
   position: absolute;
   top: -4px;
@@ -456,6 +472,11 @@
   font-weight: 700;
   line-height: 16px;
   text-align: center;
+}
+.late-count-ready {
+  top: auto;
+  bottom: -4px;
+  background: var(--stage-active-line);
 }
 .late-count[hidden] { display: none; }
 
@@ -512,6 +533,50 @@
 .late-row:hover { background: #fef3c7; border-color: #fde68a; }
 .late-message { flex: 1; }
 .late-days { flex: 0 0 auto; font-weight: 600; color: #9a3412; white-space: nowrap; }
+
+/* The second section's rows. Green rather than amber because nothing here has
+   gone wrong -- the work is finished and the plan has not been told yet, which is
+   a click rather than a problem.
+
+   A `<div>`, unlike an overdue row: it holds two buttons, and a button inside a
+   button is not a thing. The wash and the metrics are the row above's so the two
+   sections read as one panel. */
+.late-row-ready {
+  gap: 8px;
+  background: #f2f9f2;
+  border-color: transparent;
+  cursor: default;
+}
+.late-row-ready:hover { background: #e4f2e5; border-color: #c3e0c4; }
+/* The way back to the project, as on an overdue row -- the whole row cannot be
+   the link here, so the sentence is. */
+.late-message-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.late-message-link:hover { text-decoration: underline; }
+/* The one control in this panel that writes. It says what it does rather than
+   wearing an icon: closing a phase is a decision, and the panel is read quickly. */
+.late-close-btn {
+  flex: 0 0 auto;
+  padding: 3px 9px;
+  border: 1px solid #c3e0c4;
+  border-radius: var(--radius);
+  background: var(--surface);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: #2e7d32;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.late-close-btn:hover { background: #e4f2e5; border-color: var(--stage-active-line); }
+.late-close-btn:disabled { opacity: 0.5; cursor: default; }
 
 .late-foot {
   padding-top: 10px;
@@ -972,6 +1037,24 @@ td.presence-held:has(.presence-take:not([hidden])) input { padding-right: 78px; 
   margin: 14px 0 6px;
 }
 .config-wide { grid-column: 1 / -1; }
+/* The two values that have to reach Keycloak character for character. The whole
+   box is the copy target -- readonly, so a click has nothing else to do -- and
+   the button is there to say that it is. */
+.config-copy { display: flex; gap: 6px; }
+.config-copy input[readonly] { flex: 1 1 auto; cursor: pointer; background: var(--hover); }
+.config-copy input[readonly]:hover { background: var(--accent-soft); }
+.config-copy-btn {
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 12.5px;
+  padding: 0 12px;
+  border: 1px solid var(--field);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.config-copy-btn:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
 .config-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
 .config-row .hint { margin: 0; }
 .config-choice { flex-direction: row; align-items: center; gap: 8px; margin: 12px 0 6px; }
@@ -1080,6 +1163,10 @@ td input { width: 100%; min-width: 80px; }
   text-align: center;
 }
 .pill-warn { background: #fef3c7; color: #92400e; }
+/* The alert panel's second heading. Green because a phase waiting to be closed
+   is finished work, not a problem -- the one place in the chrome that counts
+   something good. */
+.pill-ready { background: #e4f2e5; color: #2e7d32; }
 
 .warnings, .deps { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 2px; }
 /* A warning is a row on its own wash rather than a line in a ruled list: this is
@@ -1474,7 +1561,67 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 #phase-table td.checkpoint-name { display: flex; align-items: center; gap: 6px; }
 .checkpoint-mark { color: #6a1b9a; font-size: 11px; line-height: 1; }
 
+/* The status cell. It was a bare select showing `in_progress` with the
+   underscore in it, in a column of identical grey controls -- so the column read
+   as furniture and the one field that says how the plan is going could not be
+   scanned. The dot carries the meaning, the select carries the choice.
+
+   The colours are `--stage-*`, already worn by `.project-dot` and the map, so a
+   green here means what green means everywhere else in the chrome. The timeline's
+   `.bar.status-*` is untouched: a bar's colour is data, and this is a control. */
+#phase-table td.status-cell { white-space: nowrap; }
+.status-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 6px;
+  border-radius: 50%;
+  border: 1.5px solid var(--stage-planned-line);
+  background: var(--stage-planned-fill);
+  vertical-align: middle;
+}
+.status-dot-in_progress {
+  background: var(--stage-active-fill);
+  border-color: var(--stage-active-line);
+}
+.status-dot-done {
+  background: var(--stage-done-fill);
+  border-color: var(--stage-done-line);
+}
+/* Narrower than the 100% every other cell control takes: the labels are short and
+   a full-width select pushed the name column in for nothing. */
+#phase-table td.status-cell .status-select { width: auto; min-width: 96px; }
+
+/* The tally beside the toggle, in its three states -- see `deliverableTally`.
+   Plain is the count. Ready is a button, and the only one in this table that
+   writes a status; stale is the count in amber, and says only. Neither derives
+   anything: rule 4 keeps the tick out of every rule and stored value, so the
+   green one is a place to press and the amber one is a sentence. */
+#phase-table td.tally-cell { white-space: nowrap; }
 .done-count { color: #888; font-size: 11px; margin-left: 2px; }
+.done-count-ready {
+  white-space: nowrap;
+  padding: 1px 6px;
+  border: 1px solid #c3e0c4;
+  border-radius: 999px;
+  background: #f2f9f2;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: #2e7d32;
+  cursor: pointer;
+}
+.done-count-ready:hover { background: #e4f2e5; border-color: var(--stage-active-line); }
+.done-count-ready:disabled { opacity: 0.5; cursor: default; }
+.done-count-stale {
+  white-space: nowrap;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  font-weight: 600;
+  cursor: help;
+}
 
 /* --- portfolio gantt --- */
 #portfolio-scroll { overflow-x: auto; border: 1px solid #eee; padding: 10px; }
@@ -2940,6 +3087,22 @@ body.resizing-column { cursor: col-resize; user-select: none; }
   cursor: pointer;
 }
 .app-toast-undo:hover { border-color: var(--accent); background: var(--accent-soft); }
+/* The offer, not the reversal: filled rather than outlined, and drawn before
+   Undo, because it is the thing you came to the toast to press. Green is the
+   same "finished and still open" the bell and the row chip wear. */
+.app-toast-act {
+  flex: none;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border: 1px solid var(--stage-active-line);
+  border-radius: var(--radius);
+  background: #e4f2e5;
+  color: #1b5e20;
+  cursor: pointer;
+}
+.app-toast-act:hover { background: var(--stage-active-fill); }
 .app-toast-close {
   flex: none;
   font: inherit;
