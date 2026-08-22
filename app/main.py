@@ -25,9 +25,11 @@ from app import auth, config, db
 from app.markdown import (
     SpliceRefused,
     document_blocks,
+    find_table,
     serialise_table,
     splice_blocks,
     split_blocks,
+    write_cells,
 )
 from app.validation import (
     FORTNIGHT_DAYS,
@@ -894,6 +896,24 @@ class BlockSplice(BaseModel):
     at: int
     expect: list[str] = []
     blocks: list[BlockIn] = []
+
+
+class CellIn(BaseModel):
+    # One cell of a grid. `r` of -1 is the header row, the way the editor
+    # numbers it, and `expect` is the text this write believes it is replacing.
+    r: int
+    c: int
+    expect: str = ""
+    text: str = ""
+
+
+class CellWrite(BaseModel):
+    # Cells of one table, written by name rather than by rewriting the block.
+    # `head` identifies the table the way `expect` identifies a run of blocks --
+    # the cells being written cannot also be what names them.
+    at: int
+    head: list[str] = []
+    cells: list[CellIn] = []
 
 
 # --- helpers ----------------------------------------------------------------
@@ -2327,6 +2347,88 @@ def splice_sprint(number: int, body: BlockSplice):
     return result
 
 
+# --- one door finer: cells ----------------------------------------------------
+#
+# A table is one block, so two people in two of its cells were two writes to one
+# block and the second was refused. That is the same shape the roadmap's rows
+# had before `expect` shrank the guard to a field, and this is the same answer:
+# **the cell is the unit of the guard.** A write names the cells it is changing,
+# each with the text it believes it is replacing, and only a cell whose own text
+# moved is refused.
+#
+# Structure is deliberately not writable here -- adding or removing a row or a
+# column, or changing the alignment, moves what every other cell is addressed
+# by, so it stays a whole-block splice. The frontend picks between the two.
+
+
+def apply_cells(path, body):
+    """Write cells into one table of a file, re-reading if it changed under us.
+
+    `apply_splice`'s loop, and for the same reason: the read-to-write gap is
+    this function's own, the file is small, and two writes inside one clock tick
+    can share an mtime. The grid is read from the file every attempt, so what is
+    written is the other person's table with these cells changed -- never the
+    caller's copy of it.
+    """
+    for _ in range(SPLICE_ATTEMPTS):
+        text = read_sprint_file(path)
+        blocks = split_blocks(text)
+        try:
+            index = find_table(blocks, body.at, body.head)
+            table = write_cells(blocks[index]["table"],
+                                [cell.model_dump() for cell in body.cells])
+        except SpliceRefused as refused:
+            raise splice_conflict(path, text, refused.detail)
+
+        spliced, at = splice_blocks(
+            text, index, [blocks[index]["raw"]],
+            [{"raw": serialise_table(table), "gap": blocks[index]["gap"]}],
+        )
+        if read_sprint_file(path) != text:
+            continue
+        write_sprint_file(path, spliced)
+        return {
+            "mtime": os.path.getmtime(path),
+            "at": at,
+            "blocks": document_blocks(spliced),
+            # What this write replaced, so the broadcast can name it the way a
+            # block splice names its run. Read from the attempt that landed, not
+            # from before the loop -- the table may have moved in between.
+            "was": blocks[index]["raw"],
+        }
+
+    return_text = read_sprint_file(path)
+    raise splice_conflict(
+        path, return_text, f"{os.path.basename(path)} is being written to. Nothing was changed."
+    )
+
+
+def landed_cells(body, result):
+    """What a cell write did, in the shape the other pages need to repeat it.
+
+    A splice, so a page with nothing open in that table applies it exactly as it
+    applies any other write. `cells` rides along beside it for the pages that do
+    have something open there: knowing *which* cells moved is what lets one of
+    them take these without giving up the cell its own caret is in.
+    """
+    at = result["at"]
+    return {
+        "at": at,
+        "expect": [result["was"]],
+        "blocks": result["blocks"][at:at + 1],
+        "cells": [cell.model_dump() for cell in body.cells],
+    }
+
+
+@app.patch("/api/sprints/{number}/cells")
+def write_sprint_cells(number: int, body: CellWrite):
+    """Write named cells of one table. Every other cell of it is untouched."""
+    path = found_sprint(number)
+    result = apply_cells(path, body)
+    announce_sprint(number, result["mtime"], landed_cells(body, result))
+    return result
+
+
 # The one file the editor can open that is not a sprint: `templates/sprint.md`,
 # the thing every new sprint file is a copy of. Editing it changes what the
 # *next* `POST /api/sprints` writes and touches no file already on disk. Same two verbs as a sprint file, same
@@ -2393,6 +2495,15 @@ def splice_template(body: BlockSplice):
     path = found_template()
     result = apply_splice(path, body)
     announce_sprint("template", result["mtime"], landed_splice(body, result))
+    return result
+
+
+@app.patch("/api/template/cells")
+def write_template_cells(body: CellWrite):
+    """Write named cells of one of the template's tables. A sprint file's operation."""
+    path = found_template()
+    result = apply_cells(path, body)
+    announce_sprint("template", result["mtime"], landed_cells(body, result))
     return result
 
 

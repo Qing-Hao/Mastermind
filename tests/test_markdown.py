@@ -8,12 +8,15 @@ from app.markdown import (
     MERMAID_CLASS,
     SpliceRefused,
     document_blocks,
+    find_table,
     join_blocks,
     parse_table,
     render_block,
+    same_cell,
     serialise_table,
     splice_blocks,
     split_blocks,
+    write_cells,
 )
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -530,3 +533,131 @@ def test_deleting_the_last_block_moves_the_ending_back_one_block():
 
 def test_splicing_into_an_empty_document_starts_it():
     assert spliced("", 0, [], [{"raw": "# Sprint 1"}]) == "# Sprint 1\n\n"
+
+
+# --- writing single cells -----------------------------------------------------
+#
+# One door finer than a splice: the cell carries the text it believes it is
+# replacing, so two people in two cells of one table are two writes rather than
+# a conflict. The refusal is per cell and never half-applies a grid.
+
+CAPACITY = """| Person | Days | Notes    |
+| ------ | ---: | -------- |
+| @qh    |   10 | on leave |
+| @sam   |    8 |          |
+"""
+
+
+def parsed(raw):
+    """The parsed table, asserted to be one -- `parse_table` answers None otherwise."""
+    table = parse_table(raw)
+    assert table is not None
+    return table
+
+
+def capacity():
+    return parsed(CAPACITY.rstrip("\n"))
+
+
+def cell(r, c, expect, text):
+    return {"r": r, "c": c, "expect": expect, "text": text}
+
+
+def test_a_cell_write_changes_that_cell_and_nothing_else():
+    written = write_cells(capacity(), [cell(0, 1, "10", "12")])
+    assert written["rows"] == [["@qh", "12", "on leave"], ["@sam", "8", ""]]
+    assert written["head"] == ["Person", "Days", "Notes"]
+    assert written["align"] == ["", "right", ""]
+
+
+def test_two_cells_of_one_table_are_written_together():
+    written = write_cells(capacity(), [cell(0, 1, "10", "12"), cell(1, 2, "", "back Tue")])
+    assert written["rows"] == [["@qh", "12", "on leave"], ["@sam", "8", "back Tue"]]
+
+
+def test_the_header_row_is_written_as_row_minus_one():
+    written = write_cells(capacity(), [cell(-1, 2, "Notes", "Comment")])
+    assert written["head"] == ["Person", "Days", "Comment"]
+
+
+def test_the_grid_the_write_was_given_is_left_alone():
+    """A refusal must not half-apply, and neither must a success."""
+    grid = capacity()
+    write_cells(grid, [cell(0, 1, "10", "12")])
+    assert grid["rows"][0] == ["@qh", "10", "on leave"]
+
+
+def test_a_cell_that_moved_is_refused_by_name():
+    with pytest.raises(SpliceRefused) as refused:
+        write_cells(capacity(), [cell(0, 1, "9", "12")])
+    assert refused.value.reason == "stale"
+    assert "Column 2 of row 1" in refused.value.detail
+
+
+def test_one_stale_cell_refuses_the_whole_write():
+    """Half a grid is a table nobody asked for, so none of it lands."""
+    grid = capacity()
+    with pytest.raises(SpliceRefused):
+        write_cells(grid, [cell(0, 1, "10", "12"), cell(1, 1, "9", "6")])
+    assert grid["rows"] == [["@qh", "10", "on leave"], ["@sam", "8", ""]]
+
+
+def test_a_cell_off_the_end_of_the_grid_is_refused():
+    with pytest.raises(SpliceRefused) as refused:
+        write_cells(capacity(), [cell(7, 0, "", "x")])
+    assert refused.value.reason == "out of range"
+
+
+def test_a_cell_compares_as_the_file_spells_it():
+    """The editor sends a real newline and a bare pipe; the file holds neither."""
+    table = parsed("| Notes            |\n| ---------------- |\n| one<br>two \\| ok |")
+    written = write_cells(table, [cell(0, 0, "one\ntwo | ok", "done")])
+    assert written["rows"] == [["done"]]
+
+
+def test_same_cell_reads_both_spellings_of_one_value():
+    assert same_cell("one<br>two", "one\ntwo")
+    assert same_cell("a \\| b", "a | b")
+    assert not same_cell("one", "two")
+
+
+TWO_TABLES = """| Person | Days |
+| ------ | ---- |
+| @qh    | 10   |
+
+Text between them.
+
+| Risk  | Owner |
+| ----- | ----- |
+| Scope | @sam  |
+"""
+
+
+def test_a_table_is_found_by_its_header_when_it_has_moved():
+    blocks = split_blocks(TWO_TABLES)
+    # The caller believes the risk table is block 0; it is block 2.
+    assert find_table(blocks, 0, ["Risk", "Owner"]) == 2
+
+
+def test_the_named_position_wins_when_it_matches():
+    blocks = split_blocks(TWO_TABLES)
+    assert find_table(blocks, 0, ["Person", "Days"]) == 0
+
+
+def test_a_table_that_is_gone_is_refused():
+    blocks = split_blocks(TWO_TABLES)
+    with pytest.raises(SpliceRefused) as refused:
+        find_table(blocks, 0, ["Nothing", "Here"])
+    assert refused.value.reason == "gone"
+
+
+def test_two_tables_with_one_header_are_refused_rather_than_guessed_at():
+    blocks = split_blocks(TWO_TABLES + "\n" + TWO_TABLES.partition("\n\n")[0] + "\n")
+    with pytest.raises(SpliceRefused) as refused:
+        find_table(blocks, 9, ["Person", "Days"])
+    assert refused.value.reason == "ambiguous"
+
+
+def test_a_written_cell_survives_the_round_trip_to_markdown():
+    written = write_cells(capacity(), [cell(1, 2, "", "back Tue")])
+    assert parsed(serialise_table(written))["rows"][1] == ["@sam", "8", "back Tue"]

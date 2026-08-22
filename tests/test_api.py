@@ -2309,6 +2309,156 @@ def test_a_splice_leaves_the_whole_file_route_working(client, splice_file):
     assert file_text(splice_file) == "# Sprint 1\n"
 
 
+# --- cell-addressed writes ----------------------------------------------------
+#
+# One door finer than a splice, and for the same reason the roadmap's guard is
+# per field: a table is one block, so two people in two of its cells were one
+# write refusing the other. Here they are two writes that both land, and the
+# only 409 left is a cell whose own text moved.
+
+CELL_FILE = """# Sprint 1 · 2026-08-03 → 2026-08-17
+
+## 2. Capacity
+
+| Person | Days | Notes    |
+| ------ | ---: | -------- |
+| @qh    |   10 | on leave |
+| @sam   |    8 |          |
+"""
+
+
+@pytest.fixture
+def cell_file(sprints):
+    return write_sprint(sprints, "01.md", CELL_FILE)
+
+
+def cells(at, head, written):
+    return {"at": at, "head": head, "cells": written}
+
+
+def capacity_cell(r, c, expect, text):
+    return {"r": r, "c": c, "expect": expect, "text": text}
+
+
+def table_of(client, number=1):
+    """The capacity table as it now stands on disk."""
+    blocks = client.get(f"/api/sprints/{number}").json()["blocks"]
+    return next(block["table"] for block in blocks if block["type"] == "table")
+
+
+CAPACITY_HEAD = ["Person", "Days", "Notes"]
+
+# Where the capacity table sits in `CELL_FILE`: heading, heading, table.
+CAPACITY_AT = 2
+
+
+def test_a_cell_write_changes_one_cell_and_leaves_the_file_alone(client, cell_file):
+    response = client.patch("/api/sprints/1/cells", json=cells(
+        CAPACITY_AT, CAPACITY_HEAD, [capacity_cell(0, 1, "10", "12")]))
+    assert response.status_code == 200, response.text
+    assert file_text(cell_file) == CELL_FILE.replace("|   10 |", "|   12 |")
+
+
+def test_two_people_in_two_cells_of_one_table_both_land(client, cell_file):
+    """The whole point: this pair was a 409 when the block was the unit."""
+    assert client.patch("/api/sprints/1/cells", json=cells(
+        CAPACITY_AT, CAPACITY_HEAD, [capacity_cell(0, 1, "10", "12")])).status_code == 200
+    assert client.patch("/api/sprints/1/cells", json=cells(
+        CAPACITY_AT, CAPACITY_HEAD, [capacity_cell(1, 2, "", "back Tue")])).status_code == 200
+
+    assert table_of(client)["rows"] == [["@qh", "12", "on leave"], ["@sam", "8", "back Tue"]]
+
+
+def test_a_cell_that_moved_is_refused_and_nothing_is_written(client, cell_file):
+    assert client.patch("/api/sprints/1/cells", json=cells(
+        CAPACITY_AT, CAPACITY_HEAD, [capacity_cell(0, 1, "10", "12")])).status_code == 200
+
+    stale = client.patch("/api/sprints/1/cells", json=cells(
+        CAPACITY_AT, CAPACITY_HEAD, [capacity_cell(0, 1, "10", "20")]))
+    assert stale.status_code == 409
+    detail = stale.json()["detail"]
+    assert "Column 2 of row 1" in detail["error"]
+    # The refusal carries the file as it stands, exactly as a splice's does.
+    assert detail["current"]["text"] == CELL_FILE.replace("|   10 |", "|   12 |")
+    assert file_text(cell_file) == CELL_FILE.replace("|   10 |", "|   12 |")
+
+
+def test_the_header_is_written_as_row_minus_one(client, cell_file):
+    response = client.patch("/api/sprints/1/cells", json=cells(
+        CAPACITY_AT, CAPACITY_HEAD, [capacity_cell(-1, 2, "Notes", "Comment")]))
+    assert response.status_code == 200, response.text
+    assert table_of(client)["head"] == ["Person", "Days", "Comment"]
+
+
+def test_a_cell_write_finds_its_table_after_something_is_inserted_above(client, cell_file):
+    """`at` is a hint; the header row is the name -- `find_run`'s reasoning, one down."""
+    assert client.patch("/api/sprints/1/blocks", json={
+        "at": 0, "expect": [], "blocks": [{"raw": "Note above."}]}).status_code == 200
+
+    response = client.patch("/api/sprints/1/cells", json=cells(
+        CAPACITY_AT, CAPACITY_HEAD, [capacity_cell(0, 1, "10", "12")]))
+    assert response.status_code == 200, response.text
+    assert table_of(client)["rows"][0] == ["@qh", "12", "on leave"]
+
+
+def test_a_table_that_is_gone_is_refused(client, cell_file):
+    response = client.patch("/api/sprints/1/cells", json=cells(
+        CAPACITY_AT, ["Nothing", "Here"], [capacity_cell(0, 0, "", "x")]))
+    assert response.status_code == 409
+    assert "not in the file" in response.json()["detail"]["error"]
+
+
+def test_a_cell_off_the_end_of_the_grid_is_refused(client, cell_file):
+    response = client.patch("/api/sprints/1/cells", json=cells(
+        CAPACITY_AT, CAPACITY_HEAD, [capacity_cell(9, 0, "", "x")]))
+    assert response.status_code == 409
+    assert file_text(cell_file) == CELL_FILE
+
+
+def test_a_cell_write_announces_the_splice_and_the_cells_it_wrote(client, cell_file):
+    """Other pages apply it as a splice; the cell list is what lets one merge it."""
+    with client.websocket_connect("/ws") as socket:
+        assert client.patch("/api/sprints/1/cells", json=cells(
+            CAPACITY_AT, CAPACITY_HEAD,
+            [capacity_cell(0, 1, "10", "12")])).status_code == 200
+        message = next_change(socket)
+
+    assert message["scope"] == "sprint"
+    assert message["key"] == 1
+    splice = message["splice"]
+    assert splice["at"] == CAPACITY_AT
+    assert splice["expect"] == [CELL_FILE.split("\n\n")[2].rstrip("\n")]
+    assert splice["blocks"][0]["raw"].splitlines()[2] == "| @qh    |   12 | on leave |"
+    assert splice["cells"] == [{"r": 0, "c": 1, "expect": "10", "text": "12"}]
+
+
+TEMPLATE_WITH_TABLE = """# Sprint N · YYYY-MM-DD → YYYY-MM-DD
+
+## 2. Capacity
+
+| Person | Days |
+| ------ | ---- |
+| @you   |      |
+"""
+
+
+@pytest.fixture
+def template_with_table(tmp_path, monkeypatch):
+    path = tmp_path / "template" / "sprint.md"
+    path.parent.mkdir(exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="") as handle:
+        handle.write(TEMPLATE_WITH_TABLE)
+    monkeypatch.setattr(main, "SPRINT_TEMPLATE", str(path))
+    return path
+
+
+def test_the_template_takes_the_same_cell_write(client, template_with_table):
+    response = client.patch("/api/template/cells", json=cells(
+        CAPACITY_AT, ["Person", "Days"], [capacity_cell(0, 1, "", "5")]))
+    assert response.status_code == 200, response.text
+    assert "| @you   | 5    |" in file_text(template_with_table)
+
+
 # --- two writers on one row ---------------------------------------------------
 
 
@@ -2952,6 +3102,80 @@ def test_typing_puts_a_hold_back_out_of_reach(client):
         two.send_json({"type": "take", "field": GOAL_FIELD})
         assert not wait_until(
             lambda: main.live_clients[second].holding == GOAL_FIELD, timeout=0.4)
+
+
+# A sprint block and a table cell are held by the same machinery as a field, and
+# these are here so they stay that way: the registry knows a field by its string
+# and must never learn what a `sprint:` one means. What the two keys look like is
+# `sprintPresenceScope` and `sprintCellHost` in the frontend.
+BLOCK_FIELD = "sprint:7:12"
+CELL_FIELD = "sprint:7:12:cell:3:1"
+
+
+def test_a_sprint_block_is_held_like_any_other_field(client):
+    with client.websocket_connect("/ws") as socket:
+        mine = own_id(socket)
+        assert wait_for_clients(1)
+        socket.send_json(here(BLOCK_FIELD, view="sprint", key=7))
+        entry = roll_until(socket, mine, lambda user: user["holding"] == BLOCK_FIELD)
+        assert entry["view"] == "sprint"
+
+
+def test_an_idle_sprint_block_can_be_taken(client):
+    """The lunch break case again, in the tab where it actually happens."""
+    with client.websocket_connect("/ws") as one, client.websocket_connect("/ws") as two:
+        first, second = own_id(one), own_id(two)
+        assert wait_for_clients(2)
+        one.send_json(here(BLOCK_FIELD, view="sprint", key=7))
+        assert wait_until(lambda: main.live_clients[first].holding == BLOCK_FIELD)
+
+        two.send_json({"type": "take", "field": BLOCK_FIELD})
+        assert not wait_until(
+            lambda: main.live_clients[second].holding == BLOCK_FIELD, timeout=0.4)
+
+        main.live_clients[first].active_at -= main.HOLD_IDLE_SECONDS + 1
+        two.send_json({"type": "take", "field": BLOCK_FIELD})
+        assert wait_until(lambda: main.live_clients[second].holding == BLOCK_FIELD)
+        assert main.live_clients[first].holding == ""
+
+
+def test_two_cells_of_one_table_are_two_holds(client):
+    """The cell is the unit in a grid, so one caret in it leaves the rest open."""
+    other_cell = "sprint:7:12:cell:3:2"
+    with client.websocket_connect("/ws") as one, client.websocket_connect("/ws") as two:
+        first, second = own_id(one), own_id(two)
+        assert wait_for_clients(2)
+        one.send_json(here(CELL_FIELD, view="sprint", key=7))
+        assert wait_until(lambda: main.live_clients[first].holding == CELL_FIELD)
+
+        two.send_json(here(other_cell, view="sprint", key=7))
+        assert wait_until(lambda: main.live_clients[second].holding == other_cell)
+        assert main.live_clients[first].holding == CELL_FIELD
+
+
+def test_a_held_cell_does_not_hold_the_block_around_it(client):
+    """Nothing is nested: a cell key and a block key are two unrelated strings."""
+    with client.websocket_connect("/ws") as one, client.websocket_connect("/ws") as two:
+        first, second = own_id(one), own_id(two)
+        assert wait_for_clients(2)
+        one.send_json(here(CELL_FIELD, view="sprint", key=7))
+        assert wait_until(lambda: main.live_clients[first].holding == CELL_FIELD)
+
+        two.send_json(here(BLOCK_FIELD, view="sprint", key=7))
+        assert wait_until(lambda: main.live_clients[second].holding == BLOCK_FIELD)
+
+
+def test_a_cell_hold_never_refuses_a_cell_write(client, cell_file):
+    """A hold is a caret, not a lease -- the write path does not consult it."""
+    with client.websocket_connect("/ws") as socket:
+        own_id(socket)
+        assert wait_for_clients(1)
+        socket.send_json(here("sprint:1:2:cell:0:1", view="sprint", key=1))
+        assert wait_until(lambda: main.field_holder("sprint:1:2:cell:0:1") is not None)
+
+        assert client.patch("/api/sprints/1/cells", json=cells(
+            CAPACITY_AT, CAPACITY_HEAD,
+            [capacity_cell(0, 1, "10", "12")])).status_code == 200
 
 
 def test_a_page_that_talks_nonsense_is_ignored_rather_than_dropped(client):
