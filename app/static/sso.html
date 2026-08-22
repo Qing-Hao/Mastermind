@@ -93,13 +93,23 @@
       <p class="hint">
         Both must be registered on the client, character for character.
         <code>127.0.0.1</code> and <code>localhost</code> are different entries,
-        and a mismatch here is the step that fails.
+        and a mismatch here is the step that fails. Click either box to copy it.
       </p>
+      <!-- Copy rather than retype: these are the two values that have to reach
+           Keycloak character for character, and a hand-typed one is the failure
+           this card exists to prevent. The whole box is the target, with the
+           button there to say so. -->
       <label class="config-wide">Redirect URI
-        <input id="sso-redirect" type="text" readonly>
+        <span class="config-copy">
+          <input id="sso-redirect" type="text" readonly title="Click to copy">
+          <button id="sso-redirect-copy" type="button" class="config-copy-btn">Copy</button>
+        </span>
       </label>
       <label class="config-wide">Post-logout redirect URI
-        <input id="sso-post-logout" type="text" readonly>
+        <span class="config-copy">
+          <input id="sso-post-logout" type="text" readonly title="Click to copy">
+          <button id="sso-post-logout-copy" type="button" class="config-copy-btn">Copy</button>
+        </span>
       </label>
       <p class="hint">
         The redirect URI is derived from the address you reached this page by.
@@ -316,6 +326,89 @@
       message("Sign-in is off. The port is as open as whatever it is bound to.");
       await load();
     };
+
+    // --- copying the two URIs -------------------------------------------------
+
+    // **`navigator.clipboard` is not enough here.** It exists only in a secure
+    // context, and this page is explicitly served over plain http on a host name
+    // whenever the allow-http flag above is set -- which is the deployment most
+    // likely to be reading this card in the first place. The old
+    // `execCommand("copy")` still works there, so it is the fallback rather than
+    // a nicety, and the toast says plainly when both have failed.
+    async function copyText(text) {
+      try {
+        if (window.isSecureContext && navigator.clipboard) {
+          await navigator.clipboard.writeText(text);
+          return true;
+        }
+      } catch (_) {
+        // Denied, or no permission. The fallback below is the whole answer.
+      }
+      const holder = document.createElement("textarea");
+      holder.value = text;
+      holder.setAttribute("readonly", "");
+      holder.style.position = "fixed";
+      holder.style.top = "-1000px";
+      document.body.appendChild(holder);
+      holder.select();
+      let copied = false;
+      try {
+        copied = document.execCommand("copy");
+      } catch (_) {
+        copied = false;
+      }
+      holder.remove();
+      return copied;
+    }
+
+    // The page's own toast. `.app-toast` is styled in `style.css` and built in
+    // `app.js`; this page cannot load `app.js` -- it has to work when the shell
+    // does not -- so it borrows the class and builds the three lines itself.
+    let toastTimer = null;
+    function toast(text) {
+      clearTimeout(toastTimer);
+      const existing = document.querySelector(".app-toast");
+      if (existing) existing.remove();
+
+      const node = document.createElement("div");
+      node.className = "app-toast";
+      const label = document.createElement("span");
+      label.className = "app-toast-text";
+      label.textContent = text;
+      node.appendChild(label);
+
+      const close = document.createElement("button");
+      close.type = "button";
+      close.className = "app-toast-close";
+      close.textContent = "×";
+      close.title = "Dismiss";
+      close.onclick = () => node.remove();
+      node.appendChild(close);
+
+      document.body.appendChild(node);
+      toastTimer = setTimeout(() => node.remove(), 4000);
+    }
+
+    // Selected as well as copied, so the fallback path leaves the value ready for
+    // Ctrl+C -- which is also what the failure message tells you to press.
+    async function copyField(id, label) {
+      const input = $(id);
+      if (!input.value) {
+        toast("There is nothing here to copy yet.");
+        return;
+      }
+      input.select();
+      toast(await copyText(input.value)
+        ? label + " copied."
+        : "Could not reach the clipboard — it is selected, press Ctrl+C.");
+    }
+
+    $("sso-redirect").onclick = () => copyField("sso-redirect", "Redirect URI");
+    $("sso-redirect-copy").onclick = () => copyField("sso-redirect", "Redirect URI");
+    $("sso-post-logout").onclick =
+      () => copyField("sso-post-logout", "Post-logout redirect URI");
+    $("sso-post-logout-copy").onclick =
+      () => copyField("sso-post-logout", "Post-logout redirect URI");
 
     load();
   </script>
