@@ -3969,6 +3969,26 @@ body.resizing-column { cursor: col-resize; user-select: none; }
    it cannot be a class the way the picker's one level of nesting can be.
    Nothing here toggles `hidden`: the open row's form is built and removed,
    which keeps it clear of the `display`-versus-`[hidden]` trap. */
+/* The fold itself has to read as a control. The app's `details summary` rule is
+   12.5px muted text, which is right for a footnote and wrong here: this one sat
+   under the legend's grey paragraph at the foot of the card and was missed
+   twice. Same triangle, but dressed as the button it is. */
+.track-fold { margin-top: 12px; }
+.track-fold > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border: 1px solid var(--field);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.track-fold > summary:hover { background: var(--hover); color: var(--ink); }
+.track-fold[open] > summary { margin-bottom: 4px; }
+
 .track-editor { display: flex; flex-direction: column; margin-top: 6px; }
 
 .track-edit-row {
