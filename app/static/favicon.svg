@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+     stroke="#4f46e5" stroke-width="2.4" stroke-linecap="round">
+  <!-- The sidebar brand mark, scaled to fill the tile: at 16px the sidebar's
+       own r=3 circle is two pixels wide and reads as a dot. -->
+  <circle cx="12" cy="12" r="4.5"></circle>
+  <path d="M12 1.5v4M12 18.5v4M1.5 12h4M18.5 12h4"></path>
+</svg>
