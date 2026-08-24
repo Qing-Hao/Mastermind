@@ -3982,17 +3982,19 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 .track-edit-row:hover { background: var(--hover); }
 .track-edit-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Held back until the row is under the cursor or holds the focus: two buttons
-   on every level of a deep tree is a wall of chrome to read past, and neither
-   is an edit anyone makes often. */
+/* Drawn on every row, quietly. They were held at `opacity: 0` until the row was
+   hovered -- two buttons per level of a deep tree is a wall of chrome to read
+   past -- but a control nobody can see is a control nobody finds, and this one
+   is the only door into the tree's shape. So it is always there and merely
+   faint, and the row's hover brings it up. */
 .track-edit-act {
   flex: none;
   padding: 1px 7px;
   font-size: 11.5px;
-  opacity: 0;
+  border-color: var(--line);
+  color: var(--muted);
 }
-.track-edit-row:hover .track-edit-act,
-.track-edit-act:focus-visible { opacity: 1; }
+.track-edit-row:hover .track-edit-act { color: var(--ink); }
 
 .track-edit-form {
   display: flex;
