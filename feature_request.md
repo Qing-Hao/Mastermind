@@ -70,6 +70,7 @@ put FR-13 above FR-12, and both are built and gone from this table.
 
 | # | Request | Complexity | Frequency | Impact | Priority |
 |---|---|---|---|---|---|
+| FR-22 | A sprint edit cannot be taken back — no `Ctrl+Z` anywhere | Medium | High | High | **P1** |
 | FR-1 | Say that sprint task points and phase `effort_points` are one currency | Prose only | — | High | **P1** |
 | FR-19 | V1 fires on all 30 phases, so it says nothing | Setting or prose | High | High | **P2** — one decision, no code |
 | FR-11 | Project picker belongs to the Project tab | Medium | High | Medium | **P2** |
@@ -80,6 +81,7 @@ put FR-13 above FR-12, and both are built and gone from this table.
 | FR-6 | Slippage memory — has this date moved before? | Large | Low | High | **P3** — deferred deliberately |
 | FR-20 | Milestone diamonds on the portfolio | Small | Medium | Medium | **P2** |
 | FR-21 | `phase.status` is still maintained by nobody | Small | High | Medium | **P2** |
+| FR-23 | Versioning: who changed what, and revert | Large (needs a store) | — | High | **P3** — a brief decision |
 | FR-7 | Owners at roadmap level | Small | — | Negative | **Won't build** |
 
 FR-20 and FR-21 both came out of the milestone work in tree E: one is a half
@@ -87,6 +89,13 @@ deliberately left out of the build, the other is the half of FR-16 that
 milestones did not answer. Neither is blocked on anything. FR-19 is unrelated
 and came out of tree B — see the note at the top about the number being claimed
 twice.
+
+**FR-22 and FR-23 are one request split in two**, from 2026-08-24, and the split
+is the point: the first is a gesture with nothing stored, the second is a history
+with an author on it. Only the first can be built without asking. FR-22 is the
+first *code* item to reach P1, on frequency — a sprint file is the one document
+here that gets typed into all fortnight, saving is automatic, and there is no
+other way back.
 
 ---
 
@@ -105,7 +114,16 @@ independent.
 ```
 FR-11 ──> tab reorder same change, same files, one commit
 FR-20 ──> a decision  per-swimlane or one shared lane, not code
+FR-23 ──> a decision  the brief, not the code — and then a store
 ```
+
+- **FR-22 depends on nothing and blocks nothing.** It is `editor.js` alone, and
+  it does not need FR-23 to be settled first — an in-memory stack stores nothing,
+  which is the whole reason it can go ahead while the versioning question sits.
+  It does want that file to itself for the length of the work: every mutation site
+  in the sprint editor has to declare the block range it touched.
+- **FR-23 blocks on the brief, then on a store**, and shares that store with
+  FR-6. Neither should invent its own.
 
 - **FR-21 depends on nothing but its own decision** — what `phase.status` is
   for, now that the ladder no longer reads it. The code either way is small.
@@ -141,6 +159,27 @@ starting point, not a contract: **re-grep rather than trusting the column**. The
 milestone section pushed everything below it in `#project-view` down, and the
 next item to land will do the same to these.
 
+FR-22 lands somewhere else entirely — `editor.js`, in none of the regions above.
+Its anchors, read against `main` at `1dbea5e`, where `editor.js` is 4,521 lines
+and `app.js` 7,632:
+
+| What | Where | Why it is in the list |
+|---|---|---|
+| `renderSprintDocument` | `editor.js:458` | the redraw every restore ends in |
+| `writeInlineSurface` | `editor.js:904` | `innerHTML = ""` — why the native stack dies mid-cell |
+| `sprintCell` | `editor.js:3272` | the keydown a `Ctrl+Z` joins, and the blur that replaces the surface |
+| `writeCell` / `tableEdited` | `editor.js:2789`, `4190` | every cell write funnels through the pair; the natural place to take a snapshot |
+| `continueCellList`, `indentCellLine`, `dropCellMarker`, `promoteCellLine`, `toggleCellTodoAtCaret` | `3477`, `3540`, `2364`, `2351`, `3221` | the five in-cell redraws that break undo without leaving the cell |
+| `pasteIntoCell` / `pasteIntoTable` | `3629`, `3657` | two of the commit boundaries, and the loudest ones |
+| `insertGridRow` and the structural edits below it | `3837` onward | the range-spanning mutations that rule option B out |
+| `commitSprintBlock`, `commitSprintRawFile` | `4217`, `434` | the block-level boundary, and the whole-file restore path option A would reuse |
+| `sprintSplices` | `editor.js:4316` | what option C restores through, and where the 409 protection comes from |
+
+No test file covers any of it today: the suite is API-level and never loads the
+page. `lock_check.js` is the closest thing and already loads both frontend files
+in one scope, so an undo stack's own checks belong there rather than in a new
+script.
+
 One property worth noticing: **`style.css` gets touched by most of these, in
 disjoint regions.** Git merges that fine as long as nobody reflows the file. Do
 not reorder or reformat blocks you are not changing. The `[hidden]` trap — a
@@ -154,6 +193,7 @@ features; check it before adding any new hideable element.
 | **D · shell** | FR-11 + tab reorder | Both edit the header, both are small, and the reorder is what makes the picker's placement obviously wrong. Goes last and alone — see below. |
 | **FR-20** | portfolio milestone lane | Wants `renderPortfolio` to itself. One decision (per-swimlane or shared) then a payload field. |
 | **FR-21** | phase close | Its own decision first — what `phase.status` is for. Touches the phase row and nothing else. |
+| **FR-22** | sprint undo | Wants `editor.js` to itself — every mutation site in the sprint editor gains a snapshot, so a second branch in that file would conflict everywhere. Overlaps nothing above: none of the other items opens the Sprint tab. |
 
 **The four trees that ran are deleted from this table, not struck through**, the
 same rule the entries themselves follow: B (portfolio), E (status), F (map) and
@@ -681,6 +721,97 @@ unreadable until this is settled.
 in the app now asks every rule at once: open two or three projects and count the
 V1s on each, or run `validate_plan` over `db.list_projects()` in a scratch
 script. It was 30 of 30 on 2026-08-15.
+
+---
+
+## FR-22 · A sprint edit cannot be taken back — **P1**
+
+*Opened 2026-08-24, out of using the sprint editor rather than reading it. The
+paste half of the same session shipped (`28cb77f`, `1dbea5e`); this half did not,
+because it is not a bug fix.*
+
+**`Ctrl+Z` does nothing after focus leaves the box you typed in**, and often
+nothing well before that. There is no undo in this app at all — grep the frontend
+for a `z` keybinding and there is none — so every undo anyone has ever got here
+was the browser's own, on the surface they were standing in.
+
+That surface is destroyed twice over, which is why this reads as intermittent
+rather than absent:
+
+1. **Leaving a cell replaces it.** `sprintCell`'s `onblur` (`editor.js:3272`)
+   calls `showSprintCell`, which swaps the editable for the view. A block's blur
+   is worse: it *is* the save, and `commitSprintBlock` re-splits and re-renders.
+2. **`writeInlineSurface` (`editor.js:904`) does `host.innerHTML = ""`** and
+   redraws. So the native stack also dies *inside* a cell, without leaving it —
+   on marker promotion (`promoteCellLine`), `Enter` on a list line
+   (`continueCellList`), indent (`indentCellLine`), a tick
+   (`toggleCellTodoAtCaret`) and backspace-against-a-marker (`dropCellMarker`).
+
+**So this is not "add a `Ctrl+Z` handler".** No handler can revive a stack whose
+DOM was thrown away. It has to be a snapshot stack of the app's own.
+
+**Frequency is what puts this at P1**, and it is the first code item to get
+there. A sprint file is the one document in the tool that is *typed into*, for a
+fortnight at a time, by more than one person — and the editor is deliberately
+save-on-its-own with no confirm step, so a wrong keystroke is written to disk
+within the debounce. The tool has no other route back: `sprints/NN.md` is
+gitignored, and the `data/backups/` copies are the database, not the sprints.
+
+### Four shapes, and the one to build
+
+| Option | Pro | Con |
+|---|---|---|
+| **A · Document snapshot** — push `joinSprintBlocks(blocks)` at each commit boundary; `Ctrl+Z` pops into `commitSprintRawFile` (`editor.js:434`, which already re-splits, renders and saves) | ~40 lines, reuses a path that exists, matches "the markdown file is the one record" | whole-file granularity — **your undo deletes a coworker's paragraph** if they wrote one since the snapshot |
+| **B · Per-block snapshot** — `block.raw` + `copyGrid(block.table)` before each edit | multi-user safe; the splice save already refuses a stale run with a 409 | a structural edit (row insert, a paste that becomes three blocks) spans blocks, so a block is the wrong unit |
+| **C · Run snapshot** *(recommended)* — snapshot the index range an edit touched plus its raws; restore through the existing `sprintSplices` (`editor.js:4316`) | correct granularity, right layer, and the 409 protects a coworker for free | most bookkeeping — every mutation has to declare its range |
+| **D · Command log with inverse ops** | real undo *and* redo, keystroke-level | every mutation routes through one `apply()`; a large refactor of a 4,521-line file |
+
+**Build C.** A is the cheap one and is genuinely unsafe now that two people share
+a file — if it is built anyway as a stepping stone, it needs a guard that refuses
+the undo when a snapshotted block no longer matches `sprint.disk`, and says so.
+
+**Granularity, either way: an undo point is a commit boundary** — a blur, a paste,
+a structural edit — **not a keystroke.** Inside one surface the native stack still
+works until one of the five redraws above fires. Nobody should promise more than
+that without option D.
+
+**What it must not become.** Nothing here is stored and nothing is keyed to a
+person: the stack is in memory, per session, and dies with the tab. That is the
+whole distance between this and FR-23.
+
+## FR-23 · Versioning: who changed what, and revert — **P3, a brief decision, not effort**
+
+*The second half of the same 2026-08-24 request, split out because it is a
+different kind of question. Asked as: "the versioning where we can see who make
+the changes and revert if needed."*
+
+**Not buildable as written**, and the reason is not effort. Non-negotiable 7
+names activity feeds and audit logs as never-build, and a version row carrying an
+author is `created_by` — *a row keyed by a person*, which is the exact shape the
+gate was narrowed to avoid on 2026-08-21. Presence shows a name it was handed; it
+does not record one. Building this makes the tool the tracker `PROMPT.md`
+forbids, on the one axis the brief was most explicit about.
+
+The underlying want is real, though, and it is two wants wearing one coat:
+
+- **"Take that back"** — answered by FR-22, entirely, with nothing stored.
+- **"What did this file look like on Tuesday, and can I have it back"** — a
+  history question, and the only half that needs a store.
+
+### Two honest ways it could exist
+
+| Option | Pro | Con |
+|---|---|---|
+| **A · Anonymous file snapshots** — keep the last N versions of `sprints/NN.md`, no names, revert to any | no person-keyed row, so the brief survives intact; a sprint file is small and there are ~26 a year | answers *what* changed and never *who* — which is half of what was asked |
+| **B · Amend the brief** — a versions table with an author column | actually answers the question | crosses non-negotiable 7 deliberately; needs the argument written into `PROMPT.md` as an amendment, and it is the door the brief was holding shut |
+
+Both need a store, which is FR-6's problem too — and FR-6 is deferred for
+exactly this reason, so whichever store lands should serve both rather than each
+growing its own.
+
+**This entry is not waiting on a developer.** It is waiting on the requester to
+say A, B, or neither. Until then the argument above *is* the artefact, which is
+why it sits here rather than being deleted — the same reason FR-2 and FR-7 stay.
 
 ---
 
