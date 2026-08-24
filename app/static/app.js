@@ -8332,6 +8332,11 @@ watchPresence();
 // refuses. Capture-phase and delegated on the document, so it is armed before
 // the Sprint tab has drawn anything.
 watchSprintLocks();
+// `Ctrl+Z` in the Sprint tab. Capture-phase on the document for the same reason:
+// the caret is usually inside a cell or an inline surface, and those own their own
+// keydown. See `editor.js` -- the browser's own undo stack cannot survive the
+// redraws that editor does, so the app keeps one.
+watchSprintUndo();
 watchTheClock();
 // Before the first load, so the sidebar is already the width it was left at when
 // the charts measure their container -- `weekGrid` fits its columns to that

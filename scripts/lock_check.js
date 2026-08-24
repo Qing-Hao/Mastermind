@@ -6,8 +6,9 @@
 // `css_check.js`, and for the same reason they exist: the Python tests are
 // API-level and never load the page, so nothing else here executes a line of
 // this. What it covers is the half of two-people-in-one-file that lives in the
-// browser -- which node a hold names, what a locked one refuses, and what a save
-// owes as cells rather than as blocks.
+// browser -- which node a hold names, what a locked one refuses, what a save owes
+// as cells rather than as blocks, and which edits `Ctrl+Z` can take back without
+// writing over somebody else's.
 //
 // It loads the real `editor.js` and `app.js` behind a stub DOM, in **one** run so
 // the two share a lexical scope: `state` is a `const` in app.js and every
@@ -133,6 +134,8 @@ function load() {
     lockField, releaseField, copyGrid, diskBlocks, sameGridShape, changedCells,
     sprintCellWrites, sprintSplices, currentPlace, SPRINT_UNSAVED,
     applyRemoteSprintCells, refuseSprintWrite, SPRINT_REFUSAL_LIMIT,
+    sprintUndo, pushSprintUndo, sealSprintUndo, clearSprintUndo, undoBlocks,
+    undoRun, undoSprintEdit, redoSprintEdit, insertGridRow, adoptSprintBlocks,
   };`;
 
   vm.runInContext(
@@ -366,6 +369,167 @@ function run() {
     state.sprint.status === "failed", state.sprint.status);
   check("and the message is the one the server gave",
     state.sprint.error === "Somebody got there first.", state.sprint.error);
+
+  // --- taking an edit back ----------------------------------------------------
+  //
+  // The stack is snapshot pairs, so what is worth checking is the pairing rather
+  // than the keystroke: that one gesture is one entry, that a gesture which
+  // changed nothing is not an entry at all, and that an entry the document has
+  // moved past is refused rather than forced over somebody else's work.
+
+  const document3 = () => [
+    { index: 0, type: "paragraph", raw: "one", gap: "\n\n", html: "" },
+    { index: 1, type: "table", raw: "| a |", gap: "\n\n", html: "", table: probe.copyGrid(CAPACITY) },
+    { index: 2, type: "paragraph", raw: "three", gap: "\n", html: "" },
+  ];
+
+  const reset = () => {
+    state.sprint.number = 7;
+    state.sprint.editing = null;
+    state.sprint.editingLine = null;
+    state.sprint.blocks = document3();
+    state.sprint.disk = probe.diskBlocks(state.sprint.blocks);
+    probe.clearSprintUndo(7);
+  };
+
+  const liveGrid = () => state.sprint.blocks[1].table;
+
+  // A cell visit is the boundary, so the edit inside it is one entry -- and the
+  // grid rather than the block's stale `raw` is what the pair is compared on.
+  reset();
+  probe.pushSprintUndo();
+  liveGrid().rows[1][2] = "back Tue";
+  probe.undoSprintEdit();
+  check("a cell edit undoes to what the cell held",
+    liveGrid().rows[1][2] === "", `"${liveGrid().rows[1][2]}"`);
+  check("the block either side of it is untouched",
+    state.sprint.blocks[0].raw === "one" && state.sprint.blocks[2].raw === "three");
+  check("a restored table is flagged, so the grid and not the stale raw reaches the file",
+    state.sprint.blocks[1].tableEdited === true);
+
+  probe.redoSprintEdit();
+  check("and a redo puts it back", liveGrid().rows[1][2] === "back Tue",
+    liveGrid().rows[1][2]);
+
+  // A restore hands out a copy and never the snapshot itself: an entry can be
+  // restored twice, and a grid passed by reference would then be typed into.
+  probe.undoSprintEdit();
+  liveGrid().rows[1][2] = "scribbled on";
+  check("a restored grid is a copy, not the snapshot itself",
+    probe.sprintUndo.undone[0].before[1].table.rows[1][2] === "",
+    probe.sprintUndo.undone[0].before[1].table.rows[1][2]);
+
+  // A structural edit is one entry however many cells it moves -- the range comes
+  // out of the diff, so nothing had to declare it.
+  reset();
+  probe.insertGridRow(state.sprint.blocks[1], 0);
+  check("a row insert happened", liveGrid().rows.length === 3);
+  probe.undoSprintEdit();
+  check("a structural edit undoes as one entry", liveGrid().rows.length === 2,
+    `${liveGrid().rows.length} rows`);
+  check("and the stack is empty after it", probe.sprintUndo.done.length === 0);
+
+  // Two boundaries with nothing between them is one entry: the first recorded
+  // nothing and is dropped rather than kept as a Ctrl+Z that appears to do nothing.
+  reset();
+  probe.pushSprintUndo();
+  probe.pushSprintUndo();
+  check("a boundary that changed nothing is not an entry",
+    probe.sprintUndo.done.length === 1, `${probe.sprintUndo.done.length} entries`);
+  liveGrid().rows[1][0] = "@ada";
+  probe.undoSprintEdit();
+  check("so entering a cell and then pasting into it undoes once",
+    liveGrid().rows[1][0] === "@sam" && probe.sprintUndo.done.length === 0,
+    liveGrid().rows[1][0]);
+
+  // The one thing this must never do quietly. Their write closes the boundary, so
+  // the entry describes only this page's edit -- and the block it names no longer
+  // holds it, so the undo is refused rather than written over them.
+  reset();
+  probe.pushSprintUndo();
+  state.sprint.blocks[0].raw = "mine";
+  probe.sealSprintUndo();
+  state.sprint.blocks[0].raw = "theirs";
+  probe.undoSprintEdit();
+  check("an edit somebody else has since changed cannot be taken back",
+    state.sprint.blocks[0].raw === "theirs", state.sprint.blocks[0].raw);
+
+  // A stale entry does not wall off the ones under it.
+  reset();
+  probe.pushSprintUndo();
+  state.sprint.blocks[2].raw = "three, edited";
+  probe.pushSprintUndo();
+  state.sprint.blocks[0].raw = "mine";
+  probe.sealSprintUndo();
+  state.sprint.blocks[0].raw = "theirs";
+  probe.undoSprintEdit();
+  check("the entry under a stale one is still reachable",
+    state.sprint.blocks[2].raw === "three" && state.sprint.blocks[0].raw === "theirs",
+    `${state.sprint.blocks[2].raw} / ${state.sprint.blocks[0].raw}`);
+
+  // A fresh edit is a different document, so what was undone is not coming back.
+  reset();
+  probe.pushSprintUndo();
+  liveGrid().rows[1][0] = "@ada";
+  probe.undoSprintEdit();
+  check("an undo leaves something to redo", probe.sprintUndo.undone.length === 1);
+  probe.pushSprintUndo();
+  check("and a fresh edit empties the redo stack", probe.sprintUndo.undone.length === 0);
+
+  // The stack belongs to one open file.
+  reset();
+  probe.pushSprintUndo();
+  liveGrid().rows[1][0] = "@ada";
+  state.sprint.number = 8;
+  probe.pushSprintUndo();
+  check("a stack of another file's snapshots is dropped",
+    probe.sprintUndo.done.length === 1 && probe.sprintUndo.key === 8,
+    `${probe.sprintUndo.done.length} entries, key ${probe.sprintUndo.key}`);
+
+  // The file taken as it stands. The stack survives -- this runs on an ordinary
+  // refusal, and clearing here emptied it after most saves -- but the boundary
+  // closes, so what the file turned out to hold is nobody's edit.
+  reset();
+  probe.pushSprintUndo();
+  liveGrid().rows[1][0] = "@ada";
+  probe.adoptSprintBlocks(document3());
+  check("an ordinary refusal seals the boundary and keeps the stack",
+    probe.sprintUndo.done.length === 1 && !!probe.sprintUndo.done[0].after);
+  probe.undoSprintEdit();
+  check("and the entry it sealed still undoes",
+    liveGrid().rows[1][0] === "@sam", liveGrid().rows[1][0]);
+
+  // A refusal that changed the document's length is the one case a per-entry
+  // check cannot see, because then every index means something else.
+  reset();
+  probe.pushSprintUndo();
+  liveGrid().rows[1][0] = "@ada";
+  probe.adoptSprintBlocks(document3().slice(0, 2));
+  check("a refusal that changed the document's length clears the stack",
+    probe.sprintUndo.done.length === 0 && probe.sprintUndo.undone.length === 0,
+    `${probe.sprintUndo.done.length} entries`);
+
+  // The range one entry covers, on its own: the common head and tail trimmed, the
+  // same walk a save does.
+  const before = probe.undoBlocks(document3());
+  const after = probe.undoBlocks(document3());
+  after[1].table.rows[0][0] = "@ada";
+  const run = probe.undoRun(before, after);
+  check("an entry's range is the blocks that changed and no others",
+    run.head === 1 && run.was.length === 1 && run.now.length === 1,
+    `head ${run.head}, ${run.was.length} -> ${run.now.length}`);
+
+  // The one comparison that had to be got right: a table's markdown is derived, so
+  // a save that only reformatted it is not an edit anybody can take back.
+  const padded = probe.undoBlocks(document3());
+  padded[1].raw = "| Person | Days | Notes |\n| --- | ---: | --- |\n";
+  check("a table reformatted by a save is not a change",
+    probe.undoRun(before, padded).was.length === 0,
+    JSON.stringify(probe.undoRun(before, padded).was));
+  check("but a paragraph rewritten is",
+    probe.undoRun(before, probe.undoBlocks(
+      document3().map((b, i) => (i === 0 ? { ...b, raw: "one, edited" } : b)),
+    )).was.length === 1);
 }
 
 try {
@@ -377,7 +541,8 @@ try {
 
 if (failures === 0) {
   console.log("locks clean: holds name the right nodes, locked nodes refuse edits, "
-    + "cell writes name the right cells");
+    + "cell writes name the right cells, undo takes back one gesture and refuses "
+    + "a stale one");
   process.exit(0);
 }
 

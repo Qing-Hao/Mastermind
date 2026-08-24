@@ -173,6 +173,8 @@ async function loadSprintFile(number) {
     editingLine: null,
     draft: null,
   });
+  // A stack of snapshots of another document names blocks that are not there.
+  clearSprintUndo(state.sprint.number);
   // Switching files never goes through `refreshView`, so this is where the open
   // file gets remembered for the next reload, and where the route picks it up so
   // Back walks back through the files as well as the tabs.
@@ -209,6 +211,7 @@ async function revealSprintFile(number) {
 
 function resetSprint() {
   clearTimeout(sprintSaveTimer);
+  clearSprintUndo();
   Object.assign(state.sprint, {
     number: null, name: "", blocks: [], disk: null, mtime: null,
     status: "clean", error: "", refusals: 0,
@@ -1124,6 +1127,7 @@ async function applySprintPromotion(index, text) {
 function demoteSprintBlock(index) {
   const block = state.sprint.blocks[index];
   if (!block) return;
+  pushSprintUndo();
   Object.assign(block, { type: "paragraph", raw: "", html: "" });
   state.sprint.draft = null;
   renderSprintDocument();
@@ -1306,6 +1310,7 @@ function removeSprintBlock(index) {
   const sprint = state.sprint;
   const blocks = sprint.blocks;
   const tail = blocks[blocks.length - 1].gap;
+  pushSprintUndo();
 
   blocks.splice(index, 1);
   if (blocks.length) blocks[blocks.length - 1].gap = tail;
@@ -1566,6 +1571,7 @@ function sprintListRow(block, index, lines, position, editing) {
 // recorded and the box draws what the owner says now. Pressing it settles both on
 // the same answer, which is the useful thing for a press to do.
 function toggleSprintListLine(block, lines, position, done, owner) {
+  pushSprintUndo();
   lines[position].box = done ? "x" : " ";
   writeSprintList(block, lines);
   if (owner) owner.toggle(done);
@@ -1584,6 +1590,7 @@ function sprintLineAction(block, index, lines, position, action, done) {
   press.onclick = (event) => {
     event.stopPropagation();
     action.run(press, lines[position].text, (text, done) => {
+      pushSprintUndo();
       lines[position].text = text;
       // The action may settle the box as well as the text: what it linked the
       // line to can already disagree about being done, and only the action's
@@ -1687,6 +1694,10 @@ function promoteSprintLine(block, lines, position) {
   const marker = !line.marker ? LINE_MARKER.exec(line.text) : null;
   if (!box && !marker) return false;
 
+  // Below here the line is changing, and it is one of the redraws that empties the
+  // surface -- so the boundary is here rather than at the top.
+  pushSprintUndo();
+
   if (box) {
     line.box = box[1].toLowerCase() === "x" ? "x" : " ";
     line.boxGap = " ";
@@ -1708,6 +1719,7 @@ function indentSprintLine(block, lines, position, direction, host) {
   // The first line carries the block's own identity: indent it four spaces and the
   // list stops being a list. Nesting the first item means nothing anyway.
   if (direction > 0 && position === 0) return;
+  pushSprintUndo();
   if (direction > 0) line.indent += CELL_INDENT;
   else line.indent = line.indent.replace(/(?:\t| {1,2})$/, "");
 
@@ -1725,6 +1737,7 @@ function indentSprintLine(block, lines, position, direction, host) {
 // The split is `inlineHalves`, not a string slice: a caret inside a bold run has to
 // leave both halves bold, and the range knows what the string cannot.
 function splitSprintLine(block, index, lines, position, host) {
+  pushSprintUndo();
   const line = lines[position];
   const halves = inlineHalves(host);
   line.text = halves.before;
@@ -1743,6 +1756,7 @@ function splitSprintLine(block, index, lines, position, host) {
 // paragraph opens after the list for whatever comes next. The mirror of Enter
 // carrying the list on, and the only way out of one that is not a mouse.
 function endSprintList(block, index, lines, position) {
+  pushSprintUndo();
   lines.splice(position, 1);
   if (!lines.length) {
     // The list was that one item, so what is left is the empty paragraph itself.
@@ -1762,6 +1776,7 @@ function endSprintList(block, index, lines, position) {
 // `sprintCaret` means to an inline surface: `**bold**` is four characters on screen
 // and eight in the file, and the join is where the words meet.
 function mergeSprintLine(block, index, lines, position) {
+  pushSprintUndo();
   const above = lines[position - 1];
   const joined = inlineLength(above.text);
   above.text += lines[position].text;
@@ -2016,6 +2031,7 @@ function sprintBlankLine(blocks) {
 function reorderSprintBlocks(from, to) {
   const blocks = state.sprint.blocks;
   if (from === to || !blocks[from] || !blocks[to]) return;
+  pushSprintUndo();
 
   const tail = blocks[blocks.length - 1].gap;
   const followed = new Map(blocks.map((block, index) => [block, blocks[index + 1] || null]));
@@ -2605,6 +2621,9 @@ function cellLineSpan(text, at) {
 // replaces that span and nothing wider, because a slash may now sit mid-line with
 // text on both sides of it.
 function insertIntoCell(item, cell, block, index, r, column, from) {
+  // A menu pick is its own boundary, however far into a cell visit it lands: it
+  // writes more than a keystroke, so it is worth taking back on its own.
+  pushSprintUndo();
   // The cell read as a string with a place in it, which is what every branch below
   // was written against. Both offsets are markdown ones -- see `inlineSurface`.
   const { text, at } = inlineSurface(cell);
@@ -2710,6 +2729,10 @@ function autosizeSprintArea(area) {
 function editSprintBlock(index, line = null) {
   const sprint = state.sprint;
   if (sprint.editing === index && sprint.editingLine === line) return;
+  // The same reading as a cell visit: opening a box is the boundary, and typing in
+  // it is not. A list line is edited in place, so this is where its snapshot comes
+  // from as well.
+  pushSprintUndo();
   sprint.editing = index;
   sprint.editingLine = line;
   sprint.draft = null;
@@ -3094,6 +3117,7 @@ function cellLineAction(block, index, r, column, position, text, done) {
   press.onclick = (event) => {
     event.stopPropagation();
     action.run(press, text, (written, settled) => {
+      pushSprintUndo();
       writeCellLine(block, r, column, position, written, settled);
       tableEdited(block);
       // The whole document, for `sprintLineAction`'s reason: what the action wrote
@@ -3205,6 +3229,10 @@ const cellHost = (node) => node.parentElement;
 // inline surfaces gave back.
 function editSprintCell(host, block, index, r, column, select) {
   if (!host) return null;
+  // **Arriving in a cell is the boundary**, so one `Ctrl+Z` takes the whole visit
+  // back rather than its last character -- and the five redraws that happen
+  // without leaving the cell need no snapshot of their own.
+  pushSprintUndo();
   const area = sprintCell(block, index, r, column);
   host.innerHTML = "";
   host.appendChild(area);
@@ -3246,6 +3274,7 @@ function toggleCellTodo(host, block, index, r, column, position, done, owner) {
   const grid = block.table;
   const lines = cellText(cellValue(grid, r, column)).split("\n");
   if (position >= lines.length) return;
+  pushSprintUndo();
 
   lines[position] = done === undefined
     ? flipCellTodo(lines[position])
@@ -3627,6 +3656,7 @@ function dedentPastedList(lines) {
 // than the path a range takes. Nothing is trimmed on the way in, unlike
 // `pasteIntoTable`: in a list the indentation *is* the nesting.
 function pasteIntoCell(cell, block, r, column, text) {
+  pushSprintUndo();
   const lines = text.replace(/\r\n?/g, "\n").replace(/\n+$/, "")
     .split("\n").map(tabsAsIndent);
   const clean = dedentPastedList(lines).join("\n");
@@ -3655,6 +3685,7 @@ function pasteShape(text) {
 // spreadsheet range arrives as tab-separated lines, which is what makes the
 // capacity table a paste rather than an afternoon.
 function pasteIntoTable(block, r, column, text) {
+  pushSprintUndo();
   const grid = block.table;
   const rows = text.replace(/\r\n?/g, "\n").replace(/\n$/, "").split("\n");
 
@@ -3710,6 +3741,12 @@ const CELL_KEYS = [
   ["Paste: fill this one cell", "Ctrl+Shift+V"],
   ["Bold, italic, underline", "Ctrl+B / I / U"],
   ["Strikethrough", "Ctrl+Shift+X"],
+  // The two exceptions to the rule above: they are answered by `sprintUndoKey` on
+  // the document rather than by this cell, because they are the document's
+  // gesture. They are listed here because they work while you are in a cell, which
+  // is what the legend is for.
+  ["Take the last edit back", "Ctrl+Z"],
+  ["Put it back", "Ctrl+Shift+Z"],
 ];
 
 function cellHintNode() {
@@ -3834,18 +3871,29 @@ function squareGrid(grid) {
   return columns;
 }
 
+// Each of the six takes its own snapshot rather than leaving it to
+// `applyGridChange`, which runs *after* the grid has already moved. Doing it here
+// also covers the one structural edit no menu or grip caused -- `Tab` off the last
+// cell, which grows a row.
+//
+// One thing an undo does not restore: a column's stored **width**. That lives in
+// `localStorage` keyed on the header text, and it is a per-browser preference
+// rather than anything the file says.
 function insertGridRow(block, at) {
+  pushSprintUndo();
   const grid = block.table;
   const columns = squareGrid(grid);
   grid.rows.splice(at, 0, new Array(columns).fill(""));
 }
 
 function deleteGridRow(block, at) {
+  pushSprintUndo();
   squareGrid(block.table);
   block.table.rows.splice(at, 1);
 }
 
 function moveGridRow(block, from, to) {
+  pushSprintUndo();
   const rows = block.table.rows;
   squareGrid(block.table);
   rows.splice(to, 0, rows.splice(from, 1)[0]);
@@ -3861,6 +3909,7 @@ function moveGridRow(block, from, to) {
 // three edits change. So the entry is read and dropped before the grid moves, and
 // written back under the new key after -- `takeWidths` is that half of it.
 function insertGridColumn(block, at) {
+  pushSprintUndo();
   const grid = block.table;
   const widths = takeWidths(block);
   squareGrid(grid);
@@ -3874,6 +3923,7 @@ function insertGridColumn(block, at) {
 }
 
 function deleteGridColumn(block, at) {
+  pushSprintUndo();
   const grid = block.table;
   const widths = takeWidths(block);
   squareGrid(grid);
@@ -3887,6 +3937,7 @@ function deleteGridColumn(block, at) {
 }
 
 function moveGridColumn(block, from, to) {
+  pushSprintUndo();
   const grid = block.table;
   const widths = takeWidths(block);
   squareGrid(grid);
@@ -4237,6 +4288,10 @@ async function commitSprintBlock(index, text) {
     return;
   }
 
+  // Below here the block is changing, so this is the boundary -- above it the two
+  // early returns leave the file exactly as it was.
+  pushSprintUndo();
+
   let fresh;
   try {
     fresh = (await api("/api/sprints/split", {
@@ -4461,6 +4516,10 @@ function adoptLandedGrid(at, landed, sent) {
   if (!block || !block.table || !landed || !landed.table) return;
   if (!sameGridShape(block.table, landed.table)) return;
 
+  // Every cell taken back here is somebody else's, so the open boundary closes
+  // before they land -- see `applyRemoteSprintCells`.
+  sealSprintUndo();
+
   const mine = new Set(sent.map((cell) => `${cell.r}:${cell.c}`));
   const moved = [];
   const consider = (r, column, value) => {
@@ -4515,10 +4574,35 @@ function scheduleSprintSave() {
   sprintSaveTimer = setTimeout(saveSprint, SPRINT_SAVE_DEBOUNCE_MS);
 }
 
+// **Two saves must never be in the air at once**, and until 2026-08-24 they could
+// be: a write's own echo comes back over `/ws` before `adoptLandedWrite` has taken
+// the new mtime, so it does not look like this page's own -- and `liveSprintChanged`
+// answers an unsaved file by saving it now. That second pass recomputed the splice
+// from a `disk` the first pass had not adopted yet, quoted a run the server had
+// already replaced, and was refused.
+//
+// The refusal was benign while every save was somebody typing: the file was taken
+// as it stands, nothing was left owed, and the bar said `Saved`. It stopped being
+// benign with `Ctrl+Z`, where the file as it stands is the version the undo had
+// just taken back -- so the adopt quietly put the edit back and the undo appeared
+// to do nothing. Found by driving the real page rather than by reading it.
+//
+// So a request arriving mid-flight is **coalesced** rather than run: the pass in
+// the air lands or is refused, and one more goes out after it if anything is still
+// owed.
+let sprintSaving = false;
+let sprintSaveWanted = false;
+
 async function saveSprint() {
   const sprint = state.sprint;
   if (sprint.number === null) return;
   clearTimeout(sprintSaveTimer);
+  if (sprintSaving) {
+    sprintSaveWanted = true;
+    return;
+  }
+  sprintSaving = true;
+  sprintSaveWanted = false;
 
   const number = sprint.number;
   sprint.status = "saving";
@@ -4552,9 +4636,16 @@ async function saveSprint() {
       sprint.status = "failed";
       sprint.error = failure.message;
     }
+  } finally {
+    // In a `finally` because the early returns above are the file being switched
+    // mid-flight, and a flag left set there would wedge saving for good.
+    sprintSaving = false;
   }
   renderSprintStatus();
   if (sprint.status === "saved") await refreshSprintFiles();
+  // Something asked while this pass was in the air. `scheduleSprintSave` rather
+  // than a direct call, so a burst of them is still one write.
+  if (sprintSaveWanted) scheduleSprintSave();
 }
 
 // The picker names every file by its **first line**, so renaming a sprint's
@@ -4760,6 +4851,12 @@ function applyRemoteSprintSplice(message) {
   //    an index one out, and those indexes are baked into its handlers.
   if (open.length && splice.expect.length !== splice.blocks.length) return false;
 
+  // Their write is not part of your edit, so the open boundary closes before it
+  // lands. A run that changed the document's length moved every index below it,
+  // which is more than a snapshot can survive.
+  sealSprintUndo();
+  if (splice.expect.length !== splice.blocks.length) clearSprintUndo(sprint.number);
+
   const fresh = splice.blocks.map((block) => Object.assign({}, block));
   sprint.disk.splice(at, splice.expect.length, ...diskBlocks(fresh));
   sprint.blocks.splice(at, splice.expect.length, ...fresh);
@@ -4806,6 +4903,11 @@ function applyRemoteSprintCells(message) {
   if (!block || !block.table || !was) return false;
   // A shape this page does not share is not a grid these coordinates address.
   if (!sameGridShape(block.table, landed.table) || !sameGridShape(was, block.table)) return false;
+
+  // Same reason as the splice above: their cells are not part of your edit, so
+  // the open boundary closes before they arrive. The entry stays -- a cell they
+  // wrote fails the restore's own check, and every other cell still undoes.
+  sealSprintUndo();
 
   const mine = new Set(changedCells(was, block.table).map((cell) => `${cell.r}:${cell.c}`));
   let over = 0;
@@ -4875,6 +4977,17 @@ function repaintSprintIndexes(indexes) {
 function adoptSprintBlocks(fresh, note) {
   const sprint = state.sprint;
   const before = sprint.blocks;
+  // The file was taken as it stands, so the open boundary closes here -- what the
+  // file turned out to hold is not part of anybody's edit.
+  //
+  // **The stack itself survives, and that is deliberate.** This runs on an
+  // ordinary refusal, which the comment above calls news rather than a state, and
+  // clearing here emptied the stack after most saves. An entry naming a block the
+  // file has since changed is refused by `restoreSprintUndo`'s own check, which is
+  // strictly more precise than throwing the lot away. A length change is the one
+  // case that check cannot see, because then the indexes mean something else.
+  sealSprintUndo();
+  if (fresh.length !== before.length) clearSprintUndo(sprint.number);
   // Indexes only mean the same thing on both sides while the lengths agree.
   const keep = fresh.length === before.length ? new Set(openSprintRows()) : new Set();
   const changed = [];
@@ -4900,6 +5013,274 @@ function flashSprintRows(at, count) {
     const row = doc.children[index];
     if (row) flashArrival(row);
   }
+}
+
+// --- taking an edit back ------------------------------------------------------
+//
+// **`Ctrl+Z` in the Sprint tab is this file's own stack, never the browser's.**
+// It has to be: leaving a cell replaces it, and `writeInlineSurface` empties the
+// host on a marker promotion, so the native history is thrown away several times
+// a sentence. A handler that only prevented the default would be a handler with
+// nothing to pop.
+//
+// An entry is a **pair of document snapshots** -- the blocks as they stood when a
+// commit boundary opened, and as they stood when the next one did. The range an
+// undo writes back is the difference between the two, worked out the way
+// `sprintSplices` works out a save: trim the common head and tail, and what is
+// left is what that edit touched. So no mutation site declares a range; every one
+// of them says only "a boundary starts here".
+//
+// **A boundary is a gesture, not a keystroke.** Arriving in a cell is one; typing
+// in it is not. That is what makes one `Ctrl+Z` take back the cell you were
+// filling in rather than its last character, and it is why the five in-cell
+// redraws need no snapshot of their own -- they all happen inside one visit.
+//
+// A restore does not have a write path of its own: the blocks go back and
+// `scheduleSprintSave` runs, so the existing diff decides what to send and the
+// existing 409 protects the coworker. **An undo of one cell of a shared table is
+// still a cell write**, which is the whole reason this is safe where a whole-file
+// snapshot was not.
+//
+// Nothing here is stored and nothing is keyed to a person: the stack is module
+// memory, it belongs to one open file, and it dies with the tab. That is the
+// distance between this and the versioning request, which is still a question.
+
+// Deep enough to cover an afternoon of boundaries, shallow enough that the
+// snapshots -- a raw string and a grid copy per block -- stay a rounding error
+// beside the document itself.
+const SPRINT_UNDO_LIMIT = 50;
+
+// `done` is what `Ctrl+Z` pops; `undone` is what `Ctrl+Shift+Z` puts back, and any
+// fresh edit empties it -- a redo past an edit is a document nobody asked for.
+// `key` is which file the two stacks belong to, a belt on top of the clear in
+// `loadSprintFile`.
+const sprintUndo = { done: [], undone: [], key: null };
+
+// A block, deep enough to redraw from and to write back. `diskBlocks` is nearly
+// this and deliberately is not it: that one is what the *file* says, and it
+// carries no `html` because nothing ever redraws from it.
+const undoBlocks = (blocks) => blocks.map((block) => ({
+  type: block.type,
+  raw: block.raw,
+  gap: blockGap(block),
+  html: block.html,
+  table: block.table ? copyGrid(block.table) : null,
+}));
+
+function sameUndoGrid(one, two) {
+  if (!one || !two) return one === two;
+  if (!sameGridShape(one, two)) return false;
+  return one.head.every((value, column) => sameCellText(value, two.head[column]))
+    && one.rows.every((row, r) => row.every((value, column) => sameCellText(value, two.rows[r][column])));
+}
+
+// **A table is compared by its grid and never by its `raw`, and that is the whole
+// bug this line exists to avoid.** A table's markdown is *derived*: it is
+// regenerated by `serialiseEditedTables` and then adopted from the reply, padded
+// to the widest cell. So a landed save rewrites `raw` without the grid moving at
+// all -- and comparing it made every entry against a table look like an edit
+// somebody else had changed since, which the restore then refused. Found by
+// driving the real page: one save, and `Ctrl+Z` stopped working on tables.
+const sameUndoBlock = (one, two) => one.type === two.type
+  && one.gap === two.gap
+  && (one.table || two.table
+    ? sameUndoGrid(one.table, two.table)
+    : one.raw === two.raw);
+
+const sameUndoDocument = (one, two) => one.length === two.length
+  && one.every((block, index) => sameUndoBlock(block, two[index]));
+
+function clearSprintUndo(key = null) {
+  sprintUndo.done.length = 0;
+  sprintUndo.undone.length = 0;
+  sprintUndo.key = key;
+}
+
+// The state a boundary starts from. Called at the top of every mutation site --
+// **before** the mutation, because the pre-edit document is the thing being kept.
+//
+// Nothing is pushed for a gesture that only makes an empty block: one is not in
+// the file until something is typed into it, `discardEmptySprintBlock` is its own
+// way back, and an entry for it would be a `Ctrl+Z` that wrote nothing.
+function pushSprintUndo() {
+  const sprint = state.sprint;
+  if (sprint.number === null) return;
+  if (sprintUndo.key !== sprint.number) clearSprintUndo(sprint.number);
+  sealSprintUndo();
+  sprintUndo.done.push({ before: undoBlocks(sprint.blocks), after: null });
+  if (sprintUndo.done.length > SPRINT_UNDO_LIMIT) sprintUndo.done.shift();
+  // A redo only means something against the document an undo left behind. A fresh
+  // edit is a different document, so what was undone is not coming back.
+  sprintUndo.undone.length = 0;
+}
+
+// Close the open entry against the document as it stands. **Every path that
+// changes the blocks from outside this page calls this first**, or the next undo
+// would read somebody else's write as part of your edit and offer to take it back.
+//
+// An entry whose halves match recorded nothing -- a cell entered and left
+// untouched, a menu opened and dismissed -- and is dropped rather than kept as a
+// `Ctrl+Z` that appears to do nothing.
+function sealSprintUndo() {
+  const open = sprintUndo.done[sprintUndo.done.length - 1];
+  if (!open || open.after) return;
+  open.after = undoBlocks(state.sprint.blocks);
+  if (sameUndoDocument(open.before, open.after)) sprintUndo.done.pop();
+}
+
+// The run one entry covers: the common head and tail trimmed off both sides, the
+// same walk a save does. What is left is the blocks that edit touched.
+function undoRun(from, to) {
+  let head = 0;
+  while (head < from.length && head < to.length && sameUndoBlock(from[head], to[head])) {
+    head += 1;
+  }
+  let tail = 0;
+  while (tail < from.length - head && tail < to.length - head
+    && sameUndoBlock(from[from.length - 1 - tail], to[to.length - 1 - tail])) {
+    tail += 1;
+  }
+  return { head, was: from.slice(head, from.length - tail), now: to.slice(head, to.length - tail) };
+}
+
+// A snapshot back into a live block. A fresh grid copy every time -- one entry can
+// be restored twice, and a grid handed out by reference would then be typed into.
+//
+// A table is flagged `tableEdited`, which is what makes the grid rather than the
+// possibly-stale `raw` the thing that reaches the file: the save serialises it,
+// and the cell path sends only the cells that moved.
+const undoBlockNode = (snap, index) => ({
+  index,
+  type: snap.type,
+  raw: snap.raw,
+  gap: snap.gap,
+  html: snap.html,
+  table: snap.table ? copyGrid(snap.table) : null,
+  tableEdited: !!snap.table,
+});
+
+// Put one entry's other half back. Returns false having changed **nothing** when
+// the document has moved on underneath it, which is the one thing this must never
+// do quietly: the blocks that edit touched have to still hold what it left, or an
+// undo is an overwrite of somebody else's work.
+function restoreSprintUndo(entry, direction) {
+  const sprint = state.sprint;
+  const from = direction === "undo" ? entry.after : entry.before;
+  const to = direction === "undo" ? entry.before : entry.after;
+  const live = undoBlocks(sprint.blocks);
+  // A document of a different length is one whose indexes mean something else:
+  // somebody added or removed a block, and an entry names positions.
+  if (live.length !== from.length) return false;
+
+  const { head, was, now } = undoRun(from, to);
+  if (!was.length && !now.length) return true;
+  if (was.some((block, at) => !sameUndoBlock(block, live[head + at]))) return false;
+
+  sprint.blocks.splice(head, was.length,
+    ...now.map((snap, at) => undoBlockNode(snap, head + at)));
+  sprint.blocks.forEach((block, index) => { block.index = index; });
+
+  // An open editor names its block by position, and the splice may have moved
+  // every position below it.
+  sprint.editing = null;
+  sprint.editingLine = null;
+  sprint.draft = null;
+
+  renderSprintDocument();
+  flashSprintRows(head, now.length);
+  scheduleSprintSave();
+  // A restore that changed the document's length moved every block below it, and
+  // a block index is the only name presence has for one.
+  if (was.length !== now.length) announceHere(true);
+  return true;
+}
+
+// `Ctrl+Z`. Seals whatever boundary is open, then takes the newest entry that
+// still applies -- an entry the document has moved past is dropped rather than
+// forced, and the next one down is tried, so one stale edit does not wall off the
+// rest of the stack.
+function undoSprintEdit() {
+  sealSprintUndo();
+  let stale = 0;
+  while (sprintUndo.done.length) {
+    const entry = sprintUndo.done.pop();
+    if (restoreSprintUndo(entry, "undo")) {
+      sprintUndo.undone.push(entry);
+      showToast(stale
+        ? "Took an earlier edit back — the last one has changed since."
+        : "Took the last edit back. Ctrl+Shift+Z puts it back.");
+      return;
+    }
+    stale += 1;
+  }
+  showToast(stale
+    ? "That edit has changed since, so it cannot be taken back."
+    : "Nothing left to take back.");
+}
+
+function redoSprintEdit() {
+  while (sprintUndo.undone.length) {
+    const entry = sprintUndo.undone.pop();
+    if (restoreSprintUndo(entry, "redo")) {
+      sprintUndo.done.push(entry);
+      showToast("Put that edit back.");
+      return;
+    }
+  }
+  showToast("Nothing to put back.");
+}
+
+// The open block editor's own undo, and the reason `Ctrl+Z` in a half-typed
+// paragraph does not reach past it: a block is committed on blur, so what is in
+// the box is not in `blocks` yet and no snapshot holds it. Reverting the box to
+// the block's own markdown *is* the edit being taken back. A cell needs none of
+// this -- the grid holds every keystroke as it is typed.
+function discardSprintDraft() {
+  const sprint = state.sprint;
+  if (sprint.editing === null || sprint.editingLine !== null) return false;
+  const open = $("sprint-document").querySelector(SPRINT_EDITING);
+  const block = sprint.blocks[sprint.editing];
+  if (!open || !block) return false;
+  const typed = open.value === undefined ? inlineMarkdown(open) : open.value;
+  if (typed === block.raw) return false;
+  // The render reopens this same box from `raw`, and nulls the leaving node's
+  // `onblur` on the way -- so nothing commits the text being discarded.
+  sprint.draft = null;
+  renderSprintDocument();
+  showToast("Took back what you typed in this block.");
+  return true;
+}
+
+// Capturing on the document, because the caret is usually inside a cell or an
+// inline surface and those own their own keydown. The default is prevented
+// whenever the Sprint tab has a file open: leaving the browser's `Ctrl+Z` alive
+// beside this one would mean two stacks, and the surface the browser's would act
+// on is the one thing here that keeps being thrown away.
+//
+// Propagation is stopped, because the handler below this one belongs to a cell the
+// restore is about to take out of the document, and an event still walking towards
+// a detached node is the shape of several bugs this editor has already had. So the
+// three things that keydown would have done are done here instead: both menus
+// close, the cell's hint goes, and the paste flag is disarmed rather than left
+// reading a key from a minute ago.
+function sprintUndoKey(event) {
+  if (state.view !== "sprint" || state.sprint.number === null) return;
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+  const key = event.key.toLowerCase();
+  const redo = key === "y" || (key === "z" && event.shiftKey);
+  if (key !== "z" && !redo) return;
+  event.preventDefault();
+  event.stopPropagation();
+  pasteWantsCell = false;
+  closeSprintMenu();
+  closeGridMenu();
+  hideCellHint();
+  if (redo) redoSprintEdit();
+  else if (!discardSprintDraft()) undoSprintEdit();
+}
+
+function watchSprintUndo() {
+  document.addEventListener("keydown", sprintUndoKey, true);
 }
 
 // --- held by somebody else ----------------------------------------------------

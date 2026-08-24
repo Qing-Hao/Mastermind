@@ -65,7 +65,7 @@ node scripts\map_sweep.js --tracks "AI Agent"     # ...focused, as the legend fi
 
 node scripts\wire_check.js           # frontend: ids the JS asks for, index.html lacks
 node scripts\css_check.js            # frontend: the [hidden] trap, dead tokens, dead ids
-node scripts\lock_check.js           # frontend: holds, locked nodes, cell writes
+node scripts\lock_check.js           # frontend: holds, locked nodes, cell writes, undo
 
 .\.venv\Scripts\python.exe -m pip install -r requirements-ai.txt          # optional, sprint review only
 .\.venv\Scripts\python.exe scripts\sprint_review.py --history 3
@@ -132,7 +132,7 @@ Type checking is pyright, `basic` mode, config in `pyrightconfig.json`.
 | `scripts/map_sweep.js` | The map's collision sweep and tree dump. Node, no deps — loads the real `app.js` behind a stub DOM. **The map has no test suite; this is its verification.** It drives the real filters rather than reimplementing them. |
 | `scripts/wire_check.js` | Runs `bindEvents()` behind a stub DOM and names every id the frontend asks for that `index.html` does not define. Node, no deps. |
 | `scripts/css_check.js` | The `[hidden]`-versus-`display` trap, a `var()` with neither definition nor fallback, a rule for an id nothing creates, brace balance. Node, no deps. |
-| `scripts/lock_check.js` | Two people in one sprint file: which node a hold names, what a locked one refuses, what a save owes as cells rather than blocks, and a remote cell write merging into a grid being typed in. Loads both frontend files in one scope behind a stub DOM. Node, no deps. |
+| `scripts/lock_check.js` | Two people in one sprint file: which node a hold names, what a locked one refuses, what a save owes as cells rather than blocks, a remote cell write merging into a grid being typed in, and which edits `Ctrl+Z` can take back without writing over somebody else's. Loads both frontend files in one scope behind a stub DOM. Node, no deps. |
 | `Dockerfile`, `compose.yaml`, `.env.example` | How it is served to the team. One worker — the connection registry is process memory. Three mounts: `data/`, `sprints/`, `templates/sprint.md`, each irreplaceable for its own reason. |
 | `.design/*.dc.html` | The UI as artboards, plus `canvas.json`. Source only; the published canvas beside them is gitignored. |
 | `data/roadmap.db` | The dataset. Gitignored. `.bak` is an **old** backup, not a scratch slot. |
