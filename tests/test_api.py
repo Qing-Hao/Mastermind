@@ -1537,6 +1537,130 @@ def test_version_5_links_folding_onto_the_same_pair_collapse_to_one(client):
     assert len(client.get("/api/export").json()["dependencies"]) == 1
 
 
+# --- editing the track tree --------------------------------------------------
+#
+# A level is not a record: it exists because projects name it. So both edits are
+# a rewrite of `project.track` across a subtree, and what they must never do is
+# move a row nobody pointed at.
+
+
+def make_tracked(client, name, track):
+    project = make_project(client, name, "2026-01-05")
+    client.put(f"/api/projects/{project['id']}", json={"track": track})
+    return project
+
+
+def tracks_of(client):
+    return {project["name"]: project["track"]
+            for project in client.get("/api/projects").json()}
+
+
+def test_inserting_a_level_takes_the_subtree_inside_the_new_one(client):
+    make_tracked(client, "Sources", "Source Expansion")
+    make_tracked(client, "Pipelines", "Source Expansion / Platform Engineering")
+    make_tracked(client, "CI", "Source Expansion / Platform Engineering / CI")
+
+    response = client.post("/api/tracks/insert", json={
+        "path": ["Source Expansion", "Platform Engineering"], "name": "Product",
+    })
+    assert response.status_code == 200
+    assert response.json()["moved"] == 2
+    assert tracks_of(client) == {
+        "Sources": "Source Expansion",
+        "Pipelines": "Source Expansion / Product / Platform Engineering",
+        "CI": "Source Expansion / Product / Platform Engineering / CI",
+    }
+
+
+def test_a_level_spelt_alike_under_another_parent_does_not_move(client):
+    """The map is a tree and a project carries one path, so two levels of the
+    same name under different parents are two rings. Only one of them moves."""
+    make_tracked(client, "Pipelines", "Source Expansion / Platform Engineering")
+    make_tracked(client, "Dashboards", "Reporting / Platform Engineering")
+
+    client.post("/api/tracks/insert", json={
+        "path": ["Source Expansion", "Platform Engineering"], "name": "Product",
+    })
+    assert tracks_of(client)["Dashboards"] == "Reporting / Platform Engineering"
+
+
+def test_inserting_the_name_of_an_existing_peer_groups_under_it(client):
+    """Which is how a second branch joins a level someone made earlier: there is
+    no shared node, so grouping is the second insert naming the same level."""
+    make_tracked(client, "Sources", "Delivery / Product / Source Expansion")
+    make_tracked(client, "Pipelines", "Delivery / Platform Engineering")
+
+    client.post("/api/tracks/insert", json={
+        "path": ["Delivery", "Platform Engineering"], "name": "Product",
+    })
+    assert tracks_of(client)["Pipelines"] == (
+        "Delivery / Product / Platform Engineering")
+
+
+def test_removing_a_level_raises_whatever_was_under_it(client):
+    make_tracked(client, "Pipelines", "Source Expansion / Platform Engineering")
+    make_tracked(client, "CI", "Source Expansion / Platform Engineering / CI")
+
+    response = client.post("/api/tracks/remove", json={
+        "path": ["Source Expansion", "Platform Engineering"], "confirm": True,
+    })
+    assert response.status_code == 200
+    assert tracks_of(client) == {
+        "Pipelines": "Source Expansion",
+        "CI": "Source Expansion / CI",
+    }
+
+
+def test_removing_the_only_level_leaves_the_project_untracked(client):
+    """It removes a level, never a project. Untracked is the honest result, and
+    the page says how many before anyone agrees to it."""
+    make_tracked(client, "Sources", "Source Expansion")
+    client.post("/api/tracks/remove", json={
+        "path": ["Source Expansion"], "confirm": True,
+    })
+    assert tracks_of(client) == {"Sources": ""}
+    assert len(client.get("/api/projects").json()) == 1
+
+
+def test_a_remove_without_confirm_is_refused(client):
+    make_tracked(client, "Pipelines", "Source Expansion / Platform Engineering")
+    response = client.post("/api/tracks/remove", json={
+        "path": ["Source Expansion", "Platform Engineering"],
+    })
+    assert response.status_code == 400
+    assert tracks_of(client)["Pipelines"] == "Source Expansion / Platform Engineering"
+
+
+def test_a_level_holding_no_project_is_a_404(client):
+    make_tracked(client, "Pipelines", "Source Expansion")
+    assert client.post("/api/tracks/insert", json={
+        "path": ["Nowhere"], "name": "Product"}).status_code == 404
+    assert client.post("/api/tracks/remove", json={
+        "path": ["Nowhere"], "confirm": True}).status_code == 404
+
+
+def test_an_inserted_level_cannot_be_a_path(client):
+    """One name per press. A slash would ask for two levels at once."""
+    make_tracked(client, "Pipelines", "Source Expansion")
+    for name in ["Product / Delivery", "  ", ""]:
+        response = client.post("/api/tracks/insert", json={
+            "path": ["Source Expansion"], "name": name})
+        assert response.status_code == 400
+    assert tracks_of(client)["Pipelines"] == "Source Expansion"
+
+
+def test_an_idea_under_the_level_moves_with_the_committed_work(client):
+    """A future direction carries a track and the map draws it on the outer
+    ring, so a retrack that skipped ideas would split the level in two."""
+    idea = client.post("/api/projects", json={
+        "name": "Streaming", "stage": "idea",
+        "track": "Source Expansion / Platform Engineering"}).json()
+    client.post("/api/tracks/insert", json={
+        "path": ["Source Expansion", "Platform Engineering"], "name": "Product"})
+    assert client.get(f"/api/projects/{idea['id']}").json()["project"]["track"] == (
+        "Source Expansion / Product / Platform Engineering")
+
+
 # --- the fortnight slice -----------------------------------------------------
 
 

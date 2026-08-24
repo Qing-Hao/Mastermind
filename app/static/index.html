@@ -498,6 +498,26 @@
              the SVG: the map is width-fitted and collision-swept, so a block
              drawn in there would spend layout budget the rings need. -->
         <div id="map-legend" class="map-legend"></div>
+
+        <!-- Track editing, filled by `renderTrackEditor`. Folded away because
+             both edits rewrite the Track field on other people's projects: it
+             should take a deliberate click to reach, not sit under the cursor
+             of anyone reading the map. -->
+        <details>
+          <summary>Edit tracks</summary>
+          <p class="hint">
+            A track is not a record of its own &mdash; it exists because
+            projects name it. So <b>+ level</b> inserts a new parent
+            <em>above</em> the level you pick and brings its whole subtree with
+            it, and <b>remove</b> takes a level out so whatever was under it
+            rises one. Both rewrite the Track field on every project underneath,
+            which is why each one says how many before it happens. Grouping a
+            second branch under the same name is a second insert: two levels
+            spelt alike under different parents stay two rings, because a
+            project carries one path.
+          </p>
+          <div id="track-editor" class="track-editor"></div>
+        </details>
       </section>
 
       <section>

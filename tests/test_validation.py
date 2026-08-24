@@ -28,9 +28,12 @@ from app.validation import (
     project_span,
     project_stage,
     relative_layout,
+    retrack,
     same_stored_value,
     sequential_layout,
     stale_expectations,
+    track_path,
+    track_value,
     validate_plan,
     validate_portfolio,
 )
@@ -1148,3 +1151,85 @@ def test_project_order_is_the_callers_and_is_not_re_derived():
         [SECOND_PROJECT, COMMITTED_PROJECT], phases, {}, WINDOW
     )
     assert [lane["project_id"] for lane in lanes] == [2, 1]
+
+
+# --- track paths ------------------------------------------------------------
+
+
+def tracked(project_id, track, name=None):
+    return {"id": project_id, "name": name or f"P{project_id}", "track": track}
+
+
+TRACKED = [
+    tracked(1, "Source Expansion"),
+    tracked(2, "Source Expansion / Platform Engineering"),
+    tracked(3, "Source Expansion / Platform Engineering / CI"),
+    tracked(4, "Source Expansion / MCP"),
+    tracked(5, "Reporting / Platform Engineering"),
+    tracked(6, ""),
+]
+
+
+def test_track_path_drops_empty_segments_and_normalises_spacing():
+    assert track_path("Source Expansion /  New Metrics ") == [
+        "Source Expansion", "New Metrics",
+    ]
+    assert track_path("/ Metrics") == ["Metrics"]
+    assert track_path("") == []
+    assert track_path(None) == []
+    assert track_value(["A", "B"]) == "A / B"
+
+
+def test_insert_takes_the_level_and_its_subtree_inside_the_new_one():
+    moves = retrack(TRACKED, ["Source Expansion", "Platform Engineering"], "Product")
+    assert {move["id"]: move["to"] for move in moves} == {
+        2: "Source Expansion / Product / Platform Engineering",
+        3: "Source Expansion / Product / Platform Engineering / CI",
+    }
+
+
+def test_insert_above_a_root_re_parents_the_whole_track():
+    moves = retrack(TRACKED, ["Source Expansion"], "Product")
+    assert [move["id"] for move in moves] == [1, 2, 3, 4]
+    assert moves[0]["to"] == "Product / Source Expansion"
+
+
+def test_a_level_of_the_same_name_under_another_parent_is_left_alone():
+    """The map is a tree: one project carries one path, so two levels spelt
+    alike under different parents are two rings and only one of them moves."""
+    moves = retrack(TRACKED, ["Source Expansion", "Platform Engineering"], "Product")
+    assert 5 not in [move["id"] for move in moves]
+
+
+def test_matching_is_spelling_exact_because_the_map_groups_on_the_string():
+    assert retrack(TRACKED, ["source expansion"], "Product") == []
+
+
+def test_remove_raises_whatever_was_under_the_level():
+    moves = retrack(TRACKED, ["Source Expansion", "Platform Engineering"])
+    assert {move["id"]: move["to"] for move in moves} == {
+        2: "Source Expansion",
+        3: "Source Expansion / CI",
+    }
+
+
+def test_removing_the_only_level_leaves_a_project_untracked():
+    """An honest result rather than a refusal -- the count is what the page has
+    to show before anyone agrees to it."""
+    moves = retrack(TRACKED, ["Source Expansion"])
+    assert {move["id"]: move["to"] for move in moves} == {
+        1: "", 2: "Platform Engineering", 3: "Platform Engineering / CI", 4: "MCP",
+    }
+
+
+def test_retrack_reports_nothing_when_no_project_names_the_level():
+    assert retrack(TRACKED, ["Nowhere"], "Product") == []
+    assert retrack(TRACKED, [], "Product") == []
+
+
+def test_a_move_carries_the_row_it_names_and_lands_on_one_spelling():
+    """Odd spacing in a stored value is rewritten to the one spelling the map
+    groups on, which is the same normalising the picker does on entry."""
+    assert retrack([tracked(1, "A /  B")], ["A", "B"], "Mid") == [
+        {"id": 1, "name": "P1", "from": "A /  B", "to": "A / Mid / B"},
+    ]

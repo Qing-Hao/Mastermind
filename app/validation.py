@@ -1167,3 +1167,99 @@ def fortnight_slice(projects, phases_by_project, deliverables_by_phase, window):
     # Stable, so project and phase order survive inside each band.
     lanes.sort(key=lambda lane: BAND_ORDER.index(lane["band"]))
     return lanes
+
+
+# --- track paths ------------------------------------------------------------
+#
+# A track is one free-text column on the project, and the map derives its rings
+# by splitting that string: "Source Expansion / New Metrics" is a level inside a
+# level. There is no track table, so a level exists exactly as long as some
+# project names it -- which is what makes inserting or removing one a rewrite of
+# other rows rather than an edit to a row of its own.
+#
+# The frontend splits the same way (`trackPath` in app.js). Duplicated on
+# purpose: the server has to be the one that decides which rows move, and a
+# retrack posted by anything other than the page must land the same way.
+#
+# Matching is **case- and spelling-exact on each segment**, because that is what
+# the map groups on: "Source expansion" and "Source Expansion" are two rings, so
+# a retrack that folded them would move rows nobody pointed at. Only the spacing
+# around a separator is normalised, exactly as the picker normalises it on entry.
+
+TRACK_SEPARATOR = "/"
+TRACK_JOIN = f" {TRACK_SEPARATOR} "
+
+
+def track_path(raw):
+    """Split a stored track into its levels, dropping empty segments."""
+    return [part.strip() for part in str(raw or "").split(TRACK_SEPARATOR)
+            if part.strip()]
+
+
+def track_value(path):
+    """Join levels back into the one spelling the map groups on."""
+    return TRACK_JOIN.join(path)
+
+
+def is_track_segment(name):
+    """Whether `name` can be one level: non-empty and holding no separator."""
+    return bool(str(name or "").strip()) and TRACK_SEPARATOR not in str(name)
+
+
+def track_holds(path, target):
+    """Whether `path` is `target` itself or sits somewhere inside it."""
+    return bool(target) and path[:len(target)] == target
+
+
+def insert_above(path, target, name):
+    """`path` with `name` slotted in as the new parent of `target`'s last level.
+
+    Insert-above rather than insert-below: a level with nothing under it cannot
+    be drawn at all, since the map only knows a level a project names. So the
+    new one arrives already holding the subtree it was pointed at.
+    """
+    if not track_holds(path, target):
+        return list(path)
+    cut = len(target) - 1
+    return path[:cut] + [name] + path[cut:]
+
+
+def remove_level(path, target):
+    """`path` with `target`'s own last level taken out, children rising a level.
+
+    Removing the only level a project had leaves it untracked -- an honest
+    result rather than a refusal, and the count is the caller's to show before
+    anyone agrees to it.
+    """
+    if not track_holds(path, target):
+        return list(path)
+    cut = len(target) - 1
+    return path[:cut] + path[cut + 1:]
+
+
+def retrack(projects, target, name=None):
+    """Every project whose stored track moves, as dicts of id, name, from, to.
+
+    `name` inserts a level above `target`; leaving it out removes `target`.
+    Rows that would end up spelt exactly as they are stored are left out, so an
+    empty list means nothing actually moved.
+    """
+    target = track_path(track_value(target))
+    moves = []
+    for project in projects:
+        stored = project.get("track", "")
+        path = track_path(stored)
+        if not track_holds(path, target):
+            continue
+        moved = (insert_above(path, target, name) if name
+                 else remove_level(path, target))
+        value = track_value(moved)
+        if value == stored:
+            continue
+        moves.append({
+            "id": project["id"],
+            "name": project.get("name", ""),
+            "from": stored,
+            "to": value,
+        })
+    return moves

@@ -45,6 +45,7 @@ from app.validation import (
     fortnight_slice,
     fortnight_window,
     is_scheduled,
+    is_track_segment,
     next_phase_boundary,
     overdue_items,
     phase_end_date,
@@ -54,8 +55,11 @@ from app.validation import (
     project_span,
     project_stage,
     relative_layout,
+    retrack,
     sequential_layout,
     stale_expectations,
+    track_path,
+    track_value,
     validate_plan,
     validate_portfolio,
 )
@@ -784,6 +788,22 @@ class ProjectPatch(BaseModel):
     track: str | None = None
     tier: int | None = None
     expect: Expectation = None
+
+
+class TrackInsert(BaseModel):
+    # The level being pointed at, as its segments -- "Source Expansion",
+    # "Platform Engineering". A list rather than one slashed string so the
+    # request cannot be ambiguous about where a segment ends.
+    path: list[str]
+    name: str
+
+
+class TrackRemove(BaseModel):
+    path: list[str]
+    # A remove rewrites rows nobody is looking at and can leave a project with
+    # no track at all, so the caller has to say it meant it. The page asks
+    # first; this is the same guard for anything that is not the page.
+    confirm: bool = False
 
 
 class PhaseIn(BaseModel):
@@ -2573,6 +2593,73 @@ def read_graph():
         "projects": nodes,
         "dependencies": db.list_all_dependencies(with_names=True),
     }
+
+
+# --- tracks -----------------------------------------------------------------
+#
+# A track level is not a row. It exists because projects spell it, so the two
+# edits the map offers are both rewrites of `project.track` on whatever sits
+# under the level you pointed at -- see `validation.retrack`. Everything drawn
+# from those strings (rings, wedge sizes, hues, the legend, the portfolio rail,
+# the picker) re-derives on the next read, so there is nothing else to update.
+#
+# Both are writes, never inferences: the level appears when someone presses the
+# button, the same way a promotion works.
+
+
+def apply_retrack(target, name=None):
+    """Run one retrack and announce it. Returns the payload both routes send."""
+    projects = db.list_projects()
+    moves = retrack(projects, target, name)
+    if not moves:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No project sits under “{track_value(target)}”.",
+        )
+    db.retrack_projects([(move["id"], move["to"]) for move in moves])
+    # Once for the batch: every listener reloads whole.
+    announce_roadmap()
+    return {"path": target, "moved": len(moves), "moves": moves}
+
+
+@app.post("/api/tracks/insert")
+def insert_track_level(body: TrackInsert):
+    """Put a new level above an existing one, taking its subtree with it.
+
+    Insert-*above*, because a level with nothing under it cannot be drawn: the
+    map only knows the levels projects name. So the new one arrives holding the
+    subtree it was pointed at, and grouping a second branch under it is a second
+    insert -- two nodes of the same name under different parents stay two nodes,
+    since one project carries one path.
+    """
+    target = track_path(track_value(body.path))
+    if not target:
+        raise HTTPException(status_code=400, detail="Name the level to insert above.")
+    if not is_track_segment(body.name):
+        raise HTTPException(
+            status_code=400,
+            detail="A level is one name and cannot contain “/”.",
+        )
+    return apply_retrack(target, body.name.strip())
+
+
+@app.post("/api/tracks/remove")
+def remove_track_level(body: TrackRemove):
+    """Take a level out of the tree; whatever was under it rises one level.
+
+    Removes the level, never the projects. A project whose only level this was
+    ends up untracked -- which is why the request has to carry `confirm`.
+    """
+    target = track_path(track_value(body.path))
+    if not target:
+        raise HTTPException(status_code=400, detail="Name the level to remove.")
+    if not body.confirm:
+        raise HTTPException(
+            status_code=400,
+            detail="Removing a level rewrites every project under it. "
+                   "Send confirm to go ahead.",
+        )
+    return apply_retrack(target)
 
 
 @app.post("/api/projects/{project_id}/layout")

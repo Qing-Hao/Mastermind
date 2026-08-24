@@ -6286,6 +6286,9 @@ function renderMap() {
   $("department-name").value = state.graph.department_name || "";
   renderMapFilters();
   renderMapLegend();
+  // Before the two empty-canvas returns, like the legend: the tree is the whole
+  // dataset's, so it is still worth editing when every project is filtered out.
+  renderTrackEditor();
 
   // Every filter, in `mapDrawn` rather than here, so `map_sweep.js` reads the
   // same one. Filtered before grouping -- see that function.
@@ -7371,6 +7374,227 @@ function trackPicker(input) {
 
 function refreshTrackPickers() {
   for (const picker of trackPickers) picker.refresh(state.projects);
+}
+
+// --- track editor -----------------------------------------------------------
+//
+// Two edits to the shape of the tree the map draws: insert a level above an
+// existing one, or take one out. Neither is an edit to a record -- a level is
+// only the strings the projects under it spell, so both are a rewrite of
+// `project.track` on that subtree, and `POST /api/tracks/{insert,remove}` does
+// the whole set in one transaction. Everything on either surface re-derives from
+// those strings on the next read, so there is nothing here to keep in step.
+//
+// **Insert is above, never below.** A level nothing names cannot be drawn, so
+// there is no such thing as an empty new group waiting to be filled: the level
+// arrives already holding the subtree it was pointed at. Grouping a second
+// branch under the same name is a second insert, and the two stay two rings --
+// a project carries one path, so the map is a tree and a level cannot have two
+// parents.
+//
+// It is a panel under the canvas rather than buttons on the nodes: a map node is
+// deliberately not focusable (see `wireTrackFocus`), and hanging two controls
+// off every level would add a pair of tab stops per track and put hit targets
+// inside a layout that is already collision-swept.
+
+// Which row has its form open, as `{ value, mode }` -- the level's stored
+// spelling and "insert" or "remove". Local rather than in `state`, for the
+// reason the sprint drawer's toggle is: it is a form halfway through being
+// filled in, not a way of looking that should survive anything.
+let trackEditing = null;
+
+// Whether `path` is `target` or sits inside it. Segment-exact, because that is
+// what the map groups on -- two spellings of one name are two rings, and a
+// retrack that folded them would move rows nobody pointed at.
+const holdsTrack = (path, target) => target.length > 0
+  && target.every((name, index) => path[index] === name);
+
+// The same rewrite `validation.retrack` does, run here for the preview. Both
+// exist on purpose: the server decides what actually moves, and the page has to
+// be able to say how much *before* anyone agrees to it.
+function retrackMoves(projects, target, name) {
+  const cut = target.length - 1;
+  const moves = [];
+  for (const project of projects) {
+    const path = trackPath(project.track);
+    if (!holdsTrack(path, target)) continue;
+    const moved = name
+      ? [...path.slice(0, cut), name, ...path.slice(cut)]
+      : [...path.slice(0, cut), ...path.slice(cut + 1)];
+    if (moved.join(` ${SUBTRACK_SEPARATOR} `) === project.track) continue;
+    moves.push({ project, to: moved });
+  }
+  return moves;
+}
+
+// What the rewrite costs, in the two ways it can cost something. Depth is the
+// renderer's ceiling (see foldPath): a path pushed past it still stores fine and
+// the map draws the project against the deepest level that fits, with a dashed
+// rim saying so. No track left is the remove case, and the only one that loses
+// information -- so both are counted and said out loud rather than discovered.
+function retrackNote(moves, name, joins) {
+  if (!moves.length) return "Nothing sits under this level.";
+  const deep = moves.filter((move) => move.to.length > MAX_DRAWN_DEPTH).length;
+  const bare = moves.filter((move) => move.to.length === 0).length;
+  const count = `${moves.length} project${moves.length === 1 ? "" : "s"}`;
+  const lead = name
+    ? `${count} move under “${name}”.`
+    : `${count} rise a level.`;
+  const warn = [];
+  // The grouping case: a level of that name is already a sibling here, so this
+  // moves the subtree into it rather than drawing a second ring beside it.
+  if (joins) warn.push(`“${name}” already sits here — this joins it.`);
+  if (deep) {
+    warn.push(`${deep} would sit past the ${MAX_DRAWN_DEPTH}th ring and be `
+      + "drawn against the deepest level that fits.");
+  }
+  if (bare) warn.push(`${bare} would be left with no track at all.`);
+  return [lead, ...warn].join(" ");
+}
+
+async function applyRetrack(target, name) {
+  const path = name ? "/api/tracks/insert" : "/api/tracks/remove";
+  const body = name ? { path: target, name } : { path: target, confirm: true };
+  await api(path, { method: "POST", body: JSON.stringify(body) });
+  trackEditing = null;
+  // The graph for the map, the list for the pickers and the sidebar: one write
+  // moved rows both of them read. No toast -- the map redrawing with the level
+  // in it is the confirmation, and the count was on screen before the click.
+  await loadGraph();
+  await loadProjectList();
+}
+
+// One row per level, parents before children, each carrying its two buttons and
+// -- when it is the row being edited -- the form underneath.
+function renderTrackEditor() {
+  const box = $("track-editor");
+  if (!box) return;
+  box.innerHTML = "";
+  const projects = state.graph.projects || [];
+  const tree = trackTree(projects);
+  if (!tree.length) {
+    box.appendChild(element("p", "muted",
+      "No tracks yet. Write one in a project's Track field and it appears here."));
+    return;
+  }
+
+  eachLevel(tree, (node, depth) => {
+    const row = element("div", "track-edit-row");
+    row.style.paddingLeft = `${(depth - 1) * 16}px`;
+    row.appendChild(element("span", "track-edit-name", node.name));
+    row.appendChild(element("span", "track-count", node.count || ""));
+
+    const insert = element("button", "btn-ghost track-edit-act", "+ level");
+    insert.type = "button";
+    insert.title = `Insert a new level above “${node.name}”, bringing it and `
+      + "everything under it inside the new one.";
+    insert.onclick = () => {
+      trackEditing = { value: node.value, mode: "insert" };
+      renderTrackEditor();
+    };
+
+    const remove = element("button", "btn-ghost track-edit-act", "remove");
+    remove.type = "button";
+    remove.title = `Take “${node.name}” out of the tree. Whatever is under it `
+      + "rises one level; no project is deleted.";
+    remove.onclick = () => {
+      trackEditing = { value: node.value, mode: "remove" };
+      renderTrackEditor();
+    };
+    row.append(insert, remove);
+    box.appendChild(row);
+
+    if (!trackEditing || trackEditing.value !== node.value) return;
+    box.appendChild(trackEditForm(node, projects));
+  });
+}
+
+// The open row's form. Insert asks for a name and previews as you type; remove
+// has nothing to ask, so it is the preview and a second click -- which is the
+// whole guard, since a remove rewrites rows nobody is looking at.
+function trackEditForm(node, projects) {
+  const form = element("div", "track-edit-form");
+  const note = element("p", "track-edit-note");
+  const insertMode = trackEditing.mode === "insert";
+  const cancel = element("button", "btn-ghost", "cancel");
+  cancel.type = "button";
+  cancel.onclick = () => {
+    trackEditing = null;
+    renderTrackEditor();
+  };
+
+  const go = element("button", "btn-primary",
+    insertMode ? "Insert" : `Remove “${node.name}”`);
+  go.type = "button";
+
+  let input = null;
+  const typed = () => canonicalTrack(input.value);
+
+  // Whether a level of that name is already a peer of the one being wrapped.
+  // Exact spelling, because two spellings are two rings on the map.
+  const sibling = (name) => {
+    const parent = node.path.slice(0, -1);
+    const above = parent.length
+      ? findLevel(trackTree(projects), parent)
+      : { kids: trackTree(projects) };
+    return !!above && above.kids.some((kid) => kid.name === name);
+  };
+
+  const preview = () => {
+    const name = insertMode ? typed() : null;
+    if (insertMode && !name) {
+      note.textContent = "Name the new level.";
+      go.disabled = true;
+      return;
+    }
+    // One name, not a path: a slash here would ask for two levels at once, and
+    // the server refuses it for the same reason.
+    if (insertMode && trackPath(input.value).length > 1) {
+      note.textContent = `A level is one name — “${SUBTRACK_SEPARATOR}” makes two.`;
+      go.disabled = true;
+      return;
+    }
+    const moves = retrackMoves(projects, node.path, name);
+    note.textContent = retrackNote(moves, name, name && sibling(name));
+    go.disabled = moves.length === 0;
+  };
+
+  if (insertMode) {
+    input = element("input", "track-edit-input");
+    input.type = "text";
+    input.placeholder = `new parent of “${node.name}”`;
+    input.oninput = preview;
+    input.onkeydown = (event) => {
+      if (event.key === "Enter" && !go.disabled) {
+        event.preventDefault();
+        go.onclick();
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        cancel.onclick();
+      }
+    };
+    form.appendChild(input);
+  } else {
+    // Removing is the destructive direction, so the button wears the danger
+    // colour the row menus use rather than the accent.
+    go.classList.add("track-edit-danger");
+  }
+
+  go.onclick = async () => {
+    go.disabled = true;
+    try {
+      await applyRetrack(node.path, insertMode ? typed() : null);
+    } catch (error) {
+      note.textContent = error.message;
+      go.disabled = false;
+    }
+  };
+
+  form.append(go, cancel, note);
+  preview();
+  if (input) requestAnimationFrame(() => input.focus());
+  return form;
 }
 
 // --- events -----------------------------------------------------------------

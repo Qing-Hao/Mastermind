@@ -3963,6 +3963,60 @@ body.resizing-column { cursor: col-resize; user-select: none; }
   padding: 1px 5px;
 }
 
+/* --- the track editor ---------------------------------------------------
+   The same list the picker draws, with the two edits to the tree's shape
+   hung off each row. Indent is set inline per row -- depth is unbounded, so
+   it cannot be a class the way the picker's one level of nesting can be.
+   Nothing here toggles `hidden`: the open row's form is built and removed,
+   which keeps it clear of the `display`-versus-`[hidden]` trap. */
+.track-editor { display: flex; flex-direction: column; margin-top: 6px; }
+
+.track-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: var(--radius);
+  font-size: 13px;
+}
+.track-edit-row:hover { background: var(--hover); }
+.track-edit-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Held back until the row is under the cursor or holds the focus: two buttons
+   on every level of a deep tree is a wall of chrome to read past, and neither
+   is an edit anyone makes often. */
+.track-edit-act {
+  flex: none;
+  padding: 1px 7px;
+  font-size: 11.5px;
+  opacity: 0;
+}
+.track-edit-row:hover .track-edit-act,
+.track-edit-act:focus-visible { opacity: 1; }
+
+.track-edit-form {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 6px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: var(--accent-soft);
+}
+.track-edit-input { flex: 0 1 220px; }
+/* The whole width, under the buttons: it is a sentence about how many rows are
+   about to move, and it must not be something the eye skips past. */
+.track-edit-note {
+  flex: 1 0 100%;
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.track-edit-danger { border-color: #b00020; background: #b00020; }
+.track-edit-danger:hover { border-color: #7f0018; background: #7f0018; }
+
 @media (prefers-reduced-motion: reduce) {
   .track-picker::after { transition: none; }
 }

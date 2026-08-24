@@ -624,6 +624,26 @@ def update_project(project_id, fields):
     return get_project(project_id)
 
 
+def retrack_projects(changes):
+    """Rewrite `track` on many projects at once. `changes` is (id, track) pairs.
+
+    One statement in one transaction, because a track level is only the strings
+    the rows spell: half a rewrite is a level that exists under two names, which
+    the map would draw as two rings. Row by row through `update_project` could
+    leave exactly that behind.
+    """
+    pairs = list(changes)
+    if not pairs:
+        return 0
+    timestamp = now_iso()
+    with connect() as connection:
+        connection.executemany(
+            "UPDATE project SET track = ?, updated_at = ? WHERE id = ?",
+            [(track, timestamp, project_id) for project_id, track in pairs],
+        )
+    return len(pairs)
+
+
 def delete_project(project_id):
     with connect() as connection:
         connection.execute("DELETE FROM project WHERE id = ?", (project_id,))
