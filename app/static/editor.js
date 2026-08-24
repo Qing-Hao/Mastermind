@@ -3290,6 +3290,13 @@ function sprintCell(block, index, r, column) {
   // unlike a block, where the blur *is* the save.
   cell.onblur = () => {
     closeSprintMenu();
+    clearTimeout(cellHint.hold);
+    cellHint.hold = null;
+    // A legend belongs to the cell being left, so it goes. A note may already
+    // belong to the cell being arrived *at* -- a grid paste shows one across a
+    // re-render, and Chrome fires this blur for the node that render removed --
+    // so only a hint anchored to this very element is put away with it.
+    if (cellHint.kind === "legend" || cellHint.cell === cell) hideCellHint();
     const host = cellHost(cell);
     // A document re-render can pull a focused cell out from under itself, and
     // Chrome fires blur when it does. Painting into a detached `<td>` is harmless
@@ -3304,6 +3311,10 @@ function sprintCell(block, index, r, column) {
     // Deliberately not prevented: the browser still has to fire the paste.
     pasteWantsCell = (event.ctrlKey || event.metaKey)
       && event.shiftKey && event.key.toLowerCase() === "v";
+
+    // Same reason, same place: the legend is armed by a modifier and disarmed by
+    // everything else, so it has to see every key before any rule below returns.
+    armCellLegend(cell, event);
 
     // While the menu is up it owns the arrows, Enter and Esc.
     if (sprintMenu.open && sprintMenuKey(event)) return;
@@ -3388,6 +3399,16 @@ function sprintCell(block, index, r, column) {
     stepSprintCell(block, index, r, column, step);
   };
 
+  // The legend belongs to the key being held, so letting go puts it away. A
+  // paste's note does not: it is about something that already happened, and the
+  // `Ctrl` released a moment after `Ctrl`+`V` would take it straight back down.
+  cell.onkeyup = (event) => {
+    if (event.key !== "Control" && event.key !== "Meta") return;
+    clearTimeout(cellHint.hold);
+    cellHint.hold = null;
+    if (cellHint.kind === "legend") hideCellHint();
+  };
+
   // Replaces `inlineEditable`'s own paste handler, so the plain-text half of it is
   // repeated here: a surface that let a browser's HTML in would be a surface whose
   // markdown nobody can write back.
@@ -3410,9 +3431,14 @@ function sprintCell(block, index, r, column) {
       pasteIntoCell(cell, block, r, column, text);
       return;
     }
+    // Counted first, because the paste is what makes the count unfindable.
+    const shape = pasteShape(text);
     pasteIntoTable(block, r, column, text);
     renderSprintDocument();
     focusSprintCell(index, r, column);
+    // The one place the grid reading is worth saying out loud: it just filled
+    // several cells, and the other reading is one key away.
+    noteGridPaste(index, r, column, shape);
   };
 
   return cell;
@@ -3577,10 +3603,12 @@ function pastedList(text) {
 }
 
 // A tab is an indent everywhere else in a cell, and `serialise_table` pads the
-// file by character count -- so a pasted one becomes the two spaces `CELL_INDENT`
-// already means. Leading only: a tab inside a sentence belongs to the sentence.
-const indentAsSpaces = (line) =>
-  line.replace(/^[ \t]+/, (run) => run.replace(/\t/g, CELL_INDENT));
+// file by character count -- so a raw one left in a cell makes the source column
+// unreadable, which is why `CELL_INDENT` is two spaces in the first place. Every
+// tab, not just a leading one: only a **forced** paste can carry one this far,
+// since `pastedList` reads a tab as a spreadsheet range and never comes here, and
+// somebody who said "this cell" meant the text and not the column stops.
+const tabsAsIndent = (line) => line.replace(/\t/g, CELL_INDENT);
 
 // The nesting is relative, so what matters is the difference between the lines
 // and not the depth the copy happened to start at. Taking the shallowest line's
@@ -3600,7 +3628,7 @@ function dedentPastedList(lines) {
 // `pasteIntoTable`: in a list the indentation *is* the nesting.
 function pasteIntoCell(cell, block, r, column, text) {
   const lines = text.replace(/\r\n?/g, "\n").replace(/\n+$/, "")
-    .split("\n").map(indentAsSpaces);
+    .split("\n").map(tabsAsIndent);
   const clean = dedentPastedList(lines).join("\n");
 
   // A selection spanning several nodes is not something one caret offset can say,
@@ -3614,6 +3642,13 @@ function pasteIntoCell(cell, block, r, column, text) {
   writeCell(block.table, r, column, mine);
   writeInlineSurface(cell, mine, at + clean.length);
   tableEdited(block);
+}
+
+// What a grid paste is about to fill, counted before it happens: afterwards the
+// grid no longer says which part of itself was pasted into.
+function pasteShape(text) {
+  const lines = text.replace(/\r\n?/g, "\n").replace(/\n$/, "").split("\n");
+  return { rows: lines.length, columns: Math.max(...lines.map((line) => line.split("\t").length)) };
 }
 
 // Fills from the anchor cell, growing the table to fit what was pasted. A
@@ -3640,6 +3675,142 @@ function pasteIntoTable(block, r, column, text) {
     });
   });
   tableEdited(block);
+}
+
+// --- what a cell can say without being left ----------------------------------
+
+// One floating panel for both of the things a cell has to tell you: the key
+// legend a held `Ctrl` asks for, and the line a grid paste leaves behind. Both
+// are read and neither is answered, so they share a node -- and it is **never
+// focusable and never clickable**, because taking focus off a cell is what tears
+// its editing surface down.
+//
+// Not the app's `tip-layer`: that one is hover-driven and carries its content in
+// `data-tip` attributes, which a table of twelve key rows is not. Same popover
+// vocabulary in the stylesheet, so it still reads as the same kind of thing.
+const cellHint = { node: null, timer: null, hold: null, cell: null, kind: null };
+
+const CELL_HINT_HOLD = 400;      // ms `Ctrl` must stay down before the legend shows
+const CELL_HINT_LINGER = 6000;   // ms a paste's own line stays up
+
+// Every key a cell answers to, in the order a hand finds them: moving, then
+// lists, then the two pastes, then the inline marks. **Read off `sprintCell`'s
+// own keydown** -- a key added there and not here makes this a lie, which is the
+// one way a legend is worse than no legend.
+const CELL_KEYS = [
+  ["Next cell, or the one before", "Tab / Shift+Tab"],
+  ["Any cell, from a list line too", "Ctrl+arrows"],
+  ["Leave the cell", "Esc"],
+  ["Continue the list, or end it", "Enter"],
+  ["Indent or outdent a list line", "Tab / Shift+Tab"],
+  ["Tick the box the caret is on", "Ctrl+Enter"],
+  ["Take a marker off", "Backspace"],
+  ["Insert menu", "/"],
+  ["Paste: fill the grid from here", "Ctrl+V"],
+  ["Paste: fill this one cell", "Ctrl+Shift+V"],
+  ["Bold, italic, underline", "Ctrl+B / I / U"],
+  ["Strikethrough", "Ctrl+Shift+X"],
+];
+
+function cellHintNode() {
+  if (!cellHint.node) {
+    // On `body` for `.sprint-menu`'s reason: the block it belongs to sits inside a
+    // column that scrolls and clips, and a panel that gets cut off is worse than
+    // one positioned by hand.
+    cellHint.node = element("div", "cell-hint");
+    cellHint.node.setAttribute("aria-hidden", "true");
+    cellHint.node.hidden = true;
+    document.body.appendChild(cellHint.node);
+  }
+  return cellHint.node;
+}
+
+// Anchored under the cell, or above it when there is no room below -- the legend
+// is tall enough to fall off the page from a table near the foot of one.
+// `linger` of 0 means it stays until something puts it away.
+function showCellHint(cell, body, linger, kind) {
+  const node = cellHintNode();
+  node.innerHTML = "";
+  node.appendChild(body);
+  node.hidden = false;
+  cellHint.cell = cell;
+  cellHint.kind = kind;
+
+  const box = cell.getBoundingClientRect();
+  const height = node.offsetHeight;
+  const flip = box.bottom + height + 8 > window.innerHeight && box.top > height + 8;
+  node.style.left = `${box.left + window.scrollX}px`;
+  node.style.top = `${flip
+    ? box.top + window.scrollY - height - 4
+    : box.bottom + window.scrollY + 4}px`;
+
+  clearTimeout(cellHint.timer);
+  cellHint.timer = linger ? setTimeout(hideCellHint, linger) : null;
+}
+
+function hideCellHint() {
+  clearTimeout(cellHint.timer);
+  clearTimeout(cellHint.hold);
+  cellHint.timer = null;
+  cellHint.hold = null;
+  cellHint.cell = null;
+  cellHint.kind = null;
+  if (cellHint.node) cellHint.node.hidden = true;
+}
+
+function cellKeyLegend() {
+  const list = element("div", "cell-hint-keys");
+  for (const [label, keys] of CELL_KEYS) {
+    const row = element("div", "cell-hint-row");
+    row.append(element("span", null, label), element("span", "cell-hint-key", keys));
+    list.appendChild(row);
+  }
+  return list;
+}
+
+// What a grid paste did, and the key that would have done the other thing. Said
+// after the fact rather than asked before it: the paste has landed, and the text
+// is still in the clipboard for a second go.
+function pasteNote(shape) {
+  const note = element("div", "cell-hint-keys");
+  const filled = shape.columns > 1
+    ? `${shape.rows} rows × ${shape.columns} columns`
+    : `${shape.rows} rows`;
+  note.appendChild(element("div", "cell-hint-said", `Filled ${filled} from here.`));
+  const row = element("div", "cell-hint-row");
+  row.append(
+    element("span", null, "Paste into this one cell instead"),
+    element("span", "cell-hint-key", "Ctrl+Shift+V"),
+  );
+  note.appendChild(row);
+  return note;
+}
+
+// After the render and the refocus, not before: the paste replaced every node in
+// the block, so the cell this is anchored to is a different element by now.
+function noteGridPaste(index, r, column, shape) {
+  const doc = $("sprint-document");
+  const node = doc && doc.children[index];
+  const cell = node && node.querySelector(`[data-r="${r}"][data-c="${column}"]`);
+  if (cell) showCellHint(cell, pasteNote(shape), CELL_HINT_LINGER, "note");
+}
+
+// A held `Ctrl` asks what the keys are; every other key answers by taking the
+// question away. The delay is the whole design: a modifier on its way to
+// `Ctrl`+`B` is down for a moment, not held, so the legend never flashes at
+// somebody bolding a word.
+function armCellLegend(cell, event) {
+  if (event.key !== "Control" && event.key !== "Meta") {
+    hideCellHint();
+    return;
+  }
+  // `keydown` repeats while a key is held, and the legend being up is itself the
+  // record of an arm that already fired -- so neither re-arms.
+  if (cellHint.hold || cellHint.cell === cell) return;
+  cellHint.hold = setTimeout(() => {
+    cellHint.hold = null;
+    if (document.activeElement === cell) showCellHint(cell, cellKeyLegend(), 0, "legend");
+  }, CELL_HINT_HOLD);
 }
 
 // --- rows and columns, where they actually are -------------------------------
@@ -3978,10 +4149,11 @@ function sprintTableTools(block, index) {
   tools.append(
     gridButton("+ Row", change(() => insertGridRow(block, grid.rows.length))),
     gridButton("+ Column", change(() => insertGridColumn(block, grid.head.length))),
+    // Short, because the full map is a held `Ctrl` away now -- this strip had
+    // grown past the width it has and was being cut off mid-word.
     element("span", "sprint-table-note",
-      "Tab moves, or indents a list line · Enter continues a list · / inserts · "
-      + "paste fills the grid, a list one cell (Ctrl+Shift+V forces one cell) · "
-      + "⠿ moves a row or column · drag a column edge"),
+      "Tab moves · Enter continues a list · / inserts · ⠿ moves a row or column · "
+      + "drag a column edge · hold Ctrl for every key"),
   );
   return tools;
 }

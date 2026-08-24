@@ -2556,6 +2556,45 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 .sprint-menu-item[aria-selected="true"] .sprint-menu-key { color: var(--accent); }
 .sprint-menu-empty { padding: 6px 8px; font-size: 12.5px; color: var(--muted); }
 
+/* --- what a cell says: its key legend, and a paste's note --- */
+/* The same popover vocabulary as `.sprint-menu` above, and deliberately not
+   interactive: `pointer-events: none` because a click on it would cost the cell
+   its focus, and losing that tears the editing surface down. */
+.cell-hint {
+  position: absolute;
+  z-index: 61;
+  max-width: 340px;
+  padding: 5px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 8px 24px rgba(0, 0, 0, 0.16);
+  pointer-events: none;
+}
+.cell-hint[hidden] { display: none; }
+.cell-hint-row {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  padding: 3px 7px;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.cell-hint-key {
+  margin-left: auto;
+  font: 10.5px ui-monospace, SFMono-Regular, Consolas, monospace;
+  color: var(--faint);
+}
+/* The one line that is a statement rather than a key, so it gets the muted
+   treatment a status line has and a rule under it to separate the two. */
+.cell-hint-said {
+  padding: 3px 7px 6px;
+  margin-bottom: 3px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
 /* --- the raw file view --- */
 .sprint-raw-pane[hidden] { display: none; }
 .sprint-raw-note { border-left: 2px solid #e0a800; padding-left: 8px; margin-bottom: 8px; }
