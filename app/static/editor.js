@@ -3298,8 +3298,16 @@ function sprintCell(block, index, r, column) {
   };
 
   cell.onkeydown = (event) => {
+    // Armed for the paste this key is about to cause, and disarmed by any other
+    // key, so a flag can never outlive the gesture that set it. First, before any
+    // rule below can return early and leave it reading a key from a minute ago.
+    // Deliberately not prevented: the browser still has to fire the paste.
+    pasteWantsCell = (event.ctrlKey || event.metaKey)
+      && event.shiftKey && event.key.toLowerCase() === "v";
+
     // While the menu is up it owns the arrows, Enter and Esc.
     if (sprintMenu.open && sprintMenuKey(event)) return;
+
     // Bold, italic, underline and strikethrough, the same four keys every other
     // inline surface answers to.
     if (inlineCommandKey(event)) return;
@@ -3385,15 +3393,23 @@ function sprintCell(block, index, r, column) {
   // markdown nobody can write back.
   cell.onpaste = (event) => {
     const text = (event.clipboardData || window.clipboardData).getData("text");
-    // One value is an ordinary paste; a range is a grid, and that is the point.
-    // Deliberately unchanged by multi-line cells: a one-column range is still
-    // rows, and `Enter` is how a second line goes into a single cell.
-    if (!text || !/[\t\n]/.test(text)) {
-      event.preventDefault();
-      if (text) document.execCommand("insertText", false, text);
+    const asCell = pasteWantsCell;
+    pasteWantsCell = false;
+    event.preventDefault();
+    if (!text) return;
+
+    // One value is an ordinary paste.
+    if (!/[\t\n]/.test(text)) {
+      document.execCommand("insertText", false, text);
       return;
     }
-    event.preventDefault();
+    // A range is a grid, and that is the point -- but a list is not a range, and
+    // reading one as rows is what `pastedList` exists to stop. `Ctrl`+`Shift`+`V`
+    // says "one cell" for the paste it reads the other way.
+    if (asCell || pastedList(text)) {
+      pasteIntoCell(cell, block, r, column, text);
+      return;
+    }
     pasteIntoTable(block, r, column, text);
     renderSprintDocument();
     focusSprintCell(index, r, column);
@@ -3520,6 +3536,83 @@ function indentCellLine(cell, block, r, column, direction) {
   // in the line rather than jumping to the end of the box.
   writeCell(block.table, r, column, mine);
   writeInlineSurface(cell, mine, Math.max(from, was.start + first));
+  tableEdited(block);
+}
+
+// --- one cell or several: what a newline in the clipboard means ---------------
+
+// A `paste` event carries no modifier state -- it is not a keyboard event -- so
+// the key that caused it is recorded on the way past and read here. Set and
+// cleared by the same `keydown`, so it cannot outlive its own gesture.
+let pasteWantsCell = false;
+
+// **A newline is a row, except when it is a list.** A spreadsheet range and a
+// checklist copied out of a document are the same string as far as the clipboard
+// is concerned -- lines separated by newlines -- so the two have to be told apart
+// by their shape, and there is exactly one shape a column of cells never has: a
+// marker at the head of a line, or an indent in front of one.
+//
+// True when every non-blank line is a bullet, a checkbox or an indented
+// continuation of one, and at least one carries a marker. A tab is a range
+// outright: it is the character a spreadsheet puts *between columns*, and no list
+// copied out of a document has one between two words.
+//
+// This is a reading of the text, so it can be read wrong -- a genuine column of
+// cells each starting `- ` lands in one cell. `Ctrl`+`Shift`+`V` overrides in the
+// one direction a browser gives us a key for; the other way round, retype the
+// marker after the paste.
+function pastedList(text) {
+  if (/\t/.test(text)) return false;
+  const lines = text.replace(/\r\n?/g, "\n").replace(/\n+$/, "").split("\n");
+  if (lines.length < 2) return false;
+
+  let markers = 0;
+  for (const line of lines) {
+    if (!line.trim()) continue;                   // a blank line inside a list is still the list
+    if (CELL_TODO.test(line) || CELL_BULLET.test(line)) { markers += 1; continue; }
+    if (/^[ \t]+\S/.test(line)) continue;         // a wrapped or nested continuation
+    return false;
+  }
+  return markers > 0;
+}
+
+// A tab is an indent everywhere else in a cell, and `serialise_table` pads the
+// file by character count -- so a pasted one becomes the two spaces `CELL_INDENT`
+// already means. Leading only: a tab inside a sentence belongs to the sentence.
+const indentAsSpaces = (line) =>
+  line.replace(/^[ \t]+/, (run) => run.replace(/\t/g, CELL_INDENT));
+
+// The nesting is relative, so what matters is the difference between the lines
+// and not the depth the copy happened to start at. Taking the shallowest line's
+// indent off all of them keeps every relation and makes the paste survive the
+// next save unchanged -- **a cell's first line cannot hold an indent**, because
+// `_split_row` strips it, so a block pasted still wearing one would silently
+// shift the moment it was written.
+function dedentPastedList(lines) {
+  const depths = lines.filter((line) => line.trim())
+    .map((line) => (/^[ \t]*/.exec(line) || [""])[0].length);
+  const common = depths.length ? Math.min(...depths) : 0;
+  return common ? lines.map((line) => (line.trim() ? line.slice(common) : line)) : lines;
+}
+
+// Pasted into the cell as text, newlines and all -- the path `Enter` takes rather
+// than the path a range takes. Nothing is trimmed on the way in, unlike
+// `pasteIntoTable`: in a list the indentation *is* the nesting.
+function pasteIntoCell(cell, block, r, column, text) {
+  const lines = text.replace(/\r\n?/g, "\n").replace(/\n+$/, "")
+    .split("\n").map(indentAsSpaces);
+  const clean = dedentPastedList(lines).join("\n");
+
+  // A selection spanning several nodes is not something one caret offset can say,
+  // so it is deleted in the DOM first and the markdown read after -- then the
+  // splice below is an ordinary caret's, the same one every other rule here does.
+  const selection = window.getSelection();
+  if (selection && selection.rangeCount && !selection.isCollapsed) document.execCommand("delete");
+
+  const { text: was, at } = inlineSurface(cell);
+  const mine = was.slice(0, at) + clean + was.slice(at);
+  writeCell(block.table, r, column, mine);
+  writeInlineSurface(cell, mine, at + clean.length);
   tableEdited(block);
 }
 
@@ -3887,7 +3980,8 @@ function sprintTableTools(block, index) {
     gridButton("+ Column", change(() => insertGridColumn(block, grid.head.length))),
     element("span", "sprint-table-note",
       "Tab moves, or indents a list line · Enter continues a list · / inserts · "
-      + "paste fills the grid · ⠿ moves a row or column · drag a column edge"),
+      + "paste fills the grid, a list one cell (Ctrl+Shift+V forces one cell) · "
+      + "⠿ moves a row or column · drag a column edge"),
   );
   return tools;
 }
