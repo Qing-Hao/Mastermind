@@ -1809,6 +1809,28 @@ function openParagraphAfter(index) {
   renderSprintDocument();
 }
 
+// An empty paragraph *before* this block, opened for typing. `openParagraphAfter`'s
+// mirror, and the gaps are the simpler half of it: the new block takes a separator
+// of its own and every existing one keeps what it had, so **the file's trailing
+// newline is still owned by whatever was last** and nothing else moves. It has to
+// be a blank line -- a single newline would re-read the new paragraph and the one
+// below it as one.
+function openParagraphBefore(index) {
+  const sprint = state.sprint;
+  const blocks = sprint.blocks;
+  if (!blocks[index]) return;
+
+  blocks.splice(index, 0, {
+    index, type: "paragraph", raw: "", gap: sprintBlankLine(blocks), html: "",
+  });
+  blocks.forEach((block, position) => { block.index = position; });
+
+  sprint.editing = index;
+  sprint.editingLine = null;
+  sprint.draft = null;
+  renderSprintDocument();
+}
+
 // --- mermaid ----------------------------------------------------------------
 
 // A mermaid fence arrives from the server as `<pre class="mermaid-source">`
@@ -1950,11 +1972,21 @@ function sprintRail(block, index, row) {
   // not claim the block's hold. `currentPlace` skips anything under this flag.
   rail.dataset.presenceSkip = "1";
   rail.appendChild(element("span", "sprint-tag", sprintTag(block)));
+  rail.appendChild(sprintAddButton(block));
 
   const grip = element("button", "grip-handle", "⠿");
   grip.type = "button";
-  grip.title = "Drag to reorder";
+  grip.title = "Drag to reorder · click to insert or delete";
   grip.setAttribute("aria-label", "Move this block");
+  grip.onclick = () => {
+    // Disarmed again, because a click is not a drag: a completed drag ends in
+    // `ondragend`, but a click that only opened the menu would leave the row
+    // draggable, and the next press *inside the block* would drag it instead of
+    // placing a cursor -- the thing arming from the grip alone exists to prevent.
+    // `gridGrip` reaches the same line for the same reason one level down.
+    row.draggable = false;
+    openGripMenu(block, index, blockMenuItems(block), grip);
+  };
   rail.appendChild(grip);
 
   // `draggable` is armed from the grip and disarmed after the drop, so a press
@@ -2004,6 +2036,83 @@ function clearSprintDropMarks() {
   for (const row of $("sprint-document").querySelectorAll(".drop-above, .drop-below")) {
     row.classList.remove("drop-above", "drop-below");
   }
+}
+
+// One click, one block: an empty paragraph below this one, opened for typing. It
+// is what `Enter` at the end of a block already does, given a mouse -- and the
+// common case, which is why it sits in the rail rather than behind the grip's
+// menu. A table or a diagram has no box to press `Enter` in at all.
+//
+// Bound on `mousedown` with the default prevented, unlike the grip beside it: the
+// grip needs that default to start a drag, this needs the focus *not* to move, so
+// that an open block elsewhere is committed deliberately by `withSprintBlock`
+// rather than by a blur racing the click. With no `onclick` a key press would
+// otherwise do nothing, so Enter and Space are wired by hand -- the same pair the
+// foot target lists.
+function sprintAddButton(block) {
+  const add = element("button", "rail-add", "+");
+  add.type = "button";
+  add.title = "Add a block below this one";
+  add.setAttribute("aria-label", "Add a block below this one");
+
+  const insert = (event) => {
+    event.preventDefault();
+    withSprintBlock(block, (at) => openParagraphAfter(at));
+  };
+  add.onmousedown = insert;
+  add.onkeydown = (event) => {
+    if (event.key === "Enter" || event.key === " ") insert(event);
+  };
+  return add;
+}
+
+// A gutter gesture, run against a block that may be about to move. The press
+// happens while some other block can still be open, and **that block's own blur
+// is what commits it** -- a commit that splices at the index it began with, and
+// that can turn one box into three. So the open box is closed by hand, what it
+// wrote is waited for, and the block is found again by identity: its index may
+// have moved, and a split may have replaced it altogether.
+//
+// The blur handler is called rather than reimplemented: it is the one path that
+// knows what a hoisted marker and an inline surface commit as. Acting on the
+// block you are typing in is the one case that can end in nothing happening --
+// if that commit split it, the block this press named is no longer there.
+async function withSprintBlock(block, run) {
+  const open = $("sprint-document").querySelector(SPRINT_EDITING);
+  if (open && typeof open.onblur === "function") open.onblur();
+  await sprintCommit;
+
+  const at = state.sprint.blocks.indexOf(block);
+  if (at === -1) return;
+  run(at);
+}
+
+// The block rail's own menu: what a drag cannot say. The grid menu's sibling one
+// level up, and deliberately the same furniture -- see `openGripMenu`.
+//
+// Every entry returns `null` rather than a cell to land in, because a block
+// gesture has already redrawn the document and there is no cell in it. Each one
+// goes through `withSprintBlock` for the reason above: the click that opened this
+// menu blurred whatever was open, and that commit may still be in flight.
+function blockMenuItems(block) {
+  return [
+    {
+      label: "Insert block above",
+      run: () => { withSprintBlock(block, (at) => openParagraphBefore(at)); return null; },
+    },
+    {
+      label: "Insert block below",
+      run: () => { withSprintBlock(block, (at) => openParagraphAfter(at)); return null; },
+    },
+    {
+      label: "Delete block",
+      // The file's last block cannot go: `removeSprintBlock` has nothing to hand
+      // the trailing newline to, and an empty document is what the foot target is
+      // for. The same floor the `Backspace` path keeps.
+      disabled: state.sprint.blocks.length <= 1,
+      run: () => { withSprintBlock(block, (at) => removeSprintBlock(at)); return null; },
+    },
+  ];
 }
 
 // True when a gap holds a blank line, which separates any two blocks safely.
@@ -3983,7 +4092,7 @@ function gridGrip(block, index, kind, position, target) {
     // draggable, and the next press *in one of its cells* would drag it instead of
     // placing a cursor -- the thing arming from the grip alone exists to prevent.
     target.draggable = false;
-    openGridMenu(block, index, kind, position, grip);
+    openGripMenu(block, index, gridMenuItems(block, kind, position), grip);
   };
 
   // Every handler below stops the event, because a table lives inside a
@@ -4050,18 +4159,23 @@ function clearGridDropMarks() {
   }
 }
 
-// --- the row and column menu -------------------------------------------------
+// --- the grip menu -----------------------------------------------------------
 
 // The insert menu's smaller sibling, and deliberately the same furniture: the
 // `.sprint-menu` classes, arrows to move, Enter to pick, Esc to close having done
 // nothing. Its own state because the two are never open at once and this one is
 // anchored to a button rather than to a textarea's caret.
-const gridMenu = {
+//
+// **Every grip opens this one menu** -- a row's, a column's and a block's -- so the
+// items are handed in rather than worked out here. `gridMenuItems` and
+// `blockMenuItems` are the two sets there are.
+const gripMenu = {
   node: null, items: [], selected: 0, open: false, block: null, index: 0, anchor: null,
 };
 
 // Each entry reports where the cursor belongs afterwards, worked out **after** the
-// mutation: `rows.length` below is the length once the row is gone.
+// mutation: `rows.length` below is the length once the row is gone. A block item
+// reports `null` instead -- see `blockMenuItems`.
 function gridMenuItems(block, kind, position) {
   const grid = block.table;
   if (kind === "row") {
@@ -4094,89 +4208,93 @@ function gridMenuItems(block, kind, position) {
   ];
 }
 
-function openGridMenu(block, index, kind, position, anchor) {
+function openGripMenu(block, index, items, anchor) {
   closeSprintMenu();
-  Object.assign(gridMenu, {
-    items: gridMenuItems(block, kind, position),
+  Object.assign(gripMenu, {
+    items,
     selected: 0,
     open: true,
     block,
     index,
     anchor,
   });
-  renderGridMenu();
+  renderGripMenu();
   // While it is up it owns the keyboard. Capturing, so Esc closes the menu rather
   // than reaching the handler that closes the fortnight drawer behind it.
-  document.addEventListener("keydown", gridMenuKey, true);
-  document.addEventListener("mousedown", gridMenuOutside, true);
+  document.addEventListener("keydown", gripMenuKey, true);
+  document.addEventListener("mousedown", gripMenuOutside, true);
 }
 
-function renderGridMenu() {
-  if (!gridMenu.node) {
+function renderGripMenu() {
+  if (!gripMenu.node) {
     // On `body`, like the insert menu: the block it belongs to sits in a column
     // that scrolls and clips, and a menu cut off by its own table is worse than
     // one positioned by hand.
-    gridMenu.node = element("div", "sprint-menu grid-menu");
-    document.body.appendChild(gridMenu.node);
+    gripMenu.node = element("div", "sprint-menu grip-menu");
+    document.body.appendChild(gripMenu.node);
   }
-  const node = gridMenu.node;
+  const node = gripMenu.node;
   node.innerHTML = "";
 
-  gridMenu.items.forEach((item, position) => {
+  gripMenu.items.forEach((item, position) => {
     const row = element("div", "sprint-menu-item", item.label);
-    row.setAttribute("aria-selected", position === gridMenu.selected ? "true" : "false");
+    row.setAttribute("aria-selected", position === gripMenu.selected ? "true" : "false");
     if (item.disabled) row.setAttribute("aria-disabled", "true");
     // `mousedown` with the default prevented, so the click never blurs its way
     // through the outside-click listener before it is handled.
     row.onmousedown = (event) => {
       event.preventDefault();
       event.stopPropagation();
-      pickGridMenuItem(position);
+      pickGripMenuItem(position);
     };
     node.appendChild(row);
   });
 
   // Against the grip, every time: the arrow keys re-render, and measuring the menu
   // instead would walk it down the page one press at a time.
-  const box = gridMenu.anchor.getBoundingClientRect();
+  const box = gripMenu.anchor.getBoundingClientRect();
   node.style.left = `${box.left + window.scrollX}px`;
   node.style.top = `${box.bottom + window.scrollY + 4}px`;
   node.hidden = false;
 }
 
-function gridMenuKey(event) {
-  const count = gridMenu.items.length;
+function gripMenuKey(event) {
+  const count = gripMenu.items.length;
   const move = (step) => {
-    gridMenu.selected = (gridMenu.selected + step + count) % count;
-    renderGridMenu();
+    gripMenu.selected = (gripMenu.selected + step + count) % count;
+    renderGripMenu();
   };
   if (event.key === "ArrowDown") move(1);
   else if (event.key === "ArrowUp") move(-1);
-  else if (event.key === "Enter") pickGridMenuItem(gridMenu.selected);
-  else if (event.key === "Escape") closeGridMenu();
+  else if (event.key === "Enter") pickGripMenuItem(gripMenu.selected);
+  else if (event.key === "Escape") closeGripMenu();
   else return;
   event.preventDefault();
   event.stopPropagation();
 }
 
-function gridMenuOutside(event) {
-  if (!gridMenu.node.contains(event.target)) closeGridMenu();
+function gripMenuOutside(event) {
+  if (!gripMenu.node.contains(event.target)) closeGripMenu();
 }
 
-function closeGridMenu() {
-  gridMenu.open = false;
-  if (gridMenu.node) gridMenu.node.hidden = true;
-  document.removeEventListener("keydown", gridMenuKey, true);
-  document.removeEventListener("mousedown", gridMenuOutside, true);
+function closeGripMenu() {
+  gripMenu.open = false;
+  if (gripMenu.node) gripMenu.node.hidden = true;
+  document.removeEventListener("keydown", gripMenuKey, true);
+  document.removeEventListener("mousedown", gripMenuOutside, true);
 }
 
-function pickGridMenuItem(at) {
-  const item = gridMenu.items[at];
-  const { block, index } = gridMenu;
-  closeGridMenu();
+// A row or column item reports the cell to land in afterwards; a block item has
+// already redrawn the document and reports nothing, so there is no cell to focus
+// and no table to re-serialise.
+function pickGripMenuItem(at) {
+  const item = gripMenu.items[at];
+  const { block, index } = gripMenu;
+  closeGripMenu();
   if (!item || item.disabled) return;
-  const [r, column] = item.run();
-  applyGridChange(block, index, r, column);
+  const cell = item.run();
+  if (!cell) return;
+  applyGridChange(block, index, cell[0], cell[1]);
 }
 
 function sprintTableTools(block, index) {
@@ -4262,10 +4380,26 @@ async function serialiseEditedTables() {
   }
 }
 
+// The commit still in flight, if there is one. A gesture that changes the shape of
+// the document has to wait for the edit already changing it: a commit splices at
+// the index it began with, so a block inserted or deleted while one is in the air
+// would be written over by it. Kept here rather than in `state` because it is a
+// promise, not document state -- nothing renders from it.
+let sprintCommit = null;
+
 // One edited box can become several blocks (paste three paragraphs), change type
 // (type `## ` in front), or none at all (delete the lot). The server re-splits
 // it, because the splitter is the same one that read the file.
-async function commitSprintBlock(index, text) {
+//
+// The wrapper exists to publish the promise: every caller either ignores the
+// return, as a blur does, or awaits it, as `insertSprintBlockAfter` does, and
+// neither could see one commit from inside another.
+function commitSprintBlock(index, text) {
+  sprintCommit = runSprintCommit(index, text);
+  return sprintCommit;
+}
+
+async function runSprintCommit(index, text) {
   const sprint = state.sprint;
   const original = sprint.blocks[index];
   const number = sprint.number;
@@ -4331,6 +4465,27 @@ async function commitSprintBlock(index, text) {
 // than nearly exact: the separator is the one the file already had, not "\n\n".
 function joinSprintBlocks(blocks) {
   return blocks.map((block) => block.raw + blockGap(block)).join("");
+}
+
+// **The blocks the file has, which is not always the blocks on screen.** An empty
+// block that is only open for typing is not part of the file -- every path that
+// opens one says so, and none of them schedules a save. What none of them can say
+// is that a save scheduled by the edit *before* it is already on its way: that
+// pass wrote the blank line, the server's own split dropped it again, the reply
+// came back a block shorter than the screen, and the whole document was re-read
+// with the caret landing in whatever block had taken the empty one's place. Two
+// gestures away from a person typing into the wrong paragraph.
+//
+// So every write, and every question about what one owes, asks this rather than
+// `blocks` -- which is left holding the box being typed into, because that is what
+// the render draws from. `Enter` at the end of a block reached this the same way
+// the rail's `+` does, and did the same thing before the rail existed.
+function fileSprintBlocks(sprint) {
+  const at = sprint.editing;
+  if (at === null || sprint.blocks.length <= 1) return sprint.blocks;
+  const block = sprint.blocks[at];
+  if (!block || block.raw !== "") return sprint.blocks;
+  return sprint.blocks.filter((_, index) => index !== at);
 }
 
 // A save writes the blocks that changed, not the document. What it quotes as the
@@ -4410,7 +4565,7 @@ function sprintSplices(disk, live) {
 // documents at length.
 async function writeSprintSplices(number) {
   const sprint = state.sprint;
-  for (const splice of sprintSplices(sprint.disk, sprint.blocks)) {
+  for (const splice of sprintSplices(sprint.disk, fileSprintBlocks(sprint))) {
     const landed = await api(`${sprintEndpoint(number)}/blocks`, {
       method: "PATCH",
       body: JSON.stringify({
@@ -4503,7 +4658,7 @@ function adoptLandedWrite(landed) {
   const sprint = state.sprint;
   sprint.mtime = landed.mtime;
   sprint.disk = diskBlocks(landed.blocks);
-  if (landed.blocks.length === sprint.blocks.length) return;
+  if (landed.blocks.length === fileSprintBlocks(sprint).length) return;
   adoptSprintBlocks(landed.blocks,
     "The file changed shape while you were editing, so it was re-read.");
 }
@@ -4556,13 +4711,14 @@ function repaintSprintCells(at, cells) {
 // have meant and the only thing available before a file has been read.
 async function writeSprintWholeFile(number) {
   const sprint = state.sprint;
+  const written = fileSprintBlocks(sprint);
   const saved = await api(sprintEndpoint(number), {
     method: "PUT",
-    body: JSON.stringify({ text: joinSprintBlocks(sprint.blocks), mtime: sprint.mtime }),
+    body: JSON.stringify({ text: joinSprintBlocks(written), mtime: sprint.mtime }),
   });
   if (sprint.number !== number) return;
   sprint.mtime = saved.mtime;
-  sprint.disk = diskBlocks(sprint.blocks);
+  sprint.disk = diskBlocks(written);
 }
 
 function scheduleSprintSave() {
@@ -4645,7 +4801,7 @@ async function saveSprint() {
     // cell has its `raw` adopted from the reply, so serialising it here would
     // only produce a block splice that undid somebody else's cell.
     if (sprint.disk) {
-      await writeSprintCells(number, sprintCellWrites(sprint.disk, sprint.blocks));
+      await writeSprintCells(number, sprintCellWrites(sprint.disk, fileSprintBlocks(sprint)));
       if (sprint.number !== number) return;
     }
     // Whatever grid is still flagged becomes markdown, so what is written below
@@ -4765,8 +4921,9 @@ function refuseSprintWrite(failure) {
 function sprintOwesAWrite() {
   const sprint = state.sprint;
   if (!sprint.disk) return true;
-  return sprintCellWrites(sprint.disk, sprint.blocks).length > 0
-    || sprintSplices(sprint.disk, sprint.blocks).length > 0;
+  const written = fileSprintBlocks(sprint);
+  return sprintCellWrites(sprint.disk, written).length > 0
+    || sprintSplices(sprint.disk, written).length > 0;
 }
 
 async function reloadSprintFromDisk() {
@@ -4872,7 +5029,7 @@ function applyRemoteSprintSplice(message) {
   //    exactly what a save would send, so it is asked the same way -- an edit of
   //    yours inside the run someone else just rewrote is the case that has to
   //    stay a conflict.
-  const owed = sprintSplices(sprint.disk, sprint.blocks);
+  const owed = sprintSplices(sprint.disk, fileSprintBlocks(sprint));
   const overlaps = owed.some((run) =>
     run.at < end && at < run.at + Math.max(run.expect.length, run.blocks.length));
   if (overlaps) return false;
@@ -5326,7 +5483,7 @@ function sprintUndoKey(event) {
   event.stopPropagation();
   pasteWantsCell = false;
   closeSprintMenu();
-  closeGridMenu();
+  closeGripMenu();
   hideCellHint();
   if (redo) redoSprintEdit();
   else if (!discardSprintDraft()) undoSprintEdit();

@@ -2401,8 +2401,10 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 .sprint-view[hidden] { display: none; }
 
 /* The left padding is the gutter the rail is drawn in: the rail is positioned
-   outside each row, so without it the tag and grip would sit off the page. */
-.sprint-doc { display: flex; flex-direction: column; padding-left: 46px; }
+   outside each row, so without it the tag and grip would sit off the page.
+   70px, not 46: the rail holds three things now, and 62 was 5px short of the
+   widest tag there is -- `table` -- which put it out over the page margin. */
+.sprint-doc { display: flex; flex-direction: column; padding-left: 70px; }
 .sprint-doc[hidden] { display: none; }
 
 /* One block, rendered. The hover outline is the affordance -- there is no edit
@@ -2473,9 +2475,9 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 .sprint-row { position: relative; }
 .sprint-rail {
   position: absolute;
-  left: -46px;
+  left: -70px;
   top: 3px;
-  width: 46px;
+  width: 70px;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -2501,6 +2503,22 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   font-size: 13px;
   line-height: 1;
 }
+/* The one-click insert, left of the grip. Same weight as the grip beside it --
+   they are two gestures on one block, not a primary and a secondary -- and no
+   `display` of its own, because the rail is a flex container and the button is
+   never toggled with `hidden`. */
+.rail-add {
+  border: 0;
+  background: transparent;
+  padding: 0 1px;
+  font-size: 14px;
+  line-height: 1;
+  color: #bbb;
+  cursor: pointer;
+  user-select: none;
+}
+.rail-add:hover { color: var(--accent); }
+.rail-add:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 1px; }
 .sprint-row.dragging { opacity: 0.4; }
 
 /* The edge the dragged block will land on. Drawn on the row rather than between
@@ -2913,8 +2931,9 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 .sprint-table th.drop-after { box-shadow: inset -2px 0 0 -1px var(--accent); }
 
 /* Three short entries against a grip, not nine against a caret, so it wants none
-   of the insert menu's width. */
-.grid-menu { width: 168px; }
+   of the insert menu's width. One rule for every grip: a row's, a column's and a
+   block's all open the same menu. */
+.grip-menu { width: 168px; }
 
 /* Only while the table is in use: buttons under every table all the time
    is more furniture than document. */
