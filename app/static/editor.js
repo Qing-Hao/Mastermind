@@ -4593,6 +4593,38 @@ function scheduleSprintSave() {
 let sprintSaving = false;
 let sprintSaveWanted = false;
 
+// **A page recognises its own write by the mtime it is about to hold, and it does
+// not hold it until its own reply comes back** -- which the server's broadcast
+// beats nearly every time, because the fan-out happens while the response is
+// still being written. So an echo read on arrival was read as a stranger's: the
+// page merged its own cell back over itself, said "somebody else wrote a cell you
+// had unsaved changes in", and blurred the cell being typed in about
+// `SPRINT_SAVE_DEBOUNCE_MS` after the last keystroke. Every pause mid-word did it
+// -- reaching for `Shift` is such a pause, which is how it was reported.
+//
+// The same race the coalescing above exists for, one path along: `announce_sprint`
+// says the mtime "solves self-echo for nothing", and it does, once this page has
+// the mtime. So a message arriving mid-write is **held** rather than read, and
+// replayed once the pass has adopted it, where the guard in `handleLiveMessage`
+// drops it for nothing exactly as designed. A write of somebody else's arriving
+// in that window is applied a round trip later and no differently.
+let liveSprintHeld = [];
+
+function deferLiveSprint(message) {
+  if (!sprintSaving) return false;
+  liveSprintHeld.push(message);
+  return true;
+}
+
+function drainLiveSprint() {
+  if (!liveSprintHeld.length) return;
+  const held = liveSprintHeld;
+  liveSprintHeld = [];
+  // `sprintSaving` is already false by here, so nothing replayed can be deferred
+  // a second time and left in a queue with nothing to come and drain it.
+  for (const message of held) handleLiveMessage(message);
+}
+
 async function saveSprint() {
   const sprint = state.sprint;
   if (sprint.number === null) return;
@@ -4640,6 +4672,10 @@ async function saveSprint() {
     // In a `finally` because the early returns above are the file being switched
     // mid-flight, and a flag left set there would wedge saving for good.
     sprintSaving = false;
+    // Same reason, and the same shape of bug: a message held for this pass has to
+    // be answered whether the write landed, was refused, or was abandoned when
+    // the open file changed under it.
+    drainLiveSprint();
   }
   renderSprintStatus();
   if (sprint.status === "saved") await refreshSprintFiles();
@@ -4913,7 +4949,7 @@ function applyRemoteSprintCells(message) {
   let over = 0;
   for (const cell of splice.cells) {
     if (mine.has(`${cell.r}:${cell.c}`)) over += 1;
-    closeSprintCell(at, cell.r, cell.c);
+    mergeSprintCell(at, cell.r, cell.c, cell.text);
     writeCell(block.table, cell.r, cell.c, cell.text);
   }
 
@@ -4933,13 +4969,30 @@ function applyRemoteSprintCells(message) {
   return true;
 }
 
-// A cell open for editing when somebody else's value lands in it. Blurred rather
-// than replaced under the caret: the blur is the editor's own commit-and-close,
-// so the box goes back to being a view and the grid behind it is what draws.
-function closeSprintCell(at, r, column) {
+// A cell open for editing when somebody else's value lands in it. Their text is
+// written into the surface under the caret *(changed 2026-08-25 -- it used to
+// blur the box, and a blur tears the editing surface down)*: closing a cell is
+// the editor's own commit-and-close gesture, and a message from somebody else
+// making it is indistinguishable from the cell throwing you out mid-word.
+//
+// Their value still wins, which is the contract the whole path states: a cell you
+// have an unsaved change in takes theirs and the toast says so. What changes is
+// that you are still typing in it afterwards. The caret goes to the end of what
+// arrived rather than keeping its offset -- the text it was an offset into is
+// gone, and a caret left in the middle of somebody else's word is a worse guess
+// than the one place there is always something to add. The flash says which cell
+// moved, the same thing a repainted view says for a cell nobody is in.
+function mergeSprintCell(at, r, column, text) {
   const node = $("sprint-document").children[at];
   const open = node && node.querySelector(`.sprint-cell[data-r="${r}"][data-c="${column}"]`);
-  if (open && document.activeElement === open) open.blur();
+  // The caret's own surface or nothing. An open cell has the caret in it -- a blur
+  // is what closes one -- and writing into one that somehow does not would move the
+  // selection out of the cell being typed in, which is the bug this replaced.
+  if (!open || document.activeElement !== open) return false;
+  const body = cellText(text);
+  writeInlineSurface(open, body, body.length);
+  flashArrival(open);
+  return true;
 }
 
 // Replace the rows a splice covers and nothing else: every other row keeps its

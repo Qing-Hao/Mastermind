@@ -8049,6 +8049,10 @@ function handleLiveMessage(message) {
   }
   if (message.type !== "changed") return;
   if (message.scope === "sprint") {
+    // The guard below only works once this page holds the mtime the file now has,
+    // and a write of its own is broadcast before its own reply arrives. Anything
+    // landing mid-write is held and replayed after -- see `deferLiveSprint`.
+    if (deferLiveSprint(message)) return;
     // Your own save comes back to you, and the mtime is how this page knows: it
     // is already holding the value the file now has. Ignoring it is what stops a
     // save reloading over the typing that followed it.
