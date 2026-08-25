@@ -2247,6 +2247,36 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
    reads the same in both places -- see `table.deliverables tr.done`. */
 .slice-deliv-list li.done { color: #999; text-decoration: line-through; }
 
+/* Checkpoints, under the same strip and in the same furniture as the list above
+   -- the group rail, the title, the disabled tick -- because they are read the
+   same way. What differs is the date in front of the name: a checkpoint has one
+   and that is the whole reason it is in this fortnight. */
+.slice-milestones { margin-top: 12px; }
+.slice-milestone-date {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+/* The lead-out week, greyed the way the strip greys it: dated after the
+   fortnight, shown because "next Tuesday" is worth seeing while you plan. */
+.slice-deliv-list li.lead-out .slice-milestone-date { opacity: 0.65; }
+.slice-deliv-list li.lead-out .slice-milestone-date::after { content: " ›"; }
+
+/* The way through to the row that owns the tick. Right-aligned so a column of
+   them reads as one control rather than trailing each name at a ragged edge.
+   Faint but always drawn, never hover-only: a control you cannot see until you
+   are already on it is not a control anyone finds. */
+.slice-jump {
+  margin-left: auto;
+  flex: none;
+  padding: 0 2px;
+  color: var(--muted);
+  text-decoration: none;
+  opacity: 0.5;
+}
+.slice-deliv-list li:hover .slice-jump { opacity: 1; }
+.slice-jump:hover { color: var(--ink); }
+
 /* --- the fortnight drawer --- */
 /* Reads only, including file creation. It sits under the chart it was opened
    from rather than over it: the two open weeks stay visible on the ruler, and
@@ -2377,11 +2407,15 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
    behind it and lost its heading. `--topbar-h` is what the two agree on, and
    the same subtraction comes off the height or the panel's own scrollbar runs
    off the bottom of the window. */
+/* A column, not a scroll box: the two lists inside scroll on their own, so a
+   scrollbar out here would be a second one wrapping the first. */
 .sprint-scope {
   position: sticky;
   top: calc(var(--topbar-h) + 12px);
   max-height: calc(100vh - var(--topbar-h) - 24px);
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding: 12px 14px;
   border: 1px solid var(--line);
   border-radius: var(--radius-card);
@@ -2390,10 +2424,43 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 .sprint-scope-head { margin: 0 0 4px; font-size: 13px; }
 .sprint-scope-window { margin: 0 0 8px; font-size: 12px; color: #555; font-weight: 600; }
 .sprint-scope-note { font-size: 11.5px; }
-/* The panel is the head of this list, so the component's own heading would be
-   the same words twice. */
-.sprint-scope .slice-deliv-head { display: none; }
-.sprint-scope .slice-deliverables { margin-top: 0; }
+.sprint-scope .slice-deliverables,
+.sprint-scope .slice-milestones { margin-top: 0; }
+
+/* **Half each, fixed** -- `1fr 1fr`, so the checkpoints start in the same place
+   on every file you open and a short list leaves a gap rather than letting the
+   long one take the room.
+   The definite `height` above it is load-bearing and was measured, not assumed:
+   with `max-height` alone the column has no definite size to halve, and Chromium
+   resolves both halves to **zero** and hands the scrollbars to nothing. It is a
+   class rather than a plain rule because the panel also draws a single line of
+   "no sprint file open", and a full-height card under one sentence is a hole.
+   `min-height: 0` on the halves, or a list refuses to shrink below its own rows
+   and scrolls the panel instead of itself -- `.sprint-main`'s trap again. */
+.sprint-scope.has-split { height: calc(100vh - var(--topbar-h) - 24px); }
+/* Under the document rather than beside it, at the same breakpoint the layout
+   folds: a viewport-tall panel there would be a screen of panel between you and
+   the file. It grows with its lists instead, and `1fr 1fr` still halves them --
+   a grid row, unlike a flex basis, sizes fine without a definite height. */
+@media (max-width: 1180px) {
+  .sprint-scope.has-split { height: auto; max-height: none; }
+}
+.sprint-scope-split {
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.sprint-scope-half {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+/* The heading is lifted out of the list by `scopeHalf` so it stays put; only
+   the rows under it move. */
+.sprint-scope-half > .slice-deliv-head { flex: none; margin-bottom: 2px; }
+.sprint-scope-half-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 /* Load-bearing, the fifth time this trap has come up -- see
    `.fortnight-drawer[hidden]` above. `.sprint-view` carries no rule of its own
    any more, but `.sprint-doc` below sets a `display`, and the whole view is

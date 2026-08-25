@@ -42,6 +42,7 @@ from app.validation import (
     completion_fraction,
     deliverable_progress,
     find_dependency_cycle,
+    fortnight_milestones,
     fortnight_slice,
     fortnight_window,
     is_scheduled,
@@ -1557,9 +1558,14 @@ def read_fortnight(start: str | None = None):
         for row in rows:
             deliverables.setdefault(row["phase_id"], []).append(row)
 
+    # Checkpoints ride alongside the lanes rather than inside one: a milestone
+    # belongs to a project and has a date of its own, so there is no phase to
+    # hang it under -- see `fortnight_milestones`.
     return {
         "window": window,
         "lanes": fortnight_slice(projects, phases, deliverables, window),
+        "milestones": fortnight_milestones(
+            projects, db.milestones_by_project(), window),
     }
 
 

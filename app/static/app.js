@@ -1795,6 +1795,8 @@ function renderMilestoneTally(milestones) {
 function milestoneRow(milestone) {
   const line = element("tr",
     `checkpoint-row${milestone.achieved ? " done" : ""}`);
+  // What `revealMilestoneRow` finds, the twin of the deliverable row's own.
+  line.dataset.milestone = milestone.id;
 
   const gripCell = element("td", "grip");
   const grip = element("span", "grip-handle", "⠿");
@@ -3937,6 +3939,7 @@ const dayIndex = (window, iso) =>
 
 function renderSprintSlice(container, slice, { compact = false } = {}) {
   const { window, lanes } = slice;
+  const milestones = slice.milestones || [];
   const days = sliceDays(window);
   container.innerHTML = "";
   container.classList.add("slice");
@@ -3947,7 +3950,10 @@ function renderSprintSlice(container, slice, { compact = false } = {}) {
 
   const strip = element("div", "slice-strip");
   strip.appendChild(sliceRuler(window, days));
-  const colours = laneColours(lanes);
+  // Checkpoints are fed in after the lanes so the strip's own colour order is
+  // untouched; a project with a checkpoint but no phase in the window takes the
+  // next hue rather than none.
+  const colours = laneColours([...lanes, ...milestones]);
 
   const body = element("div", "slice-body");
   body.appendChild(sliceBackdrop(window, days));
@@ -3961,12 +3967,16 @@ function renderSprintSlice(container, slice, { compact = false } = {}) {
   strip.appendChild(body);
   container.appendChild(strip);
 
+  // A fortnight with no phase in it can still have a checkpoint dated in it --
+  // the checkpoint carries its own date, so it is in scope on its own. The
+  // message still says the strip is empty, and the list below says what is not.
   if (lanes.length === 0) {
     container.appendChild(element("p", "muted",
       "Nothing scheduled in this fortnight."));
-    return;
+  } else {
+    container.appendChild(sliceDeliverables(lanes, colours));
   }
-  container.appendChild(sliceDeliverables(lanes, colours));
+  container.appendChild(sliceMilestones(milestones, colours));
 }
 
 // One colour per project, so several lanes of one project read as one project
@@ -4149,6 +4159,9 @@ function sliceDeliverables(lanes, colours) {
       row.title = done ? "Done -- tick it in the project view" : "Not done yet";
       row.appendChild(tick);
       row.appendChild(element("span", null, deliverable.name));
+      row.appendChild(sliceJump(
+        `Open ${deliverable.name} in ${lane.project_name || "its project"}`,
+        () => jumpToSliceDeliverable(lane.project_id, lane.phase_id, deliverable.id)));
       list.appendChild(row);
     }
     group.appendChild(list);
@@ -4160,6 +4173,86 @@ function sliceDeliverables(lanes, colours) {
       "None of this fortnight's phases name a deliverable yet."));
   }
   return wrap;
+}
+
+// The checkpoints the same fortnight covers, drawn as their own list rather than
+// mixed into the one above. **They are a different kind of thing**: a deliverable
+// is undated and belongs to a phase, a checkpoint is a date and belongs to a
+// project, so one list would need two group headings and two vocabularies to
+// explain itself. Kept side by side, each says what it is by where it is.
+//
+// Read-only on the same terms as `sliceDeliverables`: the box is disabled because
+// ticking a checkpoint is roadmap state and the project view owns that gesture.
+// The arrow is not a write -- it is the way through to the row that does own it.
+//
+// A lead-out checkpoint is marked rather than hidden: the strip already draws
+// that week greyed, and "next Tuesday, not this fortnight" is the whole reason
+// to look.
+function sliceMilestones(milestones, colours) {
+  const wrap = element("div", "slice-milestones");
+  wrap.appendChild(element("div", "slice-deliv-head", "Milestones in scope"));
+
+  if (milestones.length === 0) {
+    wrap.appendChild(element("p", "muted",
+      "No checkpoint falls in this fortnight."));
+    return wrap;
+  }
+
+  // Grouped in first-appearance order, which is the server's band-then-date
+  // order, so the soonest checkpoint's project heads the list.
+  const byProject = new Map();
+  for (const milestone of milestones) {
+    if (!byProject.has(milestone.project_id)) byProject.set(milestone.project_id, []);
+    byProject.get(milestone.project_id).push(milestone);
+  }
+
+  for (const [projectId, rows] of byProject) {
+    const group = element("div", "slice-deliv-group");
+    const colour = colours.get(projectId);
+    if (colour) group.style.setProperty("--lane-hue", colour);
+    group.appendChild(element("div", "slice-deliv-title", rows[0].project_name));
+
+    const list = element("ul", "slice-deliv-list");
+    for (const milestone of rows) {
+      const reached = Boolean(milestone.achieved);
+      const row = element("li", reached ? "done" : null);
+      if (milestone.band === "lead_out") row.classList.add("lead-out");
+
+      const tick = element("input", null);
+      tick.type = "checkbox";
+      tick.checked = reached;
+      tick.disabled = true;
+      row.title = reached
+        ? "Reached -- tick it in the project view"
+        : "Not reached yet";
+      row.appendChild(tick);
+
+      row.appendChild(element("span", "slice-milestone-date",
+        shortDate(milestone.target_date)));
+      row.appendChild(element("span", null, milestone.name));
+      row.appendChild(sliceJump(
+        `Open ${milestone.name} in ${milestone.project_name || "its project"}`,
+        () => jumpToMilestone(projectId, milestone.id)));
+      list.appendChild(row);
+    }
+    group.appendChild(list);
+    wrap.appendChild(group);
+  }
+  return wrap;
+}
+
+// The arrow both slice lists carry. `<a>` rather than a button for the same
+// reason the sprint chip's is one: it reads as a way through, and the panel is
+// the one place in the app that draws roadmap rows it cannot edit.
+function sliceJump(title, go) {
+  const jump = element("a", "slice-jump", "↗");
+  jump.href = "#";
+  jump.title = title;
+  jump.onclick = (event) => {
+    event.preventDefault();
+    go();
+  };
+  return jump;
 }
 
 // --- the sprint tab's scope panel -------------------------------------------
@@ -4214,7 +4307,13 @@ function renderSprintScope() {
   const scope = state.sprintScope;
   const window = openSprintWindow();
   panel.innerHTML = "";
-  panel.appendChild(element("h3", "sprint-scope-head", "Deliverables in scope"));
+  // Off until the split is actually drawn: the class is what gives the panel a
+  // definite height, and a panel holding one line of "no sprint file open" must
+  // not stand a full viewport tall. Every early return below leaves it off.
+  panel.classList.remove("has-split");
+  // "In scope", not "Deliverables in scope": the panel holds two lists now, and
+  // each carries its own heading inside the split below.
+  panel.appendChild(element("h3", "sprint-scope-head", "In scope"));
 
   if (!window) {
     // Three different silences, and they are worth telling apart: nothing open,
@@ -4251,7 +4350,30 @@ function renderSprintScope() {
       `Read from the week of ${shortDate(framed)}.`));
   }
 
-  panel.appendChild(sliceDeliverables(scope.slice.lanes, laneColours(scope.slice.lanes)));
+  // **Half the panel each, and neither half can grow into the other.** Mixing
+  // them in one scroll meant a project with thirty deliverables pushed every
+  // checkpoint below the fold, and the two are different kinds of thing anyway.
+  // A fixed split is worth the empty space under a short list: the checkpoints
+  // are in the same place on every file you open.
+  const milestones = scope.slice.milestones || [];
+  const colours = laneColours([...scope.slice.lanes, ...milestones]);
+  const split = element("div", "sprint-scope-split");
+  split.appendChild(scopeHalf(sliceDeliverables(scope.slice.lanes, colours)));
+  split.appendChild(scopeHalf(sliceMilestones(milestones, colours)));
+  panel.appendChild(split);
+  panel.classList.add("has-split");
+}
+
+// One half of the split: its list's heading stays put and only the rows under it
+// scroll, so a half that is scrolled down still says what it is.
+function scopeHalf(list) {
+  const half = element("div", "sprint-scope-half");
+  const head = list.querySelector(".slice-deliv-head");
+  if (head) half.appendChild(head);
+  const body = element("div", "sprint-scope-half-body");
+  body.appendChild(list);
+  half.appendChild(body);
+  return half;
 }
 
 // Fired from the render and re-rendering when it lands, so nothing else has to
@@ -5249,6 +5371,28 @@ async function jumpToDeliverable(id) {
   revealDeliverableRow(id);
 }
 
+// The slice lists' own two arrows. They do not go through `sprintLink`: the lane
+// already carries the project and the phase, and that lookup answers "which
+// deliverable is `D-42`" for a *sprint file*, which returns null on the Portfolio
+// tab where the drawer draws the same list.
+async function jumpToSliceDeliverable(projectId, phaseId, deliverableId) {
+  if (projectId === null || projectId === undefined) return;
+  await openProject(projectId);
+  if (phaseId !== null && phaseId !== undefined) {
+    state.expandedPhases.add(phaseId);
+    renderPhases();
+  }
+  revealDeliverableRow(deliverableId);
+}
+
+// No phase to open on the way: a checkpoint is a row of the plan table itself,
+// so it is on screen as soon as the project is.
+async function jumpToMilestone(projectId, milestoneId) {
+  if (projectId === null || projectId === undefined) return;
+  await openProject(projectId);
+  revealMilestoneRow(milestoneId);
+}
+
 // --- landing on the thing you asked for --------------------------------------
 
 // **Arriving on a tab is not the same as arriving at the row.** Both jumps used
@@ -5273,6 +5417,15 @@ function flashArrival(node) {
 
 function revealDeliverableRow(id) {
   const row = document.querySelector(`tr[data-deliverable="${id}"]`);
+  if (!row) return;
+  row.scrollIntoView({ block: "center", behavior: "smooth" });
+  flashArrival(row);
+}
+
+// The same for a checkpoint. `milestoneRow` carries `data-milestone` for this
+// one reader, the way a deliverable row carries `data-deliverable`.
+function revealMilestoneRow(id) {
+  const row = document.querySelector(`tr[data-milestone="${id}"]`);
   if (!row) return;
   row.scrollIntoView({ block: "center", behavior: "smooth" });
   flashArrival(row);

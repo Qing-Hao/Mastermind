@@ -9,8 +9,10 @@ from app.validation import (
     check_project_dependency_order,
     effective_velocity,
     find_dependency_cycle,
+    fortnight_milestones,
     fortnight_slice,
     fortnight_window,
+    milestone_band,
     phase_band,
     implied_weeks,
     next_phase_boundary,
@@ -1151,6 +1153,90 @@ def test_project_order_is_the_callers_and_is_not_re_derived():
         [SECOND_PROJECT, COMMITTED_PROJECT], phases, {}, WINDOW
     )
     assert [lane["project_id"] for lane in lanes] == [2, 1]
+
+
+# --- checkpoints in the slice -------------------------------------------------
+
+
+def checkpoint(milestone_id, target_date, name=None, achieved=False):
+    return {"id": milestone_id, "name": name or f"M{milestone_id}",
+            "target_date": target_date, "achieved": achieved}
+
+
+def scoped(milestones_by_project, projects=None):
+    return fortnight_milestones(
+        projects or [COMMITTED_PROJECT], milestones_by_project, WINDOW)
+
+
+def test_a_checkpoint_dated_in_the_fortnight_is_in_the_window_band():
+    assert milestone_band(checkpoint(1, "2026-08-03"), WINDOW) == "window"
+    assert milestone_band(checkpoint(1, "2026-08-16"), WINDOW) == "window"
+
+
+def test_a_checkpoint_dated_in_the_lead_out_is_marked_as_such():
+    assert milestone_band(checkpoint(1, "2026-08-17"), WINDOW) == "lead_out"
+    assert milestone_band(checkpoint(1, "2026-08-23"), WINDOW) == "lead_out"
+
+
+def test_a_checkpoint_outside_the_strip_or_with_no_date_is_in_no_band():
+    assert milestone_band(checkpoint(1, "2026-08-02"), WINDOW) is None
+    assert milestone_band(checkpoint(1, "2026-08-24"), WINDOW) is None
+    assert milestone_band(checkpoint(1, ""), WINDOW) is None
+    assert milestone_band(checkpoint(1, None), WINDOW) is None
+
+
+def test_a_reached_checkpoint_still_appears_and_says_so():
+    """Shown, never derived from: the tick is the roadmap's own answer to "is
+    this done", and the panel draws it exactly as the deliverable list does."""
+    scope = scoped({1: [checkpoint(1, "2026-08-05", achieved=True)]})
+    assert [one["achieved"] for one in scope] == [True]
+
+
+def test_checkpoints_sort_by_band_then_date():
+    scope = scoped({1: [
+        checkpoint(1, "2026-08-20"),
+        checkpoint(2, "2026-08-12"),
+        checkpoint(3, "2026-08-04"),
+    ]})
+    assert [one["id"] for one in scope] == [3, 2, 1]
+    assert [one["band"] for one in scope] == ["window", "window", "lead_out"]
+
+
+def test_a_checkpoint_needs_no_phase_in_the_window():
+    """The one place this parts company with the lanes. A checkpoint carries its
+    own date, so it is in scope on that date whatever its project's phases do --
+    and `fortnight_slice` would have dropped this project entirely."""
+    scope = scoped({1: [checkpoint(1, "2026-08-05")]})
+    assert [one["id"] for one in scope] == [1]
+    assert fortnight_slice([COMMITTED_PROJECT], {}, {}, WINDOW) == []
+
+
+def test_an_ideas_checkpoints_are_skipped():
+    """The same skip the lanes make, and for the same reason: nobody has
+    committed to an idea."""
+    idea = {**PROJECT, "stage": "idea"}
+    assert scoped({1: [checkpoint(1, "2026-08-05")]}, [idea]) == []
+
+
+def test_a_checkpoint_carries_its_project_and_nothing_about_a_person():
+    scope = scoped({1: [checkpoint(1, "2026-08-05", name="Beta")]})
+    assert scope[0] == {
+        "id": 1,
+        "name": "Beta",
+        "target_date": "2026-08-05",
+        "achieved": False,
+        "project_id": 1,
+        "project_name": COMMITTED_PROJECT["name"],
+        "band": "window",
+    }
+
+
+def test_checkpoint_ties_keep_the_callers_project_order():
+    milestones = {1: [checkpoint(1, "2026-08-05")],
+                  2: [checkpoint(2, "2026-08-05")]}
+    scope = fortnight_milestones(
+        [SECOND_PROJECT, COMMITTED_PROJECT], milestones, WINDOW)
+    assert [one["project_id"] for one in scope] == [2, 1]
 
 
 # --- track paths ------------------------------------------------------------

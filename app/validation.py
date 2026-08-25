@@ -1169,6 +1169,73 @@ def fortnight_slice(projects, phases_by_project, deliverables_by_phase, window):
     return lanes
 
 
+def milestone_band(milestone, window):
+    """Which band of the slice a checkpoint falls in, or None if it is outside.
+
+    Only `window` and `lead_out`, deliberately: unlike a phase there is no
+    `overdue` band here. A checkpoint that slipped is what `GET /api/late`
+    answers, globally and much earlier, and a slice that also reported it would
+    carry the same miss in two places with two different bounds on it.
+
+    An undated checkpoint is in no band, for the same reason an unscheduled
+    phase is in none: it has no position on a time axis.
+    """
+    due = as_optional_date(milestone.get("target_date"))
+    if due is None:
+        return None
+
+    window_start, window_end, lead_out_start, lead_out_end = window_bounds(window)
+    if window_start <= due <= window_end:
+        return BAND_WINDOW
+    if lead_out_start <= due <= lead_out_end:
+        return BAND_LEAD_OUT
+    return None
+
+
+def fortnight_milestones(projects, milestones_by_project, window):
+    """Every checkpoint dated in the window or its lead-out, soonest first.
+
+    A checkpoint is dated, so it is in scope on its own date -- **its project
+    does not need a phase in this fortnight.** That is the one place this parts
+    company with `fortnight_slice`, which bounds a lane to a project with work
+    in the window: a lane inherits its position from a phase, and a checkpoint
+    carries its own.
+
+    Ideas are skipped, the same skip and the same reasoning as the slice:
+    nobody has committed to them.
+
+    Sorted by band then date so the panel reads as a countdown; ties keep the
+    order `projects` arrives in, which is `db.list_projects`' order and the one
+    every other view already shares.
+    """
+    dated = []
+
+    for order, project in enumerate(projects):
+        if project.get("stage") == STAGE_IDEA:
+            continue
+
+        for milestone in milestones_by_project.get(project["id"], []):
+            band = milestone_band(milestone, window)
+            if band is None:
+                continue
+            dated.append({
+                "id": milestone["id"],
+                "name": milestone.get("name"),
+                "target_date": milestone.get("target_date"),
+                "achieved": milestone.get("achieved", 0),
+                "project_id": project["id"],
+                "project_name": project.get("name"),
+                "band": band,
+                "_order": order,
+            })
+
+    dated.sort(key=lambda one: (
+        BAND_ORDER.index(one["band"]), one["target_date"], one["_order"]))
+    for one in dated:
+        del one["_order"]
+    return dated
+
+
 # --- track paths ------------------------------------------------------------
 #
 # A track is one free-text column on the project, and the map derives its rings

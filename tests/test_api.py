@@ -1717,7 +1717,45 @@ def test_the_fortnight_leaves_ideas_out(client):
     idea = make_direction(client, "Build caching")
     client.put(f"/api/projects/{idea['id']}", json={"start_date": "2026-08-03"})
     make_phase(client, idea["id"], "Spike", "2026-08-04", 1, 10)
-    assert fortnight(client, "2026-08-03")["lanes"] == []
+    client.post(f"/api/projects/{idea['id']}/milestones",
+                json={"name": "Decide", "target_date": "2026-08-05"})
+    payload = fortnight(client, "2026-08-03")
+    assert payload["lanes"] == []
+    assert payload["milestones"] == []
+
+
+def test_the_fortnight_carries_the_checkpoints_dated_in_it(client):
+    project = make_project(client, "Payments", "2026-08-03")
+    make_phase(client, project["id"], "Build", "2026-08-04", 1, 10)
+    client.post(f"/api/projects/{project['id']}/milestones",
+                json={"name": "Beta", "target_date": "2026-08-12"})
+    client.post(f"/api/projects/{project['id']}/milestones",
+                json={"name": "Launch", "target_date": "2026-08-19"})
+    client.post(f"/api/projects/{project['id']}/milestones",
+                json={"name": "Later", "target_date": "2026-09-30"})
+    client.post(f"/api/projects/{project['id']}/milestones",
+                json={"name": "Someday"})
+
+    scope = fortnight(client, "2026-08-03")["milestones"]
+    assert [(one["name"], one["band"]) for one in scope] == [
+        ("Beta", "window"), ("Launch", "lead_out"),
+    ]
+    assert all(set(one) == {
+        "id", "name", "target_date", "achieved", "project_id", "project_name",
+        "band",
+    } for one in scope)
+
+
+def test_a_checkpoint_is_in_scope_even_with_no_phase_that_fortnight(client):
+    """It carries its own date, unlike a deliverable. A project with nothing
+    running still has a checkpoint to hit."""
+    project = make_project(client, "Payments", "2026-08-03")
+    client.post(f"/api/projects/{project['id']}/milestones",
+                json={"name": "Beta", "target_date": "2026-08-12"})
+
+    payload = fortnight(client, "2026-08-03")
+    assert payload["lanes"] == []
+    assert [one["name"] for one in payload["milestones"]] == ["Beta"]
 
 
 def test_the_fortnight_never_sums_points(client):
@@ -1728,7 +1766,7 @@ def test_the_fortnight_never_sums_points(client):
     make_phase(client, project["id"], "Ship", "2026-08-11", 1, 10)
 
     payload = fortnight(client, "2026-08-03")
-    assert set(payload) == {"window", "lanes"}
+    assert set(payload) == {"window", "lanes", "milestones"}
     assert set(payload["window"]) == {
         "requested_start", "start", "end", "lead_out_start", "lead_out_end",
         "days", "today",
