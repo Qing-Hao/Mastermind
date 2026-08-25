@@ -2421,6 +2421,17 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   border-radius: var(--radius-card);
   background: var(--surface);
 }
+/* **With the split open the panel is not a card -- the two lists are.** One box
+   holding two headed lists read as one list with a subheading in the middle,
+   which is exactly the confusion the split existed to remove. So the chrome
+   moves inwards: the aside becomes a bare column carrying the window, and each
+   list gets the border, the ground and the padding. */
+.sprint-scope.has-split {
+  padding: 0;
+  border: 0;
+  background: none;
+  overflow: visible;
+}
 .sprint-scope-head { margin: 0 0 4px; font-size: 13px; }
 .sprint-scope-window { margin: 0 0 8px; font-size: 12px; color: #555; font-weight: 600; }
 .sprint-scope-note { font-size: 11.5px; }
@@ -2448,19 +2459,33 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 .sprint-scope-split {
   display: grid;
   grid-template-rows: 1fr 1fr;
-  gap: 10px;
+  gap: 12px;
   flex: 1 1 auto;
   min-height: 0;
 }
+/* A card each, the page's own card vocabulary -- same border, radius and ground
+   as every other panel, so two lists read as two things. */
 .sprint-scope-half {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
 }
-/* The heading is lifted out of the list by `scopeHalf` so it stays put; only
-   the rows under it move. */
-.sprint-scope-half > .slice-deliv-head { flex: none; margin-bottom: 2px; }
+/* The heading is lifted out of the list by `scopeHalf` so it stays put while
+   the rows scroll under it. The rule keeps it clear of them: a title flush
+   against a scrolling list looks like the list's first row. */
+.sprint-scope-half > .slice-deliv-head {
+  flex: none;
+  margin: 0 0 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
 .sprint-scope-half-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+/* The first group inside a card has the card's own padding above it already. */
+.sprint-scope-half-body .slice-deliv-group:first-child { margin-top: 0; }
 /* Load-bearing, the fifth time this trap has come up -- see
    `.fortnight-drawer[hidden]` above. `.sprint-view` carries no rule of its own
    any more, but `.sprint-doc` below sets a `display`, and the whole view is
