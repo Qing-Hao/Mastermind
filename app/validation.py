@@ -640,9 +640,11 @@ def project_stage(project, phases, deliverables, milestones, today):
 
     - `done`     -- every milestone achieved, and there is at least one. See
                     `milestones_all_achieved` for why the count matters.
-    - `overdue`  -- fully dated, the last phase end has passed, phases still
-                    open. The one alarm in the vocabulary. `check_phase_overdue`
-                    finds the same problem a level down and much earlier.
+    - `overdue`  -- fully dated, and either the last phase end has passed with
+                    phases still open, or a checkpoint is past its target date
+                    and unticked. The one alarm in the vocabulary.
+                    `check_phase_overdue` and `check_milestone_overdue` find the
+                    same two problems a level down and much earlier.
     - `active`   -- fully dated and today falls inside the span.
     - `dated`    -- fully dated, not started yet.
     - `planning` -- no phases, nothing named under any of them, or no checkpoint
@@ -670,6 +672,15 @@ def project_stage(project, phases, deliverables, milestones, today):
     for it; checkpoint presence only ever decides between `planning` and
     `planned`, where the distinction is the whole question.
 
+    **A late checkpoint only reads `overdue` on a project that is fully dated**,
+    because the check sits inside that branch rather than above it. Above it, a
+    plan still being drafted would jump straight to the alarm on the strength of
+    one date somebody typed early, and `planning` and `planned` would become
+    unreachable for it. Below it, the rung keeps meaning "this project is on the
+    calendar and something on it has slipped". A checkpoint blown on a plan with
+    no dates is not lost either way -- V8 reports it, and `/api/late` lists it
+    whatever rung the project reads.
+
     A deliverable's `done` tick is not read here, only its presence -- see rule 4
     and `check_phase_done_without_deliverables`. `deliverables` is a flat list of
     the project's own; only `phase_id` is used. `milestones` is a flat list too.
@@ -689,6 +700,12 @@ def project_stage(project, phases, deliverables, milestones, today):
         if start is not None and end is not None:
             today = as_date(today)
             if end < today:
+                return STAGE_OVERDUE
+            # A checkpoint past its date is the same alarm as phases running
+            # out, so it reads the same rung. V8 is called rather than
+            # re-derived, which keeps one definition of late and answers the
+            # boundary cases -- ticked, undated, due today -- once.
+            if any(check_milestone_overdue(m, today) for m in milestones):
                 return STAGE_OVERDUE
             if start <= today:
                 return STAGE_ACTIVE

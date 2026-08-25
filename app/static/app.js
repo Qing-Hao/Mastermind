@@ -46,7 +46,8 @@ const STAGE_BADGE = {
   planned: "🟡",  // named and aimed at a checkpoint, waiting only for dates
   dated: "🔵",    // on the calendar, not started
   active: "🟢",   // today falls inside the span
-  overdue: "🔴",  // the last phase end has passed, phases still open
+  overdue: "🔴",  // the last phase end has passed with phases still open, or a
+                  // checkpoint is past its target date and unticked
   done: "✅",     // every checkpoint reached, or closed by hand
 };
 
@@ -3234,15 +3235,16 @@ function renderPortfolioHeadline() {
 
   // The `overdue` rung, not V6 -- a rule about one project's phases belongs in
   // the project view, which is the standing decision in FR-2. So this counts
-  // projects whose *last* phase end has passed with phases still open, and it
-  // will read 0 on a plan whose late work is all mid-project. That is the honest
-  // reading of the field rather than a second copy of a rule.
+  // projects whose last phase end has passed with phases still open, or that
+  // have a checkpoint past its date, and it will read 0 on a plan whose late
+  // work is all mid-project phases. That is the honest reading of the field
+  // rather than a second copy of a rule.
   const overdue = state.portfolio.projects.filter(
     (project) => project.derived_stage === "overdue");
   band.appendChild(tile("Overdue", overdue.length,
     overdue.length
-      ? "past the last phase end, still open"
-      : "nothing has run past its last phase",
+      ? "past a phase end or a checkpoint date"
+      : "nothing has run past its dates",
     overdue.length ? "warn" : "quiet"));
 
   const ideas = state.projects.filter(
@@ -6276,7 +6278,8 @@ const STAGE_LEGEND = [
   // the beat could be misread as something about the live connection.
   ["active", "active", "Today falls inside the project's span. Nobody has to be "
     + "working on it for this to be true."],
-  ["overdue", "overdue", "The last phase end has passed with phases still open."],
+  ["overdue", "overdue", "The last phase end has passed with phases still open, "
+    + "or a checkpoint is past its date and not ticked."],
   ["done", "done · closed", "Closed by hand with checkpoints outstanding — "
     + "descoped or cancelled as often as finished."],
   ["done delivered", "done · delivered", "Every checkpoint reached."],

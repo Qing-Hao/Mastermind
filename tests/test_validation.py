@@ -653,6 +653,69 @@ def test_a_project_with_no_milestones_is_never_vacuously_done():
                          AFTER) == "overdue"
 
 
+def test_a_late_checkpoint_reads_overdue_inside_a_running_span():
+    """The gap this closed: the last phase end had months to run, so the project
+    read `active` while a checkpoint sat ten days past its date."""
+    phases = [make_phase(1, "Design")]
+    late = [milestone(1, "Private beta", target_date="2026-01-10")]
+    assert project_stage(COMMITTED, phases, [deliverable(1, 1)], late,
+                         DURING) == "overdue"
+
+
+def test_a_ticked_checkpoint_is_never_late_however_old_its_date():
+    """V8's rule, so V8's boundaries: reached late is not a problem to fix.
+
+    The second checkpoint is what keeps this off `done` -- one ticked milestone
+    on its own is every milestone, which is the rung above."""
+    phases = [make_phase(1, "Design")]
+    mixed = [milestone(1, "Private beta", achieved=1,
+                       target_date="2026-01-10"),
+             milestone(2, "Launch")]
+    assert project_stage(COMMITTED, phases, [deliverable(1, 1)], mixed,
+                         DURING) == "active"
+
+
+def test_an_undated_checkpoint_cannot_be_late():
+    phases = [make_phase(1, "Design")]
+    assert project_stage(COMMITTED, phases, [deliverable(1, 1)], OPEN,
+                         DURING) == "active"
+
+
+def test_a_checkpoint_due_today_is_not_late_yet():
+    phases = [make_phase(1, "Design")]
+    today = [milestone(1, "Private beta", target_date=DURING.isoformat())]
+    assert project_stage(COMMITTED, phases, [deliverable(1, 1)], today,
+                         DURING) == "active"
+
+
+def test_a_late_checkpoint_beats_dated_before_the_work_starts():
+    """A checkpoint dated before its own project is odd, but it has still
+    passed, and the alarm outranks a span that has not opened."""
+    phases = [make_phase(1, "Design")]
+    late = [milestone(1, "Private beta", target_date="2025-11-01")]
+    assert project_stage(COMMITTED, phases, [deliverable(1, 1)], late,
+                         BEFORE) == "overdue"
+
+
+def test_a_late_checkpoint_does_not_pull_an_undated_plan_to_overdue():
+    """The placement decision: the alarm needs the project on the calendar
+    first. V8 still reports this one, and `/api/late` still lists it."""
+    phases = [make_phase(1, "Design", start="")]
+    late = [milestone(1, "Private beta", target_date="2026-01-10")]
+    assert project_stage(UNDATED, phases, [deliverable(1, 1)], late,
+                         DURING) == "planned"
+
+
+def test_every_checkpoint_reached_still_beats_a_late_one():
+    """`done` is decided above the span, so a plan that arrived cannot then be
+    re-read as late -- and an achieved checkpoint is not late anyway."""
+    phases = [make_phase(1, "Design")]
+    reached = [milestone(1, "Private beta", achieved=1,
+                         target_date="2026-01-10")]
+    assert project_stage(COMMITTED, phases, [deliverable(1, 1)], reached,
+                         AFTER) == "done"
+
+
 def test_closing_every_phase_no_longer_derives_done():
     """`phase.status` fell out of the ladder: on the real file nothing
     maintained it, so this route was unreachable. It still feeds V6 and V7."""

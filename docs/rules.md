@@ -85,6 +85,11 @@ date in silence.
 
 Skipped while undated, and skipped once achieved.
 
+The project-level *Overdue* status reads this rule too, on a project whose phases
+are all dated — so a blown checkpoint colours the project even while its phases
+have weeks left to run. On a project still waiting for dates the rung does not
+move; the warning and `/api/late` are where that one shows up.
+
 ## The gaps: V3 and V5
 
 Rule numbers are **never reused**. A gap means the rule was deleted or moved, not

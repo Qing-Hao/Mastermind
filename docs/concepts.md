@@ -127,18 +127,23 @@ First match wins, top to bottom:
 | Status | When |
 |---|---|
 | ✅ **Done** | Every checkpoint reached (and there is at least one) — or you closed it by hand |
-| 🔴 **Overdue** | Every phase dated, the last phase end has passed, phases still open |
+| 🔴 **Overdue** | Every phase dated, and either the last phase end has passed with phases still open, or a checkpoint is past its target date and not ticked |
 | 🟢 **Active** | Every phase dated, today falls inside the project span |
 | 🔵 **Dated** | Every phase dated, not started yet |
 | ⚪ **Planning** | No phases, or nothing named under any of them, or no checkpoint yet |
 | 🟡 **Planned** | Work named and at least one checkpoint set, waiting only for dates |
 
-Two things about that order are worth knowing:
+Three things about that order are worth knowing:
 
 - **Dates outrank the checkpoint gate.** Once every phase has a date, the
   calendar speaks for the project and it reads Dated / Active / Overdue even with
   no checkpoints on it. Checkpoint presence only ever decides between Planning
   and Planned.
+- **A late checkpoint needs the project on the calendar first.** It turns a Dated
+  or Active project Overdue, but it will not pull a plan still waiting for dates
+  out of Planning or Planned — otherwise one date typed early would put the alarm
+  on a plan nobody has scheduled. That checkpoint is still reported by V8 and
+  still listed on the overdue panel.
 - **Closing by hand beats everything.** That is the hatch for cancelled or
   descoped work, which never reaches every checkpoint and would otherwise sit
   Overdue forever.

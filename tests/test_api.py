@@ -3717,6 +3717,31 @@ def test_the_graph_carries_the_milestone_tally_the_map_colours_from(client):
     assert (node["phases_done"], node["phases_total"]) == (0, 1)
 
 
+def test_a_checkpoint_past_its_date_turns_a_running_project_overdue(client):
+    """Dated around today so the clock answers, and the checkpoint is the only
+    thing that has slipped -- the phase has weeks left to run."""
+    started = (date.today() - timedelta(days=7)).isoformat()
+    passed = (date.today() - timedelta(days=3)).isoformat()
+    project = make_project(client, "Payments", started)
+    make_phase(client, project["id"], "Build", started, 6, 55)
+    beta = client.post(f"/api/projects/{project['id']}/milestones",
+                       json={"name": "Private beta",
+                             "target_date": passed}).json()
+    client.post(f"/api/projects/{project['id']}/milestones",
+                json={"name": "Launch"})
+
+    assert client.get("/api/projects").json()[0]["derived_stage"] == "overdue"
+    # The same slip is on the bell, from the same rule -- one definition of late.
+    items = client.get("/api/late").json()["groups"][0]["items"]
+    assert [item["rule"] for item in items] == ["V8"]
+    assert items[0]["milestone_id"] == beta["id"]
+
+    # Ticking it clears the alarm without finishing the project: `Launch` is
+    # still open, so the rung is the calendar's again.
+    client.put(f"/api/milestones/{beta['id']}", json={"achieved": True})
+    assert client.get("/api/projects").json()[0]["derived_stage"] == "active"
+
+
 def test_a_manual_close_carries_no_milestones_to_earn_the_green(client):
     """The case the split exists for: closed without finishing stays grey."""
     project = make_project(client, start="2026-01-05")
