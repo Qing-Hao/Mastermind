@@ -90,6 +90,10 @@ are all dated — so a blown checkpoint colours the project even while its phase
 have weeks left to run. On a project still waiting for dates the rung does not
 move; the warning and `/api/late` are where that one shows up.
 
+A checkpoint still ahead works the other way: it is runway, so it holds *Overdue*
+off a project whose phases have already ended. Neither direction is a repair —
+both are read off the dates every time.
+
 ## The gaps: V3 and V5
 
 Rule numbers are **never reused**. A gap means the rule was deleted or moved, not

@@ -127,13 +127,18 @@ First match wins, top to bottom:
 | Status | When |
 |---|---|
 | ✅ **Done** | Every checkpoint reached (and there is at least one) — or you closed it by hand |
-| 🔴 **Overdue** | Every phase dated, and either the last phase end has passed with phases still open, or a checkpoint is past its target date and not ticked |
-| 🟢 **Active** | Every phase dated, today falls inside the project span |
+| 🔴 **Overdue** | Every phase dated, and either the runway has run out with phases still open, or a checkpoint is past its target date and not ticked |
+| 🟢 **Active** | Every phase dated, today falls inside the runway |
 | 🔵 **Dated** | Every phase dated, not started yet |
 | ⚪ **Planning** | No phases, or nothing named under any of them, or no checkpoint yet |
 | 🟡 **Planned** | Work named and at least one checkpoint set, waiting only for dates |
 
-Three things about that order are worth knowing:
+**Runway** is the project's span stretched to the last checkpoint it is still
+aiming at — unticked and dated. A checkpoint ahead of the last phase end is work
+outstanding, so the project stays Active until that date passes; a ticked or
+undated one adds nothing.
+
+Four things about that order are worth knowing:
 
 - **Dates outrank the checkpoint gate.** Once every phase has a date, the
   calendar speaks for the project and it reads Dated / Active / Overdue even with
@@ -147,10 +152,14 @@ Three things about that order are worth knowing:
 - **Closing by hand beats everything.** That is the hatch for cancelled or
   descoped work, which never reaches every checkpoint and would otherwise sit
   Overdue forever.
+- **Runway only moves the far end.** A checkpoint months out does not make a
+  project that has not started read Active — it stays Dated until its own start
+  date arrives.
 
 A project's derived span is not stored either: it starts at the earliest of its
 own start date and its earliest scheduled phase, and ends at the latest phase end
-inside it.
+inside it. Only the status ladder stretches that end to the runway; the span
+itself is what V2 compares and what the timeline draws.
 
 > On a file that predates checkpoints, nothing has any, so every committed
 > project reads **Planning** until you add some. That is the gate working, not a

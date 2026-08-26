@@ -616,6 +616,23 @@ def milestones_all_achieved(milestones):
         milestone.get("achieved") for milestone in milestones)
 
 
+def last_open_milestone_date(milestones):
+    """The furthest target date still being aimed at, or None.
+
+    Unticked and dated only: a reached checkpoint is behind the plan whatever
+    its date says, and an undated one names no runway at all. Derived, never
+    stored, and nothing here repairs anything.
+    """
+    dates = []
+    for milestone in milestones:
+        if milestone.get("achieved"):
+            continue
+        target = as_optional_date(milestone.get("target_date"))
+        if target is not None:
+            dates.append(target)
+    return max(dates) if dates else None
+
+
 def project_stage(project, phases, deliverables, milestones, today):
     """Where a project stands, derived from its own plan and the calendar.
 
@@ -640,12 +657,12 @@ def project_stage(project, phases, deliverables, milestones, today):
 
     - `done`     -- every milestone achieved, and there is at least one. See
                     `milestones_all_achieved` for why the count matters.
-    - `overdue`  -- fully dated, and either the last phase end has passed with
-                    phases still open, or a checkpoint is past its target date
-                    and unticked. The one alarm in the vocabulary.
+    - `overdue`  -- fully dated, and either the runway has run out with phases
+                    still open, or a checkpoint is past its target date and
+                    unticked. The one alarm in the vocabulary.
                     `check_phase_overdue` and `check_milestone_overdue` find the
                     same two problems a level down and much earlier.
-    - `active`   -- fully dated and today falls inside the span.
+    - `active`   -- fully dated and today falls inside the runway.
     - `dated`    -- fully dated, not started yet.
     - `planning` -- no phases, nothing named under any of them, or no checkpoint
                     to aim at.
@@ -681,6 +698,18 @@ def project_stage(project, phases, deliverables, milestones, today):
     no dates is not lost either way -- V8 reports it, and `/api/late` lists it
     whatever rung the project reads.
 
+    **The runway is the span stretched to the last open checkpoint**, which is
+    the only place the two disagree. A project whose one phase ended on Monday
+    with its checkpoint falling on Friday read `overdue` on Wednesday: the phases
+    had run out, but the thing the plan was pointed at was two days away and the
+    bell said nothing, because V6 skips a phase somebody had already closed. A
+    checkpoint still ahead is runway, so it counts as runway here. Ticked and
+    undated ones do not -- see `last_open_milestone_date`.
+
+    `project_span` itself is unchanged, and that is the point: it also feeds V2
+    and the layout, where "the dates this project occupies" is the right
+    question and a checkpoint is not one of them.
+
     A deliverable's `done` tick is not read here, only its presence -- see rule 4
     and `check_phase_done_without_deliverables`. `deliverables` is a flat list of
     the project's own; only `phase_id` is used. `milestones` is a flat list too.
@@ -699,12 +728,20 @@ def project_stage(project, phases, deliverables, milestones, today):
         start, end = project_span(project, phases)
         if start is not None and end is not None:
             today = as_date(today)
+            # A checkpoint still ahead is runway the phases do not name, so the
+            # rung reads to the later of the two. `project_span` is left alone
+            # deliberately: it also feeds V2 and the layout, and neither asked
+            # for this.
+            horizon = last_open_milestone_date(milestones)
+            if horizon is not None and horizon > end:
+                end = horizon
             if end < today:
                 return STAGE_OVERDUE
-            # A checkpoint past its date is the same alarm as phases running
-            # out, so it reads the same rung. V8 is called rather than
-            # re-derived, which keeps one definition of late and answers the
-            # boundary cases -- ticked, undated, due today -- once.
+            # A checkpoint past its date is the same alarm as running out of
+            # runway, so it reads the same rung -- and a project can have one
+            # blown checkpoint behind it and another still ahead. V8 is called
+            # rather than re-derived, which keeps one definition of late and
+            # answers the boundary cases -- ticked, undated, due today -- once.
             if any(check_milestone_overdue(m, today) for m in milestones):
                 return STAGE_OVERDUE
             if start <= today:

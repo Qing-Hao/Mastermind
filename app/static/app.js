@@ -45,8 +45,9 @@ const STAGE_BADGE = {
   planning: "⚪",  // no phases, nothing named, or no checkpoint to aim at
   planned: "🟡",  // named and aimed at a checkpoint, waiting only for dates
   dated: "🔵",    // on the calendar, not started
-  active: "🟢",   // today falls inside the span
-  overdue: "🔴",  // the last phase end has passed with phases still open, or a
+  active: "🟢",   // today falls inside the runway: the span, stretched to the
+                  // last checkpoint still being aimed at
+  overdue: "🔴",  // the runway has run out with phases still open, or a
                   // checkpoint is past its target date and unticked
   done: "✅",     // every checkpoint reached, or closed by hand
 };
@@ -3235,15 +3236,15 @@ function renderPortfolioHeadline() {
 
   // The `overdue` rung, not V6 -- a rule about one project's phases belongs in
   // the project view, which is the standing decision in FR-2. So this counts
-  // projects whose last phase end has passed with phases still open, or that
-  // have a checkpoint past its date, and it will read 0 on a plan whose late
-  // work is all mid-project phases. That is the honest reading of the field
-  // rather than a second copy of a rule.
+  // projects that have run out of runway with phases still open, or that have a
+  // checkpoint past its date, and it will read 0 on a plan whose late work is
+  // all mid-project phases. That is the honest reading of the field rather than
+  // a second copy of a rule.
   const overdue = state.portfolio.projects.filter(
     (project) => project.derived_stage === "overdue");
   band.appendChild(tile("Overdue", overdue.length,
     overdue.length
-      ? "past a phase end or a checkpoint date"
+      ? "out of runway, or past a checkpoint date"
       : "nothing has run past its dates",
     overdue.length ? "warn" : "quiet"));
 
@@ -6276,10 +6277,11 @@ const STAGE_LEGEND = [
   // Green, and beating where it is drawn as a dot. The wording says what the
   // rung is derived from, because the colour now shares a hue with delivered and
   // the beat could be misread as something about the live connection.
-  ["active", "active", "Today falls inside the project's span. Nobody has to be "
-    + "working on it for this to be true."],
-  ["overdue", "overdue", "The last phase end has passed with phases still open, "
-    + "or a checkpoint is past its date and not ticked."],
+  ["active", "active", "Today falls inside the project's span, or before a "
+    + "checkpoint it is still aiming at. Nobody has to be working on it for "
+    + "this to be true."],
+  ["overdue", "overdue", "The phases have run out and no checkpoint is still "
+    + "ahead, or a checkpoint is past its date and not ticked."],
   ["done", "done · closed", "Closed by hand with checkpoints outstanding — "
     + "descoped or cancelled as often as finished."],
   ["done delivered", "done · delivered", "Every checkpoint reached."],

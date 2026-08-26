@@ -3717,6 +3717,22 @@ def test_the_graph_carries_the_milestone_tally_the_map_colours_from(client):
     assert (node["phases_done"], node["phases_total"]) == (0, 1)
 
 
+def test_a_checkpoint_ahead_of_the_last_phase_end_holds_the_alarm_off(client):
+    """Reported on the real file: a one-week phase that ended two days ago, with
+    the checkpoint it was aimed at three days out, read overdue -- and the bell
+    said nothing, because V6 skips the phase somebody had already closed."""
+    started = (date.today() - timedelta(days=9)).isoformat()
+    ahead = (date.today() + timedelta(days=3)).isoformat()
+    project = make_project(client, "Gigamon", started)
+    phase = make_phase(client, project["id"], "Research", started, 1, 10)
+    client.put(f"/api/phases/{phase['id']}", json={"status": "done"})
+    client.post(f"/api/projects/{project['id']}/milestones",
+                json={"name": "Meeting", "target_date": ahead})
+
+    assert client.get("/api/projects").json()[0]["derived_stage"] == "active"
+    assert client.get("/api/late").json()["count"] == 0
+
+
 def test_a_checkpoint_past_its_date_turns_a_running_project_overdue(client):
     """Dated around today so the clock answers, and the checkpoint is the only
     thing that has slipped -- the phase has weeks left to run."""

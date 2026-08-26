@@ -21,6 +21,7 @@ from app.validation import (
     check_phase_done_without_deliverables,
     check_phase_overdue,
     days_late,
+    last_open_milestone_date,
     overdue_items,
     phases_ready_to_close,
     project_effort_points,
@@ -651,6 +652,72 @@ def test_a_project_with_no_milestones_is_never_vacuously_done():
     phases = [make_phase(1), make_phase(2)]
     assert project_stage(COMMITTED, phases, [deliverable(1, 1)], [],
                          AFTER) == "overdue"
+
+
+def test_the_runway_is_the_furthest_open_checkpoint():
+    assert last_open_milestone_date([
+        milestone(1, "Meeting", target_date="2026-01-20"),
+        milestone(2, "Launch", target_date="2026-03-02"),
+    ]) == date(2026, 3, 2)
+
+
+def test_nothing_open_and_dated_names_no_runway():
+    assert last_open_milestone_date([]) is None
+    assert last_open_milestone_date([milestone(1)]) is None
+    assert last_open_milestone_date(
+        [milestone(1, achieved=1, target_date="2026-03-02")]) is None
+
+
+def test_a_checkpoint_still_ahead_is_runway_the_phases_do_not_name():
+    """The Gigamon case: one phase ended two days ago, the checkpoint it was
+    aimed at falls in three. The plan has not run out of runway, and the bell
+    agreed -- V6 skips the phase, which was closed."""
+    phases = [make_phase(1, "Research", start="2026-01-05", weeks=1)]
+    ahead = [milestone(1, "Meeting", target_date="2026-01-20")]
+    assert project_stage(COMMITTED, phases, [deliverable(1, 1)], ahead,
+                         date(2026, 1, 14)) == "active"
+
+
+def test_the_alarm_returns_once_that_checkpoint_is_behind_too():
+    phases = [make_phase(1, "Research", start="2026-01-05", weeks=1)]
+    ahead = [milestone(1, "Meeting", target_date="2026-01-20")]
+    assert project_stage(COMMITTED, phases, [deliverable(1, 1)], ahead,
+                         date(2026, 1, 21)) == "overdue"
+
+
+def test_a_ticked_checkpoint_ahead_is_not_runway():
+    """It is behind the plan whatever its date says, so it cannot hold the
+    alarm off. Two checkpoints, because one ticked one is `done`."""
+    phases = [make_phase(1, "Research", start="2026-01-05", weeks=1)]
+    mixed = [milestone(1, "Meeting", achieved=1, target_date="2026-01-20"),
+             milestone(2, "Launch")]
+    assert project_stage(COMMITTED, phases, [deliverable(1, 1)], mixed,
+                         date(2026, 1, 14)) == "overdue"
+
+
+def test_an_undated_checkpoint_is_not_runway_either():
+    phases = [make_phase(1, "Research", start="2026-01-05", weeks=1)]
+    assert project_stage(COMMITTED, phases, [deliverable(1, 1)], OPEN,
+                         date(2026, 1, 14)) == "overdue"
+
+
+def test_runway_does_not_pull_a_project_forward_into_active():
+    """The stretch only moves the far end. A project that has not started is
+    still `dated`, however far out its checkpoint is."""
+    phases = [make_phase(1, "Design")]
+    ahead = [milestone(1, "Meeting", target_date="2026-09-30")]
+    assert project_stage(COMMITTED, phases, [deliverable(1, 1)], ahead,
+                         BEFORE) == "dated"
+
+
+def test_a_blown_checkpoint_still_shows_with_another_one_ahead():
+    """Runway and lateness are separate questions: the far checkpoint holds the
+    span open, and the one already missed still rings."""
+    phases = [make_phase(1, "Research", start="2026-01-05", weeks=1)]
+    both = [milestone(1, "Meeting", target_date="2026-01-08"),
+            milestone(2, "Launch", target_date="2026-09-30")]
+    assert project_stage(COMMITTED, phases, [deliverable(1, 1)], both,
+                         date(2026, 1, 14)) == "overdue"
 
 
 def test_a_late_checkpoint_reads_overdue_inside_a_running_span():
