@@ -1281,6 +1281,158 @@ def test_graph_tally_of_a_project_naming_no_deliverables_is_zero_of_zero(client)
     assert (node["deliverables_done"], node["deliverables_total"]) == (0, 0)
 
 
+# --- the roadmap mode -------------------------------------------------------
+
+
+def quarter_of_today(offset_quarters=0):
+    """Today's period, so these tests do not go stale on 1 January."""
+    today = date.today()
+    total = today.year * 4 + (today.month - 1) // 3 + offset_quarters
+    return f"{total // 4}-Q{total % 4 + 1}"
+
+
+def test_graph_carries_the_span_the_roadmap_places_a_project_by(client):
+    """Same function the portfolio's swimlanes use, so the two tabs cannot
+    disagree about when a project runs."""
+    project = make_project(client, "Payments", "2026-01-05")
+    make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
+    make_phase(client, project["id"], "Build", "2026-03-30", 2, 20)
+
+    node = client.get("/api/graph").json()["projects"][0]
+    assert node["span_start"] == "2026-01-05"
+    assert node["span_end"] == "2026-04-13"
+    assert node["quarters"] == ["2026-Q1", "2026-Q2"]
+
+    lane = client.get("/api/portfolio").json()["projects"][0]
+    assert (lane["span_start"], lane["span_end"]) == (node["span_start"],
+                                                      node["span_end"])
+
+
+def test_undated_work_belongs_to_no_quarter(client):
+    """It lands in the roadmap's undated column rather than being given one."""
+    project = make_project(client, "Payments", "")
+    make_phase(client, project["id"], "Design", "", 4, 40)
+
+    node = client.get("/api/graph").json()["projects"][0]
+    assert (node["span_start"], node["span_end"]) == ("", "")
+    assert node["quarters"] == []
+
+
+def test_the_graph_names_its_quarter_columns_with_their_dates(client):
+    """The bounds ride along so the frontend never reimplements the calendar."""
+    columns = client.get("/api/graph").json()["quarters"]
+    assert [column["period"] for column in columns] == [
+        quarter_of_today(), quarter_of_today(1), quarter_of_today(2),
+    ]
+    assert columns[0]["start"] < columns[0]["end"] < columns[1]["start"]
+    assert client.get("/api/graph").json()["quarters_beyond"] == 0
+
+
+def test_dated_checkpoints_reach_the_roadmap_tagged_with_their_quarter(client):
+    """Undated ones are left out: there is no quarter to put them in."""
+    project = make_project(client, "Payments", "2026-01-05")
+    client.post(f"/api/projects/{project['id']}/milestones",
+                json={"name": "v1.0", "target_date": "2026-02-10"})
+    client.post(f"/api/projects/{project['id']}/milestones", json={"name": "someday"})
+
+    drawn = client.get("/api/graph").json()["milestones"]
+    assert [(item["name"], item["quarter"]) for item in drawn] == [
+        ("v1.0", "2026-Q1"),
+    ]
+
+
+def test_an_idea_keeps_its_checkpoint_on_the_map(client):
+    """Unlike the portfolio, which filters to committed work: the map draws
+    ideas and lets the status filter decide."""
+    idea = client.post("/api/projects", json={
+        "name": "Someday", "start_date": "", "stage": "idea",
+    }).json()
+    client.post(f"/api/projects/{idea['id']}/milestones",
+                json={"name": "Decide", "target_date": "2026-02-10"})
+
+    assert len(client.get("/api/graph").json()["milestones"]) == 1
+    assert client.get("/api/portfolio").json()["milestones"] == []
+
+
+def test_a_quarter_goal_is_written_by_period_and_read_back_on_the_graph(client):
+    written = client.put("/api/quarter-goals/2026-Q3", json={
+        "goal": "One platform ingests every source.",
+        "target": "v3.0.0 released.",
+    })
+    assert written.status_code == 200
+    assert written.json()["achieved"] == 0
+
+    goals = client.get("/api/graph").json()["quarter_goals"]
+    assert goals["2026-Q3"]["goal"] == "One platform ingests every source."
+
+
+def test_ticking_a_quarter_leaves_what_was_written_in_it(client):
+    """The header's tick sends `achieved` alone, and must not blank the text."""
+    client.put("/api/quarter-goals/2026-Q3", json={"goal": "Ship it.",
+                                                   "target": "Released."})
+    ticked = client.put("/api/quarter-goals/2026-Q3", json={"achieved": True}).json()
+    assert (ticked["goal"], ticked["target"], ticked["achieved"]) == (
+        "Ship it.", "Released.", 1)
+
+
+def test_a_quarter_with_no_goal_is_an_absent_row(client):
+    """One state, not two that look the same on screen."""
+    client.put("/api/quarter-goals/2026-Q3", json={"goal": "Ship it."})
+    assert client.delete("/api/quarter-goals/2026-Q3").status_code == 204
+    assert client.get("/api/quarter-goals").json() == {}
+
+
+def test_a_malformed_period_is_refused_rather_than_stored(client):
+    """Malformed data, not a scheduling opinion -- nobody types a period."""
+    for period in ("2026-Q5", "2026-3", "whenever"):
+        response = client.put(f"/api/quarter-goals/{period}", json={"goal": "x"})
+        assert response.status_code == 422
+    assert client.get("/api/quarter-goals").json() == {}
+
+
+def test_two_people_writing_one_quarter_goal_is_a_409_naming_the_field(client):
+    client.put("/api/quarter-goals/2026-Q3", json={"goal": "First wins."})
+    clash = client.put("/api/quarter-goals/2026-Q3", json={
+        "goal": "Second loses.", "expect": {"goal": "something else"},
+    })
+    assert clash.status_code == 409
+    assert clash.json()["detail"]["fields"] == ["goal"]
+    # Refused the write rather than merging it: the stored text is untouched.
+    assert client.get("/api/quarter-goals").json()["2026-Q3"]["goal"] == "First wins."
+
+
+def test_the_first_write_of_a_quarter_states_no_expectation(client):
+    """There is no stored text for a concurrent edit to have overtaken."""
+    response = client.put("/api/quarter-goals/2026-Q3", json={
+        "goal": "New.", "expect": {"goal": "anything at all"},
+    })
+    assert response.status_code == 200
+
+
+def test_quarter_goals_survive_the_export_round_trip(client):
+    client.put("/api/quarter-goals/2026-Q3", json={
+        "goal": "One platform.", "target": "Released.", "achieved": True,
+    })
+    export = client.get("/api/export").json()
+    assert export["version"] == 11
+    assert export["quarter_goals"][0]["period"] == "2026-Q3"
+
+    assert client.post("/api/import", json=export).status_code == 200
+    restored = client.get("/api/quarter-goals").json()["2026-Q3"]
+    assert (restored["goal"], restored["target"], restored["achieved"]) == (
+        "One platform.", "Released.", 1)
+
+
+def test_a_file_written_before_quarter_goals_still_imports(client):
+    """A pre-11 export has no goals, which reads as none written."""
+    export = client.get("/api/export").json()
+    del export["quarter_goals"]
+    export["version"] = 10
+
+    assert client.post("/api/import", json=export).status_code == 200
+    assert client.get("/api/quarter-goals").json() == {}
+
+
 def test_graph_next_date_is_the_soonest_boundary_still_ahead(client):
     project = make_project(client, start="2099-01-05")
     make_phase(client, project["id"], "Build", "2099-01-05", 2, 20)
@@ -1332,7 +1484,7 @@ def test_stage_track_and_department_survive_a_round_trip(client):
     make_direction(client, "Build caching", track="Developer experience")
 
     exported = client.get("/api/export").json()
-    assert exported["version"] == 10
+    assert exported["version"] == 11
 
     for existing in client.get("/api/projects").json():
         client.delete(f"/api/projects/{existing['id']}")
@@ -1382,7 +1534,7 @@ def test_a_version_9_export_imports_and_drops_its_drafting_flag(client):
     assert client.post("/api/import", json=legacy).status_code == 200
 
     exported = client.get("/api/export").json()
-    assert exported["version"] == 10
+    assert exported["version"] == 11
     assert "draft_complete" not in exported["projects"][0]
     assert exported["milestones"] == []
     # A plan that was flagged drafted arrives with nothing to aim at, so the
@@ -1465,7 +1617,7 @@ def test_a_version_4_export_imports_with_every_deliverable_ongoing(client):
     assert client.post("/api/import", json=legacy).status_code == 200
 
     exported = client.get("/api/export").json()
-    assert exported["version"] == 10
+    assert exported["version"] == 11
     # Even under a phase marked done -- the tick is the user's to set, and a
     # phase status is not evidence about any particular deliverable.
     assert exported["deliverables"][0]["done"] == 0

@@ -45,6 +45,7 @@ from app.validation import (
     fortnight_milestones,
     fortnight_slice,
     fortnight_window,
+    is_quarter_period,
     is_scheduled,
     is_track_segment,
     next_phase_boundary,
@@ -55,7 +56,11 @@ from app.validation import (
     project_progress,
     project_span,
     project_stage,
+    quarter_bounds,
+    quarter_of,
+    quarters_spanned,
     relative_layout,
+    roadmap_quarters,
     retrack,
     sequential_layout,
     stale_expectations,
@@ -862,6 +867,17 @@ class MilestonePatch(BaseModel):
     expect: Expectation = None
 
 
+class QuarterGoalPatch(BaseModel):
+    # What a quarter is for, and how anyone will know it happened. Both free
+    # text: the quarter already is the date, and an enum here would be the
+    # tracker the brief forbids. `achieved` travels on its own from the header's
+    # tick, which is why every field is optional.
+    goal: str | None = None
+    target: str | None = None
+    achieved: bool | None = None
+    expect: Expectation = None
+
+
 class DependencyIn(BaseModel):
     # Project to project: which piece of work has to land before another starts.
     predecessor_project_id: int
@@ -1031,6 +1047,7 @@ FIELD_LABELS = {
     "stage": "Stage",
     "start_date": "Start date",
     "status": "Status",
+    "target": "Target",
     "target_date": "Target date",
     "tier": "Tier",
     "track": "Track",
@@ -2544,6 +2561,17 @@ def read_graph():
     Dependencies ride along for the hover highlight. They are not drawn on every
     render -- a dozen projects on a radial layout turns into spaghetti -- so the
     map holds them until you point at one end.
+
+    **The same payload feeds the roadmap mode**, which is why the span and the
+    quarters are here rather than on a second route: the two modes draw the same
+    projects through the same filters, and two fetches would be two answers to
+    "which projects exist". `/api/portfolio` has the dates already but drops
+    ideas, and ideas are half of what the map is for.
+
+    Nothing here assigns a project to a quarter. `quarters` is read off the span
+    the phases already imply, so a project with no dates carries an empty list
+    and lands in the roadmap's undated column -- the honest answer, and the one
+    that keeps rule 1 intact.
     """
     settings = db.get_settings()
     grouped = db.phases_by_project()
@@ -2559,6 +2587,7 @@ def read_graph():
         progress = project_progress(phases)
         delivered = deliverable_progress(deliverables.get(project["id"], []))
         reached, checkpoints = milestone_tally(milestones, project["id"])
+        start, end = project_span(project, phases)
         nodes.append({
             "id": project["id"],
             "name": project["name"],
@@ -2592,13 +2621,60 @@ def read_graph():
             "milestones_total": checkpoints,
             "effort_points": project_effort_points(phases),
             "next_date": next_phase_boundary(phases, today),
+            # The roadmap mode's three fields. Same span the portfolio's
+            # swimlanes report, from the same function, so the two tabs cannot
+            # disagree about when a project runs. `quarters` is empty for
+            # undated work, which is what puts it in the undated column.
+            "span_start": start.isoformat() if start else UNSCHEDULED,
+            "span_end": end.isoformat() if end else UNSCHEDULED,
+            "quarters": quarters_spanned(start, end),
         })
+
+    columns, beyond = roadmap_quarters(
+        [(node["span_start"], node["span_end"]) for node in nodes], today)
 
     return {
         "department_name": settings["department_name"],
         "projects": nodes,
         "dependencies": db.list_all_dependencies(with_names=True),
+        # --- the roadmap mode's own half of the payload ---
+        "quarters": [quarter_column(period) for period in columns],
+        # How many dated quarters fall past the last column drawn. Named rather
+        # than dropped: a grid that silently stops reads as "that is all there
+        # is", and one date typed years out would otherwise stretch it to
+        # nothing. See `validation.roadmap_quarters`.
+        "quarters_beyond": beyond,
+        "quarter_goals": db.quarter_goals_by_period(),
+        "milestones": drawable_checkpoints(milestones),
     }
+
+
+def quarter_column(period):
+    """One roadmap column: its period and the dates it covers.
+
+    The bounds ride along so the frontend can label a column without
+    reimplementing the calendar, which is the copy that would drift.
+    """
+    first, last = quarter_bounds(period)
+    return {"period": period, "start": first.isoformat(), "end": last.isoformat()}
+
+
+def drawable_checkpoints(by_project):
+    """Every dated checkpoint, flat, each tagged with the quarter it falls in.
+
+    The map's twin of `drawable_milestones`, and deliberately not that function:
+    the portfolio filters to committed projects because an idea has no bar to
+    hang a diamond on, while the map draws ideas and lets the status filter
+    decide. Undated ones are left out for the same reason as there -- there is
+    no quarter to put them in -- and the roadmap says how many it dropped.
+    """
+    drawn = []
+    for milestones in by_project.values():
+        for item in milestones:
+            if not item.get("target_date"):
+                continue
+            drawn.append({**item, "quarter": quarter_of(item["target_date"])})
+    return drawn
 
 
 # --- tracks -----------------------------------------------------------------
@@ -2888,6 +2964,68 @@ def edit_milestone(milestone_id: int, body: MilestonePatch):
 def remove_milestone(milestone_id: int):
     require_milestone(milestone_id)
     db.delete_milestone(milestone_id)
+    announce_roadmap()
+
+
+# --- quarter goals ----------------------------------------------------------
+#
+# The only write the roadmap mode has. It writes a sentence about a period and
+# nothing else: no date moves, no project changes quarter, and `achieved` is a
+# tick somebody presses rather than something the work below derives.
+
+
+def require_period(period):
+    """Refuse a malformed period before it reaches the table.
+
+    A write-time refusal for malformed data, which is the only kind there is:
+    nobody types a period, the column header supplies it, so a bad one is a bug
+    or a hand-rolled request rather than a scheduling opinion.
+    """
+    if not is_quarter_period(period):
+        raise HTTPException(
+            status_code=422,
+            detail=f"'{period}' is not a quarter. Use YYYY-Qn, as in 2026-Q3.",
+        )
+    return period
+
+
+@app.get("/api/quarter-goals")
+def read_quarter_goals():
+    """Every written quarter goal, keyed by period.
+
+    Rides on `/api/graph` as well, since the roadmap draws both together. This
+    route exists for the write path's read-back and for anything that wants the
+    goals without the whole map.
+    """
+    return db.quarter_goals_by_period()
+
+
+@app.put("/api/quarter-goals/{period}")
+def write_quarter_goal(period: str, body: QuarterGoalPatch):
+    """Write, tick or clear one quarter's goal. Creates the row on first write.
+
+    Keyed by period rather than by id, so a column with no goal yet is not a
+    different route from one that has: the header always knows its own period.
+    """
+    require_period(period)
+    fields = body.model_dump(exclude_unset=True)
+    expected = fields.pop("expect", None)
+    # An absent row expects nothing: there is no stored text for a concurrent
+    # edit to have overtaken, and the `INSERT OR IGNORE` below settles the race
+    # to create it.
+    existing = db.get_quarter_goal(period)
+    if existing is not None:
+        require_unchanged(existing, expected, "quarter goal")
+    written = db.set_quarter_goal(period, fields)
+    announce_roadmap()
+    return written
+
+
+@app.delete("/api/quarter-goals/{period}", status_code=204)
+def remove_quarter_goal(period: str):
+    """Clear a quarter back to having no goal written on it."""
+    require_period(period)
+    db.delete_quarter_goal(period)
     announce_roadmap()
 
 

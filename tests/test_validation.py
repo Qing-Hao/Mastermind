@@ -30,8 +30,14 @@ from app.validation import (
     project_progress,
     project_span,
     project_stage,
+    is_quarter_period,
+    quarter_bounds,
+    quarter_of,
+    quarters_spanned,
     relative_layout,
     retrack,
+    roadmap_quarters,
+    shift_quarter,
     same_stored_value,
     sequential_layout,
     stale_expectations,
@@ -1449,3 +1455,91 @@ def test_a_move_carries_the_row_it_names_and_lands_on_one_spelling():
     assert retrack([tracked(1, "A /  B")], ["A", "B"], "Mid") == [
         {"id": 1, "name": "P1", "from": "A /  B", "to": "A / Mid / B"},
     ]
+
+
+# --- quarters: the roadmap mode's bucketing ---------------------------------
+
+
+def test_quarter_of_reads_the_month_the_date_falls_in():
+    assert quarter_of("2026-01-01") == "2026-Q1"
+    assert quarter_of("2026-03-31") == "2026-Q1"
+    assert quarter_of("2026-08-27") == "2026-Q3"
+    assert quarter_of(date(2026, 12, 31)) == "2026-Q4"
+
+
+def test_an_unscheduled_date_belongs_to_no_quarter():
+    """The whole reason the roadmap has an undated column: not a guess, and not
+    a default quarter either."""
+    assert quarter_of("") is None
+    assert quarter_of(None) is None
+
+
+def test_shift_quarter_crosses_the_year_in_both_directions():
+    assert shift_quarter("2026-Q3", 1) == "2026-Q4"
+    assert shift_quarter("2026-Q4", 1) == "2027-Q1"
+    assert shift_quarter("2026-Q1", -1) == "2025-Q4"
+    assert shift_quarter("2026-Q3", 6) == "2028-Q1"
+
+
+def test_quarter_bounds_cover_the_whole_quarter():
+    assert quarter_bounds("2026-Q3") == (date(2026, 7, 1), date(2026, 9, 30))
+    assert quarter_bounds("2026-Q4") == (date(2026, 10, 1), date(2026, 12, 31))
+    assert quarter_bounds("2026-Q1") == (date(2026, 1, 1), date(2026, 3, 31))
+
+
+def test_a_period_is_either_well_formed_or_it_is_not_data():
+    assert is_quarter_period("2026-Q3")
+    assert not is_quarter_period("2026-Q5")
+    assert not is_quarter_period("2026-Q0")
+    assert not is_quarter_period("2026-3")
+    assert not is_quarter_period("")
+
+
+def test_a_span_names_every_quarter_it_touches():
+    assert quarters_spanned("2026-09-17", "2026-10-15") == ["2026-Q3", "2026-Q4"]
+    assert quarters_spanned("2026-08-12", "2026-08-24") == ["2026-Q3"]
+    assert quarters_spanned("2026-11-01", "2027-04-01") == [
+        "2026-Q4", "2027-Q1", "2027-Q2",
+    ]
+
+
+def test_a_half_dated_span_touches_nothing():
+    """Guessing the missing end would be inventing a date, which rule 1 forbids
+    even for a read."""
+    assert quarters_spanned("2026-09-17", "") == []
+    assert quarters_spanned("", "2026-09-17") == []
+
+
+def test_the_roadmap_always_draws_past_the_work_it_has():
+    """A quarter nothing lands in is the most useful thing this view says, so
+    empty future columns are drawn rather than trimmed away."""
+    columns, beyond = roadmap_quarters(
+        [("2026-07-01", "2026-09-09")], date(2026, 8, 27))
+    assert columns == ["2026-Q3", "2026-Q4", "2027-Q1"]
+    assert beyond == 0
+
+
+def test_the_roadmap_reaches_back_to_work_that_started_before_today():
+    columns, _ = roadmap_quarters(
+        [("2026-02-01", "2026-03-01")], date(2026, 8, 27), ahead=1)
+    assert columns == ["2026-Q1", "2026-Q2", "2026-Q3", "2026-Q4"]
+
+
+def test_an_empty_dataset_still_has_columns():
+    columns, beyond = roadmap_quarters([], date(2026, 8, 27))
+    assert columns == ["2026-Q3", "2026-Q4", "2027-Q1"]
+    assert beyond == 0
+
+
+def test_undated_work_adds_no_column():
+    columns, _ = roadmap_quarters([("", "")], date(2026, 8, 27))
+    assert columns == ["2026-Q3", "2026-Q4", "2027-Q1"]
+
+
+def test_a_date_typed_years_out_is_capped_and_counted():
+    """Named rather than dropped: a grid that silently stops reads as 'that is
+    all there is'."""
+    columns, beyond = roadmap_quarters(
+        [("2026-07-01", "2031-01-01")], date(2026, 8, 27), limit=4)
+    assert columns == ["2026-Q3", "2026-Q4", "2027-Q1", "2027-Q2"]
+    assert beyond == 15

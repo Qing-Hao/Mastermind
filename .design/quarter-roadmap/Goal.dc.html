@@ -1,0 +1,179 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+           color: #18181b; background: #fafafa; }
+    * { box-sizing: border-box; }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+
+    .cap { font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: #a1a1aa; }
+    .lede { font-size: 12.5px; color: #71717a; line-height: 1.55; margin: 4px 0 16px; max-width: 680px; }
+    .card { background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; padding: 14px 16px; }
+    .h { font-size: 13px; font-weight: 700; margin: 0 0 8px; }
+    .note { font-size: 11.5px; color: #71717a; line-height: 1.55; }
+
+    .col { display: flex; flex-direction: column; gap: 8px; }
+    .state-cap { font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+                 color: #a1a1aa; }
+    .qname { font-size: 13px; font-weight: 700; color: #18181b; letter-spacing: .04em; text-transform: uppercase; }
+
+    .goal { border: 1px solid #e6e6ea; border-radius: 8px; background: #fff; padding: 8px 10px; }
+    .goal-cap { font-size: 9.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: #a1a1aa; }
+    .goal-text { font-size: 12.5px; line-height: 1.35; color: #18181b; margin-top: 2px; }
+    .goal-target { font-size: 11.5px; line-height: 1.35; color: #3f3f46; margin-top: 6px; }
+    .goal-tick { display: flex; align-items: center; gap: 6px; margin-top: 8px; padding-top: 7px;
+                 border-top: 1px solid #f1f1f4; font-size: 11px; color: #71717a; }
+    .box { width: 12px; height: 12px; border: 1.5px solid #d8d8de; border-radius: 3px; flex: 0 0 12px; }
+    .box.is-on { border-color: #2e7d32; background: #2e7d32; }
+    .goal-empty { border: 1px dashed #d8d8de; border-radius: 8px; background: #fff; padding: 10px;
+                  font-size: 11.5px; color: #a1a1aa; text-align: center; cursor: pointer; }
+    .goal-empty:hover { border-color: #4f46e5; color: #4338ca; background: #fbfbff; }
+
+    .field { width: 100%; font: inherit; font-size: 12.5px; padding: 6px 8px; border: 1px solid #d8d8de;
+             border-radius: 6px; color: #18181b; background: #fff; resize: none; }
+    .field:focus-visible { outline: 2px solid #c7d2fe; }
+    .btn { font: inherit; font-size: 12px; padding: 4px 11px; border: 1px solid #d8d8de;
+           border-radius: 6px; background: #fff; color: #3f3f46; cursor: pointer; }
+    .btn.primary { border-color: #4f46e5; background: #4f46e5; color: #fff; }
+
+    pre { margin: 0; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+          color: #3f3f46; background: #fafafa; border: 1px solid #f1f1f4; border-radius: 8px;
+          padding: 12px 14px; overflow-x: auto; }
+    .k { color: #6a1b9a; }
+    .c { color: #a1a1aa; }
+    .rule { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; color: #3f3f46;
+            line-height: 1.5; }
+    .rule-n { flex: 0 0 auto; font-size: 9.5px; font-weight: 700; letter-spacing: .05em; color: #4f46e5;
+              background: #eef2ff; border-radius: 3px; padding: 1px 6px; margin-top: 3px; }
+  </style>
+</helmet>
+
+<div style="width: 1080px; min-height: 880px; background: #fafafa; padding: 20px;">
+  <div class="cap">Stage 2 &mdash; the written goal</div>
+  <p class="lede">
+    The one thing on the roadmap that is stored rather than derived. It is a
+    statement about a period, not about a project: nothing links it to the work
+    below it, so no date is duplicated and no rule can disagree with another.
+  </p>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 16px;">
+
+    <div class="card col">
+      <div class="state-cap">Empty</div>
+      <div class="qname">Q4 2026</div>
+      <div class="goal-empty">No goal written for this quarter</div>
+      <div class="note">
+        A quarter with no goal is a normal state, not a warning. Nothing nags,
+        the same way nothing reschedules.
+      </div>
+    </div>
+
+    <div class="card col">
+      <div class="state-cap">Being written</div>
+      <div class="qname">Q4 2026</div>
+      <div style="border: 1px solid #c7d2fe; border-radius: 8px; padding: 8px 10px;
+                  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.10);">
+        <div class="goal-cap" style="margin-bottom: 3px;">Goal</div>
+        <textarea class="field" rows="2">Clickhouse carries the metrics store.</textarea>
+        <div class="goal-cap" style="margin: 8px 0 3px;">Target</div>
+        <textarea class="field" rows="2">OTel ingestion running against Clickhouse in production.</textarea>
+        <div style="display: flex; gap: 6px; margin-top: 9px;">
+          <button class="btn primary">Save</button>
+          <button class="btn">Cancel</button>
+        </div>
+      </div>
+      <div class="note">
+        Two free-text fields. No enum, no owner, no due date &mdash; the quarter
+        already is the date.
+      </div>
+    </div>
+
+    <div class="card col">
+      <div class="state-cap">Written and reached</div>
+      <div class="qname">Q2 2026</div>
+      <div class="goal">
+        <div class="goal-cap">Goal</div>
+        <div class="goal-text">One platform ingests Dynatrace Gen3.</div>
+        <div class="goal-target">
+          <span class="goal-cap">Target</span><br>
+          Customers receive their reports off Gen3 APIs.
+        </div>
+        <div class="goal-tick" style="color: #2e7d32;">
+          <span class="box is-on"></span> Achieved
+        </div>
+      </div>
+      <div class="note">
+        The tick is a write, like a milestone's. Nothing derives it from the work
+        below &mdash; a quarter can close with its goal unmet, and should be able to.
+      </div>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 14px;">
+
+    <div class="card">
+      <div class="h">What it costs the schema</div>
+      <pre><span class="k">CREATE TABLE IF NOT EXISTS</span> quarter_goal (
+    id       <span class="k">INTEGER PRIMARY KEY AUTOINCREMENT</span>,
+    <span class="c">-- '2026-Q3'. The period is the key: no start date, no end
+    -- date, nothing to disagree with the phases below it.</span>
+    period   <span class="k">TEXT NOT NULL UNIQUE</span>,
+    goal     <span class="k">TEXT NOT NULL DEFAULT</span> '',
+    target   <span class="k">TEXT NOT NULL DEFAULT</span> '',
+    <span class="c">-- The one stored state, and deliberately a tick rather than
+    -- an enum -- the same decision milestone.achieved carries.</span>
+    achieved <span class="k">INTEGER NOT NULL DEFAULT</span> 0 <span class="k">CHECK</span> (achieved <span class="k">IN</span> (0, 1))
+);</pre>
+      <div class="note" style="margin-top: 10px;">
+        Five columns, one table, no foreign key. Joins to nothing, so a project
+        moving quarter costs no write. Rides <code>/api/export</code> like any
+        other table &mdash; and carries no <code>sso_</code> prefix problem,
+        because it holds no secret.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="h">What it must not become</div>
+      <div style="display: flex; flex-direction: column; gap: 9px;">
+        <div class="rule">
+          <span class="rule-n">NN 4</span>
+          <span>No <code>project_id</code> and no join table. The moment a project
+            is assigned to a quarter there are two answers to when it lands, and
+            the dates stop being the record.</span>
+        </div>
+        <div class="rule">
+          <span class="rule-n">NN 7</span>
+          <span>No owner, no <code>created_by</code>, no per-person view. A
+            quarter goal is the department's; the gate stores nothing about who
+            wrote it.</span>
+        </div>
+        <div class="rule">
+          <span class="rule-n">NN 8</span>
+          <span>No points total on the header. A per-quarter sum is a
+            points-per-day constant in disguise, which the capacity design rules
+            out. Project and checkpoint counts are safe.</span>
+        </div>
+        <div class="rule">
+          <span class="rule-n">NN 1</span>
+          <span>Writing a goal reschedules nothing. It is a sentence about a
+            period, and the plan under it is untouched by it.</span>
+        </div>
+        <div class="rule">
+          <span class="rule-n">NN 5</span>
+          <span>Nothing derives <code>achieved</code> from the work below.
+            Someone presses it, the same way promotion works.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,154 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+           color: #18181b; background: #fafafa; }
+    * { box-sizing: border-box; }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+
+    .cap { font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: #a1a1aa; }
+    .lede { font-size: 12.5px; color: #71717a; line-height: 1.55; margin: 4px 0 16px; max-width: 720px; }
+    .card { background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; padding: 14px 16px; }
+
+    .mode-switch { display: inline-flex; gap: 2px; padding: 3px; border-radius: 7px; background: #f4f4f5; }
+    .mode { border: 0; background: transparent; padding: 3px 12px; border-radius: 5px;
+            font-size: 12px; color: #52525b; font-family: inherit; cursor: pointer; }
+    .mode.active { background: #fff; color: #18181b; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); }
+
+    .filter-caption { color: #aaa; font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+    .map-chip { padding: 3px 9px; border: 1px solid #d8d8de; border-radius: 999px; background: #fff;
+                color: #a1a1aa; font-size: 12px; font-family: inherit; cursor: pointer; }
+    .map-chip.on { border-color: #4f46e5; background: #eef2ff; color: #4338ca; font-weight: 600; }
+    .map-chip.status-idea { border-style: dashed; }
+    .map-chip.is-fixed { border-style: dotted; border-color: #e6e6ea; color: #c4c4cb; cursor: default; }
+
+    .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .note { font-size: 11.5px; color: #71717a; line-height: 1.55; }
+    .h { font-size: 13px; font-weight: 700; margin: 0 0 6px; }
+    .warn { font-size: 9.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+            color: #8a6a12; background: #fdf1d0; border-radius: 3px; padding: 1px 6px; }
+    .keep { font-size: 9.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+            color: #4f46e5; background: #eef2ff; border-radius: 3px; padding: 1px 6px; }
+    .count { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; color: #18181b; }
+    .count-sub { font-size: 11px; color: #71717a; }
+  </style>
+</helmet>
+
+<div style="width: 900px; min-height: 700px; background: #fafafa; padding: 20px;">
+  <div class="cap">The switch, and the one thing the two modes do not share</div>
+  <p class="lede">
+    The switch goes last in the map's own control row, after a spacer &mdash; the
+    same slot the Sprint tab's Rendered&thinsp;|&thinsp;Raw switch occupies.
+    Department, tier and track govern both drawings. <strong>Status does
+    not:</strong> each mode opens on its own default, because the two ask
+    different questions of the same rows.
+  </p>
+
+  <div class="card" style="margin-bottom: 14px;">
+    <div class="h">Graph &mdash; shipped default</div>
+    <div class="row">
+      <span style="display: flex; align-items: center; gap: 4px;">
+        <span class="filter-caption">Status</span>
+        <button class="map-chip status-idea">idea</button>
+        <button class="map-chip">planning</button>
+        <button class="map-chip">dated</button>
+        <button class="map-chip on">active</button>
+        <button class="map-chip">done</button>
+        <span class="map-chip is-fixed">planned + overdue always</span>
+      </span>
+      <span style="flex: 1 1 auto;"></span>
+      <span class="mode-switch">
+        <button class="mode active">Graph</button>
+        <button class="mode">Roadmap</button>
+      </span>
+    </div>
+    <div class="row" style="margin-top: 12px; gap: 18px;">
+      <span><span class="count">6</span> <span class="count-sub">of 31 projects drawn</span></span>
+      <span class="note" style="flex: 1 1 0;">
+        <code>MAP_STAGE_DEFAULT = ["active"]</code>. Right for the graph: it asks
+        where the team is pointed <em>now</em>, and a ring full of work nobody has
+        started is noise.
+      </span>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom: 14px; border-color: #c7d2fe; box-shadow: 0 0 0 3px #eef2ff;">
+    <div class="h">Roadmap &mdash; its own default</div>
+    <div class="row">
+      <span style="display: flex; align-items: center; gap: 4px;">
+        <span class="filter-caption">Status</span>
+        <button class="map-chip status-idea">idea</button>
+        <button class="map-chip on">planning</button>
+        <button class="map-chip on">dated</button>
+        <button class="map-chip on">active</button>
+        <button class="map-chip">done</button>
+        <span class="map-chip is-fixed">planned + overdue always</span>
+      </span>
+      <span style="flex: 1 1 auto;"></span>
+      <span class="mode-switch">
+        <button class="mode">Graph</button>
+        <button class="mode active">Roadmap</button>
+      </span>
+    </div>
+    <div class="row" style="margin-top: 12px; gap: 18px;">
+      <span><span class="count">11</span> <span class="count-sub">of 31 projects drawn</span></span>
+      <span class="note" style="flex: 1 1 0;">
+        Every committed rung. <code>dated</code> is what fills Q4 and beyond;
+        <code>planning</code> is what fills the undated column. Without both, the
+        future is empty by construction and the view answers nothing.
+      </span>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom: 14px;">
+    <div class="h">On the same data, today</div>
+    <div class="note" style="margin-bottom: 10px;">
+      <span class="warn">Note</span>
+      Switching mode changes what is drawn even with no chip touched. That is the
+      point, and it needs saying on the page rather than surprising someone.
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;">
+      <div style="border: 1px solid #f1f1f4; border-radius: 8px; padding: 10px 12px;">
+        <div class="count-sub">Graph only</div>
+        <div style="font-size: 12px; color: #3f3f46; line-height: 1.5; margin-top: 3px;">
+          4 active, 2 overdue.
+        </div>
+      </div>
+      <div style="border: 1px solid #f1f1f4; border-radius: 8px; padding: 10px 12px; background: #fbfbfe;">
+        <div class="count-sub">Roadmap adds</div>
+        <div style="font-size: 12px; color: #3f3f46; line-height: 1.5; margin-top: 3px;">
+          1 dated (Clickhouse, Q3&ndash;Q4) and 4 in planning, which are the whole
+          undated column.
+        </div>
+      </div>
+      <div style="border: 1px solid #f1f1f4; border-radius: 8px; padding: 10px 12px;">
+        <div class="count-sub">Off in both</div>
+        <div style="font-size: 12px; color: #3f3f46; line-height: 1.5; margin-top: 3px;">
+          17 ideas, 3 closed. Ideas are one chip away and land only in the
+          undated column &mdash; they have no dates, so they have no quarter.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="h">What the roadmap mode must not do</div>
+    <div class="note">
+      No points summed per quarter &mdash; a per-window total is the
+      points-per-day constant the capacity design rules out. Counts of projects
+      and checkpoints are safe.<br>
+      No drag-to-quarter rescheduling. A quarter column is 13 weeks wide; a drop
+      into it would have to invent a date, and dates belong to the user.
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

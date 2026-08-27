@@ -115,6 +115,21 @@ const STAGE_SUBJECT = {
 // switchable at all, so no committed work can go missing without being asked to.
 const MAP_STAGE_DEFAULT = ["active"];
 
+// What the roadmap mode's Status filter starts on: every committed rung.
+//
+// Deliberately not `MAP_STAGE_DEFAULT`. On the real file that default draws six
+// projects of thirty-one, none of them dated in a future quarter -- so a
+// roadmap opening on it shows this quarter and then three empty columns, which
+// is a picture of the filter rather than of the plan. `dated` is what lands in
+// the quarters ahead and `planning` is the entire undated column, so both have
+// to be on for the view to say anything.
+//
+// `idea` and `done` stay off, for the reasons they are off on the graph. An
+// idea has no dates and so has no quarter: switching it on adds to the undated
+// column and nothing else, which is exactly the deliberate move -- the future
+// looks thin, you turn ideas on, you pull one out and date it.
+const ROADMAP_STAGE_DEFAULT = ["planning", "dated", "active"];
+
 let state = {
   view: "project",
   projects: [],
@@ -207,6 +222,20 @@ let state = {
   // Same lifetime as the tiers and the tracks: a way of looking, kept across
   // re-renders and tab switches, gone on a reload.
   mapStages: new Set(MAP_STAGE_DEFAULT),
+  // The roadmap mode's own status set, and its own default. See `shownStages`
+  // for why these cannot be one set: `active` alone draws a roadmap with
+  // nothing in the future, which is the one thing the view exists to show.
+  roadmapStages: new Set(ROADMAP_STAGE_DEFAULT),
+  // Which drawing the Map tab is showing: "graph" or "roadmap". A way of
+  // looking like the sets above, not a setting -- nothing is stored, and a
+  // reload opens on the graph.
+  mapMode: "graph",
+  // Which quarter's goal has its form open, as a period. One at a time, and
+  // never persisted: an open form is a moment, not a state of the plan.
+  roadmapEditing: null,
+  // What is being typed into that form, so somebody else's write re-rendering
+  // the grid does not throw away half a sentence. See `quarterGoalForm`.
+  roadmapDraft: null,
   // Which root tracks the map draws, and **empty means every one of them**.
   // That is the same stance `laneOpen` takes, for the same reason: a set of
   // what has been *picked* rather than of what has been hidden. It is what
@@ -6069,7 +6098,21 @@ function mixWhite(hex, amount) {
 // does not, because neither bears on where the team is pointed next.
 const stageShown = (project) =>
   !MAP_STAGE_CHIPS.includes(project.derived_stage)
-  || state.mapStages.has(project.derived_stage);
+  || shownStages().has(project.derived_stage);
+
+// **The one filter the two map modes do not share.** Tier, track and department
+// govern both drawings; status cannot, because the two modes ask different
+// questions of the same rows. The graph asks where the team is pointed *now*,
+// and `active` alone is the right answer to that -- see `MAP_STAGE_DEFAULT`. A
+// roadmap on that default is empty from the next quarter onward by
+// construction: `dated` is what fills the future columns and `planning` is the
+// whole undated column, so a view opening without them answers nothing.
+//
+// Two sets rather than one that resets on the switch, so each mode remembers
+// what you did to it. Same lifetime as every other way of looking here: kept
+// across re-renders and tab switches, gone on a reload.
+const shownStages = () =>
+  state.mapMode === "roadmap" ? state.roadmapStages : state.mapStages;
 
 // The track a legend swatch stands for: the **root** of the path, since roots
 // are what the legend lists and what `trackPalette` keys a hue off. Depth is a
@@ -6249,13 +6292,17 @@ function renderMapFilters() {
   // switched off is a control lying about what it does. `MAP_STAGE_CHIPS` is
   // where that is argued, and the legend under the canvas is where all seven
   // rungs are still spelt out.
+  //
+  // **Writes through `shownStages`, so each mode keeps its own row.** Switching
+  // to the roadmap and back finds the graph exactly as it was left.
   const status = openGroup("status-filter", "Status");
+  const stages = shownStages();
   for (const rung of MAP_STAGE_CHIPS) {
     const held = projects.filter(
       (project) => project.derived_stage === rung).length;
-    const shown = state.mapStages.has(rung);
+    const shown = stages.has(rung);
     chip(status, `status-${rung}`, rung, held, shown, STAGE_SUBJECT[rung], () => {
-      if (shown) state.mapStages.delete(rung); else state.mapStages.add(rung);
+      if (shown) stages.delete(rung); else stages.add(rung);
     });
   }
 }
@@ -6443,10 +6490,28 @@ function renderMap() {
   canvas.innerHTML = "";
   $("department-name").value = state.graph.department_name || "";
   renderMapFilters();
-  renderMapLegend();
+
+  // Which of the two drawings this tab is showing. Everything above the switch
+  // -- the department, the tier row, the track filter -- governs both; only the
+  // status row differs, and `shownStages` is where that is argued.
+  const roadmap = state.mapMode === "roadmap";
+  $("map-mode-graph").classList.toggle("active", !roadmap);
+  $("map-mode-roadmap").classList.toggle("active", roadmap);
+  $("map-canvas").hidden = roadmap;
+  $("map-legend").hidden = roadmap;
+  $("map-roadmap").hidden = !roadmap;
+  $("map-hint-graph").hidden = roadmap;
+  $("map-hint-roadmap").hidden = !roadmap;
+
   // Before the two empty-canvas returns, like the legend: the tree is the whole
   // dataset's, so it is still worth editing when every project is filtered out.
   renderTrackEditor();
+
+  if (roadmap) {
+    renderRoadmap();
+    return;
+  }
+  renderMapLegend();
 
   // Every filter, in `mapDrawn` rather than here, so `map_sweep.js` reads the
   // same one. Filtered before grouping -- see that function.
@@ -6973,6 +7038,437 @@ function projectNode(project, point, radius, place, branch) {
     }
   };
   return group;
+}
+
+// --- roadmap mode -----------------------------------------------------------
+//
+// The same projects the graph draws, through the same tier and track filters,
+// placed on the quarter their dates land in. Rows are root tracks in the map's
+// own hues; a project's subtrack rides on its chip as a neutral tag, because
+// the row already spends the hue and a second colour here would claim to mean
+// something about the data that it does not.
+//
+// **Nothing in here writes a date.** A column is a place a project is *read*
+// into, never assigned to: `node.quarters` comes off the span its phases imply,
+// and a project with none lands in the undated column rather than being given a
+// quarter. The one write on this whole view is the quarter's goal, which is a
+// sentence about a period and moves nothing under it.
+//
+// Two things this must never grow, both non-negotiables rather than taste:
+// a points total per column (a per-window sum is a points-per-day constant in
+// disguise), and drag-to-quarter (a column is thirteen weeks wide, so a drop
+// would have to invent a date).
+
+// The column undated work falls into. Not a period, and deliberately not
+// spellable as one -- `is_quarter_period` rejects it server-side, so nothing can
+// write a goal against it.
+const UNDATED_COLUMN = "none";
+
+function roadmapColumns() {
+  return [...state.graph.quarters, { period: UNDATED_COLUMN }];
+}
+
+// Which columns a project occupies. Empty `quarters` means undated, which is a
+// column of its own rather than an absence.
+function projectColumns(project) {
+  const quarters = project.quarters || [];
+  return quarters.length ? quarters : [UNDATED_COLUMN];
+}
+
+function renderRoadmap() {
+  const host = $("map-roadmap");
+  host.innerHTML = "";
+
+  const projects = mapDrawn(state.graph.projects);
+  const columns = roadmapColumns();
+  host.style.gridTemplateColumns =
+    `var(--roadmap-rail) repeat(${columns.length}, minmax(0, 1fr))`;
+
+  if (state.graph.projects.length === 0) {
+    host.appendChild(element("p", "muted",
+      "Nothing here yet. Capture a future direction below to start the map."));
+    host.style.gridTemplateColumns = "1fr";
+    return;
+  }
+
+  // The checkpoints each column holds, grouped once rather than per cell.
+  //
+  // **Only those on projects the filters left.** The payload carries every dated
+  // checkpoint in the dataset, and a header counting the ones hanging off work
+  // that is not on screen says a number nobody can find by looking -- which is
+  // exactly the complaint a filtered view has to avoid.
+  const drawn = new Set(projects.map((project) => project.id));
+  const marks = {};
+  for (const item of state.graph.milestones || []) {
+    if (!drawn.has(item.project_id)) continue;
+    (marks[item.quarter] ||= []).push(item);
+  }
+
+  host.appendChild(element("div", "roadmap-corner"));
+  for (const column of columns) {
+    host.appendChild(quarterHeader(column, projects, marks[column.period] || []));
+  }
+
+  const palette = trackPalette(state.graph.projects);
+  const rows = roadmapRows(projects);
+  for (const [index, row] of rows.entries()) {
+    const last = index === rows.length - 1;
+    host.appendChild(roadmapRowName(row, palette, last));
+    for (const column of columns) {
+      host.appendChild(roadmapCell(row, column, marks, last));
+    }
+  }
+
+  if (rows.length === 0) {
+    const empty = element("p", "muted roadmap-empty",
+      "Every project is filtered out. Switch a tier or a status back on above "
+      + "— or clear the track filter under the grid — to see them.");
+    host.appendChild(empty);
+  }
+  host.appendChild(roadmapFooter(projects));
+}
+
+// One row per root track, in the legend's order, holding only the projects the
+// filters left. A track with nothing drawn gets no row -- the same stance the
+// graph takes when a wedge empties.
+function roadmapRows(projects) {
+  const grouped = new Map();
+  for (const project of projects) {
+    const key = trackRoot(project);
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(project);
+  }
+  return [...grouped.entries()]
+    .sort(([a], [b]) => (a || "￿").localeCompare(b || "￿"))
+    .map(([key, held]) => ({ key, projects: held }));
+}
+
+function roadmapRowName(row, palette, last) {
+  const cell = element("div", "roadmap-row-name" + (last ? " is-last" : ""));
+  const rail = element("div", "track-rail");
+  rail.style.background = palette.get(row.key) || "var(--faint)";
+
+  const text = element("div", "roadmap-row-text");
+  text.appendChild(element("div", "roadmap-row-title", row.key || "Untracked"));
+  const subtracks = new Set(
+    row.projects.map((project) => trackPath(project.track)[1]).filter(Boolean));
+  text.appendChild(element("div", "roadmap-row-sub",
+    `${row.projects.length} drawn`
+    + (subtracks.size ? ` · ${subtracks.size} subtrack${subtracks.size > 1 ? "s" : ""}`
+      : "")));
+
+  cell.append(rail, text);
+  return cell;
+}
+
+function roadmapCell(row, column, marks, last) {
+  const undated = column.period === UNDATED_COLUMN;
+  const cell = element("div", "roadmap-cell"
+    + (undated ? " is-undated" : "")
+    + (column.period === quarterOfToday() ? " is-now" : "")
+    + (last ? " is-last" : ""));
+
+  const held = row.projects.filter(
+    (project) => projectColumns(project).includes(column.period));
+  for (const project of held) cell.appendChild(roadmapChip(project, column));
+
+  // Checkpoints belong to a project, so they are drawn under the row that holds
+  // that project rather than once per column.
+  const ids = new Set(row.projects.map((project) => project.id));
+  const own = (marks[column.period] || []).filter(
+    (item) => ids.has(item.project_id));
+  if (own.length) cell.appendChild(roadmapMarks(own));
+
+  if (!held.length && !own.length) {
+    cell.appendChild(element("span", "roadmap-cell-empty", "—"));
+  }
+  return cell;
+}
+
+function roadmapChip(project, column) {
+  // A project that started in an earlier column is drawn again as a tail, so a
+  // quarter says everything running in it rather than only what began in it.
+  const first = projectColumns(project)[0];
+  const tail = column.period !== UNDATED_COLUMN && column.period !== first;
+
+  const chip = element("button", "roadmap-chip" + (tail ? " is-tail" : ""));
+  chip.type = "button";
+  // The picker's own dot, class and all -- one colour table across the sidebar,
+  // the swimlanes and this grid.
+  chip.appendChild(projectDot(project));
+
+  const body = element("div", "roadmap-chip-body");
+  body.appendChild(element("div", "roadmap-chip-name", project.name));
+  body.appendChild(element("div", "roadmap-chip-meta", chipDates(project, tail)));
+  const subtrack = trackPath(project.track)[1];
+  if (subtrack) body.appendChild(element("span", "roadmap-subtag", subtrack));
+  chip.appendChild(body);
+
+  if (project.tier) {
+    chip.appendChild(element("span", "roadmap-tier", String(project.tier)));
+  }
+  chip.title = `${project.name}\n${project.derived_stage}`
+    + `\n\nClick to open this project.`;
+  chip.onclick = () => openProject(project.id);
+  return chip;
+}
+
+function chipDates(project, tail) {
+  if (!project.span_start || !project.span_end) {
+    return "no dates yet";
+  }
+  if (tail) return `continues · ends ${shortDate(project.span_end)}`;
+  const spans = (project.quarters || []).length > 1 ? " · runs on" : "";
+  return `${shortDate(project.span_start)} – ${shortDate(project.span_end)}${spans}`;
+}
+
+// Reached ones collapse to a count: a quarter's open checkpoints are what it is
+// still aiming at, and a list of everything already ticked buries them.
+function roadmapMarks(items) {
+  const box = element("div", "roadmap-marks");
+  const open = items.filter((item) => !item.achieved);
+  for (const item of open) {
+    const line = element("div", "roadmap-mark");
+    line.append(element("span", "roadmap-dia"),
+      element("span", "", `${shortDate(item.target_date)} · ${item.name}`));
+    box.appendChild(line);
+  }
+  const reached = items.length - open.length;
+  if (reached) {
+    const line = element("div", "roadmap-mark is-reached");
+    line.append(element("span", "roadmap-dia is-reached"),
+      element("span", "", `${reached} reached`));
+    box.appendChild(line);
+  }
+  return box;
+}
+
+// What the grid is not drawing, said rather than left as a silent gap. An
+// absence nobody can account for is the failure mode of a filtered view.
+function roadmapFooter(drawn) {
+  const foot = element("div", "roadmap-foot");
+  const all = state.graph.projects;
+  const hidden = all.length - drawn.length;
+  const undated = drawn.filter(
+    (project) => !(project.quarters || []).length).length;
+  const said = [];
+
+  if (hidden) said.push(`${hidden} project${hidden > 1 ? "s" : ""} filtered out`);
+  if (undated) {
+    said.push(`${undated} carrying no dates`);
+  }
+  if (state.graph.quarters_beyond) {
+    said.push(`${state.graph.quarters_beyond} later quarter`
+      + `${state.graph.quarters_beyond > 1 ? "s" : ""} not drawn`);
+  }
+  // Checkpoints on drawn work that name no date, so they sit in no column. The
+  // same count read two ways: what the projects say they have, less what
+  // arrived dated.
+  const ids = new Set(drawn.map((project) => project.id));
+  const dated = (state.graph.milestones || []).filter(
+    (item) => ids.has(item.project_id)).length;
+  const held = drawn.reduce(
+    (total, project) => total + (project.milestones_total || 0), 0);
+  if (held > dated) {
+    said.push(`${held - dated} checkpoint${held - dated > 1 ? "s" : ""} `
+      + "with no target date");
+  }
+
+  foot.appendChild(element("span", "", said.join(" · ") || "Everything is drawn."));
+  return foot;
+}
+
+function quarterHeader(column, projects, marks) {
+  if (column.period === UNDATED_COLUMN) {
+    const head = element("div", "roadmap-head is-undated");
+    head.appendChild(element("div", "roadmap-quarter", "No date yet"));
+    head.appendChild(element("div", "roadmap-goal-empty is-quiet",
+      "Committed work with nowhere honest to sit on a calendar. Carries no "
+      + "goal of its own."));
+    const held = projects.filter(
+      (project) => !(project.quarters || []).length).length;
+    head.appendChild(element("div", "roadmap-count",
+      `${held} project${held === 1 ? "" : "s"}`));
+    return head;
+  }
+
+  const now = column.period === quarterOfToday();
+  const head = element("div", "roadmap-head" + (now ? " is-now" : ""));
+  const name = element("div", "roadmap-quarter", column.period.replace("-", " "));
+  name.appendChild(element("span", "roadmap-span",
+    `${monthRange(column)}${now ? " · now" : ""}`));
+  head.appendChild(name);
+  head.appendChild(quarterGoal(column.period));
+
+  const held = projects.filter(
+    (project) => (project.quarters || []).includes(column.period)).length;
+  const reached = marks.filter((item) => item.achieved).length;
+  const counts = [`${held} project${held === 1 ? "" : "s"}`];
+  if (marks.length) {
+    counts.push(`${marks.length} checkpoint${marks.length === 1 ? "" : "s"}`
+      + (reached ? `, ${reached} reached` : ""));
+  }
+  // Counts of things, never a sum of points: a per-quarter points total is the
+  // points-per-day constant the capacity design rules out.
+  head.appendChild(element("div", "roadmap-count", counts.join(" · ")));
+  return head;
+}
+
+// What the quarter is for, and how anyone will know it happened. The only
+// stored thing on this view and the only write it has -- everything else in the
+// grid is derived from dates that already exist.
+//
+// A quarter nobody has written a goal on is an absent row, not a blank one, so
+// the empty state is a button rather than two empty fields: one state on screen
+// instead of two that look the same.
+function quarterGoal(period) {
+  const written = (state.graph.quarter_goals || {})[period];
+  if (state.roadmapEditing === period) return quarterGoalForm(period, written);
+
+  if (!written || (!written.goal && !written.target)) {
+    const invite = element("button", "roadmap-goal-empty",
+      "No goal written for this quarter");
+    invite.type = "button";
+    invite.title = "Write what this quarter is for.";
+    invite.onclick = () => {
+      state.roadmapEditing = period;
+      renderRoadmap();
+    };
+    return invite;
+  }
+
+  const box = element("div", "roadmap-goal");
+  const open = element("button", "roadmap-goal-open");
+  open.type = "button";
+  open.title = "Edit this quarter's goal.";
+  open.append(element("div", "roadmap-goal-cap", "Goal"),
+    element("div", "roadmap-goal-text", written.goal || "—"));
+  if (written.target) {
+    open.append(element("div", "roadmap-goal-cap", "Target"),
+      element("div", "roadmap-goal-target", written.target));
+  }
+  open.onclick = () => {
+    state.roadmapEditing = period;
+    renderRoadmap();
+  };
+  box.appendChild(open);
+
+  // The tick is a write somebody presses, never something the work below
+  // derives -- the same decision `milestone.achieved` carries. A quarter can
+  // close with its goal unmet, and should be able to.
+  const tick = element("label", "roadmap-goal-tick"
+    + (written.achieved ? " is-on" : ""));
+  const flag = element("input");
+  flag.type = "checkbox";
+  flag.checked = !!written.achieved;
+  flag.onchange = () => writeQuarterGoal(period, { achieved: flag.checked });
+  tick.append(flag, element("span", "", written.achieved
+    ? "Achieved" : "Not yet achieved"));
+  box.appendChild(tick);
+  return box;
+}
+
+// The open form, seeded from what is being typed rather than from the stored
+// row. **This grid re-renders on somebody else's write** -- a phase edit two
+// tabs away bumps the roadmap revision and `loadGraph` redraws everything -- so
+// a form that rebuilt from the row would throw away half a sentence for a
+// change that had nothing to do with it. The draft is what survives that; it is
+// a moment, like `roadmapEditing`, and nothing stores it.
+function quarterGoalForm(period, written) {
+  const draft = state.roadmapDraft || {};
+  const form = element("div", "roadmap-goal is-editing");
+  const goal = element("textarea", "roadmap-field");
+  goal.rows = 2;
+  goal.value = draft.goal ?? (written ? written.goal : "");
+  goal.placeholder = "What this quarter is for";
+  const target = element("textarea", "roadmap-field");
+  target.rows = 2;
+  target.value = draft.target ?? (written ? written.target : "");
+  target.placeholder = "How anyone will know it happened";
+
+  const remember = () => {
+    state.roadmapDraft = { goal: goal.value, target: target.value };
+  };
+  goal.oninput = remember;
+  target.oninput = remember;
+
+  form.append(element("div", "roadmap-goal-cap", "Goal"), goal,
+    element("div", "roadmap-goal-cap", "Target"), target);
+
+  const row = element("div", "roadmap-goal-actions");
+  const note = element("div", "roadmap-goal-note");
+  const save = element("button", "primary", "Save");
+  save.type = "button";
+  save.onclick = () => writeQuarterGoal(period, {
+    goal: goal.value.trim(),
+    target: target.value.trim(),
+    // What was on screen when the form opened, so a second person saving over
+    // it is a 409 naming the field rather than a silent overwrite.
+    expect: written ? { goal: written.goal, target: written.target } : undefined,
+  }, note);
+  const cancel = element("button", "", "Cancel");
+  cancel.type = "button";
+  cancel.onclick = () => closeQuarterGoal();
+  row.append(save, cancel);
+
+  if (written) {
+    const clear = element("button", "roadmap-goal-clear", "Clear");
+    clear.type = "button";
+    clear.title = "Leave this quarter with no goal written on it.";
+    clear.onclick = async () => {
+      await api(`/api/quarter-goals/${period}`, { method: "DELETE" });
+      closeQuarterGoal();
+      await loadGraph();
+    };
+    row.appendChild(clear);
+  }
+  form.append(row, note);
+  // Only on the first draw of the form: a re-render behind an open form must not
+  // steal the caret back to the top field mid-sentence.
+  if (!state.roadmapDraft) goal.focus();
+  return form;
+}
+
+function closeQuarterGoal() {
+  state.roadmapEditing = null;
+  state.roadmapDraft = null;
+  renderRoadmap();
+}
+
+// The write, and the only one on this view. A refusal leaves the form open over
+// what was typed: the 409 exists so nothing is silently overwritten, and
+// throwing the loser's text away would defeat the point of refusing.
+async function writeQuarterGoal(period, fields, note) {
+  try {
+    await api(`/api/quarter-goals/${period}`, {
+      method: "PUT",
+      body: JSON.stringify(fields),
+    });
+  } catch (error) {
+    // The form stays open over what was typed. A 409 exists so nothing is
+    // silently overwritten; throwing the loser's sentence away would defeat it.
+    if (note) note.textContent = error.message;
+    return;
+  }
+  state.roadmapEditing = null;
+  state.roadmapDraft = null;
+  await loadGraph();
+}
+
+// "Jul – Sep" under the quarter's name. Read off the bounds the server sent
+// rather than derived from the period, so the calendar is spelt out in exactly
+// one place -- `validation.quarter_bounds` -- and the label cannot drift from
+// the column it sits on. `shortDate` above is the app's one day formatter and
+// this is the only thing here that is not it.
+function monthRange(column) {
+  const month = (iso) => parseDate(iso).toLocaleDateString(
+    undefined, { month: "short" });
+  return `${month(column.start)} – ${month(column.end)}`;
+}
+
+function quarterOfToday() {
+  const now = new Date();
+  return `${now.getFullYear()}-Q${Math.floor(now.getMonth() / 3) + 1}`;
 }
 
 // --- future directions ------------------------------------------------------
@@ -7958,6 +8454,20 @@ function bindEvents() {
   // is re-read, so a track invented in one field shows up in the other.
   trackPickers.push(trackPicker($("project-track")),
     trackPicker($("new-direction-track")));
+
+  // The two drawings of the Map tab. A re-render rather than a reload: the
+  // payload already carries both, which is the whole reason the span and the
+  // quarters ride on `/api/graph`.
+  const mapMode = (mode) => () => {
+    if (state.mapMode === mode) return;
+    state.mapMode = mode;
+    // An open goal form belongs to a column that is about to stop existing.
+    state.roadmapEditing = null;
+    state.roadmapDraft = null;
+    renderMap();
+  };
+  $("map-mode-graph").onclick = mapMode("graph");
+  $("map-mode-roadmap").onclick = mapMode("roadmap");
 
   $("department-name").onchange = async () => {
     await api("/api/settings", {

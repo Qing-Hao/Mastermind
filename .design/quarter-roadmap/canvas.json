@@ -1,0 +1,47 @@
+{
+  "pages": [
+    { "id": "page-1", "name": "Roadmap view" },
+    { "id": "page-2", "name": "Not chosen" }
+  ],
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1420, "h": 1080, "title": "Roadmap mode — full view", "page": "page-1" },
+    { "file": "Goal.dc.html", "x": 1540, "y": 0, "w": 1080, "h": 880, "title": "Stage 2 — the written goal", "page": "page-1" },
+    { "file": "Switch.dc.html", "x": 1540, "y": 1000, "w": 900, "h": 700, "title": "The switch, and the status defaults", "page": "page-1" },
+    { "file": "DirectionB.dc.html", "x": 0, "y": 0, "w": 760, "h": 1120, "title": "Direction B — a card per quarter", "page": "page-2" }
+  ],
+  "annotations": [
+    {
+      "id": "what-this-is",
+      "x": 0,
+      "y": -170,
+      "w": 660,
+      "text": "Roadmap mode inside the Map tab.\nSame projects, same track hues, same tier and track filters as the graph — placed on the quarter their dates land in. Real data, 27 Aug 2026.",
+      "page": "page-1"
+    },
+    {
+      "id": "the-readout",
+      "x": 740,
+      "y": -170,
+      "w": 660,
+      "text": "What it says out loud: everything lands in Q3, Q4 is two tails, Q1 2027 is empty, and four committed projects still carry no dates at all.",
+      "page": "page-1"
+    },
+    {
+      "id": "status-default",
+      "x": 1540,
+      "y": -170,
+      "w": 660,
+      "text": "The status filter is the one control the two modes do NOT share. Graph opens on active alone (6 of 31); roadmap opens on every committed rung (11 of 31), or the future columns are empty by construction.",
+      "page": "page-1"
+    },
+    {
+      "id": "why-b-lost",
+      "x": 0,
+      "y": -150,
+      "w": 660,
+      "text": "Not chosen. A card per quarter gives the goal a full line to read as a sentence, but you lose the side-by-side comparison — seeing how thin Q4 is against Q3 means scrolling. Kept for the record.",
+      "page": "page-2"
+    }
+  ],
+  "launch": { "view": "canvas", "page": "page-1" }
+}

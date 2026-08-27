@@ -169,6 +169,31 @@ CREATE TABLE IF NOT EXISTS milestone (
     sort_order  INTEGER NOT NULL DEFAULT 0
 );
 
+-- What a quarter is for, in the team's own words. The one thing on the roadmap
+-- view that is stored rather than derived: everything else there -- which
+-- quarter a project lands in, what checkpoints fall inside it, how many of them
+-- are reached -- is read off the phases and milestones that already exist.
+--
+-- `period` is '2026-Q3' and it is the whole key. **There is deliberately no
+-- project_id and no join table.** A row saying "this project belongs to Q3"
+-- would be a second answer to when the work lands, competing with the dates on
+-- its phases, and the two would drift the first time somebody moved a date. The
+-- goal is a statement about a period; the work under it is derived from the
+-- calendar and joins to nothing.
+--
+-- `achieved` is a tick for the same reason `milestone.achieved` is one: it
+-- records a decision somebody made, and nothing derives it from the work below.
+-- A quarter can close with its goal unmet, which is a real and useful state.
+-- Nothing about a person is stored here -- see non-negotiable 7. The row belongs
+-- to the department, not to whoever typed it.
+CREATE TABLE IF NOT EXISTS quarter_goal (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    period   TEXT NOT NULL UNIQUE,
+    goal     TEXT NOT NULL DEFAULT '',
+    target   TEXT NOT NULL DEFAULT '',
+    achieved INTEGER NOT NULL DEFAULT 0 CHECK (achieved IN (0, 1))
+);
+
 CREATE INDEX IF NOT EXISTS idx_phase_project ON phase(project_id);
 CREATE INDEX IF NOT EXISTS idx_deliverable_phase ON deliverable(phase_id);
 CREATE INDEX IF NOT EXISTS idx_milestone_project ON milestone(project_id);
@@ -884,6 +909,67 @@ def delete_milestone(milestone_id):
         connection.execute("DELETE FROM milestone WHERE id = ?", (milestone_id,))
 
 
+# --- quarter goals ----------------------------------------------------------
+#
+# Keyed by period, so there is no create-then-edit dance: the roadmap draws a
+# column for a quarter whether or not a row exists for it, and writing one is an
+# upsert. A goal nobody has written is an absent row, not a blank one.
+
+
+def quarter_goals_by_period():
+    """Every quarter goal, keyed by its period. The shape the roadmap reads.
+
+    A dict rather than a list because the caller has a column per period and
+    wants to ask for one; the twin of `deliverables_by_project` in intent.
+    """
+    with connect() as connection:
+        rows = connection.execute("SELECT * FROM quarter_goal ORDER BY period").fetchall()
+    return {row["period"]: row for row in rows_to_dicts(rows)}
+
+
+def get_quarter_goal(period):
+    with connect() as connection:
+        row = connection.execute(
+            "SELECT * FROM quarter_goal WHERE period = ?", (period,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def set_quarter_goal(period, fields):
+    """Write one period's goal, creating the row if it is the first write.
+
+    Only the named fields move: a PUT carrying just `achieved` ticks the quarter
+    without touching what was written in it, which is what the tick on the
+    column header sends.
+    """
+    allowed = {"goal", "target", "achieved"}
+    updates = {key: value for key, value in fields.items() if key in allowed}
+    if "achieved" in updates:
+        updates["achieved"] = as_flag(updates["achieved"])
+
+    with connect() as connection:
+        connection.execute(
+            "INSERT OR IGNORE INTO quarter_goal (period) VALUES (?)", (period,)
+        )
+        if updates:
+            assignments = ", ".join(f"{key} = ?" for key in updates)
+            connection.execute(
+                f"UPDATE quarter_goal SET {assignments} WHERE period = ?",
+                list(updates.values()) + [period],
+            )
+    return get_quarter_goal(period)
+
+
+def delete_quarter_goal(period):
+    """Clear a period back to having no goal at all.
+
+    Deleting rather than blanking, so "nobody has written one" stays one state
+    instead of two that look the same on screen.
+    """
+    with connect() as connection:
+        connection.execute("DELETE FROM quarter_goal WHERE period = ?", (period,))
+
+
 # --- dependencies -----------------------------------------------------------
 
 
@@ -957,6 +1043,9 @@ def export_all():
             connection.execute("SELECT * FROM project_dependency").fetchall()
         )
         milestones = rows_to_dicts(connection.execute("SELECT * FROM milestone").fetchall())
+        quarter_goals = rows_to_dicts(
+            connection.execute("SELECT * FROM quarter_goal").fetchall()
+        )
     return {
         # 3 added project.stage/track and settings.department_name; 4 dropped
         # the deliverable estimate and the V5 tolerance; 5 added deliverable.done;
@@ -971,7 +1060,9 @@ def export_all():
         # no milestones, which reads as a plan still being drafted -- the same
         # quiet default `draft_complete` arrived with, and the honest one: a file
         # written before checkpoints existed cannot say what it was aiming at.
-        "version": 10,
+        # 11 added quarter goals -- a pre-11 file simply has none, which reads
+        # as a roadmap nobody has written a goal on yet.
+        "version": 11,
         "exported_at": now_iso(),
         # Sign-in configuration is stripped rather than exported. It describes
         # this deployment's gate, not the dataset -- an issuer and an allowlist
@@ -985,6 +1076,7 @@ def export_all():
         "deliverables": deliverables,
         "dependencies": dependencies,
         "milestones": milestones,
+        "quarter_goals": quarter_goals,
     }
 
 
@@ -1038,6 +1130,7 @@ def import_all(payload):
     with connect() as connection:
         connection.execute("PRAGMA foreign_keys = OFF")
         connection.execute("DELETE FROM project_dependency")
+        connection.execute("DELETE FROM quarter_goal")
         connection.execute("DELETE FROM milestone")
         connection.execute("DELETE FROM deliverable")
         connection.execute("DELETE FROM phase")
@@ -1131,6 +1224,20 @@ def import_all(payload):
                     milestone.get("target_date", ""),
                     as_flag(milestone.get("achieved", 0)),
                     milestone.get("sort_order", 0),
+                ),
+            )
+
+        # Absent before version 11, and `.get` covers it the same way. Keyed by
+        # period rather than by id, so a row whose period the file repeats is
+        # ignored rather than failing the whole import on the UNIQUE constraint.
+        for quarter_goal in payload.get("quarter_goals", []):
+            connection.execute(
+                """INSERT OR IGNORE INTO quarter_goal (period, goal, target, achieved)
+                   VALUES (?, ?, ?, ?)""",
+                (
+                    quarter_goal["period"], quarter_goal.get("goal", ""),
+                    quarter_goal.get("target", ""),
+                    as_flag(quarter_goal.get("achieved", 0)),
                 ),
             )
 

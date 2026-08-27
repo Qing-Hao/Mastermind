@@ -3781,6 +3781,272 @@ body.resizing-column { cursor: col-resize; user-select: none; }
    want back, and hovering brings it up to full while you aim at it. */
 .legend-pick.is-muted { opacity: .45; }
 .legend-pick.is-muted:hover { opacity: 1; }
+
+/* --- roadmap mode --------------------------------------------------------
+   The Map tab's second drawing: rows are root tracks, columns are quarters.
+
+   **The four `[hidden]` guards below are load-bearing.** `renderMap` toggles
+   the canvas, the legend, this grid and the two hints with the `hidden`
+   attribute, and both `.map-legend` and `.roadmap` set `display`, which
+   outranks the UA sheet's `[hidden] { display: none }`. Without these the
+   roadmap and the graph would draw on top of each other. Same trap as
+   `.mode-switch[hidden]`, which is where it is argued; the hints carry a guard
+   they do not strictly need yet, so a future `display` on `.hint` cannot
+   reintroduce it silently.
+
+   Colour here is deliberately thin. The track rail and the stage dot are the
+   two the rest of the app already spends and they mean the same things; the
+   subtrack tag is neutral grey on purpose, because the row is already carrying
+   its track's hue and a second colour would claim to mean something it does
+   not. Nothing in this block encodes a number. */
+.roadmap { display: grid; }
+.roadmap[hidden] { display: none; }
+.map-legend[hidden] { display: none; }
+#map-canvas[hidden] { display: none; }
+.hint[hidden] { display: none; }
+
+/* Wide enough for a track name and its count without wrapping, and the same
+   idea as the portfolio's lane gutter. A custom property because `renderRoadmap`
+   writes the rest of the template inline -- the column count is data. */
+.roadmap { --roadmap-rail: 176px; }
+
+.roadmap-corner { border-bottom: 1px solid var(--line); }
+
+.roadmap-head {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px 12px 12px;
+  border-left: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+/* The quarter you are in, marked with the accent rather than a fill, so the
+   column reads as *here* without competing with the stage colours inside it. */
+.roadmap-head.is-now { background: #fbfbfe; box-shadow: inset 0 2px 0 0 var(--accent); }
+.roadmap-head.is-undated { background: var(--page); }
+
+.roadmap-quarter {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.roadmap-head.is-now .roadmap-quarter { color: var(--ink); }
+.roadmap-span {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--faint);
+}
+.roadmap-count { font-size: 11px; color: var(--muted); }
+
+/* The written goal. The only stored thing on this view. */
+.roadmap-goal {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 8px 10px;
+}
+.roadmap-goal.is-editing { border-color: var(--accent-ring); box-shadow: 0 0 0 3px var(--accent-soft); }
+.roadmap-goal-open {
+  display: block;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.roadmap-goal-cap {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.roadmap-goal-text { font-size: 12.5px; line-height: 1.35; color: var(--ink); margin-top: 2px; }
+.roadmap-goal-target { font-size: 11.5px; line-height: 1.35; color: var(--ink-2); margin-top: 2px; }
+.roadmap-goal-cap + .roadmap-goal-cap,
+.roadmap-goal-text + .roadmap-goal-cap { margin-top: 7px; }
+
+/* A quarter nobody has written a goal on is an absent row, so the empty state is
+   an invitation to write one rather than two blank fields. */
+.roadmap-goal-empty {
+  width: 100%;
+  border: 1px dashed var(--field);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 10px;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--faint);
+  text-align: center;
+  cursor: pointer;
+}
+.roadmap-goal-empty:hover { border-color: var(--accent); color: var(--accent-hover); }
+/* The undated column's version says what the column is and is not a control:
+   there is no period to write a goal against. */
+.roadmap-goal-empty.is-quiet {
+  border-style: solid;
+  border-color: var(--line);
+  text-align: left;
+  cursor: default;
+}
+.roadmap-goal-empty.is-quiet:hover { border-color: var(--line); color: var(--faint); }
+
+.roadmap-goal-tick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line-soft);
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.roadmap-goal-tick.is-on { color: #2e7d32; }
+
+.roadmap-field {
+  width: 100%;
+  margin-top: 2px;
+  padding: 6px 8px;
+  border: 1px solid var(--field);
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--ink);
+  background: var(--surface);
+  resize: vertical;
+}
+.roadmap-goal-actions { display: flex; gap: 6px; margin-top: 9px; }
+.roadmap-goal-clear { margin-left: auto; color: var(--muted); }
+.roadmap-goal-note:empty { display: none; }
+.roadmap-goal-note {
+  margin-top: 7px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #b3261e;
+}
+
+/* Rows. */
+.roadmap-row-name {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 10px 12px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.roadmap-row-name.is-last, .roadmap-cell.is-last { border-bottom: 0; }
+.roadmap-row-name .track-rail { flex: 0 0 3px; align-self: stretch; border-radius: 2px; min-height: 34px; }
+.roadmap-row-text { min-width: 0; }
+.roadmap-row-title { font-size: 13px; font-weight: 700; color: #333; line-height: 1.25; }
+.roadmap-row-sub { font-size: 10.5px; color: var(--faint); }
+
+.roadmap-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 68px;
+  padding: 10px 10px 12px;
+  border-left: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line-soft);
+}
+.roadmap-cell.is-now { background: #fdfdff; }
+.roadmap-cell.is-undated { background: var(--page); }
+.roadmap-cell-empty { font-size: 12px; color: #d4d4d8; }
+
+/* A project in a quarter. A button, so it is in the tab order and opens the
+   project the way every other project label in the app does. */
+.roadmap-chip {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.roadmap-chip:hover { border-color: var(--field); background: var(--hover); }
+/* Work that began in an earlier quarter and is still running in this one. Dashed
+   because it is the same project drawn twice, and a solid second chip reads as a
+   second piece of work. */
+.roadmap-chip.is-tail { background: var(--page); border-style: dashed; }
+.roadmap-chip .project-dot { margin-top: 4px; flex: 0 0 auto; }
+.roadmap-chip-body { min-width: 0; }
+.roadmap-chip-name { font-size: 12px; line-height: 1.3; color: var(--ink); }
+.roadmap-chip-meta { font-size: 10.5px; line-height: 1.3; color: var(--faint); }
+.roadmap-subtag {
+  display: inline-block;
+  margin-top: 3px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--hover);
+  font-size: 9.5px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+.roadmap-tier {
+  margin-left: auto;
+  flex: 0 0 auto;
+  padding-left: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--tier-pip);
+}
+
+/* Checkpoints, in the purple they already wear on both timelines. */
+.roadmap-marks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+  padding-top: 7px;
+  border-top: 1px dashed var(--line-soft);
+}
+.roadmap-mark {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  font-size: 10.5px;
+  line-height: 1.3;
+  color: #6a1b9a;
+}
+.roadmap-dia {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  margin-top: 3px;
+  border: 1.5px solid #6a1b9a;
+  background: var(--surface);
+  transform: rotate(45deg);
+}
+/* Reached ones collapse to a count and step back: what a quarter is still aiming
+   at is the useful half. */
+.roadmap-mark.is-reached { color: var(--faint); }
+.roadmap-dia.is-reached { border-color: #b8a0c4; background: #b8a0c4; }
+
+/* What the grid is not drawing. Spans every column, because it is about the
+   whole picture rather than any one of them. */
+.roadmap-foot, .roadmap-empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-soft);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.roadmap-empty { border-top: 0; padding-top: 14px; }
 /* The way out of the track filter. It is on screen **only** while a filter is
    running, so it is the one bordered thing in the key: what a control that comes
    and goes has to buy back is being noticed the moment it arrives. */

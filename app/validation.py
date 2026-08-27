@@ -223,6 +223,120 @@ def project_span(project, phases):
     return (min(starts) if starts else None, max(finals) if finals else None)
 
 
+# --- quarters ---------------------------------------------------------------
+#
+# The roadmap mode of the map reads a plan by calendar quarter instead of by
+# connection. Everything here is derived from dates that already exist: a
+# quarter is a way of *reading* the plan, never a thing a project is assigned
+# to. Nothing below writes, moves or invents a date -- a project with no dates
+# belongs to no quarter and says so, which is the honest answer and the one the
+# undated column is for.
+#
+# A period is the string '2026-Q3'. It sorts correctly as text, which is why it
+# is spelt that way, and it is the key `quarter_goal` rows carry.
+
+MONTHS_PER_QUARTER = 3
+QUARTERS_PER_YEAR = 4
+
+
+def quarter_of(value):
+    """The quarter a date falls in, as '2026-Q3'. None when unscheduled."""
+    moment = as_optional_date(value)
+    if moment is None:
+        return None
+    return f"{moment.year}-Q{(moment.month - 1) // MONTHS_PER_QUARTER + 1}"
+
+
+# A period is either well-formed or it is not data: unlike a date, nobody types
+# one into a field. `is_quarter_period` is the boundary check the write route
+# runs, and everything below it may then assume the string is good -- which is
+# what keeps this section free of the Optional-everywhere shape the date helpers
+# need for a genuinely unscheduled plan.
+
+
+def is_quarter_period(period):
+    """Whether `period` reads as '2026-Q3'. The check a write route runs."""
+    year, _, quarter = str(period).partition("-Q")
+    return (year.isdigit() and quarter.isdigit()
+            and 1 <= int(quarter) <= QUARTERS_PER_YEAR)
+
+
+def quarter_parts(period):
+    """A well-formed period split into `(year, quarter)`."""
+    year, _, quarter = str(period).partition("-Q")
+    return int(year), int(quarter)
+
+
+def quarter_start(period):
+    """First day of a well-formed period, as a date."""
+    year, quarter = quarter_parts(period)
+    return date(year, (quarter - 1) * MONTHS_PER_QUARTER + 1, 1)
+
+
+def quarter_bounds(period):
+    """First and last day of a well-formed period, as a `(date, date)` pair.
+
+    The last day is the day before the next quarter's first, so no month length
+    has to be spelt out here.
+    """
+    return (quarter_start(period),
+            quarter_start(shift_quarter(period, 1)) - timedelta(days=1))
+
+
+def shift_quarter(period, steps):
+    """The period `steps` quarters after `period`. Negative steps go back."""
+    year, quarter = quarter_parts(period)
+    total = year * QUARTERS_PER_YEAR + (quarter - 1) + steps
+    return f"{total // QUARTERS_PER_YEAR}-Q{total % QUARTERS_PER_YEAR + 1}"
+
+
+def quarters_spanned(start, end):
+    """Every period a span touches, first to last.
+
+    Empty when either half is unscheduled: a half-dated project has no span to
+    place, and guessing the missing end would be inventing a date.
+    """
+    first, last = quarter_of(start), quarter_of(end)
+    if first is None or last is None:
+        return []
+    periods = [first]
+    while periods[-1] != last:
+        if len(periods) > QUARTERS_PER_YEAR * 100:
+            break  # A date centuries out is bad data, not a roadmap.
+        periods.append(shift_quarter(periods[-1], 1))
+    return periods
+
+
+def roadmap_quarters(spans, today, ahead=2, limit=8):
+    """The quarter columns the roadmap draws, and how many fall past the last.
+
+    Returns `(periods, beyond)`. The columns run from the earlier of today's
+    quarter and the earliest dated work, to the later of the latest dated work
+    and `ahead` quarters from now -- so there are always empty future columns.
+    An empty column is the point rather than a gap in the picture: a quarter
+    nothing lands in is the most useful thing this view says, and `ahead` is 2
+    rather than 1 so the emptiness has to run out two quarters before it stops
+    being visible.
+
+    `beyond` counts the quarters cut off by `limit`, so the view can name what
+    it is not drawing. A single date typed years out would otherwise stretch the
+    grid to nothing, and dropping it silently would read as "covered".
+    """
+    here = quarter_of(today)
+    if here is None:
+        return [], 0
+
+    touched = {here, shift_quarter(here, ahead)}
+    for start, end in spans:
+        touched.update(quarters_spanned(start, end))
+
+    edges = sorted(touched, key=quarter_parts)
+    periods = quarters_spanned(quarter_start(edges[0]), quarter_start(edges[-1]))
+    if len(periods) <= limit:
+        return periods, 0
+    return periods[:limit], len(periods) - limit
+
+
 def sequential_layout(phases, project_start):
     """Place unscheduled phases back to back from `project_start`, in order.
 

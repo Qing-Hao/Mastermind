@@ -460,7 +460,10 @@
     <div id="map-view" hidden>
       <section>
         <h2>Team map</h2>
-        <p class="hint">
+        <!-- One hint per mode. Two paragraphs rather than one that covers both,
+             because half of either is wrong for the drawing on screen. Toggled
+             by `renderMap`; see the `[hidden]` guard in style.css. -->
+        <p class="hint" id="map-hint-graph">
           Your department at the centre, tracks around it, projects on the
           outside. Write a track as <code>Source expansion / Metrics</code> to
           split it into a subtrack. Circle size is total effort points; the
@@ -472,6 +475,16 @@
           by default and listed in full below. Point at a
           project to dim the map down to it and whatever it is linked to, with
           arrows running predecessor &rarr; successor. Click a project to open it.
+        </p>
+        <p class="hint" id="map-hint-roadmap" hidden>
+          The same projects, placed on the quarter their dates land in. Rows are
+          tracks and a project's subtrack rides on its chip; a project that runs
+          past a quarter is drawn again in the next one as a tail. Write what a
+          quarter is <em>for</em> in its header &mdash; that goal and its target
+          are the only stored things here, and nothing under them is rewritten
+          by either. The last column is committed work carrying no dates: give
+          one a date and it moves into a quarter. Nothing on this grid
+          reschedules anything.
         </p>
         <div class="row">
           <label>Department
@@ -492,8 +505,27 @@
               data-tip="Ideas and finished work"
               data-tip-body="Both start off, so the map opens on committed work. Ideas are still listed in full under Future directions, and finished work has no bearing on where the team is pointed next."></span>
           </span>
+          <span class="spacer"></span>
+          <!-- Which drawing this tab shows. Last in the row after a spacer, the
+               same slot the Sprint tab's Rendered|Raw switch takes.
+
+               Everything to its left governs both modes -- except Status, which
+               keeps a separate row per mode: the graph opens on `active` alone,
+               and a roadmap on that default is empty from the next quarter
+               onward by construction. `shownStages` in app.js carries the
+               argument. -->
+          <span id="map-mode-switch" class="mode-switch"
+                title="How the team's work connects, or when it lands">
+            <button id="map-mode-graph" type="button" class="mode active">Graph</button>
+            <button id="map-mode-roadmap" type="button" class="mode">Roadmap</button>
+          </span>
         </div>
         <div id="map-canvas"></div>
+        <!-- The roadmap mode's grid, filled by `renderRoadmap`. A sibling of the
+             canvas rather than a replacement for it, so switching mode hides one
+             and shows the other without either having to be rebuilt from
+             scratch. Its column count is set inline: it is data, not layout. -->
+        <div id="map-roadmap" class="roadmap" hidden></div>
         <!-- Filled by `renderMapLegend`. Below the canvas rather than inside
              the SVG: the map is width-fitted and collision-swept, so a block
              drawn in there would spend layout budget the rings need. -->

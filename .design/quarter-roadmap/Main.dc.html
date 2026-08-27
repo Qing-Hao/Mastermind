@@ -1,0 +1,474 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+           color: #18181b; background: #fafafa; }
+    * { box-sizing: border-box; }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+
+    /* Shipped tokens, lifted from app/static/style.css. */
+    .ab { --accent: #4f46e5; --accent-hover: #4338ca; --accent-soft: #eef2ff; --accent-ring: #c7d2fe;
+          --ink: #18181b; --ink-2: #3f3f46; --ink-3: #52525b;
+          --muted: #71717a; --faint: #a1a1aa;
+          --page: #fafafa; --surface: #fff; --line: #e6e6ea; --line-soft: #f1f1f4;
+          --field: #d8d8de; --hover: #f4f4f5; }
+
+    /* --- shipped chrome ------------------------------------------------- */
+    .side { width: 240px; background: #fff; border-right: 1px solid #e6e6ea; padding: 12px 10px; }
+    .navb { text-align: left; border: 0; background: none; font: inherit; padding: 7px 10px;
+            border-radius: 6px; color: #3f3f46; cursor: pointer; display: block; width: 100%; }
+    .navb.active { background: #eef2ff; color: #4f46e5; font-weight: 600; }
+    .topbar { height: 68px; border-bottom: 1px solid #e6e6ea; background: #fff;
+              padding: 10px 18px; display: flex; align-items: center; }
+    .card { background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; padding: 14px 16px; }
+    .muted { color: #71717a; font-size: 12px; }
+    .hint { color: #71717a; font-size: 12.5px; line-height: 1.55; margin: 4px 0 12px; max-width: 880px; }
+
+    .mode-switch { display: inline-flex; gap: 2px; padding: 3px; border-radius: 7px; background: #f4f4f5; }
+    .mode { border: 0; background: transparent; padding: 3px 12px; border-radius: 5px;
+            font-size: 12px; color: #52525b; font-family: inherit; cursor: pointer; }
+    .mode.active { background: #fff; color: #18181b; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); }
+
+    .filter-caption { color: #aaa; font-size: 10px; font-weight: 600; letter-spacing: .06em;
+                      text-transform: uppercase; }
+    .map-chip { padding: 3px 9px; border: 1px solid #d8d8de; border-radius: 999px; background: #fff;
+                color: #a1a1aa; font-size: 12px; font-family: inherit; cursor: pointer; }
+    .map-chip.on { border-color: #4f46e5; background: #eef2ff; color: #4338ca; font-weight: 600; }
+    .map-chip.status-idea { border-style: dashed; }
+    .map-chip.is-fixed { border-style: dotted; border-color: #e6e6ea; color: #c4c4cb; cursor: default; }
+
+    /* --- the roadmap grid ------------------------------------------------
+       Rows are root tracks, in the map's own hues; columns are quarters. The
+       last column is not a quarter: it is committed work carrying no dates,
+       which has nowhere honest to sit on a calendar. */
+    .rmap { display: grid; grid-template-columns: 176px repeat(4, minmax(0, 1fr)); }
+    .qhead { border-left: 1px solid #e6e6ea; border-bottom: 1px solid #e6e6ea;
+             padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 7px; }
+    .qhead.is-now { background: #fbfbfe; box-shadow: inset 0 2px 0 0 #4f46e5; }
+    .qhead.is-undated { background: #fafafa; }
+    .qname { font-size: 13px; font-weight: 700; color: #a1a1aa; letter-spacing: .04em;
+             text-transform: uppercase; display: flex; align-items: baseline; gap: 7px; }
+    .qhead.is-now .qname { color: #18181b; }
+    .qspan { font-size: 10.5px; font-weight: 600; letter-spacing: 0; text-transform: none; color: #a1a1aa; }
+    .qcount { font-size: 11px; color: #71717a; }
+
+    .goal { border: 1px solid #e6e6ea; border-radius: 8px; background: #fff; padding: 8px 10px; }
+    .goal-cap { font-size: 9.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+                color: #a1a1aa; }
+    .goal-text { font-size: 12.5px; line-height: 1.35; color: #18181b; margin-top: 2px; }
+    .goal-target { font-size: 11.5px; line-height: 1.35; color: #3f3f46; margin-top: 6px; }
+    .goal-tick { display: flex; align-items: center; gap: 6px; margin-top: 8px; padding-top: 7px;
+                 border-top: 1px solid #f1f1f4; font-size: 11px; color: #71717a; }
+    .box { width: 12px; height: 12px; border: 1.5px solid #d8d8de; border-radius: 3px; flex: 0 0 12px; }
+    .goal-empty { border: 1px dashed #d8d8de; border-radius: 8px; background: #fff; padding: 10px;
+                  font-size: 11.5px; color: #a1a1aa; text-align: center; }
+
+    .trow-name { border-bottom: 1px solid #f1f1f4; padding: 12px 10px 12px 0;
+                 display: flex; align-items: flex-start; gap: 8px; }
+    .track-rail { flex: 0 0 3px; align-self: stretch; border-radius: 2px; min-height: 34px; }
+    .trow-title { font-size: 13px; font-weight: 700; color: #333; line-height: 1.25; }
+    .trow-sub { font-size: 10.5px; color: #a1a1aa; }
+    .cell { border-left: 1px solid #f1f1f4; border-bottom: 1px solid #f1f1f4; padding: 10px 10px 12px;
+            display: flex; flex-direction: column; gap: 6px; min-height: 68px; }
+    .cell.is-now { background: #fdfdff; }
+    .cell.is-undated { background: #fafafa; }
+    .cell-empty { font-size: 12px; color: #d4d4d8; }
+
+    /* A project in a quarter. The dot is the sidebar's stage dot and the tier
+       pip is the map's, so one project reads the same on all three surfaces.
+       The subtrack rides as a neutral tag: the row already spends the track
+       hue, and a second colour here would claim to mean something it does not. */
+    .pchip { border: 1px solid #e6e6ea; border-radius: 6px; background: #fff; padding: 5px 8px 6px;
+             display: flex; align-items: flex-start; gap: 6px; }
+    .pchip.is-tail { background: #fafafa; border-style: dashed; }
+    .sdot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; margin-top: 4px; }
+    .pname { font-size: 12px; line-height: 1.3; color: #18181b; min-width: 0; }
+    .pmeta { font-size: 10.5px; color: #a1a1aa; line-height: 1.3; }
+    .subtag { display: inline-block; font-size: 9.5px; line-height: 1.5; color: #52525b;
+              background: #f4f4f5; border-radius: 999px; padding: 0 7px; margin-top: 3px; }
+    .tier { font-size: 10px; font-weight: 700; color: #3949ab; margin-left: auto; flex: 0 0 auto;
+            padding-left: 4px; }
+
+    /* Checkpoints, in the purple they already wear on both timelines. */
+    .marks { margin-top: 2px; padding-top: 7px; border-top: 1px dashed #ececf0;
+             display: flex; flex-direction: column; gap: 4px; }
+    .mark { display: flex; align-items: flex-start; gap: 5px; font-size: 10.5px; line-height: 1.3;
+            color: #6a1b9a; }
+    .dia { width: 8px; height: 8px; transform: rotate(45deg); border: 1.5px solid #6a1b9a;
+           background: #fff; flex: 0 0 8px; margin-top: 3px; }
+    .mark.is-reached { color: #a1a1aa; }
+    .mark.is-reached .dia { border-color: #b8a0c4; background: #b8a0c4; }
+  </style>
+</helmet>
+
+<div class="ab" style="width: 1420px; min-height: 1080px; display: flex; background: #fafafa;">
+
+  <div class="side">
+    <div style="font-weight: 700; font-size: 15px; padding: 4px 10px 12px;">Mastermind</div>
+    <div style="display: flex; flex-direction: column; gap: 2px;">
+      <button class="navb active">Map</button>
+      <button class="navb">Project</button>
+      <button class="navb">Portfolio</button>
+      <button class="navb">Sprint</button>
+    </div>
+    <div style="margin: 16px 0 6px; padding: 0 10px; font-size: 10px; font-weight: 600;
+                letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa;">Projects</div>
+    <div style="display: flex; flex-direction: column; gap: 1px;">
+      <div style="display: flex; align-items: center; gap: 7px; padding: 4px 8px; border-radius: 6px; font-size: 12.5px; color: #3f3f46;">
+        <span class="sdot" style="margin: 0; background: #90caf9; box-shadow: inset 0 0 0 1.5px #5c6bc0;"></span>
+        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Multidatasource Adoption</span>
+        <span class="tier">1</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 7px; padding: 4px 8px; border-radius: 6px; font-size: 12.5px; color: #3f3f46;">
+        <span class="sdot" style="margin: 0; background: #cfd8dc; box-shadow: inset 0 0 0 1.5px #90a4ae;"></span>
+        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">DT Gen3 Platform Adoption</span>
+        <span class="tier">1</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 7px; padding: 4px 8px; border-radius: 6px; font-size: 12.5px; color: #3f3f46;">
+        <span class="sdot" style="margin: 0; background: #90caf9; box-shadow: inset 0 0 0 1.5px #5c6bc0;"></span>
+        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">CURADE mini Deployment</span>
+        <span class="tier">1</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 7px; padding: 4px 8px; border-radius: 6px; font-size: 12.5px; color: #3f3f46;">
+        <span class="sdot" style="margin: 0; background: #d5e6f7; box-shadow: inset 0 0 0 1.5px #5c6bc0;"></span>
+        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Clickhouse Setup and OTel</span>
+        <span class="tier">1</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 7px; padding: 4px 8px; border-radius: 6px; font-size: 12.5px; color: #3f3f46;">
+        <span class="sdot" style="margin: 0; background: #90caf9; box-shadow: inset 0 0 0 1.5px #5c6bc0;"></span>
+        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Aggregate Same Transaction</span>
+        <span class="tier">2</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 7px; padding: 4px 8px; border-radius: 6px; font-size: 12.5px; color: #3f3f46;">
+        <span class="sdot" style="margin: 0; background: #90caf9; box-shadow: inset 0 0 0 1.5px #5c6bc0;"></span>
+        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Backend Migration</span>
+        <span class="tier">2</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 7px; padding: 4px 8px; border-radius: 6px; font-size: 12.5px; color: #3f3f46;">
+        <span class="sdot" style="margin: 0; background: #fff; box-shadow: inset 0 0 0 1.5px #9fa8da;"></span>
+        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Graphiti GraphRAG Memory</span>
+        <span class="tier">2</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 7px; padding: 4px 8px; border-radius: 6px; font-size: 12.5px; color: #3f3f46;">
+        <span class="sdot" style="margin: 0; background: #ffccbc; box-shadow: inset 0 0 0 1.5px #d84315;"></span>
+        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Transaction Graph Fix</span>
+        <span class="tier">3</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 7px; padding: 4px 8px; border-radius: 6px; font-size: 12.5px; color: #3f3f46;">
+        <span class="sdot" style="margin: 0; background: #fff; box-shadow: inset 0 0 0 1.5px #bbb;"></span>
+        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: italic;">Prometheus Data Integration</span>
+        <span class="tier">2</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex: 1 1 0; min-width: 0;">
+    <div class="topbar">
+      <div>
+        <div style="font-weight: 700; font-size: 16px; line-height: 1.2;">Map</div>
+        <div class="muted">Platform Engineering &middot; 31 projects &middot; as of 27 Aug 2026</div>
+      </div>
+    </div>
+
+    <div style="padding: 16px 18px; max-width: 1160px;">
+      <div class="card">
+
+        <h2 style="font-size: 15px; font-weight: 700; margin: 0 0 2px;">Team map</h2>
+        <p class="hint">
+          The same projects the graph draws, placed on the quarter their dates
+          land in. A quarter's goal and target are written here; what sits under
+          them is derived from the plan and never rewrites it. Rows are root
+          tracks &mdash; a project's subtrack rides on its chip. The last column
+          is committed work carrying no dates: give one a date and it moves into
+          a quarter.
+        </p>
+
+        <!-- The shipped control row, plus the mode switch on the right. Same
+             placement as the Sprint tab's Rendered|Raw switch: last in the row,
+             after a spacer.
+
+             Status defaults DIFFER between the two modes, deliberately. Graph
+             opens on `active` alone -- where is the team pointed now. A roadmap
+             on that default is empty from Q4 onward by construction, so this
+             mode opens on every committed rung: planning, dated, active, plus
+             the two that are never switchable. -->
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px;">
+          <label style="font-size: 12.5px; color: #3f3f46; display: flex; align-items: center; gap: 7px;">
+            Department
+            <input type="text" value="Platform Engineering"
+              style="font: inherit; font-size: 13px; height: 33px; padding: 0 9px; width: 190px;
+                     border: 1px solid #d8d8de; border-radius: 6px; color: #18181b; background: #fff;">
+          </label>
+          <span style="display: flex; align-items: center; gap: 4px;">
+            <span class="filter-caption">Tier</span>
+            <button class="map-chip on">T1</button>
+            <button class="map-chip on">T2</button>
+            <button class="map-chip on">T3</button>
+            <button class="map-chip on">untiered</button>
+          </span>
+          <span style="display: flex; align-items: center; gap: 4px;">
+            <span class="filter-caption">Status</span>
+            <button class="map-chip status-idea">idea</button>
+            <button class="map-chip on">planning</button>
+            <button class="map-chip on">dated</button>
+            <button class="map-chip on">active</button>
+            <button class="map-chip">done</button>
+            <span class="map-chip is-fixed" style="margin-left: 2px;">planned + overdue always</span>
+          </span>
+          <span style="flex: 1 1 auto;"></span>
+          <span class="mode-switch">
+            <button class="mode">Graph</button>
+            <button class="mode active">Roadmap</button>
+          </span>
+        </div>
+
+        <div class="rmap">
+
+          <!-- ============ quarter headers ============ -->
+          <div style="border-bottom: 1px solid #e6e6ea;"></div>
+
+          <div class="qhead is-now">
+            <div class="qname">Q3 2026 <span class="qspan">Jul &ndash; Sep &middot; now</span></div>
+            <div class="goal">
+              <div class="goal-cap">Goal</div>
+              <div class="goal-text">Every customer report reads from more than one source.</div>
+              <div class="goal-target">
+                <span class="goal-cap">Target</span><br>
+                v3.0.0 released, with a multisource report in a customer's hands.
+              </div>
+              <div class="goal-tick"><span class="box"></span> Not yet achieved</div>
+            </div>
+            <div class="qcount">7 projects &middot; 6 checkpoints, 2 reached</div>
+          </div>
+
+          <div class="qhead">
+            <div class="qname">Q4 2026 <span class="qspan">Oct &ndash; Dec</span></div>
+            <div class="goal-empty">No goal written for this quarter</div>
+            <div class="qcount">2 projects finishing &middot; 1 checkpoint &middot; nothing starts here</div>
+          </div>
+
+          <div class="qhead">
+            <div class="qname">Q1 2027 <span class="qspan">Jan &ndash; Mar</span></div>
+            <div class="goal-empty">No goal written for this quarter</div>
+            <div class="qcount">Nothing dated here yet</div>
+          </div>
+
+          <div class="qhead is-undated">
+            <div class="qname">No date yet</div>
+            <div class="goal-empty" style="border-color: #e6e6ea; text-align: left;">
+              Committed work with nowhere honest to sit on a calendar. Carries no
+              goal of its own.
+            </div>
+            <div class="qcount">4 projects</div>
+          </div>
+
+          <!-- ============ AI Agent ============ -->
+          <div class="trow-name">
+            <div class="track-rail" style="background: #CC79A7;"></div>
+            <div style="min-width: 0;">
+              <div class="trow-title">AI Agent</div>
+              <div class="trow-sub">3 drawn &middot; 3 subtracks</div>
+            </div>
+          </div>
+          <div class="cell is-now"><span class="cell-empty">&mdash;</span></div>
+          <div class="cell"><span class="cell-empty">&mdash;</span></div>
+          <div class="cell"><span class="cell-empty">&mdash;</span></div>
+          <div class="cell is-undated">
+            <div class="pchip">
+              <span class="sdot" style="background: #fff; box-shadow: inset 0 0 0 1.5px #9fa8da;"></span>
+              <span style="min-width: 0;">
+                <span class="pname">Graphiti GraphRAG Memory</span>
+                <div class="pmeta">5 phases, none dated</div>
+                <span class="subtag">Agent Memory</span>
+              </span>
+              <span class="tier">2</span>
+            </div>
+            <div class="pchip">
+              <span class="sdot" style="background: #fff; box-shadow: inset 0 0 0 1.5px #9fa8da;"></span>
+              <span style="min-width: 0;">
+                <span class="pname">Mobile App Sentiment Report</span>
+                <div class="pmeta">4 phases, none dated</div>
+                <span class="subtag">Expansion</span>
+              </span>
+              <span class="tier">2</span>
+            </div>
+            <div class="pchip">
+              <span class="sdot" style="background: #fff; box-shadow: inset 0 0 0 1.5px #9fa8da;"></span>
+              <span style="min-width: 0;">
+                <span class="pname">Automated Incident Report</span>
+                <div class="pmeta">4 phases, none dated</div>
+                <span class="subtag">AI Reporting</span>
+              </span>
+              <span class="tier">3</span>
+            </div>
+          </div>
+
+          <!-- ============ CURADE ============ -->
+          <div class="trow-name">
+            <div class="track-rail" style="background: #D55E00;"></div>
+            <div style="min-width: 0;">
+              <div class="trow-title">CURADE</div>
+              <div class="trow-sub">6 drawn &middot; 4 subtracks</div>
+            </div>
+          </div>
+
+          <div class="cell is-now">
+            <div class="pchip">
+              <span class="sdot" style="background: #90caf9; box-shadow: inset 0 0 0 1.5px #5c6bc0;"></span>
+              <span style="min-width: 0;">
+                <span class="pname">Multidatasource Adoption</span>
+                <div class="pmeta">1 Jul &ndash; 9 Sep</div>
+                <span class="subtag">Source Expansion</span>
+              </span>
+              <span class="tier">1</span>
+            </div>
+            <div class="pchip">
+              <span class="sdot" style="background: #90caf9; box-shadow: inset 0 0 0 1.5px #5c6bc0;"></span>
+              <span style="min-width: 0;">
+                <span class="pname">Aggregate Same Transaction Name</span>
+                <div class="pmeta">12 Aug &ndash; 24 Sep</div>
+                <span class="subtag">Reporting</span>
+              </span>
+              <span class="tier">2</span>
+            </div>
+            <div class="pchip">
+              <span class="sdot" style="background: #ffccbc; box-shadow: inset 0 0 0 1.5px #d84315;"></span>
+              <span style="min-width: 0;">
+                <span class="pname">Transaction Graph Fix</span>
+                <div class="pmeta">12 &ndash; 26 Aug &middot; runway ran out</div>
+                <span class="subtag">UIUX</span>
+              </span>
+              <span class="tier">3</span>
+            </div>
+            <div class="pchip">
+              <span class="sdot" style="background: #ffccbc; box-shadow: inset 0 0 0 1.5px #d84315;"></span>
+              <span style="min-width: 0;">
+                <span class="pname">Gigamon</span>
+                <div class="pmeta">17 &ndash; 24 Aug &middot; runway ran out</div>
+                <span class="subtag">Source Expansion</span>
+              </span>
+              <span class="tier">3</span>
+            </div>
+            <div class="pchip">
+              <span class="sdot" style="background: #d5e6f7; box-shadow: inset 0 0 0 1.5px #5c6bc0;"></span>
+              <span style="min-width: 0;">
+                <span class="pname">Clickhouse Setup and OTel ingestion</span>
+                <div class="pmeta">17 Sep &ndash; 15 Oct &middot; runs into Q4</div>
+                <span class="subtag">Source Expansion</span>
+              </span>
+              <span class="tier">1</span>
+            </div>
+            <div class="marks">
+              <div class="mark"><span class="dia"></span> 27 Aug &middot; Release in v2.8.0</div>
+              <div class="mark"><span class="dia"></span> 27 Aug &middot; Meeting</div>
+              <div class="mark"><span class="dia"></span> 2 Sep &middot; Report with multisource</div>
+              <div class="mark"><span class="dia"></span> 9 Sep &middot; v3.0.0</div>
+              <div class="mark is-reached"><span class="dia"></span> 2 reached</div>
+            </div>
+          </div>
+
+          <div class="cell">
+            <div class="pchip is-tail">
+              <span class="sdot" style="background: #d5e6f7; box-shadow: inset 0 0 0 1.5px #5c6bc0;"></span>
+              <span style="min-width: 0;">
+                <span class="pname">Clickhouse Setup and OTel ingestion</span>
+                <div class="pmeta">from Q3 &middot; ends 15 Oct</div>
+                <span class="subtag">Source Expansion</span>
+              </span>
+              <span class="tier">1</span>
+            </div>
+          </div>
+
+          <div class="cell"><span class="cell-empty">&mdash;</span></div>
+
+          <div class="cell is-undated">
+            <div class="pchip">
+              <span class="sdot" style="background: #fff; box-shadow: inset 0 0 0 1.5px #9fa8da;"></span>
+              <span style="min-width: 0;">
+                <span class="pname">Poller Observability Enhancement</span>
+                <div class="pmeta">1 phase, not dated</div>
+                <span class="subtag">Observability</span>
+              </span>
+              <span class="tier">2</span>
+            </div>
+          </div>
+
+          <!-- ============ Mobile ============ -->
+          <div class="trow-name" style="border-bottom: 0;">
+            <div class="track-rail" style="background: #EE6677;"></div>
+            <div style="min-width: 0;">
+              <div class="trow-title">Mobile</div>
+              <div class="trow-sub">2 drawn &middot; no subtracks</div>
+            </div>
+          </div>
+
+          <div class="cell is-now" style="border-bottom: 0;">
+            <div class="pchip">
+              <span class="sdot" style="background: #90caf9; box-shadow: inset 0 0 0 1.5px #5c6bc0;"></span>
+              <span style="min-width: 0;">
+                <span class="pname">CURADE mini Deployment</span>
+                <div class="pmeta">12 Aug &ndash; 9 Sep</div>
+              </span>
+              <span class="tier">1</span>
+            </div>
+            <div class="pchip">
+              <span class="sdot" style="background: #90caf9; box-shadow: inset 0 0 0 1.5px #5c6bc0;"></span>
+              <span style="min-width: 0;">
+                <span class="pname">Backend Migration to CURADE Backend API</span>
+                <div class="pmeta">26 Aug &ndash; 14 Oct &middot; runs into Q4</div>
+              </span>
+              <span class="tier">2</span>
+            </div>
+          </div>
+
+          <div class="cell" style="border-bottom: 0;">
+            <div class="pchip is-tail">
+              <span class="sdot" style="background: #90caf9; box-shadow: inset 0 0 0 1.5px #5c6bc0;"></span>
+              <span style="min-width: 0;">
+                <span class="pname">Backend Migration to CURADE Backend API</span>
+                <div class="pmeta">from Q3 &middot; ends 14 Oct</div>
+              </span>
+              <span class="tier">2</span>
+            </div>
+            <div class="marks">
+              <div class="mark"><span class="dia"></span> 14 Oct &middot; CURADE mini operates on CURADE Backend API</div>
+            </div>
+          </div>
+
+          <div class="cell" style="border-bottom: 0;"><span class="cell-empty">&mdash;</span></div>
+          <div class="cell is-undated" style="border-bottom: 0;"><span class="cell-empty">&mdash;</span></div>
+        </div>
+
+        <!-- What is NOT on the picture, said rather than left as a silent gap.
+             An absence nobody can account for is the failure mode of a filtered
+             view. -->
+        <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 12px;
+                    padding-top: 10px; border-top: 1px solid #f1f1f4; font-size: 11.5px; color: #71717a;">
+          <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+            <span><strong style="color: #3f3f46;">17 ideas</strong> and <strong style="color: #3f3f46;">3 closed projects</strong> are switched off above.</span>
+            <span><strong style="color: #3f3f46;">External Project</strong> holds only ideas &mdash; no row to draw.</span>
+          </div>
+          <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+            <span>DT Gen3 and Script Enhancement read as <strong style="color: #3f3f46;">done</strong>: every checkpoint on them is ticked.</span>
+            <span>1 checkpoint carries no target date and sits in no quarter.</span>
+            <span style="flex: 1 1 auto;"></span>
+            <span style="display: flex; align-items: center; gap: 5px;">
+              <span class="dia" style="margin: 0;"></span> checkpoint
+              <span class="dia" style="margin: 0 0 0 8px; border-color: #b8a0c4; background: #b8a0c4;"></span> reached
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

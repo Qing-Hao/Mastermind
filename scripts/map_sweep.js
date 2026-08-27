@@ -74,6 +74,12 @@ class StubNode {
       remove: (...names) => this.setClasses(
         this.classes().filter((name) => !names.includes(name))),
       contains: (name) => this.classes().includes(name),
+      // `renderMap` marks the active half of the Graph|Roadmap switch with it.
+      toggle: (name, force) => {
+        const on = force === undefined ? !this.classes().includes(name) : !!force;
+        if (on) this.classList.add(name); else this.classList.remove(name);
+        return on;
+      },
     };
   }
 
