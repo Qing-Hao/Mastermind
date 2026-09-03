@@ -3163,6 +3163,18 @@ function laneMeta(project) {
   const track = trackPath(project.track);
   meta.appendChild(element("span", "lane-rung",
     track.length ? `${project.derived_stage} · ${track[0]}` : project.derived_stage));
+  // On this line rather than beside the title, which is where it was first
+  // drawn: the gutter is 176px and sized to the longest name, so a tag up there
+  // pushes a name into its ellipsis one word sooner. Down here it costs
+  // nothing -- the row exists either way -- and the swimlanes are the surface
+  // where somebody is asking "what are we doing", which is the question the
+  // field answers.
+  const tag = KIND_TAG[project.kind || ""];
+  if (tag) {
+    const mark = element("span", "lane-kind", tag);
+    mark.title = KIND_LABEL[project.kind];
+    meta.appendChild(mark);
+  }
   return meta;
 }
 
@@ -7353,7 +7365,22 @@ function roadmapChip(project, column) {
   body.appendChild(element("div", "roadmap-chip-name", project.name));
   body.appendChild(element("div", "roadmap-chip-meta", chipDates(project, tail)));
   const subtrack = trackPath(project.track)[1];
-  if (subtrack) body.appendChild(element("span", "roadmap-subtag", subtrack));
+  // Both tags on one line, so a chip carrying either grows by one row rather
+  // than two. The subtrack keeps the neutral pill it has always had and the kind
+  // takes the node's indigo: they are different sorts of fact -- where the work
+  // sits, and what sort of work it is -- and drawing them alike would say they
+  // were the same kind of label.
+  const kindTag = KIND_TAG[project.kind || ""];
+  if (subtrack || kindTag) {
+    const tags = element("span", "roadmap-tags");
+    if (subtrack) tags.appendChild(element("span", "roadmap-subtag", subtrack));
+    if (kindTag) {
+      const mark = element("span", "roadmap-kind", kindTag);
+      mark.title = KIND_LABEL[project.kind];
+      tags.appendChild(mark);
+    }
+    body.appendChild(tags);
+  }
   chip.appendChild(body);
 
   if (project.tier) {

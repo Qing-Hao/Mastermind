@@ -1864,6 +1864,19 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
    colour it wears is `.project-dot.stage-*`, defined once, up with the picker. */
 .lane-meta .project-dot { width: 7px; height: 7px; border-width: 1.5px; }
 .lane-rung { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The map node's tag, in a list. Same indigo, same word, so the two surfaces
+   are speaking one vocabulary; `flex: none` because the rung beside it is the
+   part allowed to lose characters. */
+.lane-kind {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--tier-pip);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+}
 
 /* `0` basis rather than `auto`: the bars inside are wider than the box (one of
    them is 26 weeks long if the phase is), and an auto basis would size the column
@@ -4020,15 +4033,31 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 .roadmap-chip-body { min-width: 0; }
 .roadmap-chip-name { font-size: 12px; line-height: 1.3; color: var(--ink); }
 .roadmap-chip-meta { font-size: 10.5px; line-height: 1.3; color: var(--faint); }
+/* Both tags on one row, so a chip carrying a subtrack and a kind grows by one
+   line rather than two. `margin-top` moved here off the subtag, which used to
+   be the only thing in this position. */
+.roadmap-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
 .roadmap-subtag {
   display: inline-block;
-  margin-top: 3px;
   padding: 0 7px;
   border-radius: 999px;
   background: var(--hover);
   font-size: 9.5px;
   line-height: 1.5;
   color: var(--ink-3);
+}
+/* The node's tag again, and deliberately not the neutral pill beside it: where
+   the work sits and what sort of work it is are two different facts, and one
+   pill for both would say they were the same kind of label. */
+.roadmap-kind {
+  display: inline-block;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--tier-pip);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 1.5;
 }
 .roadmap-tier {
   margin-left: auto;
