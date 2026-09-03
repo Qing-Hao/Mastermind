@@ -18,7 +18,7 @@
 
     .tile { background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; padding: 12px 14px; }
     .tile-cap { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa; margin-bottom: 8px; }
-    .mix { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+    .mix { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 10px; }
     .mix-cell { display: flex; flex-direction: column; gap: 2px; }
     .mix-mark { display: flex; align-items: center; gap: 5px; }
     .mix-num { font-size: 28px; font-weight: 700; line-height: 1.05; letter-spacing: -0.02em; color: #18181b; }
@@ -52,7 +52,14 @@
     <div class="mix">
       <div class="mix-cell">
         <div class="mix-mark">
-          <svg width="26" height="14" viewBox="0 0 26 14"><rect x="0" y="0" width="24" height="14" rx="7" fill="#3949ab"></rect><text x="12" y="10.3" text-anchor="middle" fill="#fff" font-size="9.5" font-weight="700" font-family="system-ui, sans-serif">new</text></svg>
+          <svg width="25" height="14" viewBox="0 0 25 14"><rect x="0" y="0" width="23" height="14" rx="7" fill="#3949ab"></rect><text x="11.5" y="10.3" text-anchor="middle" fill="#fff" font-size="9.5" font-weight="700" font-family="system-ui, sans-serif">res</text></svg>
+          <span class="mix-num">4</span>
+        </div>
+        <span class="mix-label">research</span>
+      </div>
+      <div class="mix-cell">
+        <div class="mix-mark">
+          <svg width="31" height="14" viewBox="0 0 31 14"><rect x="0" y="0" width="29" height="14" rx="7" fill="#3949ab"></rect><text x="14.5" y="10.3" text-anchor="middle" fill="#fff" font-size="9.5" font-weight="700" font-family="system-ui, sans-serif">new</text></svg>
           <span class="mix-num">8</span>
         </div>
         <span class="mix-label">new build</span>
@@ -88,7 +95,7 @@
       <div class="mix-cell mix-quiet">
         <div class="mix-mark">
           <svg width="26" height="14" viewBox="0 0 26 14"><rect x="0.75" y="0.75" width="22.5" height="12.5" rx="6.5" fill="#fff" stroke="#d8d8de" stroke-width="1.5"></rect></svg>
-          <span class="mix-num">22</span>
+          <span class="mix-num">18</span>
         </div>
         <span class="mix-label">unclassified</span>
       </div>
@@ -98,6 +105,14 @@
   <div class="tile">
     <div class="tile-cap">Where each kind sits</div>
     <div class="lanes">
+      <div class="lane">
+        <span class="lane-name">research</span>
+        <span class="lane-bar">
+          <span class="seg-idea" style="flex: 2"></span>
+          <span class="seg-active" style="flex: 2"></span>
+        </span>
+        <span class="lane-count">2 idea · 2 active</span>
+      </div>
       <div class="lane">
         <span class="lane-name">new</span>
         <span class="lane-bar">
