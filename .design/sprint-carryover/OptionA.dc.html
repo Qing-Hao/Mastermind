@@ -1,0 +1,201 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #18181b;
+      background: #fafafa;
+    }
+    a { color: #4f46e5; }
+    a:hover { color: #4338ca; }
+    .cb { width: 12px; height: 12px; min-width: 0; padding: 0; margin: 4px 2px 0 0; flex: none; }
+    .line { display: flex; align-items: flex-start; gap: 4px; min-height: 20px; padding: 2px 8px; }
+    .nav { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border-radius: 7px; color: #52525b; font-size: 13.5px; }
+    .nav-on { background: #eef2ff; color: #4338ca; }
+    .btn { font: inherit; font-size: 13px; padding: 5px 12px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff; color: #3f3f46; font-weight: 500; }
+    .add { font: inherit; font-size: 11.5px; padding: 1px 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #71717a; flex: none; }
+    .h2 { font-size: 19px; font-weight: 600; margin: 0 0 2px; }
+    .blockhead { font-size: 16px; font-weight: 600; margin: 4px 0; padding: 2px 8px; }
+    .cell { padding: 5px 7px; border: 1px solid #e6e6ea; }
+    .cellhead { padding: 5px 7px; border: 1px solid #e6e6ea; background: #fafafa; text-align: left; font-weight: 600; }
+    .tab { font: inherit; font-size: 12px; padding: 3px 12px; border: 0; border-radius: 5px; background: transparent; color: #52525b; }
+    .tab-on { background: #fff; color: #18181b; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+  </style>
+</helmet>
+
+<div style="display: flex; width: 1440px; height: 900px; background: #fafafa; align-items: stretch;">
+
+  <!-- sidebar, --sidebar-w: 240px -->
+  <div style="flex: 0 0 240px; display: flex; flex-direction: column; gap: 2px; padding: 16px 12px; background: #fff; border-right: 1px solid #e6e6ea;">
+    <div style="font-size: 15px; font-weight: 600; padding: 0 10px 12px;">Mastermind</div>
+    <div class="nav">Project</div>
+    <div class="nav">Portfolio</div>
+    <div class="nav">Map</div>
+    <div class="nav nav-on">Sprint</div>
+    <div style="height: 1px; background: #f1f1f4; margin: 16px 8px;"></div>
+    <div style="font-size: 11px; font-weight: 600; color: #a1a1aa; letter-spacing: 0.04em; padding: 0 10px 8px;">PROJECTS</div>
+    <div style="font-size: 13px; color: #52525b; padding: 4px 10px;">Auth rebuild</div>
+    <div style="font-size: 13px; color: #52525b; padding: 4px 10px;">Platform hardening</div>
+    <div style="font-size: 13px; color: #52525b; padding: 4px 10px;">AI Agent</div>
+  </div>
+
+  <div style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column;">
+
+    <!-- top bar, --topbar-h: 68px -->
+    <div style="display: flex; align-items: center; gap: 12px; height: 68px; padding: 12px 20px; background: #fff; border-bottom: 1px solid #e6e6ea; flex: none;">
+      <div>
+        <div class="h2">Sprint 04</div>
+        <div style="font-size: 12.5px; color: #71717a;">31 Aug – 11 Sep 2026 · sprints/04.md · new from template</div>
+      </div>
+      <div style="flex: 1;"></div>
+      <div style="font-size: 12px; color: #71717a;">Saved</div>
+    </div>
+
+    <!-- .sprint-layout, but 3fr | minmax(380px, 1fr): the panel earns 120px
+         because the tab in it now holds a document, not a list of names -->
+    <div style="display: grid; grid-template-columns: minmax(0, 764px) 380px; gap: 16px; padding: 20px; align-items: start; flex: 1; min-height: 0;">
+
+      <!-- the file being planned -->
+      <div style="min-width: 0; padding: 14px 16px; border: 1px solid #e6e6ea; border-radius: 10px; background: #fff;">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 0 8px 8px;">
+          <span style="font-size: 12px; color: #71717a;">File</span>
+          <span style="font: inherit; font-size: 13px; padding: 5px 10px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff;">04 · 31 Aug – 11 Sep ▾</span>
+          <div style="flex: 1;"></div>
+          <span style="display: inline-flex; gap: 2px; padding: 3px; border-radius: 7px; background: #f4f4f5;">
+            <span class="tab tab-on">Rendered</span>
+            <span class="tab">Raw file</span>
+          </span>
+        </div>
+
+        <div style="padding-left: 56px;">
+          <div class="blockhead">Committed this fortnight</div>
+
+          <!-- two lines just inserted from the panel: the accent wash is the
+               receipt, and it fades — nothing about it is stored -->
+          <div class="line" style="background: #eef2ff; border-left: 2px solid #c7d2fe; border-radius: 3px;">
+            <input class="cb" type="checkbox">
+            <span style="flex: 1 1 auto;">Session store swap</span>
+            <span style="font-size: 11px; color: #71717a; flex: none;">from 03</span>
+          </div>
+          <div class="line" style="background: #eef2ff; border-left: 2px solid #c7d2fe; border-radius: 3px;">
+            <input class="cb" type="checkbox">
+            <span style="flex: 1 1 auto;">Device sign-out endpoint</span>
+            <span style="font-size: 11px; color: #71717a; flex: none;">from 03</span>
+          </div>
+          <div class="line">
+            <input class="cb" type="checkbox">
+            <span style="flex: 1 1 auto;">Keycloak realm export into the compose file</span>
+          </div>
+          <div class="line" style="color: #a1a1aa;">
+            <input class="cb" type="checkbox">
+            <span style="flex: 1 1 auto;">Type here…</span>
+          </div>
+
+          <div class="blockhead" style="margin-top: 10px;">Capacity</div>
+          <div style="padding: 2px 8px;">
+            <table style="border-collapse: collapse; font-size: 13px; width: 100%;">
+              <tr><th class="cellhead">Task</th><th class="cellhead">Status</th><th class="cellhead">Days</th></tr>
+              <tr><td class="cell">Session store swap</td><td class="cell">Carried</td><td class="cell" style="font-variant-numeric: tabular-nums;">2</td></tr>
+              <tr><td class="cell">Device sign-out</td><td class="cell">Carried</td><td class="cell" style="font-variant-numeric: tabular-nums;">1</td></tr>
+              <tr><td class="cell">Realm export</td><td class="cell">Not started</td><td class="cell" style="font-variant-numeric: tabular-nums;">3</td></tr>
+            </table>
+          </div>
+
+          <div class="blockhead" style="margin-top: 10px;">Reflection</div>
+          <div class="line" style="color: #a1a1aa;"><span>Written at the end, not now.</span></div>
+        </div>
+      </div>
+
+      <!-- the panel that already exists, with a second tab -->
+      <div style="display: flex; flex-direction: column; height: 792px; padding: 12px 14px; border: 1px solid #e6e6ea; border-radius: 10px; background: #fff; overflow: hidden;">
+
+        <span style="display: inline-flex; gap: 2px; padding: 3px; border-radius: 7px; background: #f4f4f5; flex: none; margin-bottom: 10px;">
+          <span class="tab">In scope</span>
+          <span class="tab tab-on">Last sprint · 03</span>
+        </span>
+
+        <div style="font-size: 13px; font-weight: 600;">Sprint 03</div>
+        <div style="font-size: 12px; color: #555; font-weight: 600; margin-bottom: 8px;">18 Aug – 29 Aug · read-only</div>
+
+        <!-- the carry-over readout: derived on read from the previous file,
+             nothing stored, no dismiss -->
+        <div style="border: 1px solid #e6e6ea; border-radius: 6px; padding: 8px 10px; flex: none;">
+          <div style="display: flex; align-items: baseline; gap: 6px;">
+            <span style="font-size: 12.5px; font-weight: 600;">Not finished</span>
+            <span style="font-size: 11.5px; color: #71717a;">4 of 11</span>
+            <div style="flex: 1;"></div>
+            <span class="add" style="border-color: #d8d8de;">Add all</span>
+          </div>
+          <div style="margin-top: 6px; display: flex; flex-direction: column; gap: 2px;">
+            <div style="display: flex; align-items: flex-start; gap: 5px; font-size: 12.5px; color: #a1a1aa;">
+              <input class="cb" type="checkbox" disabled="disabled">
+              <span style="flex: 1 1 auto; color: #a1a1aa; text-decoration: line-through;">Session store swap</span>
+              <span style="font-size: 11px; color: #4f46e5; flex: none;">added</span>
+            </div>
+            <div style="display: flex; align-items: flex-start; gap: 5px; font-size: 12.5px; color: #a1a1aa;">
+              <input class="cb" type="checkbox" disabled="disabled">
+              <span style="flex: 1 1 auto; color: #a1a1aa; text-decoration: line-through;">Device sign-out endpoint</span>
+              <span style="font-size: 11px; color: #4f46e5; flex: none;">added</span>
+            </div>
+            <div style="display: flex; align-items: flex-start; gap: 5px; font-size: 12.5px; background: #fafafa; border-radius: 3px;">
+              <input class="cb" type="checkbox" disabled="disabled">
+              <span style="flex: 1 1 auto;">Rate-limit the import route</span>
+              <span class="add" style="border-color: #d8d8de; background: #fff;">+ Add</span>
+            </div>
+            <div style="display: flex; align-items: flex-start; gap: 5px; font-size: 12.5px;">
+              <input class="cb" type="checkbox" disabled="disabled">
+              <span style="flex: 1 1 auto;">Backup rotation past ten files</span>
+              <span class="add">+ Add</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="height: 1px; background: #f1f1f4; margin: 10px 0;"></div>
+
+        <!-- and the whole previous file under it, scrolling, for the half a
+             carry-over list cannot summarise -->
+        <div style="flex: 1 1 auto; min-height: 0; overflow: hidden; position: relative;">
+          <div style="font-size: 12px; font-weight: 600; color: #71717a; margin-bottom: 4px;">The file itself</div>
+          <div style="font-size: 12.5px; color: #3f3f46;">
+            <div style="font-size: 13.5px; font-weight: 600; margin: 6px 0 2px;">Committed this fortnight</div>
+            <div style="display: flex; gap: 5px;"><input class="cb" type="checkbox" checked="checked" disabled="disabled"><span style="color: #a1a1aa; text-decoration: line-through;">Rate limiter behind the gateway</span></div>
+            <div style="display: flex; gap: 5px;"><input class="cb" type="checkbox" checked="checked" disabled="disabled"><span style="color: #a1a1aa; text-decoration: line-through;">Token refresh on the auth API</span></div>
+            <div style="display: flex; gap: 5px;"><input class="cb" type="checkbox" disabled="disabled"><span>Session store swap</span></div>
+            <div style="display: flex; gap: 5px;"><input class="cb" type="checkbox" disabled="disabled"><span>Device sign-out endpoint</span></div>
+
+            <div style="font-size: 13.5px; font-weight: 600; margin: 8px 0 2px;">Capacity</div>
+            <div style="overflow-x: auto; border: 1px solid #f1f1f4; border-radius: 4px;">
+              <table style="border-collapse: collapse; font-size: 12px; width: 420px;">
+                <tr><th class="cellhead" style="padding: 3px 6px;">Task</th><th class="cellhead" style="padding: 3px 6px;">Status</th><th class="cellhead" style="padding: 3px 6px;">Days</th></tr>
+                <tr><td class="cell" style="padding: 3px 6px;">Rate limiter</td><td class="cell" style="padding: 3px 6px;">Done</td><td class="cell" style="padding: 3px 6px;">3</td></tr>
+                <tr><td class="cell" style="padding: 3px 6px;">Session store</td><td class="cell" style="padding: 3px 6px;">Blocked</td><td class="cell" style="padding: 3px 6px;">2</td></tr>
+              </table>
+            </div>
+
+            <div style="font-size: 13.5px; font-weight: 600; margin: 8px 0 2px;">Reflection</div>
+            <p style="margin: 0; text-wrap: pretty;">Session store swap stalled on the Keycloak realm export — it needs the compose file changed first, so it goes into 04 ahead of the sign-out work rather than beside it.</p>
+          </div>
+          <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 40px; background: linear-gradient(to top, #fff, rgba(255,255,255,0));"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

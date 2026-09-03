@@ -1,0 +1,138 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #18181b;
+      background: #fafafa;
+    }
+    a { color: #4f46e5; }
+    a:hover { color: #4338ca; }
+    .cb { width: 12px; height: 12px; min-width: 0; padding: 0; margin: 4px 2px 0 0; flex: none; }
+    .line { display: flex; align-items: flex-start; gap: 4px; min-height: 20px; padding: 2px 8px; }
+    .blockhead { font-size: 15px; font-weight: 600; margin: 4px 0; padding: 2px 8px; }
+    .cell { padding: 5px 7px; border: 1px solid #e6e6ea; }
+    .cellhead { padding: 5px 7px; border: 1px solid #e6e6ea; background: #fafafa; text-align: left; font-weight: 600; }
+    .btn { font: inherit; font-size: 13px; padding: 5px 12px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff; color: #3f3f46; font-weight: 500; }
+    .btn-primary { border-color: #4f46e5; background: #4f46e5; color: #fff; }
+    .add { font: inherit; font-size: 11.5px; padding: 1px 6px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff; color: #52525b; flex: none; }
+  </style>
+</helmet>
+
+<div style="position: relative; width: 1440px; height: 900px; background: #fafafa; overflow: hidden;">
+
+  <!-- the page underneath: the Sprint tab, unreachable while this is open -->
+  <div style="position: absolute; inset: 0; display: flex; align-items: stretch;">
+    <div style="flex: 0 0 240px; background: #fff; border-right: 1px solid #e6e6ea; padding: 16px 12px;">
+      <div style="font-size: 15px; font-weight: 600; padding: 0 10px 12px;">Mastermind</div>
+      <div style="font-size: 13.5px; color: #52525b; padding: 7px 10px;">Project</div>
+      <div style="font-size: 13.5px; color: #52525b; padding: 7px 10px;">Portfolio</div>
+      <div style="font-size: 13.5px; color: #52525b; padding: 7px 10px;">Map</div>
+      <div style="font-size: 13.5px; padding: 7px 10px; border-radius: 7px; background: #eef2ff; color: #4338ca;">Sprint</div>
+    </div>
+    <div style="flex: 1 1 auto; min-width: 0;">
+      <div style="height: 68px; padding: 12px 20px; background: #fff; border-bottom: 1px solid #e6e6ea;">
+        <div style="font-size: 19px; font-weight: 600; line-height: 1.2;">Sprint 04</div>
+        <div style="font-size: 12.5px; color: #71717a;">31 Aug – 11 Sep 2026 · sprints/04.md</div>
+      </div>
+      <div style="padding: 20px; display: flex; gap: 16px; align-items: flex-start;">
+        <div style="flex: 1 1 auto; height: 300px; border: 1px solid #e6e6ea; border-radius: 10px; background: #fff;"></div>
+        <div style="flex: 0 0 260px; height: 300px; border: 1px solid #e6e6ea; border-radius: 10px; background: #fff;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- backdrop -->
+  <div style="position: absolute; inset: 0; background: rgba(24, 24, 27, 0.42);"></div>
+
+  <!-- the dialog: 1240 wide, so each half gets 600 — more than the split gives -->
+  <div style="position: absolute; left: 100px; top: 70px; width: 1240px; height: 760px; background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; box-shadow: 0 18px 48px rgba(24,24,27,0.28); display: flex; flex-direction: column; overflow: hidden;">
+
+    <div style="display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid #e6e6ea; flex: none;">
+      <div>
+        <div style="font-size: 15px; font-weight: 600;">Compare fortnights</div>
+        <div style="font-size: 12px; color: #71717a;">Both read-only. Esc closes.</div>
+      </div>
+      <div style="flex: 1;"></div>
+      <span class="btn">03 · 18–29 Aug ▾</span>
+      <span style="color: #a1a1aa;">→</span>
+      <span class="btn">04 · 31 Aug – 11 Sep ▾</span>
+      <span class="btn btn-primary">Close and edit 04</span>
+    </div>
+
+    <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0; flex: 1; min-height: 0;">
+
+      <div style="min-width: 0; border-right: 1px solid #e6e6ea; padding: 12px 8px; overflow: hidden;">
+        <div style="display: flex; align-items: baseline; gap: 6px; padding: 0 8px 6px;">
+          <span style="font-size: 13px; font-weight: 600;">Sprint 03</span>
+          <span style="font-size: 11.5px; color: #71717a;">11 lines · 7 ticked</span>
+        </div>
+        <div class="blockhead">Committed this fortnight</div>
+        <div class="line"><input class="cb" type="checkbox" checked="checked" disabled="disabled"><span style="flex: 1 1 auto; color: #a1a1aa; text-decoration: line-through;">Rate limiter behind the gateway</span></div>
+        <div class="line"><input class="cb" type="checkbox" checked="checked" disabled="disabled"><span style="flex: 1 1 auto; color: #a1a1aa; text-decoration: line-through;">Token refresh on the auth API</span></div>
+        <div class="line" style="background: #fff8e1; border-left: 2px solid #ffca28; border-radius: 3px;"><input class="cb" type="checkbox" disabled="disabled"><span style="flex: 1 1 auto;">Session store swap</span><span class="add">+ Add to 04</span></div>
+        <div class="line" style="background: #fff8e1; border-left: 2px solid #ffca28; border-radius: 3px;"><input class="cb" type="checkbox" disabled="disabled"><span style="flex: 1 1 auto;">Device sign-out endpoint</span><span class="add">+ Add to 04</span></div>
+        <div class="line" style="background: #fff8e1; border-left: 2px solid #ffca28; border-radius: 3px;"><input class="cb" type="checkbox" disabled="disabled"><span style="flex: 1 1 auto;">Rate-limit the import route</span><span class="add">+ Add to 04</span></div>
+        <div class="line" style="background: #fff8e1; border-left: 2px solid #ffca28; border-radius: 3px;"><input class="cb" type="checkbox" disabled="disabled"><span style="flex: 1 1 auto;">Backup rotation past ten files</span><span class="add">+ Add to 04</span></div>
+
+        <div class="blockhead" style="margin-top: 10px;">Capacity</div>
+        <div style="padding: 2px 8px;">
+          <table style="border-collapse: collapse; font-size: 12.5px; width: 100%;">
+            <tr><th class="cellhead">Task</th><th class="cellhead">Status</th><th class="cellhead">Days</th><th class="cellhead">Points</th></tr>
+            <tr><td class="cell">Rate limiter</td><td class="cell">Done</td><td class="cell">3</td><td class="cell">5</td></tr>
+            <tr><td class="cell">Token refresh</td><td class="cell">Done</td><td class="cell">2</td><td class="cell">3</td></tr>
+            <tr><td class="cell">Session store</td><td class="cell">Blocked</td><td class="cell">2</td><td class="cell">3</td></tr>
+          </table>
+        </div>
+
+        <div class="blockhead" style="margin-top: 10px;">Reflection</div>
+        <p style="margin: 0; padding: 2px 8px; font-size: 12.5px; color: #3f3f46; text-wrap: pretty;">Session store swap stalled on the Keycloak realm export — it needs the compose file changed first, so it goes into 04 ahead of the sign-out work rather than beside it. Two days of the fortnight went on the container mounts.</p>
+      </div>
+
+      <div style="min-width: 0; padding: 12px 8px; overflow: hidden; background: #fafafa;">
+        <div style="display: flex; align-items: baseline; gap: 6px; padding: 0 8px 6px;">
+          <span style="font-size: 13px; font-weight: 600;">Sprint 04</span>
+          <span style="font-size: 11.5px; color: #71717a;">read-only in here — close to type</span>
+        </div>
+        <div class="blockhead">Committed this fortnight</div>
+        <div class="line" style="background: #eef2ff; border-left: 2px solid #c7d2fe; border-radius: 3px;"><input class="cb" type="checkbox" disabled="disabled"><span style="flex: 1 1 auto;">Session store swap</span><span style="font-size: 11px; color: #4f46e5;">added</span></div>
+        <div class="line" style="background: #eef2ff; border-left: 2px solid #c7d2fe; border-radius: 3px;"><input class="cb" type="checkbox" disabled="disabled"><span style="flex: 1 1 auto;">Device sign-out endpoint</span><span style="font-size: 11px; color: #4f46e5;">added</span></div>
+        <div class="line"><input class="cb" type="checkbox" disabled="disabled"><span style="flex: 1 1 auto;">Keycloak realm export into the compose file</span></div>
+
+        <div class="blockhead" style="margin-top: 10px;">Capacity</div>
+        <div style="padding: 2px 8px;">
+          <table style="border-collapse: collapse; font-size: 12.5px; width: 100%; background: #fff;">
+            <tr><th class="cellhead">Task</th><th class="cellhead">Status</th><th class="cellhead">Days</th><th class="cellhead">Points</th></tr>
+            <tr><td class="cell">Session store swap</td><td class="cell">Carried</td><td class="cell">2</td><td class="cell">3</td></tr>
+            <tr><td class="cell">Device sign-out</td><td class="cell">Carried</td><td class="cell">1</td><td class="cell">2</td></tr>
+          </table>
+        </div>
+
+        <div class="blockhead" style="margin-top: 10px;">Reflection</div>
+        <p style="margin: 0; padding: 2px 8px; font-size: 12.5px; color: #a1a1aa;">Empty until the fortnight ends.</p>
+
+        <div style="margin: 14px 8px 0; padding: 8px 10px; border: 1px dashed #d8d8de; border-radius: 6px; font-size: 12px; color: #71717a; text-wrap: pretty;">
+          The whole cost of this option sits in this half: it is a picture of the file, not the file. Every edit is either an <em>+ Add to 04</em> press on the left, or a trip back out.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

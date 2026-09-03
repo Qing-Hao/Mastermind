@@ -1,0 +1,165 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #18181b;
+      background: #fafafa;
+    }
+    a { color: #4f46e5; }
+    a:hover { color: #4338ca; }
+    .cb { width: 12px; height: 12px; min-width: 0; padding: 0; margin: 4px 2px 0 0; flex: none; }
+    .line { display: flex; align-items: flex-start; gap: 4px; min-height: 20px; padding: 2px 8px; }
+    .nav { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border-radius: 7px; color: #52525b; font-size: 13.5px; }
+    .nav-on { background: #eef2ff; color: #4338ca; }
+    .blockhead { font-size: 16px; font-weight: 600; margin: 4px 0; padding: 2px 8px; }
+    .cell { padding: 5px 7px; border: 1px solid #e6e6ea; }
+    .cellhead { padding: 5px 7px; border: 1px solid #e6e6ea; background: #fafafa; text-align: left; font-weight: 600; }
+    .add { font: inherit; font-size: 11.5px; padding: 1px 6px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff; color: #52525b; flex: none; }
+    .carry { display: flex; align-items: flex-start; gap: 5px; font-size: 12.5px; padding: 2px 4px; border-radius: 3px; }
+  </style>
+</helmet>
+
+<div style="display: flex; width: 1440px; height: 820px; background: #fafafa; align-items: stretch;">
+
+  <div style="flex: 0 0 240px; display: flex; flex-direction: column; gap: 2px; padding: 16px 12px; background: #fff; border-right: 1px solid #e6e6ea;">
+    <div style="font-size: 15px; font-weight: 600; padding: 0 10px 12px;">Mastermind</div>
+    <div class="nav">Project</div>
+    <div class="nav">Portfolio</div>
+    <div class="nav">Map</div>
+    <div class="nav nav-on">Sprint</div>
+    <div style="height: 1px; background: #f1f1f4; margin: 16px 8px;"></div>
+    <div style="font-size: 11px; font-weight: 600; color: #a1a1aa; letter-spacing: 0.04em; padding: 0 10px 8px;">PROJECTS</div>
+    <div style="font-size: 13px; color: #52525b; padding: 4px 10px;">Auth rebuild</div>
+    <div style="font-size: 13px; color: #52525b; padding: 4px 10px;">Platform hardening</div>
+  </div>
+
+  <div style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column;">
+
+    <div style="display: flex; align-items: center; gap: 12px; height: 68px; padding: 12px 20px; background: #fff; border-bottom: 1px solid #e6e6ea; flex: none;">
+      <div>
+        <div style="font-size: 19px; font-weight: 600; line-height: 1.2;">Sprint 04</div>
+        <div style="font-size: 12.5px; color: #71717a;">31 Aug – 11 Sep 2026 · sprints/04.md · new from template</div>
+      </div>
+      <div style="flex: 1;"></div>
+      <div style="font-size: 12px; color: #71717a;">Saved</div>
+    </div>
+
+    <!-- the layout as it is today: 4fr | minmax(260px, 1fr), panel untouched -->
+    <div style="display: grid; grid-template-columns: minmax(0, 884px) 260px; gap: 16px; padding: 20px; align-items: start; flex: 1; min-height: 0;">
+
+      <div style="min-width: 0;">
+
+        <!-- the strip, between the picker row and the document -->
+        <div style="border: 1px solid #e6e6ea; border-left: 3px solid #c7d2fe; border-radius: 10px; background: #fff; padding: 10px 14px;">
+          <div style="display: flex; align-items: baseline; gap: 8px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top: 3px;" aria-hidden="true">
+              <path d="M4 12h13"></path><path d="M13 6l6 6-6 6"></path>
+            </svg>
+            <span style="font-size: 13.5px; font-weight: 600;">Carried from Sprint 03</span>
+            <span style="font-size: 12px; color: #71717a;">4 lines left unticked · 18–29 Aug</span>
+            <div style="flex: 1;"></div>
+            <span class="add">Add all four</span>
+            <span class="add" style="border-color: transparent; background: transparent;">Open 03 ↗</span>
+            <span style="font-size: 12px; color: #71717a; padding-left: 4px;">▴</span>
+          </div>
+
+          <div style="margin-top: 8px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 2px 18px;">
+            <div class="carry" style="color: #a1a1aa;">
+              <input class="cb" type="checkbox" disabled="disabled">
+              <span style="flex: 1 1 auto; text-decoration: line-through;">Session store swap</span>
+              <span style="font-size: 11px; color: #4f46e5;">added</span>
+            </div>
+            <div class="carry" style="color: #a1a1aa;">
+              <input class="cb" type="checkbox" disabled="disabled">
+              <span style="flex: 1 1 auto; text-decoration: line-through;">Device sign-out endpoint</span>
+              <span style="font-size: 11px; color: #4f46e5;">added</span>
+            </div>
+            <div class="carry" style="background: #fafafa;">
+              <input class="cb" type="checkbox" disabled="disabled">
+              <span style="flex: 1 1 auto;">Rate-limit the import route</span>
+              <span class="add">+ Add</span>
+            </div>
+            <div class="carry">
+              <input class="cb" type="checkbox" disabled="disabled">
+              <span style="flex: 1 1 auto;">Backup rotation past ten files</span>
+              <span class="add" style="border-color: transparent; background: transparent;">+ Add</span>
+            </div>
+          </div>
+
+          <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #f1f1f4; font-size: 12px; color: #71717a; text-wrap: pretty;">
+            <strong style="color: #52525b; font-weight: 600;">Reflection, 03:</strong> Session store swap stalled on the Keycloak realm export — it needs the compose file changed first, so it goes into 04 ahead of the sign-out work rather than beside it.
+          </div>
+        </div>
+
+        <!-- the same strip once nothing is left over, and once it is collapsed -->
+        <div style="display: flex; gap: 10px; margin-top: 10px;">
+          <div style="flex: 1 1 0; border: 1px solid #e6e6ea; border-left: 3px solid #e6e6ea; border-radius: 10px; background: #fff; padding: 8px 14px; font-size: 12.5px; color: #71717a;">
+            <strong style="color: #52525b;">Collapsed:</strong> Carried from 03 — 4 lines ▾
+          </div>
+          <div style="flex: 1 1 0; border: 1px solid #e6e6ea; border-left: 3px solid #a5d6a7; border-radius: 10px; background: #fff; padding: 8px 14px; font-size: 12.5px; color: #71717a;">
+            <strong style="color: #52525b;">Nothing left over:</strong> Sprint 03 finished clean — strip absent
+          </div>
+        </div>
+
+        <!-- the document, at full 884px: the point of this option -->
+        <div style="margin-top: 10px; padding: 14px 16px; border: 1px solid #e6e6ea; border-radius: 10px; background: #fff;">
+          <div style="padding-left: 56px;">
+            <div class="blockhead">Committed this fortnight</div>
+            <div class="line" style="background: #eef2ff; border-left: 2px solid #c7d2fe; border-radius: 3px;"><input class="cb" type="checkbox"><span style="flex: 1 1 auto;">Session store swap</span></div>
+            <div class="line" style="background: #eef2ff; border-left: 2px solid #c7d2fe; border-radius: 3px;"><input class="cb" type="checkbox"><span style="flex: 1 1 auto;">Device sign-out endpoint</span></div>
+            <div class="line"><input class="cb" type="checkbox"><span style="flex: 1 1 auto;">Keycloak realm export into the compose file</span></div>
+
+            <div class="blockhead" style="margin-top: 10px;">Capacity</div>
+            <div style="padding: 2px 8px;">
+              <table style="border-collapse: collapse; font-size: 13px; width: 100%;">
+                <tr><th class="cellhead">Task</th><th class="cellhead">Status</th><th class="cellhead">Days</th><th class="cellhead">Points</th></tr>
+                <tr><td class="cell">Session store swap</td><td class="cell">Carried</td><td class="cell">2</td><td class="cell">3</td></tr>
+                <tr><td class="cell">Device sign-out</td><td class="cell">Carried</td><td class="cell">1</td><td class="cell">2</td></tr>
+                <tr><td class="cell">Realm export</td><td class="cell">Not started</td><td class="cell">3</td><td class="cell">5</td></tr>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- the scope panel exactly as it is today -->
+      <div style="padding: 12px 14px; border: 1px solid #e6e6ea; border-radius: 10px; background: #fff;">
+        <div style="margin: 0 0 4px; font-size: 13px; font-weight: 600;">In scope</div>
+        <div style="margin: 0 0 8px; font-size: 12px; color: #555; font-weight: 600;">31 Aug – 11 Sep</div>
+        <div style="margin-top: 6px; border-left: 3px solid #5c6bc0; padding-left: 6px;">
+          <div style="font-size: 12px; color: #5c6bc0; font-weight: 600;">Platform · Hardening</div>
+          <ul style="margin: 2px 0 0; padding-left: 2px; font-size: 12px; list-style: none;">
+            <li style="display: flex; gap: 5px;"><input class="cb" type="checkbox" disabled="disabled"><span>Session store swap</span></li>
+            <li style="display: flex; gap: 5px;"><input class="cb" type="checkbox" disabled="disabled">Backup rotation</li>
+          </ul>
+        </div>
+        <div style="margin-top: 8px; border-left: 3px solid #26a69a; padding-left: 6px;">
+          <div style="font-size: 12px; color: #26a69a; font-weight: 600;">Auth rebuild · API</div>
+          <ul style="margin: 2px 0 0; padding-left: 2px; font-size: 12px; list-style: none;">
+            <li style="display: flex; gap: 5px;"><input class="cb" type="checkbox" disabled="disabled"><span>Device sign-out</span></li>
+            <li style="display: flex; gap: 5px;"><input class="cb" type="checkbox" disabled="disabled"><span>Realm export</span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

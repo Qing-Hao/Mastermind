@@ -228,10 +228,11 @@ function renderSprintView() {
   renderSprintStatus();
   renderSprintMode();
   renderSprintDocument();
-  // The panel beside the document. It lives in app.js because it reads the
-  // **roadmap** -- this file still knows nothing about one, and nothing about a
-  // sprint beyond its number and the dates in its first line.
-  renderSprintScope();
+  // The panel beside the document, and both its tabs. It lives in app.js because
+  // one tab reads the **roadmap** and the other knows what a sprint section is --
+  // this file still knows neither, and nothing about a sprint beyond its number
+  // and the dates in its first line.
+  renderSprintSide();
 }
 
 function renderSprintPicker() {

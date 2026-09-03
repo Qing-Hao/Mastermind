@@ -1,0 +1,276 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #18181b;
+      background: #fafafa;
+    }
+    a { color: #4f46e5; }
+    a:hover { color: #4338ca; }
+    .cb { width: 11px; height: 11px; min-width: 0; padding: 0; margin: 0; flex: none; }
+    .nav { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border-radius: 7px; color: #52525b; font-size: 13.5px; }
+    .nav-on { background: #eef2ff; color: #4338ca; }
+    .tab { font: inherit; font-size: 12px; padding: 3px 10px; border-radius: 5px; color: #52525b; }
+    .tab-on { background: #fff; color: #18181b; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+    .pill { font-size: 10.5px; padding: 1px 7px; border: 1px solid #d8d8de; border-radius: 10px; background: #fff; color: #52525b; white-space: nowrap; }
+    .pill-on { border-color: #c7d2fe; background: #eef2ff; color: #4338ca; }
+    .refhead { font-size: 11px; font-weight: 600; letter-spacing: 0.03em; color: #a1a1aa; padding: 8px 0 4px; }
+    .card { border: 1px solid #e6e6ea; border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; }
+    .ctitle { font-size: 12px; font-weight: 600; line-height: 1.35; }
+    .meta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+    .m { font-size: 10px; padding: 0 5px; border-radius: 8px; background: #f4f4f5; color: #52525b; white-space: nowrap; }
+    .grp { font-size: 10.5px; color: #71717a; margin-top: 3px; }
+    .it { display: flex; align-items: flex-start; gap: 4px; font-size: 11px; line-height: 1.4; padding-left: 6px; }
+    .done { color: #a1a1aa; text-decoration: line-through; }
+    .ref { font-size: 9.5px; padding: 0 3px; border-radius: 3px; background: #eef2ff; color: #71717a; }
+    .cell { padding: 4px 6px; border: 1px solid #e6e6ea; font-size: 11.5px; vertical-align: top; }
+    .cellhead { padding: 4px 6px; border: 1px solid #e6e6ea; background: #fafafa; text-align: left; font-weight: 600; font-size: 10.5px; white-space: nowrap; color: #3f3f46; }
+    .blockhead { font-size: 16px; font-weight: 600; margin: 4px 0; padding: 2px 8px; }
+  </style>
+</helmet>
+
+<div style="display: flex; width: 1440px; height: 900px; background: #fafafa; align-items: stretch;">
+
+  <div style="flex: 0 0 240px; display: flex; flex-direction: column; gap: 2px; padding: 16px 12px; background: #fff; border-right: 1px solid #e6e6ea;">
+    <div style="font-size: 15px; font-weight: 600; padding: 0 10px 12px;">Mastermind</div>
+    <div class="nav">Project</div>
+    <div class="nav">Portfolio</div>
+    <div class="nav">Map</div>
+    <div class="nav nav-on">Sprint</div>
+    <div style="height: 1px; background: #f1f1f4; margin: 16px 8px;"></div>
+    <div style="font-size: 11px; font-weight: 600; color: #a1a1aa; letter-spacing: 0.04em; padding: 0 10px 8px;">PROJECTS</div>
+    <div style="font-size: 13px; color: #52525b; padding: 4px 10px;">DQL Poller</div>
+    <div style="font-size: 13px; color: #52525b; padding: 4px 10px;">Multidatasource</div>
+    <div style="font-size: 13px; color: #52525b; padding: 4px 10px;">CURADE mini</div>
+  </div>
+
+  <div style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column;">
+
+    <div style="display: flex; align-items: center; gap: 12px; height: 68px; padding: 12px 20px; background: #fff; border-bottom: 1px solid #e6e6ea; flex: none;">
+      <div>
+        <div style="font-size: 19px; font-weight: 600; line-height: 1.2;">Sprint 2</div>
+        <div style="font-size: 12.5px; color: #71717a;">26 Aug – 9 Sep 2026 · sprints/02.md</div>
+      </div>
+      <div style="flex: 1;"></div>
+      <div style="font-size: 12px; color: #71717a;">Saved</div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 380px minmax(0, 764px); gap: 16px; padding: 20px; align-items: start; flex: 1; min-height: 0;">
+
+      <!-- REFERENCE: sprints/01.md, read-only, one card per table row -->
+      <div style="display: flex; flex-direction: column; height: 792px; border: 1px solid #e6e6ea; border-radius: 10px; background: #fff; overflow: hidden;">
+
+        <div style="padding: 9px 10px 8px; border-bottom: 1px solid #f1f1f4;">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="display: inline-flex; gap: 2px; padding: 3px; border-radius: 7px; background: #f4f4f5;">
+              <span class="tab tab-on">Reference</span>
+              <span class="tab">In scope</span>
+            </span>
+            <div style="flex: 1;"></div>
+            <!-- collapse, because 764 is less than the 884 the document has today -->
+            <span style="display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border: 1px solid #d8d8de; border-radius: 5px; color: #52525b; font-size: 11px;">‹</span>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 6px; margin-top: 8px;">
+            <span style="font: inherit; font-size: 12.5px; padding: 4px 8px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff; flex: 1 1 auto;">Sprint 1 · 12–26 Aug &nbsp;▾</span>
+          </div>
+
+          <div style="display: flex; gap: 4px; margin-top: 7px; flex-wrap: wrap;">
+            <span class="pill pill-on">3. Product</span>
+            <span class="pill pill-on">4. Enablement</span>
+            <span class="pill pill-on">5. Unplanned</span>
+            <span class="pill">Whole file</span>
+          </div>
+        </div>
+
+        <div style="flex: 1 1 auto; min-height: 0; display: flex; overflow: hidden;">
+          <div style="flex: 1 1 auto; min-width: 0; padding: 0 8px 8px; overflow: hidden; position: relative;">
+
+            <div class="refhead">3. PRODUCT WORK · 5 ROWS</div>
+
+            <div class="card">
+              <div class="ctitle">DQL Poller</div>
+              <div class="meta">
+                <span class="m">@Bernard</span><span class="m">3 SP</span>
+                <span class="m" style="background: #ffebee; color: #c62828;">🟥 HIGH</span>
+                <span class="m">Merged, Testing</span>
+              </div>
+              <div class="grp">User Acceptance</div>
+              <div class="it"><input class="cb" type="checkbox" checked="checked" disabled="disabled"><span class="done">Report generation with DQL datapoints <span class="ref">#D-62</span></span></div>
+              <div class="it"><input class="cb" type="checkbox" checked="checked" disabled="disabled"><span class="done">Hourly scheduler in dev <span class="ref">#D-61</span></span></div>
+              <div class="it"><input class="cb" type="checkbox" disabled="disabled"><span>Data Validation with UITM team</span></div>
+            </div>
+
+            <div class="card" style="border-color: #c7d2fe;">
+              <div class="ctitle">Multi Data Source Integration</div>
+              <div class="meta">
+                <span class="m">@Song Le</span><span class="m">5 SP</span>
+                <span class="m" style="background: #ffebee; color: #c62828;">🟥 HIGH</span>
+                <span class="m">Dev</span>
+                <span class="m" style="background: #fff8e1; color: #8d6e00;">dep: DQL Poller</span>
+              </div>
+              <div class="grp">Backend Method Adapting to MultiDatasource</div>
+              <div class="it"><input class="cb" type="checkbox" disabled="disabled"><span>add new test cases (manage new source)</span></div>
+              <div class="it"><input class="cb" type="checkbox" disabled="disabled"><span>Merge dev branch, remove python code for polling metrics</span></div>
+            </div>
+
+            <div class="card">
+              <div class="ctitle">CURADE mini</div>
+              <div class="meta">
+                <span class="m">@Shahirul</span><span class="m">3 SP</span>
+                <span class="m" style="background: #fff8e1; color: #8d6e00;">🟨 MEDIUM</span>
+                <span class="m">Dev, Documenting</span>
+              </div>
+              <div class="grp">Compilation Feedback</div>
+              <div class="it"><input class="cb" type="checkbox" checked="checked" disabled="disabled"><span class="done">Multilingual options</span></div>
+              <div class="grp">Validation Testing</div>
+              <div class="it"><input class="cb" type="checkbox" disabled="disabled"><span>Security Review</span></div>
+              <div class="it"><input class="cb" type="checkbox" disabled="disabled"><span>User Acceptance for new changes</span></div>
+              <div class="it"><input class="cb" type="checkbox" disabled="disabled"><span>Setup Dummy Backend</span></div>
+              <div class="grp">Documentation</div>
+              <div class="it"><input class="cb" type="checkbox" checked="checked" disabled="disabled"><span class="done">Deployment Guide</span></div>
+            </div>
+
+            <div class="card">
+              <div class="ctitle">Automated Performance Report</div>
+              <div class="meta">
+                <span class="m">@Boo Jing</span><span class="m">2 SP</span>
+                <span class="m" style="background: #e8f5e9; color: #2e7d32;">🟩 LOW</span>
+                <span class="m">Testing</span>
+              </div>
+              <div class="grp">Report Evals</div>
+              <div class="it"><input class="cb" type="checkbox" checked="checked" disabled="disabled"><span class="done">Test and calibrate evaluator</span></div>
+              <div class="it"><input class="cb" type="checkbox" checked="checked" disabled="disabled"><span class="done">Merge with Dev</span></div>
+              <div class="it"><input class="cb" type="checkbox" checked="checked" disabled="disabled"><span class="done">Documentation</span></div>
+              <div class="it"><input class="cb" type="checkbox" disabled="disabled"><span>Refactor code</span></div>
+            </div>
+
+            <div class="card" style="margin-bottom: 0;">
+              <div class="ctitle">Gigamon</div>
+              <div class="meta">
+                <span class="m">@Qing Hao</span><span class="m">2 SP</span>
+                <span class="m" style="background: #e8f5e9; color: #2e7d32;">🟩 LOW</span>
+                <span class="m">Complete in research</span>
+              </div>
+              <div class="grp">Research</div>
+              <div class="it"><input class="cb" type="checkbox" checked="checked" disabled="disabled"><span class="done">Gigamon Architecture <span class="ref">#D-57</span></span></div>
+            </div>
+
+            <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 46px; background: linear-gradient(to top, #fff 45%, rgba(255,255,255,0));"></div>
+            <div style="position: absolute; left: 8px; right: 8px; bottom: 4px; font-size: 10px; color: #a1a1aa;">4. Enablement · 2 rows &nbsp;·&nbsp; 5. Unplanned · 2 rows &nbsp;— further down</div>
+          </div>
+
+          <div style="flex: none; width: 5px; margin: 4px 4px 4px 0; background: #f1f1f4; border-radius: 3px; position: relative;">
+            <div style="position: absolute; top: 2px; height: 300px; left: 0; right: 0; background: #d8d8de; border-radius: 3px;"></div>
+          </div>
+        </div>
+
+        <div style="flex: none; padding: 6px 10px; border-top: 1px solid #f1f1f4; background: #fafafa; font-size: 10px; color: #71717a;">
+          sprints/01.md · read-only · scrolls on its own
+        </div>
+      </div>
+
+      <!-- THE PLANNING FILE: sprints/02.md, the editor exactly as it is -->
+      <div style="min-width: 0; display: flex; flex-direction: column; height: 792px; padding: 12px 14px; border: 1px solid #e6e6ea; border-radius: 10px; background: #fff; overflow: hidden;">
+
+        <div style="display: flex; align-items: center; gap: 8px; padding: 0 8px 8px; flex: none;">
+          <span style="font-size: 12px; color: #71717a;">File</span>
+          <span style="font: inherit; font-size: 13px; padding: 5px 10px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff;">02 · 26 Aug – 9 Sep ▾</span>
+          <div style="flex: 1;"></div>
+          <span style="display: inline-flex; gap: 2px; padding: 3px; border-radius: 7px; background: #f4f4f5;">
+            <span class="tab tab-on">Rendered</span>
+            <span class="tab">Raw file</span>
+          </span>
+        </div>
+
+        <div style="flex: 1 1 auto; min-height: 0; display: flex; overflow: hidden;">
+          <div style="flex: 1 1 auto; min-width: 0; padding-left: 46px; overflow: hidden;">
+
+            <div class="blockhead">3. Product Work</div>
+
+            <div style="padding: 2px 8px; overflow: hidden; position: relative;">
+              <table style="border-collapse: collapse; width: 1020px;">
+                <tr>
+                  <th class="cellhead" style="width: 300px;">Task</th><th class="cellhead">PIC</th><th class="cellhead">Reviewer</th>
+                  <th class="cellhead">SP</th><th class="cellhead">Priority</th><th class="cellhead">Status</th>
+                  <th class="cellhead">Dependency / Remarks</th><th class="cellhead">Actual</th>
+                </tr>
+                <tr>
+                  <td class="cell">
+                    <div style="font-weight: 600;">Auto Recovery Transaction Data when registered</div>
+                    <div style="font-size: 11px; color: #71717a;">Backend</div>
+                    <div style="display: flex; gap: 4px; padding-left: 6px;"><input class="cb" type="checkbox" style="margin-top: 4px;"><span>AutoRecovery when manual register</span></div>
+                    <div style="display: flex; gap: 4px; padding-left: 6px;"><input class="cb" type="checkbox" style="margin-top: 4px;"><span>PR Check</span></div>
+                  </td>
+                  <td class="cell">@Bernard</td><td class="cell">@Song Le</td><td class="cell">3</td>
+                  <td class="cell">🟥 HIGH</td><td class="cell">ON PR waiting for review</td><td class="cell"></td><td class="cell"></td>
+                </tr>
+                <tr>
+                  <td class="cell" style="background: #fafafa;">
+                    <div style="font-weight: 600;">Multidatasource Adoption</div>
+                    <div style="font-size: 11px; color: #71717a;">Backend Method Adapting to MultiDatasource</div>
+                    <div style="display: flex; gap: 4px; padding-left: 6px;"><input class="cb" type="checkbox" style="margin-top: 4px;"><span>add new test cases (manage new source)</span></div>
+                    <div style="display: flex; gap: 4px; padding-left: 6px;"><input class="cb" type="checkbox" style="margin-top: 4px;"><span>Merge dev branch, remove python code for polling metrics</span></div>
+                  </td>
+                  <td class="cell">@Song Le</td><td class="cell">@QingHao</td><td class="cell">5</td>
+                  <td class="cell">🟥 HIGH</td><td class="cell">ON PR</td>
+                  <td class="cell">Waiting to merge with DQL poller and Autorecovery transaction</td><td class="cell"></td>
+                </tr>
+                <tr>
+                  <td class="cell">
+                    <div style="font-weight: 600;">DQL source Report Data</div>
+                    <div style="font-size: 11px; color: #71717a;">Acceptance</div>
+                    <div style="display: flex; gap: 4px; padding-left: 6px;"><input class="cb" type="checkbox" style="margin-top: 4px;"><span>Present to UITM engineers (Before 28/8/2026)</span></div>
+                  </td>
+                  <td class="cell">@Bernard</td><td class="cell"></td><td class="cell">1</td>
+                  <td class="cell">🟥 HIGH</td><td class="cell">PREPARING REPORT TO SEND</td><td class="cell"></td><td class="cell"></td>
+                </tr>
+                <tr>
+                  <td class="cell">
+                    <div style="font-weight: 600;">CURADE mini Deploy to Google PlayStore</div>
+                    <div style="font-size: 11px; color: #71717a;">Requirements</div>
+                    <div style="display: flex; gap: 4px; padding-left: 6px;"><input class="cb" type="checkbox" style="margin-top: 4px;"><span>PlayStore Accounts</span></div>
+                    <div style="display: flex; gap: 4px; padding-left: 6px;"><input class="cb" type="checkbox" style="margin-top: 4px;"><span>Security Review</span></div>
+                  </td>
+                  <td class="cell">@Shahirul</td><td class="cell">@QingHao<br>@Song Le</td><td class="cell">3</td>
+                  <td class="cell">🟨 MEDIUM</td><td class="cell">NOT STARTED</td><td class="cell"></td><td class="cell"></td>
+                </tr>
+              </table>
+              <div style="position: absolute; top: 0; right: 0; bottom: 0; width: 60px; background: linear-gradient(to left, #fff 40%, rgba(255,255,255,0));"></div>
+            </div>
+
+            <div style="padding: 6px 8px 0; font-size: 12.5px; color: #3f3f46;">
+              · <strong>Planned Product SP: 16</strong>
+            </div>
+            <div style="padding: 4px 8px 0; font-size: 11px; color: #71717a;">
+              ↔ the eight columns scroll as they do today — at 764px the Task column keeps its 300px, the rest scroll under the fade. Collapse the panel (‹) and the document is back to the full 1160.
+            </div>
+          </div>
+
+          <div style="flex: none; width: 5px; margin: 4px 0; background: #f1f1f4; border-radius: 3px; position: relative;">
+            <div style="position: absolute; top: 60px; height: 340px; left: 0; right: 0; background: #d8d8de; border-radius: 3px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

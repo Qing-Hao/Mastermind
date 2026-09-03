@@ -701,10 +701,48 @@
         </div>
       </section>
 
-      <!-- The roadmap beside the file, read-only. Drawn from the fortnight in
-           this file's own heading; it writes nothing and offers no insert,
-           because putting a deliverable into a sprint is the Phase 2 line. -->
-      <aside id="sprint-scope" class="sprint-scope"></aside>
+      <!-- Two readouts beside the file, and both are reads: the roadmap for this
+           fortnight, and another sprint file to plan against. Neither writes
+           anything -- no insert, no carry-over, no tick. Putting a deliverable
+           into a sprint is still the Phase 2 line, and copying a row from last
+           fortnight into this one was designed and deliberately dropped: see
+           `.design/sprint-carryover/` and STATUS.md. -->
+      <div id="sprint-side" class="sprint-side">
+        <div class="sprint-side-head">
+          <span id="sprint-side-tabs" class="mode-switch">
+            <button id="sprint-side-scope" type="button" class="mode active">In scope</button>
+            <button id="sprint-side-ref" type="button" class="mode"
+              data-tip="Another fortnight, read-only"
+              data-tip-body="Any sprint file on disk, drawn beside the one you are planning. It writes nothing.">Reference</button>
+          </span>
+          <span class="spacer"></span>
+          <!-- The document is 4:1 of the row; the Reference tab takes a wider
+               column than the scope list needs, so this is the way back to the
+               full width for a heads-down editing pass. -->
+          <button id="sprint-side-collapse" type="button" class="btn-ghost sprint-side-toggle"
+            title="Hide the panel">&#8250;</button>
+        </div>
+
+        <!-- The reference: a sprint file, read-only. Its own picker, because the
+             file it draws is deliberately not the one the editor has open. -->
+        <div id="sprint-ref" class="sprint-ref" hidden>
+          <div class="sprint-ref-pick">
+            <select id="sprint-ref-select"
+              data-tip="Newest first"
+              data-tip-body="Every sprint file in sprints/. The template is not offered -- it plans no fortnight, so there is nothing to read it against."></select>
+          </div>
+          <!-- One pill per heading the file actually has. Nothing here knows what
+               a sprint section is called: the list comes off the file, and the
+               numbered three are pre-selected only where they exist. -->
+          <div id="sprint-ref-pills" class="sprint-ref-pills"></div>
+          <div id="sprint-ref-body" class="sprint-ref-body"></div>
+        </div>
+
+        <!-- The roadmap beside the file, read-only. Drawn from the fortnight in
+             this file's own heading; it writes nothing and offers no insert,
+             because putting a deliverable into a sprint is the Phase 2 line. -->
+        <aside id="sprint-scope" class="sprint-scope"></aside>
+      </div>
      </div>
     </div>
   </main>

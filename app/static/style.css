@@ -2490,6 +2490,178 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   .sprint-layout { grid-template-columns: minmax(0, 1fr); }
 }
 
+/* --- the panel beside the file, and its two tabs -------------------------
+   One column holding two readouts -- the roadmap for this fortnight, and
+   another sprint file read-only -- with a tab strip above them and a collapse.
+   **The column's width belongs to the tab that is showing**, because the two
+   want different amounts of it: a deliverable name reads in 260px, and a card
+   carrying a task title plus its checklist does not. 380px was measured against
+   `sprints/01.md`, whose §3 rows run past 300 characters.
+   Both variants are set by `renderSprintSide`, and neither is the default: with
+   the scope tab open the row is the 4:1 it has always been. */
+.sprint-layout.side-wide { grid-template-columns: minmax(0, 1fr) 380px; }
+/* Collapsed is a narrower column, not an absent one -- the rail's own argument,
+   one section up: hiding it outright would take the way back with it. */
+.sprint-layout.side-shut { grid-template-columns: minmax(0, 1fr) 34px; }
+@media (max-width: 1180px) {
+  .sprint-layout.side-wide,
+  .sprint-layout.side-shut { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* The sticky now lives out here rather than on `.sprint-scope`, because there
+   are two panels to keep beside the document and only one of them can carry it.
+   `.tall` is the definite height the scope panel's split needs, set by the
+   render on the two states that have something full-height to draw -- see the
+   measured note on `.sprint-scope.has-split` below, which is why this is a class
+   and not an unconditional height. */
+.sprint-side {
+  position: sticky;
+  top: calc(var(--topbar-h) + 12px);
+  max-height: calc(100vh - var(--topbar-h) - 24px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.sprint-side.tall { height: calc(100vh - var(--topbar-h) - 24px); }
+@media (max-width: 1180px) {
+  .sprint-side { position: static; max-height: none; }
+  .sprint-side.tall { height: auto; }
+}
+
+/* Inside the wrapper the scope panel is an ordinary flex child: it keeps its
+   card, loses its own sticky and takes the height the column hands it. */
+.sprint-side > .sprint-scope {
+  position: static;
+  top: auto;
+  max-height: none;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.sprint-side > .sprint-scope.has-split { height: auto; }
+
+.sprint-side-head { display: flex; align-items: center; flex: none; }
+.sprint-side-toggle { padding: 2px 7px; font-size: 13px; line-height: 1.2; }
+
+/* Collapsed: the toggle is all that is left, and it stacks so a 34px column can
+   hold it. `display: none` on a class here is safe -- neither panel is toggled
+   with the `hidden` attribute, and the one element that is (`.mode-switch`)
+   keeps its own `[hidden]` guard further up. */
+.sprint-side.shut { gap: 0; }
+.sprint-side.shut .sprint-side-head { justify-content: center; }
+.sprint-side.shut #sprint-side-tabs,
+.sprint-side.shut .sprint-ref,
+.sprint-side.shut .sprint-scope { display: none; }
+
+/* --- the reference panel ------------------------------------------------- */
+.sprint-ref {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+/* The trap: the panel is toggled with the `hidden` attribute and the rule above
+   sets `display`, which outranks the UA sheet's `[hidden]`. Nine features have
+   been broken invisibly by exactly this. */
+.sprint-ref[hidden] { display: none; }
+.sprint-ref-pick { flex: none; }
+.sprint-ref-pick select { width: 100%; }
+.sprint-ref-pills { display: flex; flex-wrap: wrap; gap: 4px; flex: none; }
+.ref-pill {
+  font: inherit;
+  font-size: 11px;
+  padding: 1px 8px;
+  border: 1px solid var(--field);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.ref-pill:hover { background: var(--hover); }
+.ref-pill.on { border-color: var(--accent-ring); background: var(--accent-soft); color: var(--accent-hover); }
+.sprint-ref-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.sprint-ref-note { margin: 0; font-size: 11.5px; color: var(--muted); }
+
+.ref-sec { margin-top: 12px; }
+.ref-sec:first-child { margin-top: 0; }
+.ref-sec-head {
+  margin: 0 0 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* **One card per table row.** The panel is 380px and a sprint table is eight
+   columns wide, so drawing the grid here would show the Task column and scroll
+   the other seven off the edge -- which are the ones being scanned. So the row
+   is re-laid out: the body cell as a title with its checklist under it, every
+   other non-empty cell as a label. Nothing is dropped and nothing is summarised;
+   the file is untouched, and the whole-file pill draws it as the editor does. */
+.ref-card {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+}
+.ref-card:last-child { margin-bottom: 0; }
+.ref-title { font-size: 12px; font-weight: 600; line-height: 1.35; }
+.ref-meta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+/* Deliberately one neutral pill for every column. A colour here would be saying
+   something about the data, and what Priority and Status mean is free text in
+   your file -- the 🟥/🟨/🟩 you type is already the colour. */
+.ref-label {
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--hover);
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.ref-label-head { color: var(--faint); }
+/* A cell too long or too many-lined to be a pill keeps its own line, with the
+   column it came from as the caption -- §5's Purpose is the case. */
+.ref-note { margin-top: 4px; font-size: 11px; color: var(--ink-3); }
+.ref-note-head {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+/* Indent as padding, so a wrapped line hangs under the text rather than under
+   the glyph -- `.sprint-cell-line`'s trick and the same custom property. */
+.ref-group {
+  margin-top: 4px;
+  font-size: 10.5px;
+  color: var(--muted);
+  padding-left: calc(var(--line-depth, 0) * 8px);
+}
+.ref-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  font-size: 11px;
+  line-height: 1.45;
+  padding-left: calc(var(--line-depth, 0) * 8px);
+}
+.ref-item input { width: 12px; height: 12px; min-width: 0; margin: 3px 0 0; padding: 0; flex: none; }
+.ref-item-done { color: var(--muted); text-decoration: line-through; }
+/* Anything that is not a table -- the goal, the constraints, a note between two
+   tables -- is drawn from the block's own rendered HTML rather than re-parsed
+   here. A table inside it scrolls in its own box; the panel does not widen. */
+.ref-prose { font-size: 11.5px; color: var(--ink-3); overflow-x: auto; }
+.ref-prose > :first-child { margin-top: 0; }
+.ref-prose > :last-child { margin-bottom: 0; }
+.ref-prose table { border-collapse: collapse; font-size: 11px; }
+.ref-prose th, .ref-prose td { border: 1px solid var(--line); padding: 2px 5px; text-align: left; }
+
 /* Sticky, so the deliverables stay beside whichever part of the file you have
    scrolled to -- which is the whole point of it being a panel rather than a
    section under the document.
@@ -2523,6 +2695,10 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   background: none;
   overflow: visible;
 }
+/* The panel is hidden with the `hidden` attribute whenever the Reference tab is
+   showing, and the rule above sets `display` -- which outranks the UA sheet's
+   `[hidden]`. Same trap as `.sprint-ref`, `.mode-switch` and the four views. */
+.sprint-scope[hidden] { display: none; }
 .sprint-scope-head { margin: 0 0 4px; font-size: 13px; }
 .sprint-scope-window { margin: 0 0 8px; font-size: 12px; color: #555; font-weight: 600; }
 .sprint-scope-note { font-size: 11.5px; }

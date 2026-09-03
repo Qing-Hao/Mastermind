@@ -1,0 +1,56 @@
+{
+  "pages": [
+    { "id": "page-1", "name": "Reference panel — chosen" },
+    { "id": "page-2", "name": "Options considered" }
+  ],
+  "artboards": [
+    { "file": "Main.dc.html", "page": "page-1", "x": 0, "y": 0, "w": 1440, "h": 900, "title": "Your real files — sprints/01.md on the left, sprints/02.md being planned on the right" },
+    { "file": "Rendering.dc.html", "page": "page-1", "x": 1560, "y": 0, "w": 900, "h": 900, "title": "Why the panel cannot just draw the table — the same row, both ways, at 380px" },
+    { "file": "OptionA.dc.html", "page": "page-2", "x": 0, "y": 0, "w": 1440, "h": 900, "title": "Option A as first drawn — the panel on the right, with a carry-over list (dropped)" },
+    { "file": "OptionC.dc.html", "page": "page-2", "x": 1560, "y": 0, "w": 1440, "h": 900, "title": "Option C — a Compare dialog over the page (not chosen)" },
+    { "file": "OptionD.dc.html", "page": "page-2", "x": 0, "y": 1080, "w": 1440, "h": 820, "title": "Option D — carry-over strip above the document (not chosen)" }
+  ],
+  "annotations": [
+    {
+      "id": "chosen",
+      "page": "page-1",
+      "x": 0,
+      "y": -560,
+      "w": 520,
+      "text": "WHAT THIS IS — settled 2026-09-03\n\nOption A's idea, kept: ONE read-only reference panel, not a second editor. Two things changed from the first sketch.\n\n1. IT SITS ON THE LEFT. The planning file takes the right, which is where you work. \"In scope\" becomes the panel's second tab rather than a third column — at 1440px a third column would leave the document about 500px.\n\n2. NO CARRY-OVER. No + Add, no selection ticks, no column mapping, no writes of any kind out of this panel. It is a reference you read while you type beside it. Everything about carrying rows and items is dropped.\n\nSCROLL IS INDEPENDENT. Each pane has its own scroller, drawn at its own position in the artboard. Nothing is locked to anything.\n\nWIDTHS at 1440px with the sidebar open: 1160px of content, so 380 for the panel and 764 for the document — the document keeps more room than the 548 the split gave it, and the panel is wide enough for a title with its bullets. Under 1180px the layout folds to one column, as it does today, and the panel goes under the file."
+    },
+    {
+      "id": "real",
+      "page": "page-1",
+      "x": 1560,
+      "y": -560,
+      "w": 560,
+      "text": "WHAT YOUR TWO FILES CHANGED — read from sprints/01.md and 02.md, 2026-09-03\n\nThe title-and-checklist shape is INSIDE A TABLE CELL, not a paragraph group:\n\n  | **DQL Poller**<br>- User Acceptance<br>  - [x] Report generation with DQL datapoints [#D-62]<br>  - [ ] Data Validation with UITM team | @Bernard | ... |\n\nEight columns, and the Task cell alone runs past 300 characters. So a panel that just draws the table shows you the Task column and hides PIC, SP, Priority, Status and the dependency off the right edge — which are the five things you scan while planning. That is drawn as A on the artboard beside this.\n\nB, THE RECOMMENDATION: one card per row. Title, then the non-empty cells as small labels, then the checklist exactly as written, ticks and [#D-62] and all. Nothing summarised, nothing dropped, nothing scrolling sideways — and an empty cell simply draws no label, which is most of Actual and Reviewer in both your files.\n\nIt is a layout in the panel, not a second format: the file is untouched, and the \"Whole file\" pill still draws it the way the editor does.\n\nTwo more things your files settled:\n\n· THE PILLS SURVIVE BOTH FILES. 01.md writes §1 and §2 as plain lines (\"1. **Sprint Goal**\") and only §3, §4, §5 as ## headings; 02.md has ## on all of them. The three pills are found in both, because the panel lists the headings the file actually has.\n· PRIORITY AND STATUS ARE FREE TEXT — \"🟥 HIGH\", \"SUSPENDED AFTER COMPLETE MULTIDATASOURCE MERGE\", \"ON PR waiting for review\". The card prints them as they are; nothing parses them into a state."
+    },
+    {
+      "id": "sections",
+      "page": "page-1",
+      "x": 580,
+      "y": -560,
+      "w": 470,
+      "text": "WHICH FILE, AND HOW MUCH OF IT\n\nTHE PICKER takes any sprint file on disk, newest first — not just the one before this fortnight, so 04 can be planned against 02 if that is the one worth reading. Templates are not offered: templates/sprint.md plans no fortnight, and Edit template is still its way in.\n\nSECTIONS 3, 4 and 5 by default, as pills you can switch: Product Work, Enablement / Platform, Unplanned / Interrupt, plus Whole file.\n\nHow those pills are found matters, because markdown.py knows nothing about sections and must not: the panel lists the headings the FILE ACTUALLY HAS, and pre-selects the three numbered ones where they exist. A renamed or missing heading changes which pills appear — it never blanks the panel, and \"Whole file\" is always there.\n\nA table inside the panel scrolls in its own box rather than widening the pane. §5 is six columns wide and would otherwise push the panel out of its column."
+    },
+    {
+      "id": "cost",
+      "page": "page-1",
+      "x": 1090,
+      "y": -560,
+      "w": 350,
+      "text": "WHAT IT COSTS\n\nNO NEW ENDPOINT: GET /api/sprints for the picker, GET /api/sprints/{number} for the panel. Both exist.\n\nNO WRITES AT ALL from this panel, so nothing to say about 409s, holds or undo.\n\nThe panel takes NO HOLD and joins NO PRESENCE for the file it shows — it is a read, and announcing you as present in 03 would read as editing it. It listens to the changed/scope:sprint message that already exists and re-reads when somebody else saves that file.\n\nStill a frontend migration, and the two scripts that catch it: .sprint-layout changes column order and widths (css_check.js — a display rule beside a [hidden] element is the trap that has broken nine features), and the panel's tabs and picker are new ids (wire_check.js).\n\nWhat is genuinely new in code: rendering a sprint file read-only. Same renderer, no editing, no cell writes."
+    },
+    {
+      "id": "notchosen",
+      "page": "page-2",
+      "x": 1560,
+      "y": 1080,
+      "w": 1000,
+      "text": "NOT CHOSEN — kept for the record\n\nA AS FIRST DRAWN. Right-hand panel with a carry-over list and + Add presses. The panel survived; the side changed and the carry-over went.\n\nB, THE SPLIT (two editors side by side, scroll locked). Explored in detail, then dropped as too complicated: it needed a second editable pane at 548px, a scroll lock that could only align screens rather than blocks, and a whole carry machine — column matching by header, manual pairing for §5, per-column clearing, duplicate guards, group merging for title-and-bullets work. Every one of those was a decision to make before it could be used once.\n\nC. A Compare dialog at 1240px — the widest read of the four, and the only one where the file cannot be typed in while you look.\n\nD. Carry-over strip above the document — solved \"what is left over\" but showed none of the previous sprint's own sections, which is the half a planning session actually reads.\n\nThe rule that outlived all of them: this is a READOUT. It never remembers who is looking — no dismissal, no \"new since you last looked\", no per-person state — which is what keeps it the same genus as the overdue bell rather than the tracker the brief forbids."
+    }
+  ],
+  "launch": { "view": "canvas", "page": "page-1" }
+}

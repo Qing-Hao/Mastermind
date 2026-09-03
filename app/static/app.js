@@ -359,6 +359,21 @@ let state = {
   // it on its own, because a slice for the *same* fortnight at an older edition
   // is still worth drawing while the re-read is in flight.
   sprintScope: { asked: null, key: null, start: null, slice: null, error: "" },
+  // The other readout beside the file: **another sprint file, read-only**, for
+  // planning this fortnight against the last one. A read and nothing else --
+  // there is no insert, no carry-over and no tick, and nothing here is stored,
+  // so it never has to know who is looking.
+  //
+  // `key` is the file it is showing and `asked` the one a fetch has been fired
+  // for, the same pair `sprintScope` keeps and for the same reason: a render must
+  // not re-ask a question it already asked, and a failure must not loop.
+  // `sections` is which headings are ticked, by their own text -- null until the
+  // file is read, because the pills come off the file rather than from a list of
+  // sprint sections kept here.
+  sprintRef: {
+    tab: "scope", shut: false,
+    key: null, asked: null, file: null, sections: null, error: "",
+  },
   // `D-42` in a sprint row, read in both directions and cached differently on
   // purpose. `sprintLinks` is the open file's references with the deliverable
   // each one names, keyed by `roadmapRevision` like the scope panel: the tick a
@@ -4559,6 +4574,421 @@ async function loadSprintScope(window, key) {
   if (open && scopeKey(open) === key) renderSprintScope();
 }
 
+// --- the reference panel ----------------------------------------------------
+//
+// **Another fortnight, beside the one being planned.** Planning sprint 4 means
+// knowing what 3 left unfinished, what the interrupts cost and what the
+// reflection said; the picker opens one file at a time, so that was a round trip
+// -- switch, read, switch back, type from memory.
+//
+// It is a **readout and nothing else**: no insert, no carry-over, no tick, no
+// write of any kind. Carrying rows and items across files was designed in full
+// and deliberately dropped -- see `.design/sprint-carryover/` and STATUS.md.
+// That is what keeps it the same genus as the scope panel beside it: it never
+// remembers who is looking, so there is no dismissal, no "new since you last
+// looked" and no per-person state, each of which would be a row keyed by a
+// person and is the line non-negotiable 7 draws.
+//
+// It lives here rather than in `editor.js` because knowing what "3. Product
+// Work" is, is sprint knowledge, and that file has to stay ignorant of sprints.
+// What it borrows from there is the reading of a *cell*: `cellText`,
+// `renderCellInline`, `cellDepth`, `CELL_TODO` and `CELL_BULLET`, so what this
+// panel calls an item is exactly what the grid calls one. A second inline
+// renderer here would be a second copy to keep in step.
+
+// Which pills start ticked: the numbered three of the template, matched on the
+// heading's own text. Nothing insists they exist -- a file whose headings say
+// something else gets all of them ticked instead, and the list is always what
+// the file actually has.
+const REF_DEFAULT_SECTION = /^([345])\s*[.)]/;
+
+// The two column names the template gives the body of a row. A two-name list on
+// purpose, and the reason is in `refBodyColumn`.
+const REF_BODY_HEADS = ["task", "work"];
+
+// A cell short enough to be a pill beside the others rather than its own line.
+const REF_LABEL_MAX = 34;
+
+// A pill's label, and the width it is cut to. The whole heading rides in the
+// tooltip, so nothing is lost.
+const refPillLabel = (title) => (title.length > 24 ? `${title.slice(0, 23)}…` : title);
+
+// A heading as one line of text: its `#` marks off the front, and any run of
+// whitespace collapsed. The collapse is load-bearing rather than tidy --
+// `sprints/02.md` has a paragraph followed by a lone `- `, which is a **setext**
+// heading two lines tall, and a pill cannot be two lines tall. The markdown is
+// left in the text and drawn by `renderCellInline`, so `**Sprint Goal:**` reads
+// as bold here the way it does in a cell.
+const headingText = (raw) => String(raw ?? "")
+  .replace(/^\s*#+\s*/, "")
+  .replace(/\s+/g, " ")
+  .trim();
+
+// The panel column: which tab, and whether it is there at all.
+//
+// `loadSprintLinks` is fired from here rather than from the scope panel's own
+// render, which is where it used to sit: with the Reference tab open that render
+// never runs, and the chips in the *document* would have lost their ticks.
+function renderSprintSide() {
+  const side = $("sprint-side");
+  if (!side) return;
+  loadSprintLinks();
+
+  const ref = state.sprintRef;
+  const layout = side.closest(".sprint-layout");
+  const onRef = ref.tab === "ref";
+  const collapse = $("sprint-side-collapse");
+
+  side.classList.toggle("shut", ref.shut);
+  if (layout) {
+    layout.classList.toggle("side-wide", !ref.shut && onRef);
+    layout.classList.toggle("side-shut", ref.shut);
+  }
+  collapse.textContent = ref.shut ? "‹" : "›";
+  collapse.title = ref.shut ? "Show the panel" : "Hide the panel";
+
+  $("sprint-side-scope").classList.toggle("active", !onRef);
+  $("sprint-side-ref").classList.toggle("active", onRef);
+  // Both panels set `display`, so both carry a `[hidden]` guard in the
+  // stylesheet -- the trap that has broken nine features here.
+  $("sprint-ref").hidden = !onRef;
+  $("sprint-scope").hidden = onRef;
+
+  // Nothing to draw while it is shut: the render behind a 34px rail is work
+  // nobody can see, and switching back runs it again.
+  if (ref.shut) {
+    side.classList.remove("tall");
+    return;
+  }
+
+  if (onRef) renderSprintRef();
+  else renderSprintScope();
+
+  // The definite height the scope panel's split needs -- see the measured note
+  // on `.sprint-scope.has-split`. The reference panel wants it too: its body is
+  // the thing that scrolls, and a body with no height to fill scrolls nothing.
+  side.classList.toggle("tall",
+    onRef || $("sprint-scope").classList.contains("has-split"));
+}
+
+function setSprintSideTab(tab) {
+  state.sprintRef.tab = tab;
+  renderSprintSide();
+}
+
+function renderSprintRef() {
+  const ref = state.sprintRef;
+  const select = $("sprint-ref-select");
+  const pills = $("sprint-ref-pills");
+  const body = $("sprint-ref-body");
+  // `sprint.files` is the picker's own list, newest first, and the template is
+  // deliberately not in it -- which is exactly the list wanted here: the
+  // template plans no fortnight, so there is nothing to read it against.
+  const files = state.sprint.files;
+
+  // Which file: the one picked, else the newest that is **not** the file open in
+  // the editor. Reading the file you are typing in, beside itself, says nothing.
+  if (ref.key === null || !files.some((file) => file.number === ref.key)) {
+    const wanted = files.find((file) => file.number !== state.sprint.number) ?? files[0];
+    Object.assign(ref, {
+      key: wanted ? wanted.number : null,
+      file: null, asked: null, sections: null, error: "",
+    });
+  }
+
+  select.innerHTML = "";
+  for (const file of files) {
+    const option = element("option", null,
+      file.heading ? `${file.name} · ${file.heading}` : file.name);
+    option.value = file.number;
+    select.appendChild(option);
+  }
+  select.disabled = files.length === 0;
+  if (ref.key !== null) select.value = ref.key;
+
+  pills.innerHTML = "";
+  body.innerHTML = "";
+
+  if (ref.key === null) {
+    body.appendChild(element("p", "sprint-ref-note",
+      "No sprint files on disk yet — there is nothing to read against."));
+    return;
+  }
+
+  // Same contract as the scope panel: `asked` is set before the request and
+  // never cleared on failure, so a refusal leaves its message on screen rather
+  // than asking again on the next render.
+  if (ref.asked !== ref.key) loadSprintRef(ref.key);
+  if (!ref.file || ref.file.number !== ref.key) {
+    body.appendChild(element("p", "sprint-ref-note", ref.error || "Reading the file…"));
+    return;
+  }
+
+  const sections = refSections(ref.file.blocks);
+  if (!sections.length) {
+    body.appendChild(element("p", "sprint-ref-note",
+      `${ref.file.name} has no headings to pick from.`));
+    return;
+  }
+
+  if (ref.sections === null) ref.sections = defaultRefSections(sections);
+  renderRefPills(pills, sections, ref.sections);
+
+  const chosen = sections.filter((section) => ref.sections.has(section.title));
+  if (!chosen.length) {
+    body.appendChild(element("p", "sprint-ref-note", "Nothing picked above."));
+    return;
+  }
+  for (const section of chosen) body.appendChild(refSection(section));
+}
+
+// Fired from the render and re-rendering when it lands, like `loadSprintScope`.
+// **Its own copy of the file, never `state.sprint`**: that object belongs to the
+// editor, and a read into it would drop whatever is being typed.
+async function loadSprintRef(number) {
+  const ref = state.sprintRef;
+  ref.asked = number;
+  try {
+    const payload = await api(`/api/sprints/${number}`);
+    ref.file = { number, name: payload.name, blocks: payload.blocks };
+    // `sections` is deliberately left alone: this also runs when somebody else
+    // saves the file being read, and re-reading it must not put the pills back
+    // to their defaults under you. Picking a different file is what clears them.
+    ref.error = "";
+  } catch (failure) {
+    ref.file = null;
+    ref.error = failure.message;
+  }
+  // Only if the panel is still asking the same question -- switching file
+  // mid-flight must not paint the previous one over the new one.
+  if (ref.key === number) renderSprintSide();
+}
+
+// The file as headings and what sits under each: a heading block, then every
+// block up to the next heading. **Any heading is a section** -- nothing here
+// knows what a sprint section is, which is `markdown.py`'s own ignorance one
+// floor up. Blocks before the first heading belong to no section and are not
+// drawn; in both real files that is the HTML comment the template ships with.
+function refSections(blocks) {
+  const found = [];
+  for (const block of blocks) {
+    if (block.type === "heading") {
+      found.push({ title: headingText(block.raw), blocks: [] });
+      continue;
+    }
+    if (found.length) found[found.length - 1].blocks.push(block);
+  }
+  return found.filter((section) => section.title);
+}
+
+// The numbered three where the file has them, everything otherwise. A file whose
+// headings were renamed is still readable -- it just opens wide rather than
+// blank, which is the failure worth having.
+function defaultRefSections(sections) {
+  const numbered = sections.filter((section) => REF_DEFAULT_SECTION.test(section.title));
+  const wanted = numbered.length ? numbered : sections;
+  return new Set(wanted.map((section) => section.title));
+}
+
+function renderRefPills(host, sections, chosen) {
+  for (const section of sections) {
+    const pill = element("button", "ref-pill", refPillLabel(section.title));
+    pill.type = "button";
+    pill.dataset.section = section.title;
+    pill.title = section.title;
+    if (chosen.has(section.title)) pill.classList.add("on");
+    host.appendChild(pill);
+  }
+  const all = element("button", "ref-pill", "Whole file");
+  all.type = "button";
+  all.dataset.all = "1";
+  all.title = "Every heading in the file";
+  if (chosen.size === sections.length) all.classList.add("on");
+  host.appendChild(all);
+}
+
+function toggleRefSection(title) {
+  const ref = state.sprintRef;
+  if (!ref.sections) return;
+  if (ref.sections.has(title)) ref.sections.delete(title);
+  else ref.sections.add(title);
+  renderSprintSide();
+}
+
+function toggleAllRefSections() {
+  const ref = state.sprintRef;
+  if (!ref.file || !ref.sections) return;
+  const sections = refSections(ref.file.blocks);
+  ref.sections = ref.sections.size === sections.length
+    ? new Set()
+    : new Set(sections.map((section) => section.title));
+  renderSprintSide();
+}
+
+function refSection(section) {
+  const box = element("div", "ref-sec");
+  const head = element("h4", "ref-sec-head");
+  // Through the cell renderer, so a heading written `**Sprint Goal:**` reads as
+  // bold rather than as four asterisks.
+  renderCellInline(head, section.title, { ownTick: false });
+  box.appendChild(head);
+  for (const block of section.blocks) {
+    if (block.table) {
+      for (const row of block.table.rows) {
+        const card = refCard(block.table, row);
+        if (card) box.appendChild(card);
+      }
+      continue;
+    }
+    // The comment the template ships with is an HTML block, and drawing it would
+    // be drawing instructions to yourself from a file about last fortnight.
+    if (block.type === "html" || !block.html) continue;
+    const prose = element("div", "ref-prose");
+    prose.innerHTML = block.html;
+    box.appendChild(prose);
+  }
+  return box;
+}
+
+// **One card per table row**, and the reason is measured rather than aesthetic:
+// the panel is 380px, a sprint table is eight columns, and the Task cell in
+// `sprints/01.md` runs past 300 characters. Drawing the grid here shows the Task
+// column and scrolls PIC, SP, Priority, Status and the dependency off the right
+// edge -- which are the five things being scanned while planning.
+//
+// So the row is re-laid out and **nothing is dropped**: the body cell becomes a
+// title with its checklist under it, and every other non-empty cell is drawn as
+// a label or, when it is too long for one, as its own captioned line. The file
+// is untouched, and the whole-file pill still draws it as the editor does.
+function refCard(grid, row) {
+  const cells = row.map((cell) => cellText(cell).trim());
+  // The template ships its tables with empty rows, and 02.md still has three of
+  // them in §5. A card for a row with nothing in it is a card about nothing.
+  if (!cells.some((text) => text)) return null;
+
+  const at = refBodyColumn(grid, cells);
+  const lines = cells[at].split("\n");
+  const card = element("div", "ref-card");
+
+  const title = element("div", "ref-title");
+  renderCellInline(title, refLineText(lines[0]), { ownTick: false });
+  card.appendChild(title);
+
+  const meta = element("div", "ref-meta");
+  const notes = [];
+  cells.forEach((text, column) => {
+    if (column === at || !text) return;
+    const head = headingCell(grid, column);
+    if (text.length <= REF_LABEL_MAX && !text.includes("\n")) {
+      const label = element("span", "ref-label");
+      if (head) label.appendChild(element("span", "ref-label-head", `${head} `));
+      label.appendChild(document.createTextNode(text));
+      label.title = head ? `${head}: ${text}` : text;
+      meta.appendChild(label);
+      return;
+    }
+    notes.push({ head, text });
+  });
+  if (meta.childElementCount) card.appendChild(meta);
+
+  for (const note of notes) {
+    const line = element("div", "ref-note");
+    if (note.head) line.appendChild(element("span", "ref-note-head", note.head));
+    for (const text of note.text.split("\n")) {
+      const row = refLine(text);
+      if (row) line.appendChild(row);
+    }
+    card.appendChild(line);
+  }
+
+  for (const line of lines.slice(1)) {
+    const node = refLine(line);
+    if (node) card.appendChild(node);
+  }
+  return card;
+}
+
+const headingCell = (grid, column) => cellText(grid.head[column] ?? "").trim();
+
+// Which cell is the row's body. **The template's own two names first**, because
+// position cannot answer this and neither can a guess: the first column is the
+// task in §3 and §4 and the *date* in §5, and the three headers your files use
+// are `Task`, `Work` and `Date`.
+//
+// A hand-made table with neither name falls back to the shape of the text: the
+// first cell that reads like a body -- more than one line, a checkbox, or bold
+// at the front -- whose own first line is not itself a bullet, so §5's
+// `Purpose` column of bullets does not win the title. Then the first non-empty
+// cell. A wrong guess costs a swap and not a fact: every other cell is still
+// drawn beside it.
+function refBodyColumn(grid, cells) {
+  const named = cells.findIndex((text, column) =>
+    text && REF_BODY_HEADS.includes(headingCell(grid, column).toLowerCase()));
+  if (named !== -1) return named;
+
+  const bodyish = cells.findIndex((text) => {
+    if (!text) return false;
+    const first = text.split("\n")[0];
+    if (CELL_TODO.test(first) || CELL_BULLET.test(first)) return false;
+    return text.includes("\n") || CELL_TODO.test(text) || /^\*\*/.test(text);
+  });
+  if (bodyish !== -1) return bodyish;
+  return Math.max(0, cells.findIndex((text) => text));
+}
+
+// The title line without whatever marker it was written with: a bold title, a
+// bullet or a checkbox are all things people put there, and the card draws the
+// title as a title.
+function refLineText(line) {
+  const todo = CELL_TODO.exec(line);
+  if (todo) return line.slice(todo[0].length);
+  const bullet = CELL_BULLET.exec(line);
+  return bullet ? line.slice(bullet[0].length) : line.trim();
+}
+
+// One line under the title. `CELL_TODO` and `CELL_BULLET` are the editor's own
+// readers, so what this calls an item is what the grid calls one -- including
+// both checkbox spellings, `- [ ]` and `☐`, which a hand-edited file mixes.
+function refLine(line) {
+  if (!line.trim()) return null;
+  const depth = cellDepth(/^[ \t]*/.exec(line)[0]);
+  const todo = CELL_TODO.exec(line);
+
+  if (todo) {
+    const done = cellTodoDone(todo[2]);
+    const row = element("div", "ref-item");
+    row.style.setProperty("--line-depth", depth);
+    const box = element("input");
+    box.type = "checkbox";
+    box.checked = done;
+    // Read-only, and disabled rather than absent: an item that was ticked last
+    // fortnight and one that was not are the whole point of looking here, and a
+    // box you can press would be this panel writing to a file you are not in.
+    box.disabled = true;
+    row.appendChild(box);
+    const label = element("span", done ? "ref-item-done" : null);
+    renderCellInline(label, line.slice(todo[0].length), { ownTick: false });
+    row.appendChild(label);
+    return row;
+  }
+
+  const row = element("div", "ref-group");
+  row.style.setProperty("--line-depth", depth);
+  renderCellInline(row, refLineText(line), { ownTick: false });
+  return row;
+}
+
+// Somebody else saved the file this panel is reading. It owes no merge and has
+// nothing typed into it -- it is a read -- so it just asks again. Clearing
+// `asked` is what re-arms the fetch; the render that follows fires it, and a
+// panel that is shut or on the other tab picks it up when it is next drawn.
+function liveSprintRefChanged(key) {
+  const ref = state.sprintRef;
+  if (ref.key === null || sprintFileKey(key) !== ref.key) return;
+  ref.asked = null;
+  if (state.view === "sprint" && !ref.shut && ref.tab === "ref") renderSprintSide();
+}
+
 // --- deliverable links ------------------------------------------------------
 
 // **`D-42` in a sprint row is deliverable 42**, and this is the half of that
@@ -8558,6 +8988,32 @@ function bindEvents() {
   $("sprint-new").onclick = createSprintFile;
   $("sprint-view-doc").onclick = () => setSprintView("doc");
   $("sprint-view-raw").onclick = () => setSprintView("raw");
+
+  // The panel beside the document: which readout, and whether it is there.
+  $("sprint-side-scope").onclick = () => setSprintSideTab("scope");
+  $("sprint-side-ref").onclick = () => setSprintSideTab("ref");
+  $("sprint-side-collapse").onclick = () => {
+    state.sprintRef.shut = !state.sprintRef.shut;
+    renderSprintSide();
+  };
+  // A second picker, and it deliberately does **not** go through
+  // `switchSprintFile`: nothing is being left, because nothing here is open for
+  // writing. The pills are cleared, since a different file has different headings
+  // and its own three to pre-select.
+  $("sprint-ref-select").onchange = (event) => {
+    Object.assign(state.sprintRef, {
+      key: Number(event.target.value),
+      file: null, asked: null, sections: null, error: "",
+    });
+    renderSprintSide();
+  };
+  // Delegated: the pills are rebuilt from the file on every draw of the panel.
+  $("sprint-ref-pills").onclick = (event) => {
+    const pill = event.target.closest(".ref-pill");
+    if (!pill) return;
+    if (pill.dataset.all) toggleAllRefSections();
+    else toggleRefSection(pill.dataset.section);
+  };
   // Blur, not input: re-splitting the whole file on every keystroke would rebuild
   // the document under the cursor.
   $("sprint-raw-file").onblur = (event) => commitSprintRawFile(event.target.value);
@@ -8991,6 +9447,11 @@ function handleLiveMessage(message) {
   }
   if (message.type !== "changed") return;
   if (message.scope === "sprint") {
+    // The reference panel is holding a **different** file, so a write to that one
+    // is a change to nothing this page has open and none of the guards below
+    // apply to it. Checked first and unconditionally, because every one of them
+    // can return.
+    liveSprintRefChanged(message.key);
     // The guard below only works once this page holds the mtime the file now has,
     // and a write of its own is broadcast before its own reply arrives. Anything
     // landing mid-write is held and replayed after -- see `deferLiveSprint`.
