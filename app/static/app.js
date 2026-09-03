@@ -82,8 +82,12 @@ const TIER_MARK = { ...TIER_LABEL, 0: "T?" };
 // room for a sentence's worth; `KIND_TAG` is the node, the roadmap chip and the
 // swimlane gutter, where 27px is the budget. The same split `TIER_LABEL` and
 // `TIER_MARK` already make, for the same reason.
-const KIND_ORDER = ["new", "enhancement", "feature", "fix", "migration", ""];
+// In the order work tends to arrive: find out whether it can be done, build it,
+// then everything that happens to a thing already built.
+const KIND_ORDER = ["research", "new", "enhancement", "feature", "fix",
+                    "migration", ""];
 const KIND_LABEL = {
+  research: "research",
   new: "new build",
   enhancement: "enhancement",
   feature: "feature asked for",
@@ -91,16 +95,15 @@ const KIND_LABEL = {
   migration: "migration",
   "": "unclassified",
 };
-// `mgr` is the requester's own short form for migration, and it happens to be
-// the cheap one too: three letters at `fix`'s 20px rather than the 27px `feat`
-// spends.
+// The short forms are the requester's own, not abbreviations invented here.
 const KIND_TAG = {
-  new: "new", enhancement: "enh", feature: "feat", fix: "fix",
-  migration: "mgr", "": "",
+  research: "res", new: "new", enhancement: "enh", feature: "feat",
+  fix: "fix", migration: "mgr", "": "",
 };
 // What each word means, for the key under the canvas. Wording is the form's,
 // cut to what fits beside a tag.
 const KIND_LEGEND = [
+  ["research", "finding out whether it can be done at all"],
   ["new", "built from nothing"],
   ["enhancement", "a change to something already live"],
   ["feature", "asked for from outside the team"],
@@ -5921,16 +5924,27 @@ const LEVEL_LIMITS = [22, 18, 16, 14];
 // projectNode. Big enough to hold a 10px numeral, small enough not to read as
 // a second node.
 const TIER_PIP_R = 8;
-// The kind tag, the pip's mirror on the lower left. Fixed like the pip and for
-// the same reason, and widths are hard-coded per word rather than measured:
-// there is no text metrics API in an SVG being built, and three words at a
-// known size and weight are a table, not a calculation. Keep these in step with
-// `KIND_TAG` -- a word added there needs a width here, and the fallback is the
-// 24px `new` takes.
+// The kind tag: fixed size like the pip and for the same reason. Its height is
+// a constant; **its width is measured from its own letters rather than looked
+// up per word.** It was a table of widths per kind, which reads fine and is
+// unverifiable: `mgr` shipped at `fix`'s 20px, and `m` is the widest lowercase
+// letter there is, so the three glyphs overran the rounded ends. Nothing but
+// drawing it could have caught that, so the width comes from the glyphs now and
+// a seventh word cannot arrive too narrow.
+//
+// Advances for 9.5px/700 system-ui, near enough: the pill is a rounded box with
+// 4px of air either side, so half a pixel out costs nothing. A glyph not in the
+// table takes the average, which errs wide. `KIND_TAG_PAD` is duplicated in
+// `map_sweep.js` -- it measures the text and has to add the same air back.
 const KIND_TAG_H = 14;
-const KIND_TAG_WIDTH = {
-  new: 24, enhancement: 24, feature: 27, fix: 20, migration: 20,
+const KIND_TAG_PAD = 4;
+const GLYPH_W = {
+  a: 5.6, e: 5.6, f: 3.6, g: 5.9, h: 6.1, i: 2.9, m: 8.6, n: 6.1, r: 4.1,
+  s: 5.0, t: 3.9, w: 8.4, x: 5.4,
 };
+const kindTagWidth = (tag) => Math.ceil(
+  [...tag].reduce((total, glyph) => total + (GLYPH_W[glyph] || 5.6), 0)
+  + KIND_TAG_PAD * 2);
 // Line height of a label block, and the clear space between a circle's rim and
 // the nearest edge of its label.
 const LABEL_LINE = 13;
@@ -7144,7 +7158,7 @@ function projectNode(project, point, radius, place, branch) {
   // the field would be the loudest thing on the map.
   const tag = KIND_TAG[project.kind || ""];
   if (tag) {
-    const width = KIND_TAG_WIDTH[project.kind] || 24;
+    const width = kindTagWidth(tag);
     // Always under the node; the side is the one the label did not take. A
     // label leaning right starts at `r + LABEL_GAP`, which is exactly where a
     // right-hand tag's outer edge lands on a small node -- so the two swap

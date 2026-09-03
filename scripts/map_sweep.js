@@ -347,10 +347,11 @@ function harvest(svg) {
   return { labels, circles, tags };
 }
 
-// Half the horizontal padding either side of a tag's three letters: the pill is
-// `KIND_TAG_WIDTH` wide in `app.js` and the glyphs inside it are about 18px, so
-// this is what turns a measured text box back into the shape that is painted.
-const KIND_TAG_PAD = 3;
+// The air either side of a tag's letters, which is what turns a measured text
+// box back into the pill that is painted. Same 4px `app.js`'s `KIND_TAG_PAD`
+// adds to its glyph widths -- keep the two in step, or this measures a shape
+// the map does not draw.
+const KIND_TAG_PAD = 4;
 
 // A circle has no text of its own; its name is whatever its group is labelled.
 // The pip's numeral and the completion percentage are both skipped: each comes

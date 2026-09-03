@@ -196,10 +196,11 @@ the text above, **the amendment wins** — the code follows the amendments.
    for anyone being shown the roadmap: "here is what we are working on" cannot be
    answered by a picture that says only how much there is and how late it is.
 
-   So `project.kind`: `new`, `enhancement`, `feature`, `fix`, `migration`, or
-   `''` for unclassified, which is what every project written before the field
-   arrives as. *(`migration` was added the day after the rest — the same
-   capability, somewhere else: a platform, a provider, a datastore.)*
+   So `project.kind`: `research`, `new`, `enhancement`, `feature`, `fix`,
+   `migration`, or `''` for unclassified, which is what every project written
+   before the field arrives as. *(`migration` — the same capability, somewhere
+   else — and `research` — finding out whether it can be done at all — were both
+   added within a day of the rest.)*
    **It is `tier`'s twin, and the reason it is safe is that it is nothing more
    than that** — a label the map filters on, the roadmap chip and the swimlane
    gutter tag, and the portfolio counts.
@@ -226,7 +227,7 @@ the text above, **the amendment wins** — the code follows the amendments.
    day**, when `migration` was added: one tuple, no migration.
 
    The list is closed at any moment and not fixed forever, so **a word is added
-   deliberately, not casually** — six buckets a roadmap can be read through is
+   deliberately, not casually** — seven buckets a roadmap can be read through is
    useful, and twenty is a tracker's status enum with extra steps. The test is
    whether somebody being shown the roadmap would ask about the difference.
 

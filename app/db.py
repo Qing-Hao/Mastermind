@@ -92,9 +92,10 @@ CREATE TABLE IF NOT EXISTS {name} (
     -- what matters when the roadmap gets crowded.
     tier              INTEGER NOT NULL DEFAULT 0
                       CHECK (tier IN (0, 1, 2, 3)),
-    -- What sort of work this is: a new build, a change to something already
-    -- live, something asked for from outside, a fix, or a move from one place
-    -- to another. '' means nobody has said yet, and is a state of its own
+    -- What sort of work this is: finding out whether something is possible, a
+    -- new build, a change to something already live, something asked for from
+    -- outside, a fix, or a move from one place to another. '' means nobody has
+    -- said yet, and is a state of its own
     -- rather than one more sort -- the same shape as tier 0, and the reason
     -- this list can grow without that changing. **Nothing derives from it**:
     -- no rule reads it, no date moves because of it, and nothing sums against
@@ -318,7 +319,7 @@ TIERS = (0, 1, 2, 3)
 # the order the map's chips and the portfolio's readout draw in, and '' sits last
 # for the reason tier 0 does: the absence of a decision sorts after every
 # decision.
-KINDS = ("new", "enhancement", "feature", "fix", "migration", "")
+KINDS = ("research", "new", "enhancement", "feature", "fix", "migration", "")
 
 # How long a writer waits for another writer's lock before giving up. Named
 # rather than left to `sqlite3.connect`'s own five-second default, because that
