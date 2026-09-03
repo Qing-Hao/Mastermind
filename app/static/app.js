@@ -71,6 +71,38 @@ const TIER_LABEL = { 1: "T1", 2: "T2", 3: "T3", 0: "untiered" };
 // make "T?" read as "no tier yet" rather than as a fourth tier.
 const TIER_MARK = { ...TIER_LABEL, 0: "T?" };
 
+// What sort of work a project is. Tier's twin in every structural way: stored,
+// filtered on, drawn as a mark, and read by no rule anywhere. '' is
+// unclassified and sorts last for the reason tier 0 does -- the absence of a
+// decision comes after every decision.
+//
+// Three vocabularies rather than one, because the three places have three
+// different amounts of room. The stored word is what `db.KINDS` holds and what
+// the export carries; `KIND_LABEL` is the chip and the readout, where there is
+// room for a sentence's worth; `KIND_TAG` is the node, the roadmap chip and the
+// swimlane gutter, where 27px is the budget. The same split `TIER_LABEL` and
+// `TIER_MARK` already make, for the same reason.
+const KIND_ORDER = ["new", "enhancement", "feature", "fix", ""];
+const KIND_LABEL = {
+  new: "new build",
+  enhancement: "enhancement",
+  feature: "feature asked for",
+  fix: "fix / refactor",
+  "": "unclassified",
+};
+const KIND_TAG = {
+  new: "new", enhancement: "enh", feature: "feat", fix: "fix", "": "",
+};
+// What each word means, for the key under the canvas. Wording is the form's,
+// cut to what fits beside a tag.
+const KIND_LEGEND = [
+  ["new", "built from nothing"],
+  ["enhancement", "a change to something already live"],
+  ["feature", "asked for from outside the team"],
+  ["fix", "refactor, debt, debugging"],
+  ["", "nobody has said yet"],
+];
+
 // The rungs the map's Status chips switch, in the ladder's order.
 //
 // **Five of the seven, and the two that are missing are the decision here.**
@@ -208,6 +240,10 @@ let state = {
   // work by default would lose it. Survives re-renders and tab switches but not
   // a reload, same as the timeline mode: it is a way of looking, not a setting.
   mapTiers: new Set(TIER_ORDER),
+  // Which kinds the map draws, on the same terms as the tiers: everything to
+  // start with, kept across re-renders and tab switches, gone on a reload. A
+  // way of looking, not a setting.
+  mapKinds: new Set(KIND_ORDER),
   // Which rungs of the ladder the map draws, holding the ones **shown** exactly
   // as `mapTiers` does -- but starting on one rung rather than on all of them.
   // The argument for the exception is on `MAP_STAGE_DEFAULT`, and the reason
@@ -5795,6 +5831,14 @@ const LEVEL_LIMITS = [22, 18, 16, 14];
 // projectNode. Big enough to hold a 10px numeral, small enough not to read as
 // a second node.
 const TIER_PIP_R = 8;
+// The kind tag, the pip's mirror on the lower left. Fixed like the pip and for
+// the same reason, and widths are hard-coded per word rather than measured:
+// there is no text metrics API in an SVG being built, and three words at a
+// known size and weight are a table, not a calculation. Keep these in step with
+// `KIND_TAG` -- a word added there needs a width here, and the fallback is the
+// 24px `new` takes.
+const KIND_TAG_H = 14;
+const KIND_TAG_WIDTH = { new: 24, enhancement: 24, feature: 27, fix: 20 };
 // Line height of a label block, and the clear space between a circle's rim and
 // the nearest edge of its label.
 const LABEL_LINE = 13;
@@ -6133,14 +6177,16 @@ const trackRoot = (project) => trackPath(project.track)[0] || UNTRACKED_KEY;
 const trackShown = (project) =>
   state.mapTracks.size === 0 || state.mapTracks.has(trackRoot(project));
 
-// **The map's three filters, in one place.** They were written inline in
+// **The map's four filters, in one place.** They were written inline in
 // `renderMap` and copied into `map_sweep.js --tree`, which is a copy that goes
 // stale the moment a filter changes -- the sweep would then print a hierarchy
 // the map does not draw, which is the one thing that tool exists to be trusted
 // about. Exported to the sweep so both read the same function.
 //
-// Three rather than four since the status filter became one set: it was `done`
-// and `ideas` as separate flags, and it now covers five rungs in one test.
+// Four questions, deliberately independent: how much of the ranking, how far
+// along, which part of the tree, and what sort of work. The status one covers
+// five rungs in a single set, where it used to be `done` and `ideas` as two
+// flags.
 //
 // Filtering happens **before `mapGroups`**, so a wedge is sized by what is
 // actually drawn and a track with nothing left in it leaves the map entirely.
@@ -6149,6 +6195,7 @@ const trackShown = (project) =>
 function mapDrawn(projects) {
   return projects.filter((project) =>
     state.mapTiers.has(project.tier ?? 0)
+    && state.mapKinds.has(project.kind || "")
     && stageShown(project)
     && trackShown(project));
 }
@@ -6307,6 +6354,24 @@ function renderMapFilters() {
       if (shown) stages.delete(rung); else stages.add(rung);
     });
   }
+
+  // A third row, and the last one that fits: what sort of work it is. All on to
+  // start with, unlike Status -- there is no equivalent of "the map opens on
+  // committed work" here, because no kind is noise.
+  //
+  // The chip says the tag rather than the label, so the row reads as the same
+  // vocabulary the nodes are wearing. The full wording is on the tooltip and in
+  // the key, which is the split `TIER_MARK` already makes.
+  const kinds = openGroup("kind-filter", "Kind");
+  for (const kind of KIND_ORDER) {
+    const held = projects.filter(
+      (project) => (project.kind || "") === kind).length;
+    const shown = state.mapKinds.has(kind);
+    chip(kinds, `kind-${kind || "none"}`, KIND_TAG[kind] || "unclassified",
+      held, shown, KIND_LABEL[kind], () => {
+        if (shown) state.mapKinds.delete(kind); else state.mapKinds.add(kind);
+      });
+  }
 }
 
 // What a node's own colours mean, in the ladder's order. The map has carried two
@@ -6396,6 +6461,43 @@ function renderMapLegend() {
   const stages = group("Stage");
   for (const [className, label, tooltip] of STAGE_LEGEND) {
     entry(stages, `map-node stage-${className}`, label, tooltip);
+  }
+
+  // The kind tags, drawn as the tags themselves rather than as swatches: the
+  // mark on a node *is* a word, so a coloured dot beside the word would explain
+  // it twice and match it never. Same rule as the two axes above -- the pill
+  // here carries the real `.map-kind` classes, so a rule that changes the
+  // picture changes the key with it.
+  //
+  // Unclassified gets a row like the rest even though it draws no tag, because
+  // "no tag" is the thing that needs explaining. Its swatch is the empty
+  // outline the chip row uses.
+  const kinds = group("Kind");
+  for (const [kind, meaning] of KIND_LEGEND) {
+    const tag = KIND_TAG[kind];
+    const item = element("span", "legend-item");
+    item.title = `${KIND_LABEL[kind]} — ${meaning}. Nothing is derived from `
+      + "it: it groups and filters, nothing more.";
+    const svg = svgElement("svg", {
+      class: "legend-swatch", width: tag ? 30 : 26, height: 16,
+      viewBox: `0 0 ${tag ? 30 : 26} 16`,
+    });
+    const mark = svgElement("g", {
+      class: tag ? "map-kind" : "map-kind is-none",
+    });
+    mark.appendChild(svgElement("rect", {
+      x: 1.5, y: 1, width: tag ? 26 : 22, height: 14, rx: 7,
+    }));
+    if (tag) {
+      mark.appendChild(svgElement("text", {
+        class: "map-kind-text", x: 14.5, y: 11.3, "text-anchor": "middle",
+      }, tag));
+    }
+    svg.appendChild(mark);
+    item.appendChild(svg);
+    item.appendChild(element("span", "legend-name",
+      `${KIND_LABEL[kind]} — ${meaning}`));
+    kinds.appendChild(item);
   }
 
   // Keyed off the whole dataset, exactly as `trackPalette` is and for the same
@@ -6921,6 +7023,54 @@ function projectNode(project, point, radius, place, branch) {
     group.appendChild(svgElement("text", {
       class: "map-pip-text", x: px, y: py + 3.4, "text-anchor": "middle",
     }, String(tier)));
+  }
+
+  // **What sort of work it is, as a word under the tier pip.** Built on the
+  // pip's own three arguments: fixed size whatever the node does, so it still
+  // reads at the bottom of the 16-38px radius clamp; fixed position, because a
+  // mark that moves stops being scannable; and the pip's indigo, which is the
+  // map's one colour that is not data. Every hue here means something -- blue
+  // planned, green running, red late, purple a checkpoint, eight hues for the
+  // tracks -- so a fifth meaning would have had to take one of theirs. Indigo
+  // already says "somebody decided this", which is exactly what tier and kind
+  // both are.
+  //
+  // A word rather than a letter: `N`/`E`/`R`/`F` was drawn first and read as a
+  // code you had to learn, where `enh` reads as itself. It costs width -- 27px
+  // of `feat` on a node that can be 32px across -- so unlike the pip this one
+  // reaches past the rim, and where it reaches was measured rather than
+  // reasoned. `map_sweep` on the real dataset with every rung switched on and a
+  // kind forced onto all 31 projects: fixed upper left fouls 64 times across
+  // the six widths, fixed lower left 60, fixed lower right 42, and the side
+  // chosen per node below 39 -- with nothing else on the picture moving, so the
+  // other three counts stay exactly where they were. At the map's own default
+  // -- `active`, six nodes -- it is zero, which is what the fixed placements
+  // could not manage.
+  //
+  // Unclassified draws nothing at all. The absence of a decision is not a fifth
+  // kind, and a tag saying so on every node of a dataset that has never used
+  // the field would be the loudest thing on the map.
+  const tag = KIND_TAG[project.kind || ""];
+  if (tag) {
+    const width = KIND_TAG_WIDTH[project.kind] || 24;
+    // Always under the node; the side is the one the label did not take. A
+    // label leaning right starts at `r + LABEL_GAP`, which is exactly where a
+    // right-hand tag's outer edge lands on a small node -- so the two swap
+    // sides rather than argue. One axis fixed and one following the label is
+    // still scannable ("under the node, away from the name"); a mark free to
+    // land in any of four corners would not be.
+    const side = place.anchor === "start" ? -1 : 1;
+    const kx = point.x + side * radius * 0.707;
+    const ky = point.y + radius * 0.707;
+    const mark = svgElement("g", { class: "map-kind" });
+    mark.appendChild(svgElement("rect", {
+      x: kx - width / 2, y: ky - KIND_TAG_H / 2, width, height: KIND_TAG_H,
+      rx: KIND_TAG_H / 2,
+    }));
+    mark.appendChild(svgElement("text", {
+      class: "map-kind-text", x: kx, y: ky + 3.3, "text-anchor": "middle",
+    }, tag));
+    group.appendChild(mark);
   }
 
   // How much of the work is ticked off, as the circle filling from the bottom.

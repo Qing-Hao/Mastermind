@@ -271,6 +271,14 @@ function textBox(node, inherited) {
 function harvest(svg) {
   const labels = [];
   const circles = [];
+  // The kind tags, kept apart from the labels because they are the one piece of
+  // ink that is *meant* to sit on a node -- their own -- while still being able
+  // to foul somebody else's. A pip's numeral is small enough to stay inside the
+  // circle it belongs to and is skipped outright; a `feat` tag is 27px wide on a
+  // node that can be 32px across, so it reaches past the rim and has to be
+  // measured. Each one carries the circle it belongs to, so that one pairing
+  // can be excluded and every other one counted.
+  const tags = [];
 
   const walk = (node, inherited) => {
     const classes = [...inherited, ...node.classes()];
@@ -289,6 +297,22 @@ function harvest(svg) {
       // the list, so a label drifting onto the hub is still caught.
       if (classes.includes("map-pip-text") || classes.includes("map-hub")
           || classes.includes("map-percent")) return;
+      // The kind tag: measured, but into its own list. `owner` is filled in
+      // below, once the `.map-node` group it sits in has finished walking.
+      if (classes.includes("map-kind-text")) {
+        const box = textBox(node, inherited);
+        // The rect behind it is what actually reaches furthest, so the box is
+        // widened to the pill rather than to the three letters inside it.
+        if (box) {
+          tags.push({
+            owner: null,
+            left: box.left - KIND_TAG_PAD, right: box.right + KIND_TAG_PAD,
+            top: box.top - 1, bottom: box.bottom + 1,
+            text: box.text,
+          });
+        }
+        return;
+      }
       const box = textBox(node, inherited);
       if (box) labels.push(box);
       return;  // tspans are the text's own business
@@ -304,12 +328,29 @@ function harvest(svg) {
         r: Number(node.attributes.r || 0),
       });
     }
+    // A node group's own circle is pushed before anything inside it, so the
+    // first circle this subtree adds is the body every tag in it belongs to.
+    if (node.classes().includes("map-node")) {
+      const circleFrom = circles.length;
+      const tagFrom = tags.length;
+      for (const child of node.children) walk(child, classes);
+      const owner = circles[circleFrom];
+      if (owner) {
+        for (let i = tagFrom; i < tags.length; i += 1) tags[i].owner = owner;
+      }
+      return;
+    }
     for (const child of node.children) walk(child, classes);
   };
 
   walk(svg, []);
-  return { labels, circles };
+  return { labels, circles, tags };
 }
+
+// Half the horizontal padding either side of a tag's three letters: the pill is
+// `KIND_TAG_WIDTH` wide in `app.js` and the glyphs inside it are about 18px, so
+// this is what turns a measured text box back into the shape that is painted.
+const KIND_TAG_PAD = 3;
 
 // A circle has no text of its own; its name is whatever its group is labelled.
 // The pip's numeral and the completion percentage are both skipped: each comes
@@ -341,8 +382,11 @@ const circlesOverlap = (a, b) =>
   Math.hypot(a.cx - b.cx, a.cy - b.cy) < a.r + b.r;
 
 function collisions(svg, width, height) {
-  const { labels, circles } = harvest(svg);
-  const found = { label_label: [], label_circle: [], circle_circle: [], off_canvas: [] };
+  const { labels, circles, tags } = harvest(svg);
+  const found = {
+    label_label: [], label_circle: [], circle_circle: [], tag_hit: [],
+    off_canvas: [],
+  };
 
   for (let i = 0; i < labels.length; i += 1) {
     for (let j = i + 1; j < labels.length; j += 1) {
@@ -368,13 +412,34 @@ function collisions(svg, width, height) {
     }
   }
 
+  // A tag over its own node is the design; a tag over anything else is a
+  // defect. Both directions are checked -- somebody else's circle, and any
+  // label -- because a tag reaching past its own rim lands in exactly the strip
+  // where the next ring's labels sit.
+  for (const tag of tags) {
+    for (const circle of circles) {
+      if (circle === tag.owner) continue;
+      if (boxHitsCircle(tag, circle)) {
+        found.tag_hit.push(`${tag.text}  on  ${circle.text}`);
+      }
+    }
+    for (const box of labels) {
+      if (boxesOverlap(tag, box)) {
+        found.tag_hit.push(`${tag.text}  ×  ${box.text}`);
+      }
+    }
+  }
+
   for (const box of labels) {
     if (box.left < 0 || box.right > width || box.top < 0 || box.bottom > height) {
       found.off_canvas.push(box.text);
     }
   }
 
-  return { found, counted: { labels: labels.length, circles: circles.length } };
+  return {
+    found,
+    counted: { labels: labels.length, circles: circles.length, tags: tags.length },
+  };
 }
 
 // --- driving it --------------------------------------------------------------
@@ -533,16 +598,19 @@ async function main() {
     + ` tracks ${options.tracks.length
       ? options.tracks.map((name) => name || "untracked").join("+") : "all"})`);
   console.log("");
-  console.log("  width  height  labels  circles  lbl×lbl  lbl×circ  circ×circ  off-canvas");
+  console.log("  width  height  labels  circles  tags  lbl×lbl  lbl×circ"
+    + "  circ×circ  tag×any  off-canvas");
   for (const row of report) {
     const cells = [
       String(row.width).padStart(7),
       String(row.height).padStart(8),
       String(row.labels).padStart(8),
       String(row.circles).padStart(9),
+      String(row.tags).padStart(6),
       String(row.found.label_label.length).padStart(9),
       String(row.found.label_circle.length).padStart(10),
       String(row.found.circle_circle.length).padStart(11),
+      String(row.found.tag_hit.length).padStart(9),
       String(row.found.off_canvas.length).padStart(12),
     ];
     console.log(cells.join(""));

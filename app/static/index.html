@@ -505,12 +505,14 @@
             <input id="department-name" type="text"
               placeholder="e.g. Platform Engineering | Product">
           </label>
-          <!-- Two groups, filled by `renderMapFilters`. Tier is independent
+          <!-- Three groups, filled by `renderMapFilters`. Tier is independent
                toggles rather than a "tier 1 and above" slider, because untiered
                is a state of its own and needs its own switch. Status is kept
                apart from them: it asks whether finished work is on the picture
                at all, which is a different question from how much of the
-               ranking to draw. -->
+               ranking to draw. Kind is a third question again -- what sort of
+               work it is -- and every one of the three needs its own row for
+               the same reason: chips in one row read as one vocabulary. -->
           <span class="map-filters">
             <span class="filter-group" id="tier-filter"
               data-tip="Show only these tiers"
@@ -518,6 +520,9 @@
             <span class="filter-group" id="status-filter"
               data-tip="Ideas and finished work"
               data-tip-body="Both start off, so the map opens on committed work. Ideas are still listed in full under Future directions, and finished work has no bearing on where the team is pointed next."></span>
+            <span class="filter-group" id="kind-filter"
+              data-tip="Show only these kinds of work"
+              data-tip-body="All on to start with: a filter that hid work by default would lose it. Unclassified is its own switch, the way untiered is — it means nobody has said yet, not a fifth kind."></span>
           </span>
           <span class="spacer"></span>
           <!-- Which drawing this tab shows. Last in the row after a spacer, the

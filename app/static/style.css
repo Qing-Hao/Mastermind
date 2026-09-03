@@ -3660,6 +3660,36 @@ body.resizing-column { cursor: col-resize; user-select: none; }
   font-weight: 700;
   pointer-events: none;
 }
+
+/* --- kind ---------------------------------------------------------------
+   What sort of work it is, as a word on the lower left: the pip's mirror,
+   and the same indigo on purpose. **That indigo is the map's one colour
+   that is not data.** Every hue on this picture means something -- blue is
+   planned, green is running or delivered, red is late, purple is a
+   checkpoint, and eight more are the tracks -- so a fifth vocabulary would
+   have had to spend one of theirs. Indigo already says "somebody decided
+   this", which is what tier and kind both are and what no derived field
+   is. One indigo for all four kinds, exactly as all three ranks share one:
+   the word is the cue.
+
+   The white stroke is the pip's too, and it is load-bearing rather than
+   decorative -- it is what keeps the tag legible where it crosses the rim
+   of a `delivered` node, which is the deepest fill on the map.
+
+   `.is-none` is the legend's empty outline for unclassified. No node ever
+   draws it: an absent decision draws no tag at all. */
+.map-node .map-kind rect, .map-kind rect {
+  fill: var(--tier-pip);
+  stroke: #fff;
+  stroke-width: 1.5;
+}
+.map-kind.is-none rect { fill: var(--surface); stroke: var(--field); }
+.map-kind-text {
+  fill: #fff;
+  font-size: 9.5px;
+  font-weight: 700;
+  pointer-events: none;
+}
 /* --- completion ---------------------------------------------------------
    How much of a project's work is ticked off, as the circle filling from the
    bottom. A `<rect>` clipped to the node's circle rather than a second
@@ -3731,6 +3761,10 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 /* Tier 1's chip carries the same ring the node does. */
 .map-chip.tier-1.on { box-shadow: 0 0 0 2px var(--accent-soft), 0 0 0 3px var(--accent-ring); }
 .map-chip.tier-0 { font-style: italic; }
+/* Unclassified is italic for the same reason untiered is: it is the absence of
+   an answer sitting in a row of answers, and the one chip whose text is a word
+   about the data rather than a tag drawn on it. */
+.map-chip.kind-none { font-style: italic; }
 /* The idea chip carries the dash its nodes do, the same way tier 1's carries the
    node's ring: an idea is the one rung the map draws with a dashed rim, so the
    chip that switches the ring on and off is drawn out of the same vocabulary.
