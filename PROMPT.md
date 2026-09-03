@@ -189,6 +189,39 @@ the text above, **the amendment wins** — the code follows the amendments.
    The AI provider key is unchanged and still environment-only — it belongs to a
    CLI script with no page to configure it on.
 
+5. **A project says what sort of work it is.** *(Added 2026-09-03.)* The brief
+   describes one shape of work — a project with phases and deliverables — and the
+   roadmap drew a greenfield build and a tweak to something already live
+   identically. That is fine for the team, who know which is which, and useless
+   for anyone being shown the roadmap: "here is what we are working on" cannot be
+   answered by a picture that says only how much there is and how late it is.
+
+   So `project.kind`: `new`, `enhancement`, `feature`, `fix`, or `''` for
+   unclassified, which is what every project written before the field arrives as.
+   **It is `tier`'s twin, and the reason it is safe is that it is nothing more
+   than that** — a label the map filters on, the roadmap chip and the swimlane
+   gutter tag, and the portfolio counts.
+
+   The lines it must not cross, all three of which would turn a label into the
+   tracker **Non-goals** forbids:
+
+   - **Nothing derives from it.** No rule reads it, no stage or date moves
+     because of it, no default is chosen by it. "Enhancements need no
+     checkpoint", "a new build gets contingency" — each is the scheduling
+     opinion non-negotiable 1 rules out, wearing a new field's clothes.
+   - **Nothing sums points across it.** The work mix counts *projects*. A points
+     total per kind is a points-per-day constant in disguise, which the capacity
+     design rules out outright, and it would make one large project look like the
+     whole department.
+   - **It is a property of the work, never of a person.** No "who asked for it",
+     no requester, no owner. `feature` means asked for from outside the team; the
+     moment it records *who* asked, it is a row keyed by a person.
+
+   Five values and no `CHECK` on the column, deliberately: this vocabulary is
+   likelier to gain a word than `stage` or `tier`, and changing a `CHECK` means
+   rebuilding the project table — which has cost the real dataset once. `db.KINDS`
+   is the list and `main.clean_kind` is the boundary.
+
 Deliverables inside a phase are treated as **sequential**, so durations sum. Work
 that genuinely runs in parallel belongs in separate phases.
 

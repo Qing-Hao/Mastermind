@@ -1258,6 +1258,82 @@ td input { width: 100%; min-width: 80px; }
 .tile-quiet .tile-num { color: var(--faint); }
 .tile-sub { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
 
+/* --- the work mix ----------------------------------------------------------
+   What sort of work all of it is, in one card under the tiles. **Its own band
+   rather than a fifth tile**: `.headline` is a four-column grid, and a fifth
+   cell would reflow the four things above it into a shape nobody asked for.
+
+   Five columns whatever the window does, because the five kinds are a fixed
+   vocabulary rather than a list that grows -- so this can be `repeat(5, ...)`
+   where the tiles above have to be `minmax`ed.
+
+   The tag is the map's, the segment colours are the stage ramp's, and neither
+   is redefined here: this surface adds sizes and nothing else. That is the
+   whole of why a second readout of the same data cannot contradict the
+   first. */
+.mix { margin: 0 0 12px; }
+.mix-row {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+.mix-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mix-mark { display: flex; align-items: center; gap: 6px; }
+.mix-tag {
+  flex: none;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--tier-pip);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 15px;
+}
+/* Unclassified: the key's empty outline, sized to hold nothing. A node draws no
+   tag at all for this, but a column of counts needs something in the slot or
+   the numbers stop lining up. */
+.mix-tag.is-none {
+  width: 24px;
+  background: var(--surface);
+  border: 1.5px solid var(--field);
+  line-height: 12px;
+}
+.mix-num {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+.mix-quiet .mix-num { color: var(--faint); }
+.mix-label {
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mix-bar {
+  display: flex;
+  height: 8px;
+  margin-top: 4px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--line-soft);
+}
+/* The ramp, as fills only: an 8px sliver cannot carry the outline half of the
+   stage vocabulary, so the three hollow rungs -- idea, planning, planned, all
+   of them `#fff` on the map -- take their line colour as a fill here rather
+   than painting nothing at all. */
+.mix-seg { min-width: 2px; }
+.mix-seg.stage-idea { background: var(--stage-idea-line); }
+.mix-seg.stage-planning { background: var(--stage-planning-line); }
+.mix-seg.stage-planned { background: var(--stage-planned-line); }
+.mix-seg.stage-dated { background: var(--stage-dated-fill); }
+.mix-seg.stage-active { background: var(--stage-active-fill); }
+.mix-seg.stage-overdue { background: var(--stage-overdue-fill); }
+.mix-seg.stage-done { background: var(--stage-done-fill); }
+
 /* --- the checkpoint horizon ------------------------------------------------
    The fortnight ahead on one dated line. The diamonds are the chart's own
    `.milestone-diamond`, so the hollow-until-reached vocabulary cannot drift

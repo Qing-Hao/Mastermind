@@ -172,6 +172,14 @@ and argument are in `PROMPT.md`, `feature_request.md` and `git log`.
    brief forbids.
 5. **Promotion is a write, never an inference.** An idea stays an idea until
    someone presses the button.
+
+   **`kind` is a label of the same family as `tier`** *(added 2026-09-03)* —
+   `new`, `enhancement`, `feature`, `fix`, `''`. Nothing derives from it: no
+   rule, no stage, no date, no default. Nothing sums points across it — that is
+   the points-per-day constant the capacity design forbids. And it describes the
+   work, never a person: `feature` means asked for from outside, and recording
+   *who* asked makes it a row keyed by a person. PROMPT.md amendment 5 carries
+   the argument.
 6. **Rule numbering is never reused** (V5 is deleted, not dormant; FR numbers gap
    where things shipped). A gap means "look in `git log`".
 7. **Never build:** ticket tracking, comments, activity feeds, notifications,

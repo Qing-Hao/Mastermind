@@ -3330,7 +3330,79 @@ function renderPortfolioHeadline() {
   const ideas = state.projects.filter(
     (project) => project.derived_stage === "idea");
   band.appendChild(tile("Ideas", ideas.length, "captured, not committed to", "quiet"));
+
+  renderWorkMix();
 }
+
+// **What sort of work the department is doing, counted on read.** The question
+// a roadmap gets asked by people who do not read it daily -- "what are you
+// working on" -- which the four tiles above cannot answer: they count how much
+// and how late, never what.
+//
+// Counted off `state.projects`, the sidebar's list, because that is the only one
+// holding ideas as well as committed work; the portfolio payload deliberately
+// drops them. A direction nobody has taken up is exactly what somebody being
+// shown the roadmap wants to hear about, so the count would be wrong without
+// them.
+//
+// **Projects, never points.** A total of points per kind would be a
+// points-per-day constant in disguise, which the capacity design rules out --
+// and it would make a kind with one big project look like the whole department.
+//
+// Nothing is stored and nothing is remembered: the same numbers for everybody,
+// derived from the rows and today, which is what keeps this the same genus as
+// the overdue bell rather than a per-person view.
+function renderWorkMix() {
+  const band = $("portfolio-mix");
+  band.innerHTML = "";
+  const projects = state.projects;
+
+  const box = element("div", "tile");
+  box.appendChild(element("div", "tile-cap", "Work mix"));
+  const row = element("div", "mix-row");
+
+  for (const kind of KIND_ORDER) {
+    const held = projects.filter((project) => (project.kind || "") === kind);
+    const cell = element("div", `mix-cell${kind ? "" : " mix-quiet"}`);
+    const mark = element("div", "mix-mark");
+    // The map's tag, so the two surfaces cannot drift apart. Unclassified draws
+    // the key's empty outline, the one place that shape is used outside the
+    // legend -- on a node it draws nothing at all.
+    mark.appendChild(element("span",
+      `mix-tag${kind ? "" : " is-none"}`, KIND_TAG[kind] || ""));
+    mark.appendChild(element("span", "mix-num", String(held.length)));
+    cell.appendChild(mark);
+    cell.appendChild(element("span", "mix-label", KIND_LABEL[kind]));
+
+    // Where that kind sits on the ladder, as the stage ramp's own colours. No
+    // new vocabulary: the same rungs the dots and the nodes wear, read across a
+    // kind instead of across a track. A kind nobody has used draws no bar
+    // rather than an empty frame.
+    if (held.length) {
+      const bar = element("div", "mix-bar");
+      for (const rung of MIX_RUNGS) {
+        const count = held.filter(
+          (project) => project.derived_stage === rung).length;
+        if (!count) continue;
+        const part = element("span", `mix-seg stage-${rung}`);
+        part.style.flexGrow = String(count);
+        part.title = `${count} ${rung}`;
+        bar.appendChild(part);
+      }
+      cell.appendChild(bar);
+    }
+    row.appendChild(cell);
+  }
+
+  box.appendChild(row);
+  band.appendChild(box);
+}
+
+// The ladder's order, for the mix bars. Every rung a project can be on, so the
+// segments of one bar always add up to the number above them -- a bar missing a
+// rung would be a bar that lied about its own count.
+const MIX_RUNGS = ["idea", "planning", "planned", "dated", "active", "overdue",
+                   "done"];
 
 // The dated checkpoints falling inside the horizon, in date order. Read off the
 // portfolio payload, which already carries every dated checkpoint on a committed
