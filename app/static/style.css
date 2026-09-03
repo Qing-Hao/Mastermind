@@ -1263,9 +1263,9 @@ td input { width: 100%; min-width: 80px; }
    rather than a fifth tile**: `.headline` is a four-column grid, and a fifth
    cell would reflow the four things above it into a shape nobody asked for.
 
-   Five columns whatever the window does, because the five kinds are a fixed
-   vocabulary rather than a list that grows -- so this can be `repeat(5, ...)`
-   where the tiles above have to be `minmax`ed.
+   One column per kind, `minmax`ed so a sixth or seventh word does not overflow
+   the card: the vocabulary is closed at any moment but not fixed forever --
+   `migration` arrived the day after the field shipped.
 
    The tag is the map's, the segment colours are the stage ramp's, and neither
    is redefined here: this surface adds sizes and nothing else. That is the
@@ -1274,7 +1274,7 @@ td input { width: 100%; min-width: 80px; }
 .mix { margin: 0 0 12px; }
 .mix-row {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 10px;
 }
 .mix-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }

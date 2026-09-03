@@ -93,10 +93,12 @@ CREATE TABLE IF NOT EXISTS {name} (
     tier              INTEGER NOT NULL DEFAULT 0
                       CHECK (tier IN (0, 1, 2, 3)),
     -- What sort of work this is: a new build, a change to something already
-    -- live, something asked for from outside, or a fix. '' means nobody has
-    -- said yet, and is a state of its own rather than a fifth sort -- the same
-    -- shape as tier 0. **Nothing derives from it**: no rule reads it, no date
-    -- moves because of it, and nothing sums against it. It exists so the map
+    -- live, something asked for from outside, a fix, or a move from one place
+    -- to another. '' means nobody has said yet, and is a state of its own
+    -- rather than one more sort -- the same shape as tier 0, and the reason
+    -- this list can grow without that changing. **Nothing derives from it**:
+    -- no rule reads it, no date moves because of it, and nothing sums against
+    -- it. It exists so the map
     -- can be filtered and the portfolio can say what kind of work is running,
     -- which is a question a roadmap gets asked by people who do not read it
     -- daily.
@@ -106,6 +108,9 @@ CREATE TABLE IF NOT EXISTS {name} (
     -- narrowing or widening a CHECK means rebuilding this table -- see
     -- `migrate_stage_check`, which has cost a real dataset once. `KINDS` below
     -- is the list, and `main.clean_kind` is the boundary that enforces it.
+    -- **That decision has already paid for itself**: `migration` was added the
+    -- day after the field shipped, and it cost one tuple and no migration at
+    -- all.
     kind              TEXT NOT NULL DEFAULT '',
     created_at        TEXT NOT NULL,
     updated_at        TEXT NOT NULL
@@ -313,7 +318,7 @@ TIERS = (0, 1, 2, 3)
 # the order the map's chips and the portfolio's readout draw in, and '' sits last
 # for the reason tier 0 does: the absence of a decision sorts after every
 # decision.
-KINDS = ("new", "enhancement", "feature", "fix", "")
+KINDS = ("new", "enhancement", "feature", "fix", "migration", "")
 
 # How long a writer waits for another writer's lock before giving up. Named
 # rather than left to `sqlite3.connect`'s own five-second default, because that

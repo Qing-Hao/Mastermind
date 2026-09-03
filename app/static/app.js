@@ -82,16 +82,21 @@ const TIER_MARK = { ...TIER_LABEL, 0: "T?" };
 // room for a sentence's worth; `KIND_TAG` is the node, the roadmap chip and the
 // swimlane gutter, where 27px is the budget. The same split `TIER_LABEL` and
 // `TIER_MARK` already make, for the same reason.
-const KIND_ORDER = ["new", "enhancement", "feature", "fix", ""];
+const KIND_ORDER = ["new", "enhancement", "feature", "fix", "migration", ""];
 const KIND_LABEL = {
   new: "new build",
   enhancement: "enhancement",
   feature: "feature asked for",
   fix: "fix / refactor",
+  migration: "migration",
   "": "unclassified",
 };
+// `mgr` is the requester's own short form for migration, and it happens to be
+// the cheap one too: three letters at `fix`'s 20px rather than the 27px `feat`
+// spends.
 const KIND_TAG = {
-  new: "new", enhancement: "enh", feature: "feat", fix: "fix", "": "",
+  new: "new", enhancement: "enh", feature: "feat", fix: "fix",
+  migration: "mgr", "": "",
 };
 // What each word means, for the key under the canvas. Wording is the form's,
 // cut to what fits beside a tag.
@@ -100,6 +105,7 @@ const KIND_LEGEND = [
   ["enhancement", "a change to something already live"],
   ["feature", "asked for from outside the team"],
   ["fix", "refactor, debt, debugging"],
+  ["migration", "the same capability, somewhere else"],
   ["", "nobody has said yet"],
 ];
 
@@ -5922,7 +5928,9 @@ const TIER_PIP_R = 8;
 // `KIND_TAG` -- a word added there needs a width here, and the fallback is the
 // 24px `new` takes.
 const KIND_TAG_H = 14;
-const KIND_TAG_WIDTH = { new: 24, enhancement: 24, feature: 27, fix: 20 };
+const KIND_TAG_WIDTH = {
+  new: 24, enhancement: 24, feature: 27, fix: 20, migration: 20,
+};
 // Line height of a label block, and the clear space between a circle's rim and
 // the nearest edge of its label.
 const LABEL_LINE = 13;

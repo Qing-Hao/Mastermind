@@ -196,8 +196,10 @@ the text above, **the amendment wins** — the code follows the amendments.
    for anyone being shown the roadmap: "here is what we are working on" cannot be
    answered by a picture that says only how much there is and how late it is.
 
-   So `project.kind`: `new`, `enhancement`, `feature`, `fix`, or `''` for
-   unclassified, which is what every project written before the field arrives as.
+   So `project.kind`: `new`, `enhancement`, `feature`, `fix`, `migration`, or
+   `''` for unclassified, which is what every project written before the field
+   arrives as. *(`migration` was added the day after the rest — the same
+   capability, somewhere else: a platform, a provider, a datastore.)*
    **It is `tier`'s twin, and the reason it is safe is that it is nothing more
    than that** — a label the map filters on, the roadmap chip and the swimlane
    gutter tag, and the portfolio counts.
@@ -217,10 +219,16 @@ the text above, **the amendment wins** — the code follows the amendments.
      no requester, no owner. `feature` means asked for from outside the team; the
      moment it records *who* asked, it is a row keyed by a person.
 
-   Five values and no `CHECK` on the column, deliberately: this vocabulary is
-   likelier to gain a word than `stage` or `tier`, and changing a `CHECK` means
-   rebuilding the project table — which has cost the real dataset once. `db.KINDS`
-   is the list and `main.clean_kind` is the boundary.
+   No `CHECK` on the column, deliberately: this vocabulary is likelier to gain a
+   word than `stage` or `tier`, and changing a `CHECK` means rebuilding the
+   project table — which has cost the real dataset once. `db.KINDS` is the list
+   and `main.clean_kind` is the boundary. **That call paid for itself within a
+   day**, when `migration` was added: one tuple, no migration.
+
+   The list is closed at any moment and not fixed forever, so **a word is added
+   deliberately, not casually** — six buckets a roadmap can be read through is
+   useful, and twenty is a tracker's status enum with extra steps. The test is
+   whether somebody being shown the roadmap would ask about the difference.
 
 Deliverables inside a phase are treated as **sequential**, so durations sum. Work
 that genuinely runs in parallel belongs in separate phases.

@@ -1111,13 +1111,26 @@ def test_a_kind_is_stored_and_reaches_the_map(client):
 
 
 def test_every_named_kind_is_accepted(client):
-    """The vocabulary the column carries no CHECK for -- so this is the guard."""
-    for kind in ("new", "enhancement", "feature", "fix", ""):
+    """The vocabulary the column carries no CHECK for -- so this is the guard.
+
+    Read off `db.KINDS` rather than spelt out again: the list is expected to
+    gain words, and a copy of it here would pass while saying nothing about
+    whichever one was added last.
+    """
+    assert "" in db.KINDS, "unclassified has to stay a valid kind"
+    for kind in db.KINDS:
         project = client.post("/api/projects", json={
             "name": f"Project {kind or 'none'}", "start_date": "2026-01-05",
             "kind": kind,
         }).json()
         assert project["kind"] == kind
+
+    # And every one of them survives the round trip, which is the half a
+    # hard-coded list would have quietly stopped covering.
+    exported = client.get("/api/export").json()
+    assert client.post("/api/import", json=exported).status_code == 200
+    assert {project["kind"] for project in client.get("/api/projects").json()} \
+        == set(db.KINDS)
 
 
 def test_an_unknown_kind_is_rejected_rather_than_stored(client):

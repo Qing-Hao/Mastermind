@@ -174,7 +174,9 @@ and argument are in `PROMPT.md`, `feature_request.md` and `git log`.
    someone presses the button.
 
    **`kind` is a label of the same family as `tier`** *(added 2026-09-03)* —
-   `new`, `enhancement`, `feature`, `fix`, `''`. Nothing derives from it: no
+   `new`, `enhancement`, `feature`, `fix`, `migration`, `''`. The list may gain
+   a word (`db.KINDS`, no `CHECK`); it is not meant to grow into a status enum.
+   Nothing derives from it: no
    rule, no stage, no date, no default. Nothing sums points across it — that is
    the points-per-day constant the capacity design forbids. And it describes the
    work, never a person: `feature` means asked for from outside, and recording
