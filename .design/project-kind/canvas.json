@@ -1,0 +1,46 @@
+{
+  "pages": [
+    { "id": "page-1", "name": "Chosen · kind tag" },
+    { "id": "page-2", "name": "Not chosen" }
+  ],
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 600, "h": 580, "page": "page-1", "title": "Map · the node" },
+    { "file": "Legend.dc.html", "x": 680, "y": 0, "w": 900, "h": 560, "page": "page-1", "title": "Map · chips and key" },
+    { "file": "Tag.dc.html", "x": 1660, "y": 0, "w": 620, "h": 680, "page": "page-1", "title": "The tag's colour" },
+    { "file": "Form.dc.html", "x": 0, "y": 800, "w": 620, "h": 470, "page": "page-1", "title": "Project tab · the field" },
+    { "file": "Roadmap.dc.html", "x": 700, "y": 800, "w": 760, "h": 560, "page": "page-1", "title": "Map · roadmap mode" },
+    { "file": "Lists.dc.html", "x": 1580, "y": 800, "w": 880, "h": 540, "page": "page-1", "title": "Sidebar and swimlanes" },
+    { "file": "Portfolio.dc.html", "x": 0, "y": 1480, "w": 780, "h": 560, "page": "page-1", "title": "Portfolio · work mix" },
+
+    { "file": "OptionA.dc.html", "x": 0, "y": 0, "w": 600, "h": 580, "page": "page-2", "title": "Option A · meta line" },
+    { "file": "OptionC.dc.html", "x": 680, "y": 0, "w": 600, "h": 580, "page": "page-2", "title": "Option C · node shape" },
+    { "file": "OptionD.dc.html", "x": 1360, "y": 0, "w": 600, "h": 580, "page": "page-2", "title": "Option D · filter only" }
+  ],
+  "annotations": [
+    {
+      "id": "brief",
+      "x": 0,
+      "y": -250,
+      "w": 620,
+      "page": "page-1",
+      "text": "KIND — new / enhancement / feature / fix — stored on the project, shown as a short tag: new · enh · feat · fix.\n\nThe tag now wears the tier pip's indigo rather than ink. The sheet on the right is that decision, over the four node bodies the tag has to hold on.\n\nNothing derives from this field. No rule reads it, no date moves because of it — it groups and it filters, exactly as tier does."
+    },
+    {
+      "id": "sprint-note",
+      "x": 860,
+      "y": 1480,
+      "w": 320,
+      "page": "page-1",
+      "text": "Not drawn, because not affected: the Sprint tab, the warnings banner, the overdue bell. None of them group by project."
+    },
+    {
+      "id": "archive",
+      "x": 0,
+      "y": -160,
+      "w": 620,
+      "page": "page-2",
+      "text": "The three that lost, kept for the record. They were sketched with the earlier single-letter marks (N / E / R / F) and the word \"request\" — both since replaced."
+    }
+  ],
+  "launch": { "view": "canvas", "page": "page-1" }
+}

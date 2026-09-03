@@ -1,0 +1,127 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: #18181b; background: #fafafa; }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+    .sheet { display: flex; flex-direction: column; gap: 14px; padding: 24px; }
+    .head { display: flex; flex-direction: column; gap: 3px; }
+    .opt-cap { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa; }
+    .opt-name { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+    .opt-axis { font-size: 12.5px; color: #71717a; }
+    .pair { display: grid; grid-template-columns: 264px minmax(0, 1fr); gap: 16px; align-items: start; }
+    .panel { display: flex; flex-direction: column; gap: 8px; }
+    .panel-cap { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa; }
+    .verdict { font-size: 12px; color: #3f3f46; }
+    .verdict b { font-weight: 600; }
+
+    .sidebar { width: 240px; display: flex; flex-direction: column; gap: 2px; padding: 12px; background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; }
+    .project-row { display: flex; align-items: center; gap: 9px; width: 100%; padding: 6px 10px; border-radius: 7px; color: #3f3f46; font-size: 13px; }
+    .project-row.selected { background: #f4f4f5; font-weight: 600; color: #18181b; }
+    .project-row.is-idea .project-name { color: #71717a; }
+    .project-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .project-dot { position: relative; flex: none; width: 12px; height: 12px; border-radius: 999px; border: 1.5px solid #5c6bc0; background: #fff; }
+    .project-dot.stage-idea { background: #fff; border-color: #bbb; }
+    .project-dot.stage-active { background: #a5d6a7; border-color: #2e7d32; }
+    .project-dot.stage-overdue { background: #ffccbc; border-color: #d84315; border-width: 2.5px; }
+    .project-tier { flex: none; min-width: 17px; padding: 0 4px; border-radius: 4px; background: #eef2ff; color: #3949ab; font-size: 10.5px; font-weight: 700; text-align: center; }
+    .project-tier.tier-0 { background: #f4f4f5; color: #a1a1aa; }
+
+    .chart { background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; padding: 14px; }
+    .lane { display: flex; align-items: flex-start; gap: 0; }
+    .lane-name { flex: 0 0 176px; padding-right: 10px; display: flex; align-items: center; gap: 6px; height: 24px; }
+    .lane-title { font-size: 13px; font-weight: 700; color: #333; line-height: 24px; text-decoration: underline; text-underline-offset: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lane-kind { flex: none; padding: 0 7px; border-radius: 999px; background: #3949ab; font-size: 9.5px; line-height: 15px; font-weight: 700; color: #fff; }
+    .lane-body { flex: 1; display: flex; flex-direction: column; gap: 4px; padding-top: 5px; }
+    .bar { height: 14px; border-radius: 3px; background: #c5cae9; }
+    .bar.is-live { background: #a5d6a7; }
+    .bar.is-late { background: #ffccbc; }
+
+    .callout { display: flex; gap: 10px; align-items: flex-start; font-size: 12px; color: #3f3f46; }
+    .flag { display: inline-flex; align-items: center; gap: 5px; flex: none; font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #4f46e5; }
+    .flag::before { content: ""; width: 6px; height: 6px; border-radius: 999px; background: #4f46e5; }
+    .flag.quiet { color: #a1a1aa; }
+    .flag.quiet::before { background: #a1a1aa; }
+  </style>
+</helmet>
+<div class="sheet">
+  <div class="head">
+    <span class="opt-cap">Affected · the two project lists</span>
+    <span class="opt-name">Sidebar and swimlane gutter</span>
+    <span class="opt-axis">Both name every project in a narrow column. One has room for the tag and one has not — so one of them takes it and the other says the word on its tooltip.</span>
+  </div>
+
+  <div class="pair">
+    <div class="panel">
+      <span class="panel-cap">Sidebar · unchanged</span>
+      <div class="sidebar">
+        <div class="project-row selected">
+          <span class="project-dot stage-active"></span>
+          <span class="project-name">Vessel tracker</span>
+          <span class="project-tier">1</span>
+        </div>
+        <div class="project-row">
+          <span class="project-dot stage-overdue"></span>
+          <span class="project-name">Bunker report</span>
+          <span class="project-tier">1</span>
+        </div>
+        <div class="project-row is-idea">
+          <span class="project-dot stage-idea"></span>
+          <span class="project-name">Crew app</span>
+          <span class="project-tier tier-0">?</span>
+        </div>
+      </div>
+      <span class="verdict"><b>240px, already carrying a dot, a name and a rank.</b> A fourth element pushes the name into an ellipsis on half the list. The kind goes on the row's tooltip, where the stage word already is.</span>
+    </div>
+
+    <div class="panel">
+      <span class="panel-cap">Portfolio swimlanes · tag added</span>
+      <div class="chart">
+        <div class="lane">
+          <span class="lane-name">
+            <span class="lane-title">Client portal</span>
+            <span class="lane-kind">enh</span>
+          </span>
+          <span class="lane-body">
+            <span class="bar is-live" style="width: 62%"></span>
+            <span class="bar" style="width: 40%; margin-left: 30%"></span>
+          </span>
+        </div>
+        <div class="lane">
+          <span class="lane-name">
+            <span class="lane-title">Bunker report</span>
+            <span class="lane-kind">fix</span>
+          </span>
+          <span class="lane-body">
+            <span class="bar is-late" style="width: 45%"></span>
+          </span>
+        </div>
+        <div class="lane">
+          <span class="lane-name">
+            <span class="lane-title">Vessel tracker</span>
+            <span class="lane-kind">new</span>
+          </span>
+          <span class="lane-body">
+            <span class="bar is-live" style="width: 78%"></span>
+            <span class="bar" style="width: 22%; margin-left: 60%"></span>
+          </span>
+        </div>
+      </div>
+      <span class="verdict"><b>The gutter is 176px and sized to the longest name.</b> The tag sits on the same 24px line as the title, so no lane grows taller; a long name clips one word sooner than it did.</span>
+    </div>
+  </div>
+
+  <div class="callout">
+    <span class="flag quiet">Not touched</span>
+    <span>The Sprint tab. A fortnight is a list of what is being worked on now, and its lanes are phases rather than projects — the kind belongs to the project above them, and repeating it on every row would say it four times over. Worth revisiting once the field has been in use for a fortnight or two.</span>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

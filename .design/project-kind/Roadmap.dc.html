@@ -1,0 +1,118 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: #18181b; background: #fafafa; }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+    .sheet { display: flex; flex-direction: column; gap: 14px; padding: 24px; }
+    .head { display: flex; flex-direction: column; gap: 3px; }
+    .opt-cap { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa; }
+    .opt-name { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+    .opt-axis { font-size: 12.5px; color: #71717a; }
+
+    .grid { display: grid; grid-template-columns: 176px repeat(2, minmax(0, 1fr)); background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; overflow: hidden; }
+    .corner { border-bottom: 1px solid #e6e6ea; }
+    .qhead { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px 12px; border-bottom: 1px solid #e6e6ea; border-left: 1px solid #f1f1f4; }
+    .qhead-name { font-size: 13px; font-weight: 600; }
+    .qhead-meta { font-size: 10.5px; color: #a1a1aa; }
+    .rail { display: flex; align-items: flex-start; gap: 8px; padding: 12px; font-size: 12.5px; color: #3f3f46; }
+    .rail-bar { flex: none; width: 3px; align-self: stretch; min-height: 34px; border-radius: 999px; background: #7e57c2; }
+    .cell { display: flex; flex-direction: column; gap: 6px; padding: 10px; border-left: 1px solid #f1f1f4; }
+
+    .roadmap-chip { display: flex; align-items: flex-start; gap: 6px; width: 100%; padding: 5px 8px 6px; border: 1px solid #e6e6ea; border-radius: 6px; background: #fff; text-align: left; }
+    .roadmap-chip.is-tail { background: #fafafa; border-style: dashed; }
+    .project-dot { position: relative; flex: 0 0 auto; margin-top: 4px; width: 12px; height: 12px; border-radius: 999px; border: 1.5px solid #5c6bc0; background: #fff; }
+    .project-dot.stage-active { background: #a5d6a7; border-color: #2e7d32; }
+    .project-dot.stage-dated { background: #d5e6f7; border-color: #5c6bc0; }
+    .project-dot.stage-overdue { background: #ffccbc; border-color: #d84315; border-width: 2.5px; }
+    .roadmap-chip-body { min-width: 0; }
+    .roadmap-chip-name { font-size: 12px; line-height: 1.3; color: #18181b; }
+    .roadmap-chip-meta { font-size: 10.5px; line-height: 1.3; color: #a1a1aa; }
+    .tags { display: flex; gap: 4px; margin-top: 3px; }
+    .roadmap-subtag { padding: 0 7px; border-radius: 999px; background: #f4f4f5; font-size: 9.5px; line-height: 1.5; color: #52525b; }
+    .roadmap-kind { padding: 0 7px; border-radius: 999px; background: #3949ab; font-size: 9.5px; line-height: 1.5; font-weight: 700; color: #fff; }
+    .roadmap-tier { margin-left: auto; flex: 0 0 auto; padding-left: 4px; font-size: 10px; font-weight: 700; color: #3949ab; }
+
+    .callout { display: flex; gap: 10px; align-items: flex-start; font-size: 12px; color: #3f3f46; }
+    .flag { display: inline-flex; align-items: center; gap: 5px; flex: none; font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #4f46e5; }
+    .flag::before { content: ""; width: 6px; height: 6px; border-radius: 999px; background: #4f46e5; }
+  </style>
+</helmet>
+<div class="sheet">
+  <div class="head">
+    <span class="opt-cap">Affected · Map tab, roadmap mode</span>
+    <span class="opt-name">The quarter grid</span>
+    <span class="opt-axis">The chip already carries a subtrack tag in this exact pill. The kind takes the same shape and the node's dark grey, so the two read as tag and tag rather than as two inventions.</span>
+  </div>
+
+  <div class="grid">
+    <div class="corner"></div>
+    <div class="qhead">
+      <span class="qhead-name">2026 Q4</span>
+      <span class="qhead-meta">Oct – Dec · 4 projects</span>
+    </div>
+    <div class="qhead">
+      <span class="qhead-name">2027 Q1</span>
+      <span class="qhead-meta">Jan – Mar · 2 projects</span>
+    </div>
+
+    <div class="rail">
+      <span class="rail-bar"></span>
+      <span>Internal systems<br><span class="qhead-meta">3 projects</span></span>
+    </div>
+    <div class="cell">
+      <div class="roadmap-chip">
+        <span class="project-dot stage-active"></span>
+        <span class="roadmap-chip-body">
+          <span class="roadmap-chip-name">Client portal</span>
+          <span class="roadmap-chip-meta">6 Oct – 18 Dec · runs on</span>
+          <span class="tags"><span class="roadmap-subtag">Billing</span><span class="roadmap-kind">enh</span></span>
+        </span>
+        <span class="roadmap-tier">2</span>
+      </div>
+      <div class="roadmap-chip">
+        <span class="project-dot stage-overdue"></span>
+        <span class="roadmap-chip-body">
+          <span class="roadmap-chip-name">Bunker report</span>
+          <span class="roadmap-chip-meta">1 Oct – 14 Nov</span>
+          <span class="tags"><span class="roadmap-kind">fix</span></span>
+        </span>
+        <span class="roadmap-tier">1</span>
+      </div>
+    </div>
+    <div class="cell">
+      <div class="roadmap-chip is-tail">
+        <span class="project-dot stage-active"></span>
+        <span class="roadmap-chip-body">
+          <span class="roadmap-chip-name">Client portal</span>
+          <span class="roadmap-chip-meta">continues · ends 18 Dec</span>
+          <span class="tags"><span class="roadmap-subtag">Billing</span><span class="roadmap-kind">enh</span></span>
+        </span>
+        <span class="roadmap-tier">2</span>
+      </div>
+      <div class="roadmap-chip">
+        <span class="project-dot stage-dated"></span>
+        <span class="roadmap-chip-body">
+          <span class="roadmap-chip-name">Invoice sync</span>
+          <span class="roadmap-chip-meta">12 Jan – 6 Mar</span>
+          <span class="tags"><span class="roadmap-kind">feat</span></span>
+        </span>
+        <span class="roadmap-tier">3</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <span class="flag">Changed</span>
+    <span>One tag added per chip, on the line that already exists for the subtrack. A project with no subtrack gets a row it did not have before, so a dense quarter grows by about 15px a chip — the one thing to look at on a real dataset.</span>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

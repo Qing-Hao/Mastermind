@@ -1,0 +1,135 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: #18181b; background: #fafafa; }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+    .sheet { display: flex; flex-direction: column; gap: 14px; padding: 24px; }
+    .head { display: flex; flex-direction: column; gap: 3px; }
+    .opt-cap { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #4f46e5; }
+    .opt-name { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+    .opt-axis { font-size: 12.5px; color: #71717a; }
+    .canvas { background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; padding: 10px 6px; }
+    .rows { display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
+    .row { display: flex; gap: 8px; align-items: baseline; }
+    .row-key { flex: 0 0 132px; color: #18181b; font-weight: 600; }
+    .row-val { color: #52525b; }
+    .row.pick .row-key { color: #4338ca; }
+    .caption { fill: #aaa; font-size: 9.5px; font-weight: 600; letter-spacing: .06em; }
+    .rowlab { fill: #3f3f46; font-size: 11px; font-weight: 600; }
+    .rowsub { fill: #a1a1aa; font-size: 9.5px; }
+    .body-idea { fill: #fff; stroke: #bbb; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .body-dated { fill: #d5e6f7; stroke: #5c6bc0; stroke-width: 1.5; }
+    .body-active { fill: #a5d6a7; stroke: #2e7d32; stroke-width: 1.5; }
+    .body-delivered { fill: #2e7d32; stroke: #1b5e20; stroke-width: 1.5; }
+    .t { font-size: 9.5px; font-weight: 700; }
+  </style>
+</helmet>
+<div class="sheet">
+  <div class="head">
+    <span class="opt-cap">Decision · the tag's colour</span>
+    <span class="opt-name">Five treatments over the stage ramp</span>
+    <span class="opt-axis">The tag has to hold on a hollow idea, a pale blue, a mid green and a deep green — those four are the node bodies it will ever sit on. Same word each time, so only the treatment varies.</span>
+  </div>
+
+  <div class="canvas">
+    <svg width="560" height="415" viewBox="0 0 560 415" xmlns="http://www.w3.org/2000/svg">
+      <text class="caption" x="170" y="20" text-anchor="middle">IDEA</text>
+      <text class="caption" x="280" y="20" text-anchor="middle">DATED</text>
+      <text class="caption" x="390" y="20" text-anchor="middle">ACTIVE</text>
+      <text class="caption" x="500" y="20" text-anchor="middle">DELIVERED</text>
+
+      <text class="rowlab" x="8" y="52">Ink (as drawn)</text>
+      <text class="rowsub" x="8" y="65">#3f3f46 · white text</text>
+      <circle class="body-idea" cx="170" cy="55" r="20"></circle>
+      <rect x="143.9" y="62.1" width="24" height="14" rx="7" fill="#3f3f46" stroke="#fff" stroke-width="1.5"></rect>
+      <text class="t" x="155.9" y="72.4" text-anchor="middle" fill="#fff">enh</text>
+      <circle class="body-dated" cx="280" cy="55" r="20"></circle>
+      <rect x="253.9" y="62.1" width="24" height="14" rx="7" fill="#3f3f46" stroke="#fff" stroke-width="1.5"></rect>
+      <text class="t" x="265.9" y="72.4" text-anchor="middle" fill="#fff">enh</text>
+      <circle class="body-active" cx="390" cy="55" r="20"></circle>
+      <rect x="363.9" y="62.1" width="24" height="14" rx="7" fill="#3f3f46" stroke="#fff" stroke-width="1.5"></rect>
+      <text class="t" x="375.9" y="72.4" text-anchor="middle" fill="#fff">enh</text>
+      <circle class="body-delivered" cx="500" cy="55" r="20"></circle>
+      <rect x="473.9" y="62.1" width="24" height="14" rx="7" fill="#3f3f46" stroke="#fff" stroke-width="1.5"></rect>
+      <text class="t" x="485.9" y="72.4" text-anchor="middle" fill="#fff">enh</text>
+
+      <text class="rowlab" x="8" y="132">Neutral tag</text>
+      <text class="rowsub" x="8" y="145">--hover on --field</text>
+      <circle class="body-idea" cx="170" cy="135" r="20"></circle>
+      <rect x="143.9" y="142.1" width="24" height="14" rx="7" fill="#f4f4f5" stroke="#d8d8de"></rect>
+      <text class="t" x="155.9" y="152.4" text-anchor="middle" fill="#52525b">enh</text>
+      <circle class="body-dated" cx="280" cy="135" r="20"></circle>
+      <rect x="253.9" y="142.1" width="24" height="14" rx="7" fill="#f4f4f5" stroke="#d8d8de"></rect>
+      <text class="t" x="265.9" y="152.4" text-anchor="middle" fill="#52525b">enh</text>
+      <circle class="body-active" cx="390" cy="135" r="20"></circle>
+      <rect x="363.9" y="142.1" width="24" height="14" rx="7" fill="#f4f4f5" stroke="#d8d8de"></rect>
+      <text class="t" x="375.9" y="152.4" text-anchor="middle" fill="#52525b">enh</text>
+      <circle class="body-delivered" cx="500" cy="135" r="20"></circle>
+      <rect x="473.9" y="142.1" width="24" height="14" rx="7" fill="#f4f4f5" stroke="#d8d8de"></rect>
+      <text class="t" x="485.9" y="152.4" text-anchor="middle" fill="#52525b">enh</text>
+
+      <text class="rowlab" x="8" y="212">Indigo, filled</text>
+      <text class="rowsub" x="8" y="225">--tier-pip · white text</text>
+      <circle class="body-idea" cx="170" cy="215" r="20"></circle>
+      <rect x="143.9" y="222.1" width="24" height="14" rx="7" fill="#3949ab" stroke="#fff" stroke-width="1.5"></rect>
+      <text class="t" x="155.9" y="232.4" text-anchor="middle" fill="#fff">enh</text>
+      <circle class="body-dated" cx="280" cy="215" r="20"></circle>
+      <rect x="253.9" y="222.1" width="24" height="14" rx="7" fill="#3949ab" stroke="#fff" stroke-width="1.5"></rect>
+      <text class="t" x="265.9" y="232.4" text-anchor="middle" fill="#fff">enh</text>
+      <circle class="body-active" cx="390" cy="215" r="20"></circle>
+      <rect x="363.9" y="222.1" width="24" height="14" rx="7" fill="#3949ab" stroke="#fff" stroke-width="1.5"></rect>
+      <text class="t" x="375.9" y="232.4" text-anchor="middle" fill="#fff">enh</text>
+      <circle class="body-delivered" cx="500" cy="215" r="20"></circle>
+      <rect x="473.9" y="222.1" width="24" height="14" rx="7" fill="#3949ab" stroke="#fff" stroke-width="1.5"></rect>
+      <text class="t" x="485.9" y="232.4" text-anchor="middle" fill="#fff">enh</text>
+
+      <text class="rowlab" x="8" y="292">Indigo, outline</text>
+      <text class="rowsub" x="8" y="305">white on --tier-pip</text>
+      <circle class="body-idea" cx="170" cy="295" r="20"></circle>
+      <rect x="143.9" y="302.1" width="24" height="14" rx="7" fill="#fff" stroke="#3949ab" stroke-width="1.25"></rect>
+      <text class="t" x="155.9" y="312.4" text-anchor="middle" fill="#3949ab">enh</text>
+      <circle class="body-dated" cx="280" cy="295" r="20"></circle>
+      <rect x="253.9" y="302.1" width="24" height="14" rx="7" fill="#fff" stroke="#3949ab" stroke-width="1.25"></rect>
+      <text class="t" x="265.9" y="312.4" text-anchor="middle" fill="#3949ab">enh</text>
+      <circle class="body-active" cx="390" cy="295" r="20"></circle>
+      <rect x="363.9" y="302.1" width="24" height="14" rx="7" fill="#fff" stroke="#3949ab" stroke-width="1.25"></rect>
+      <text class="t" x="375.9" y="312.4" text-anchor="middle" fill="#3949ab">enh</text>
+      <circle class="body-delivered" cx="500" cy="295" r="20"></circle>
+      <rect x="473.9" y="302.1" width="24" height="14" rx="7" fill="#fff" stroke="#3949ab" stroke-width="1.25"></rect>
+      <text class="t" x="485.9" y="312.4" text-anchor="middle" fill="#3949ab">enh</text>
+
+      <text class="rowlab" x="8" y="372">Accent soft</text>
+      <text class="rowsub" x="8" y="385">the sidebar's tier badge</text>
+      <circle class="body-idea" cx="170" cy="375" r="20"></circle>
+      <rect x="143.9" y="382.1" width="24" height="14" rx="7" fill="#eef2ff" stroke="#fff" stroke-width="1.5"></rect>
+      <text class="t" x="155.9" y="392.4" text-anchor="middle" fill="#3949ab">enh</text>
+      <circle class="body-dated" cx="280" cy="375" r="20"></circle>
+      <rect x="253.9" y="382.1" width="24" height="14" rx="7" fill="#eef2ff" stroke="#fff" stroke-width="1.5"></rect>
+      <text class="t" x="265.9" y="392.4" text-anchor="middle" fill="#3949ab">enh</text>
+      <circle class="body-active" cx="390" cy="375" r="20"></circle>
+      <rect x="363.9" y="382.1" width="24" height="14" rx="7" fill="#eef2ff" stroke="#fff" stroke-width="1.5"></rect>
+      <text class="t" x="375.9" y="392.4" text-anchor="middle" fill="#3949ab">enh</text>
+      <circle class="body-delivered" cx="500" cy="375" r="20"></circle>
+      <rect x="473.9" y="382.1" width="24" height="14" rx="7" fill="#eef2ff" stroke="#fff" stroke-width="1.5"></rect>
+      <text class="t" x="485.9" y="392.4" text-anchor="middle" fill="#3949ab">enh</text>
+    </svg>
+  </div>
+
+  <div class="rows">
+    <div class="row"><span class="row-key">Ink</span><span class="row-val">Strongest read, and the one thing on the map wearing a colour the app does not otherwise use. Reads as a foreign object, which is what you spotted.</span></div>
+    <div class="row"><span class="row-key">Neutral tag</span><span class="row-val">The app's own tag, straight from the subtrack pill. Native and quiet — and on a pale node it nearly disappears, back to Option A's problem.</span></div>
+    <div class="row pick"><span class="row-key">Indigo, filled</span><span class="row-val">Recommended. The map's one non-data colour, already worn by the tier pip: indigo means <b>a person decided this</b>, which is exactly what kind is. Holds on all four bodies.</span></div>
+    <div class="row"><span class="row-key">Indigo, outline</span><span class="row-val">Same family, half the weight, so the tier pip stays the loudest mark. Costs contrast on the hollow idea node, where white sits on white.</span></div>
+    <div class="row"><span class="row-key">Accent soft</span><span class="row-val">Matches the sidebar's tier badge exactly. Prettiest on white; the pale fill goes soft over green and thin over deep green.</span></div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

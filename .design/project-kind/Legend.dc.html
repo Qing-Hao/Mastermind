@@ -1,0 +1,140 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: #18181b; background: #fafafa; }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+    .sheet { display: flex; flex-direction: column; gap: 14px; padding: 24px; }
+    .head { display: flex; flex-direction: column; gap: 3px; }
+    .opt-cap { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa; }
+    .opt-name { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+    .opt-axis { font-size: 12.5px; color: #71717a; }
+    .card { background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; padding: 14px; }
+
+    .map-filters { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+    .filter-group { display: flex; gap: 4px; align-items: center; }
+    .filter-caption { color: #aaa; font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+    .map-chip { padding: 3px 9px; border: 1px solid #d8d8de; border-radius: 999px; background: #fff; color: #a1a1aa; font-size: 12px; }
+    .map-chip.on { border-color: #4f46e5; background: #eef2ff; color: #4338ca; font-weight: 600; }
+    .map-chip.tier-1.on { box-shadow: 0 0 0 2px #eef2ff, 0 0 0 3px #c7d2fe; }
+    .map-chip.tier-0 { font-style: italic; }
+    .map-chip.status-idea { border-style: dashed; }
+    .map-chip.kind-0 { font-style: italic; }
+
+    .map-legend { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; padding-top: 10px; border-top: 1px solid #eee; }
+    .legend-group { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+    .legend-item { display: flex; align-items: center; gap: 3px; font-size: 12px; }
+    .legend-name { color: #555; }
+    .legend-note { margin: 2px 0 0; color: #999; font-size: 11px; }
+
+    .new-row { position: relative; }
+    .flag { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #4f46e5; }
+    .flag::before { content: ""; width: 6px; height: 6px; border-radius: 999px; background: #4f46e5; }
+  </style>
+</helmet>
+<div class="sheet">
+  <div class="head">
+    <span class="opt-cap">Shared · both options</span>
+    <span class="opt-name">Where kind slots into the map's chrome</span>
+    <span class="opt-axis">A third captioned chip group, and a third row in the key under the canvas. Counts are off the whole dataset, as the tier chips already are.</span>
+  </div>
+
+  <div class="card">
+    <div class="map-filters">
+      <div class="filter-group">
+        <span class="filter-caption">Tier</span>
+        <span class="map-chip tier-1 on">T1 6</span>
+        <span class="map-chip on">T2 9</span>
+        <span class="map-chip on">T3 4</span>
+        <span class="map-chip tier-0 on">untiered 24</span>
+      </div>
+      <div class="filter-group">
+        <span class="filter-caption">Status</span>
+        <span class="map-chip status-idea">idea 12</span>
+        <span class="map-chip">planning 3</span>
+        <span class="map-chip">dated 5</span>
+        <span class="map-chip on">active 7</span>
+        <span class="map-chip">done 6</span>
+      </div>
+      <div class="filter-group new-row">
+        <span class="filter-caption">Kind</span>
+        <span class="map-chip on">new 8</span>
+        <span class="map-chip on">enh 11</span>
+        <span class="map-chip on">feat 5</span>
+        <span class="map-chip on">fix 3</span>
+        <span class="map-chip on">mgr 2</span>
+        <span class="map-chip kind-0 on">unclassified 22</span>
+      </div>
+    </div>
+
+    <div class="map-legend">
+      <div class="legend-group">
+        <span class="filter-caption">Stage</span>
+        <span class="legend-item">
+          <svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" fill="#fff" stroke="#bbb" stroke-width="1.5" stroke-dasharray="5 4"></circle></svg>
+          <span class="legend-name">idea</span>
+        </span>
+        <span class="legend-item">
+          <svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" fill="#fff" stroke="#5c6bc0" stroke-width="2"></circle></svg>
+          <span class="legend-name">planned</span>
+        </span>
+        <span class="legend-item">
+          <svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" fill="#d5e6f7" stroke="#5c6bc0" stroke-width="1.5"></circle></svg>
+          <span class="legend-name">dated</span>
+        </span>
+        <span class="legend-item">
+          <svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" fill="#a5d6a7" stroke="#2e7d32" stroke-width="1.5"></circle></svg>
+          <span class="legend-name">active</span>
+        </span>
+        <span class="legend-item">
+          <svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" fill="#ffccbc" stroke="#d84315" stroke-width="2.5"></circle></svg>
+          <span class="legend-name">overdue</span>
+        </span>
+        <span class="legend-item">
+          <svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" fill="#2e7d32" stroke="#1b5e20" stroke-width="1.5"></circle></svg>
+          <span class="legend-name">done · delivered</span>
+        </span>
+      </div>
+
+      <div class="legend-group">
+        <span class="filter-caption">Kind</span>
+        <span class="legend-item">
+          <svg width="30" height="16" viewBox="0 0 30 16"><rect x="2" y="1" width="24" height="14" rx="7" fill="#3949ab"></rect><text x="14" y="11.3" text-anchor="middle" fill="#fff" font-size="9.5" font-weight="700" font-family="system-ui, sans-serif">new</text></svg>
+          <span class="legend-name">new — built from nothing</span>
+        </span>
+        <span class="legend-item">
+          <svg width="30" height="16" viewBox="0 0 30 16"><rect x="2" y="1" width="24" height="14" rx="7" fill="#3949ab"></rect><text x="14" y="11.3" text-anchor="middle" fill="#fff" font-size="9.5" font-weight="700" font-family="system-ui, sans-serif">enh</text></svg>
+          <span class="legend-name">enhancement — a change to something already live</span>
+        </span>
+        <span class="legend-item">
+          <svg width="32" height="16" viewBox="0 0 32 16"><rect x="2" y="1" width="27" height="14" rx="7" fill="#3949ab"></rect><text x="15.5" y="11.3" text-anchor="middle" fill="#fff" font-size="9.5" font-weight="700" font-family="system-ui, sans-serif">feat</text></svg>
+          <span class="legend-name">feature — asked for from outside the team</span>
+        </span>
+        <span class="legend-item">
+          <svg width="26" height="16" viewBox="0 0 26 16"><rect x="2" y="1" width="20" height="14" rx="7" fill="#3949ab"></rect><text x="12" y="11.3" text-anchor="middle" fill="#fff" font-size="9.5" font-weight="700" font-family="system-ui, sans-serif">fix</text></svg>
+          <span class="legend-name">fix — refactor, debt, debugging</span>
+        </span>
+        <span class="legend-item">
+          <svg width="26" height="16" viewBox="0 0 26 16"><rect x="2" y="1" width="20" height="14" rx="7" fill="#3949ab"></rect><text x="12" y="11.3" text-anchor="middle" fill="#fff" font-size="9.5" font-weight="700" font-family="system-ui, sans-serif">mgr</text></svg>
+          <span class="legend-name">migration — the same capability, somewhere else</span>
+        </span>
+        <span class="legend-item">
+          <svg width="30" height="16" viewBox="0 0 30 16"><rect x="2" y="1" width="24" height="14" rx="7" fill="#fff" stroke="#d8d8de" stroke-width="1.5"></rect></svg>
+          <span class="legend-name">unclassified — nobody has said yet</span>
+        </span>
+      </div>
+      <p class="legend-note">One grey for all four: the word is the cue. A colour here would be read as a stage, which is the argument the tier pip already lost once. The chips spell the tag; this key spells the whole word, and the whole word is what is stored.</p>
+    </div>
+  </div>
+
+  <span class="flag">The Kind group and the Kind key row are the new parts</span>
+</div>
+</x-dc>
+</body>
+</html>

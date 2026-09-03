@@ -1,0 +1,107 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: #18181b; background: #fafafa; }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+    .sheet { display: flex; flex-direction: column; gap: 14px; padding: 24px; }
+    .head { display: flex; flex-direction: column; gap: 3px; }
+    .opt-cap { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa; }
+    .opt-name { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+    .opt-axis { font-size: 12.5px; color: #71717a; }
+    .canvas { background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; padding: 8px 6px; }
+    .foot { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+    .foot-row { display: flex; gap: 8px; align-items: baseline; }
+    .foot-key { flex: 0 0 54px; font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa; }
+    .foot-val { color: #3f3f46; }
+
+    .body-idea { fill: #fff; stroke: #bbb; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .body-dated { fill: #d5e6f7; stroke: #5c6bc0; stroke-width: 1.5; }
+    .body-active { fill: #a5d6a7; stroke: #2e7d32; stroke-width: 1.5; }
+    .body-overdue { fill: #ffccbc; stroke: #d84315; stroke-width: 2.5; }
+    .body-delivered { fill: #2e7d32; stroke: #1b5e20; stroke-width: 1.5; }
+    .fill { fill: #3949ab; fill-opacity: .28; }
+    .pct { fill: #1a1a1a; font-weight: 700; dominant-baseline: central; paint-order: stroke; stroke: #fff; stroke-width: 2.5px; stroke-linejoin: round; }
+    .pip { fill: #3949ab; stroke: #fff; stroke-width: 1.5; }
+    .pip-text { fill: #fff; font-size: 10px; font-weight: 700; }
+    .nm { fill: #1a1a1a; font-size: 12px; font-weight: 600; }
+    .mt { fill: #888; font-size: 10px; }
+  </style>
+</helmet>
+<div class="sheet">
+  <div class="head">
+    <span class="opt-cap">Option C</span>
+    <span class="opt-name">Kind as the node's shape</span>
+    <span class="opt-axis">Circle new, rounded square enhancement, diamond request, hexagon fix. The body itself carries the second question.</span>
+  </div>
+
+  <div class="canvas">
+    <svg width="520" height="300" viewBox="0 0 520 300" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <clipPath id="c-c1"><circle cx="100" cy="78" r="25.25"></circle></clipPath>
+        <clipPath id="c-c2"><rect x="236.71" y="54.71" width="46.58" height="46.58" rx="5"></rect></clipPath>
+        <clipPath id="c-c4"><polygon points="121.25,214 110.63,232.4 89.38,232.4 78.75,214 89.38,195.6 110.63,195.6"></polygon></clipPath>
+        <clipPath id="c-c5"><rect x="239.54" y="193.54" width="40.92" height="40.92" rx="5"></rect></clipPath>
+        <clipPath id="c-c6"><polygon points="420,197.75 436.25,214 420,230.25 403.75,214"></polygon></clipPath>
+      </defs>
+
+      <circle class="body-active" cx="100" cy="78" r="26"></circle>
+      <rect class="fill" clip-path="url(#c-c1)" x="74" y="71.76" width="52" height="32.24"></rect>
+      <text class="pct" x="100" y="78" text-anchor="middle" font-size="11.7">62%</text>
+      <circle class="pip" cx="118.4" cy="59.6" r="8"></circle>
+      <text class="pip-text" x="118.4" y="63" text-anchor="middle">1</text>
+      <text class="nm" x="100" y="120" text-anchor="middle">Vessel tracker</text>
+      <text class="mt" x="100" y="133" text-anchor="middle">T1 · 4/6 phases</text>
+
+      <rect class="body-dated" x="235.96" y="53.96" width="48.08" height="48.08" rx="6"></rect>
+      <rect class="fill" clip-path="url(#c-c2)" x="236" y="94.83" width="48" height="7.21"></rect>
+      <text class="pct" x="260" y="78" text-anchor="middle" font-size="13">15%</text>
+      <circle class="pip" cx="284.0" cy="54.0" r="8"></circle>
+      <text class="pip-text" x="284.0" y="57.4" text-anchor="middle">2</text>
+      <text class="nm" x="260" y="128" text-anchor="middle">Client portal</text>
+      <text class="mt" x="260" y="141" text-anchor="middle">T2 · 1/5 phases</text>
+
+      <circle class="body-idea" cx="420" cy="78" r="19"></circle>
+      <text class="nm" x="420" y="113" text-anchor="middle">Crew app</text>
+      <text class="mt" x="420" y="126" text-anchor="middle">T? · future direction</text>
+
+      <polygon class="body-overdue" points="122,214 111,233.05 89,233.05 78,214 89,194.95 111,194.95"></polygon>
+      <rect class="fill" clip-path="url(#c-c4)" x="78" y="202.24" width="44" height="30.16"></rect>
+      <text class="pct" x="100" y="214" text-anchor="middle" font-size="9.9">80%</text>
+      <circle class="pip" cx="115.6" cy="198.4" r="8"></circle>
+      <text class="pip-text" x="115.6" y="201.8" text-anchor="middle">1</text>
+      <text class="nm" x="100" y="252" text-anchor="middle">Bunker report</text>
+      <text class="mt" x="100" y="265" text-anchor="middle">T1 · 4/5 phases</text>
+
+      <rect class="body-delivered" x="238.79" y="192.79" width="42.42" height="42.42" rx="6"></rect>
+      <rect class="fill" clip-path="url(#c-c5)" x="239" y="193" width="42" height="42"></rect>
+      <text class="pct" x="260" y="214" text-anchor="middle" font-size="13">100%</text>
+      <circle class="pip" cx="281.2" cy="192.8" r="8"></circle>
+      <text class="pip-text" x="281.2" y="196.2" text-anchor="middle">2</text>
+      <text class="nm" x="260" y="260" text-anchor="middle">Port fees engine</text>
+      <text class="mt" x="260" y="273" text-anchor="middle">T2 · 6/6 phases</text>
+
+      <polygon class="body-active" points="420,197 437,214 420,231 403,214"></polygon>
+      <rect class="fill" clip-path="url(#c-c6)" x="403" y="219.1" width="34" height="11.9"></rect>
+      <text class="pct" x="420" y="214" text-anchor="middle" font-size="9">35%</text>
+      <circle class="pip" cx="432.0" cy="202.0" r="8"></circle>
+      <text class="pip-text" x="432.0" y="205.4" text-anchor="middle">3</text>
+      <text class="nm" x="420" y="247" text-anchor="middle">Invoice sync</text>
+      <text class="mt" x="420" y="260" text-anchor="middle">T3 · 2/6 phases</text>
+    </svg>
+  </div>
+
+  <div class="foot">
+    <div class="foot-row"><span class="foot-key">Costs</span><span class="foot-val">Reads across a room, which is the point of the field. But every shape needs its own clip path for the completion wedge, and its own hit area.</span></div>
+    <div class="foot-row"><span class="foot-key">Trade</span><span class="foot-val">Area carries the points, and these shapes are drawn inside the same radius — so a diamond of 40 points looks smaller than a circle of 40. Fixing that means sizing each shape to equal area, and `map_sweep` measures circles.</span></div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

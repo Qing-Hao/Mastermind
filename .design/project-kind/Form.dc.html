@@ -1,0 +1,74 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: #18181b; background: #fafafa; }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+    .sheet { display: flex; flex-direction: column; gap: 14px; padding: 24px; }
+    .head { display: flex; flex-direction: column; gap: 3px; }
+    .opt-cap { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa; }
+    .opt-name { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+    .opt-axis { font-size: 12.5px; color: #71717a; }
+
+    section { background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; padding: 20px; margin: 0; }
+    h2 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: #18181b; margin: 0 0 2px; }
+    .hint { color: #71717a; font-size: 12.5px; margin: 2px 0 14px; }
+    .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .field-wide { grid-column: 1 / -1; }
+    label { display: flex; flex-direction: column; font-size: 12px; color: #52525b; gap: 5px; font-weight: 500; }
+    .control { font: inherit; padding: 5px 9px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff; color: #18181b; width: 100%; display: flex; align-items: center; justify-content: space-between; }
+    .control.ghost { color: #a1a1aa; }
+    .caret { color: #71717a; font-size: 10px; }
+    .is-new { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18); }
+
+    .callout { display: flex; gap: 10px; align-items: flex-start; font-size: 12px; color: #3f3f46; }
+    .flag { display: inline-flex; align-items: center; gap: 5px; flex: none; font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #4f46e5; }
+    .flag::before { content: ""; width: 6px; height: 6px; border-radius: 999px; background: #4f46e5; }
+  </style>
+</helmet>
+<div class="sheet">
+  <div class="head">
+    <span class="opt-cap">Affected · Project tab</span>
+    <span class="opt-name">Where the kind is set</span>
+    <span class="opt-axis">One more select in the Details grid, next to Tier — the other field nothing derives from and the map filters on.</span>
+  </div>
+
+  <section>
+    <h2>Details</h2>
+    <p class="hint">Dates are optional — estimate in weeks and points first, then set the project start and lay the phases out.</p>
+    <div class="field-grid">
+      <label>Start date
+        <span class="control">2026-09-14</span>
+      </label>
+      <label>Stage
+        <span class="control">committed <span class="caret">▾</span></span>
+      </label>
+      <label>Tier
+        <span class="control">2 <span class="caret">▾</span></span>
+      </label>
+      <label>Kind
+        <span class="control is-new">enhancement <span class="caret">▾</span></span>
+      </label>
+      <label>Velocity override
+        <span class="control ghost">global</span>
+      </label>
+      <label class="field-wide">Track
+        <span class="control ghost">e.g. Source Expansion / MCP</span>
+      </label>
+    </div>
+  </section>
+
+  <div class="callout">
+    <span class="flag">New field</span>
+    <span>Six options: <b>unclassified</b>, <b>new</b>, <b>enhancement</b>, <b>feature</b>, <b>fix</b>, <b>migration</b>. Unclassified is the default and what all 31 existing projects arrive as — the same honest default as untiered. Its tooltip reads: <i>“What sort of work this is. Nothing is derived from it; the map and the portfolio group on it.”</i></span>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
