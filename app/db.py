@@ -92,6 +92,21 @@ CREATE TABLE IF NOT EXISTS {name} (
     -- what matters when the roadmap gets crowded.
     tier              INTEGER NOT NULL DEFAULT 0
                       CHECK (tier IN (0, 1, 2, 3)),
+    -- What sort of work this is: a new build, a change to something already
+    -- live, something asked for from outside, or a fix. '' means nobody has
+    -- said yet, and is a state of its own rather than a fifth sort -- the same
+    -- shape as tier 0. **Nothing derives from it**: no rule reads it, no date
+    -- moves because of it, and nothing sums against it. It exists so the map
+    -- can be filtered and the portfolio can say what kind of work is running,
+    -- which is a question a roadmap gets asked by people who do not read it
+    -- daily.
+    --
+    -- No CHECK, deliberately, where `stage` and `tier` both have one: the
+    -- vocabulary here is likelier to gain a word than either of those, and
+    -- narrowing or widening a CHECK means rebuilding this table -- see
+    -- `migrate_stage_check`, which has cost a real dataset once. `KINDS` below
+    -- is the list, and `main.clean_kind` is the boundary that enforces it.
+    kind              TEXT NOT NULL DEFAULT '',
     created_at        TEXT NOT NULL,
     updated_at        TEXT NOT NULL
 );
@@ -208,7 +223,7 @@ SCHEMA = SETTINGS_TABLE + PROJECT_TABLE.format(name="project") + REST_OF_SCHEMA
 # retired in some earlier release is left behind rather than failing the copy.
 PROJECT_COLUMNS = (
     "id", "name", "description", "goal", "start_date", "velocity_override",
-    "stage", "track", "tier", "created_at", "updated_at",
+    "stage", "track", "tier", "kind", "created_at", "updated_at",
 )
 
 # Phase-level dependency rows, translated up to the projects they belonged to.
@@ -234,6 +249,10 @@ ADDED_COLUMNS = [
     # Existing projects arrive untiered rather than at some middle tier:
     # inventing a rank for work nobody ranked would be a scheduling opinion.
     ("project", "tier", "INTEGER NOT NULL DEFAULT 0 CHECK (tier IN (0, 1, 2, 3))"),
+    # Existing projects arrive unclassified rather than guessed at. A roadmap
+    # written before the field existed cannot say which of its projects were new
+    # builds, and calling them all one thing would be inventing the answer.
+    ("project", "kind", "TEXT NOT NULL DEFAULT ''"),
     ("settings", "department_name", "TEXT NOT NULL DEFAULT ''"),
     # Existing deliverables predate the tick, so they default to not done --
     # the safe read, since nothing recorded that they were finished.
@@ -290,6 +309,11 @@ DROPPED_COLUMNS = [
 STAGES = ("idea", "planned", "active", "done")
 # 0 is "untiered", not a fourth tier -- see the column comment.
 TIERS = (0, 1, 2, 3)
+# '' is "unclassified", not a fifth kind -- see the column comment. This order is
+# the order the map's chips and the portfolio's readout draw in, and '' sits last
+# for the reason tier 0 does: the absence of a decision sorts after every
+# decision.
+KINDS = ("new", "enhancement", "feature", "fix", "")
 
 # How long a writer waits for another writer's lock before giving up. Named
 # rather than left to `sqlite3.connect`'s own five-second default, because that
@@ -619,16 +643,16 @@ def get_project(project_id):
 
 
 def create_project(name, start_date, description="", goal="", velocity_override=None,
-                   stage="active", track="", tier=0):
+                   stage="active", track="", tier=0, kind=""):
     timestamp = now_iso()
     with connect() as connection:
         cursor = connection.execute(
             """INSERT INTO project (name, description, goal, start_date,
-                                    velocity_override, stage, track, tier,
+                                    velocity_override, stage, track, tier, kind,
                                     created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (name, description, goal, start_date, velocity_override, stage, track,
-             tier, timestamp, timestamp),
+             tier, kind, timestamp, timestamp),
         )
         project_id = cursor.lastrowid
     return get_project(project_id)
@@ -636,7 +660,7 @@ def create_project(name, start_date, description="", goal="", velocity_override=
 
 def update_project(project_id, fields):
     allowed = {"name", "description", "goal", "start_date", "velocity_override",
-               "stage", "track", "tier"}
+               "stage", "track", "tier", "kind"}
     updates = {key: value for key, value in fields.items() if key in allowed}
     if updates:
         updates["updated_at"] = now_iso()
@@ -1061,8 +1085,11 @@ def export_all():
         # quiet default `draft_complete` arrived with, and the honest one: a file
         # written before checkpoints existed cannot say what it was aiming at.
         # 11 added quarter goals -- a pre-11 file simply has none, which reads
-        # as a roadmap nobody has written a goal on yet.
-        "version": 11,
+        # as a roadmap nobody has written a goal on yet. 12 added project.kind,
+        # and a pre-12 file arrives unclassified, which is the honest reading: it
+        # was written by a tool that could not say what sort of work a project
+        # was.
+        "version": 12,
         "exported_at": now_iso(),
         # Sign-in configuration is stripped rather than exported. It describes
         # this deployment's gate, not the dataset -- an issuer and an allowlist
@@ -1158,8 +1185,8 @@ def import_all(payload):
             connection.execute(
                 """INSERT INTO project (id, name, description, goal, start_date,
                                         velocity_override, stage, track, tier,
-                                        created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                        kind, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     project["id"], project["name"], project.get("description", ""),
                     project.get("goal", ""),
@@ -1171,6 +1198,10 @@ def import_all(payload):
                     # Anything before 7 predates tiers: untiered is the honest
                     # read, since nothing in the file ranked it.
                     project.get("tier") or 0,
+                    # Anything before 12 predates kinds, and the same argument
+                    # applies: a file that could not say what sort of work this
+                    # was arrives unclassified rather than guessed at.
+                    project.get("kind") or "",
                     # A version-9 file carries `draft_complete`. It is read and
                     # discarded rather than translated: the milestone list is
                     # what answers that question now, and inventing a checkpoint

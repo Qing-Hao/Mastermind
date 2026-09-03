@@ -782,6 +782,9 @@ class ProjectIn(BaseModel):
     track: str = ""
     # 0 is untiered: a new project is unranked until someone ranks it.
     tier: int = 0
+    # '' is unclassified, and stays the default for the same reason: what sort of
+    # work this is is the caller's to say, not ours to assume.
+    kind: str = ""
 
 
 class ProjectPatch(BaseModel):
@@ -793,6 +796,7 @@ class ProjectPatch(BaseModel):
     stage: str | None = None
     track: str | None = None
     tier: int | None = None
+    kind: str | None = None
     expect: Expectation = None
 
 
@@ -1019,6 +1023,24 @@ def clean_tier(value):
     return value
 
 
+def clean_kind(value):
+    """Same boundary check again, for what sort of work a project is.
+
+    The column carries no CHECK -- see its comment -- so this is the only thing
+    standing between a typo and a kind nothing draws. Like tier, it is a label:
+    no rule reads it, no date moves because of it, nothing is summed against it,
+    and '' means nobody has said yet.
+    """
+    if value not in db.KINDS:
+        named = ", ".join(kind for kind in db.KINDS if kind)
+        raise HTTPException(
+            status_code=422,
+            detail=f"'{value}' is not a valid kind. Use one of: {named}, "
+                   f"or '' for unclassified.",
+        )
+    return value
+
+
 def require_project(project_id):
     project = db.get_project(project_id)
     if not project:
@@ -1049,6 +1071,7 @@ FIELD_LABELS = {
     "status": "Status",
     "target": "Target",
     "target_date": "Target date",
+    "kind": "Kind",
     "tier": "Tier",
     "track": "Track",
     "velocity_override": "Velocity",
@@ -1343,6 +1366,7 @@ def add_project(body: ProjectIn):
         stage=clean_stage(body.stage),
         track=body.track,
         tier=clean_tier(body.tier),
+        kind=clean_kind(body.kind),
     )
     announce_roadmap()
     return project
@@ -2599,6 +2623,9 @@ def read_graph():
             "track": project["track"],
             # The map filters and ranks on this; 0 means untiered.
             "tier": project["tier"],
+            # What sort of work it is. The map filters on it and tags the node
+            # with it; '' means nobody has said. Nothing here derives from it.
+            "kind": project["kind"],
             "goal": project["goal"],
             "phases_done": progress["done"],
             "phases_total": progress["total"],
@@ -2781,6 +2808,8 @@ def edit_project(project_id: int, body: ProjectPatch):
         fields["stage"] = clean_stage(fields["stage"])
     if "tier" in fields:
         fields["tier"] = clean_tier(fields["tier"])
+    if "kind" in fields:
+        fields["kind"] = clean_kind(fields["kind"])
     updated = db.update_project(project_id, fields)
     announce_roadmap()
     return updated

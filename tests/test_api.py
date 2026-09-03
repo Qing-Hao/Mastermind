@@ -1082,6 +1082,137 @@ def test_tier_survives_a_round_trip(client):
         == {"Payments": 1, "Caching": 3}
 
 
+# --- kind -------------------------------------------------------------------
+
+
+def test_a_project_starts_unclassified(client):
+    """Nobody has said what sort of work it is, and '' says so.
+
+    Defaulting to 'new' would be the same invention as defaulting to a middle
+    tier: a fact about the work that nobody entered.
+    """
+    project = make_project(client)
+    assert project["kind"] == ""
+    assert make_direction(client)["kind"] == ""
+
+
+def test_a_kind_is_stored_and_reaches_the_map(client):
+    project = client.post("/api/projects", json={
+        "name": "Payments", "start_date": "2026-01-05", "kind": "enhancement",
+    }).json()
+    assert project["kind"] == "enhancement"
+
+    node = next(item for item in client.get("/api/graph").json()["projects"]
+                if item["id"] == project["id"])
+    assert node["kind"] == "enhancement"
+
+    assert client.put(f"/api/projects/{project['id']}",
+                      json={"kind": "fix"}).json()["kind"] == "fix"
+
+
+def test_every_named_kind_is_accepted(client):
+    """The vocabulary the column carries no CHECK for -- so this is the guard."""
+    for kind in ("new", "enhancement", "feature", "fix", ""):
+        project = client.post("/api/projects", json={
+            "name": f"Project {kind or 'none'}", "start_date": "2026-01-05",
+            "kind": kind,
+        }).json()
+        assert project["kind"] == kind
+
+
+def test_an_unknown_kind_is_rejected_rather_than_stored(client):
+    response = client.post("/api/projects", json={"name": "Odd", "kind": "chore"})
+    assert response.status_code == 422
+    assert "chore" in response.json()["detail"]
+
+    project = client.post("/api/projects", json={
+        "name": "Payments", "start_date": "2026-01-05", "kind": "feature",
+    }).json()
+    assert client.put(f"/api/projects/{project['id']}",
+                      json={"kind": "refactor"}).status_code == 422
+    assert client.get(f"/api/projects/{project['id']}").json()["project"]["kind"] \
+        == "feature"
+
+
+def test_kind_changes_nothing_a_rule_reads(client):
+    """It is a label for the map and the readout, not a scheduling opinion."""
+    project = client.post("/api/projects", json={
+        "name": "Payments", "start_date": "2026-01-05", "kind": "new",
+    }).json()
+    make_phase(client, project["id"], "Design", "2026-01-05", 6, 55)
+    before = client.get(f"/api/projects/{project['id']}").json()
+    stage_before = client.get("/api/projects").json()[0]["derived_stage"]
+
+    client.put(f"/api/projects/{project['id']}", json={"kind": "fix"})
+    after = client.get(f"/api/projects/{project['id']}").json()
+
+    assert after["warnings"] == before["warnings"]
+    assert [phase["start_date"] for phase in after["phases"]] \
+        == [phase["start_date"] for phase in before["phases"]]
+    assert client.get("/api/projects").json()[0]["derived_stage"] == stage_before
+
+
+def test_a_stale_kind_write_names_the_field(client):
+    """Two people editing one project's kind is a 409 naming Kind, not a
+    silent overwrite -- the same contract every other project field has."""
+    project = client.post("/api/projects", json={
+        "name": "Payments", "start_date": "2026-01-05", "kind": "new",
+    }).json()
+    client.put(f"/api/projects/{project['id']}", json={"kind": "fix"})
+
+    response = client.put(f"/api/projects/{project['id']}", json={
+        "kind": "feature", "expect": {"kind": "new"},
+    })
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["fields"] == ["kind"]
+    assert detail["error"].startswith("Kind changed")
+    assert detail["current"]["kind"] == "fix"
+
+
+def test_a_pre_kind_export_imports_as_unclassified(client):
+    """A version-11 file could not say what sort of work anything was."""
+    legacy = {
+        "version": 11,
+        "settings": {"default_velocity_points_per_sprint": 20,
+                     "sprint_length_days": 14, "v1_tolerance_pct": 5.0,
+                     "department_name": "Platform Engineering"},
+        "projects": [{"id": 1, "name": "Payments", "description": "", "goal": "",
+                      "start_date": "2026-01-05", "velocity_override": None,
+                      "stage": "active", "track": "Source expansion", "tier": 2,
+                      "created_at": "2026-01-01T00:00:00+00:00",
+                      "updated_at": "2026-01-01T00:00:00+00:00"}],
+        "phases": [], "deliverables": [], "dependencies": [],
+    }
+    assert client.post("/api/import", json=legacy).status_code == 200
+
+    project = client.get("/api/projects").json()[0]
+    assert project["kind"] == ""
+    assert project["tier"] == 2
+
+
+def test_kind_survives_a_round_trip(client):
+    client.post("/api/projects", json={
+        "name": "Payments", "start_date": "2026-01-05", "kind": "enhancement",
+    })
+    client.post("/api/projects", json={
+        "name": "Caching", "start_date": "", "stage": "idea", "kind": "new",
+    })
+    client.post("/api/projects", json={
+        "name": "Ledger", "start_date": "2026-02-02",
+    })
+
+    exported = client.get("/api/export").json()
+    assert exported["version"] == 12
+    for existing in client.get("/api/projects").json():
+        client.delete(f"/api/projects/{existing['id']}")
+    assert client.post("/api/import", json=exported).status_code == 200
+
+    assert {project["name"]: project["kind"]
+            for project in client.get("/api/projects").json()} \
+        == {"Payments": "enhancement", "Caching": "new", "Ledger": ""}
+
+
 # --- the planned stage ------------------------------------------------------
 
 
@@ -1414,7 +1545,7 @@ def test_quarter_goals_survive_the_export_round_trip(client):
         "goal": "One platform.", "target": "Released.", "achieved": True,
     })
     export = client.get("/api/export").json()
-    assert export["version"] == 11
+    assert export["version"] == 12
     assert export["quarter_goals"][0]["period"] == "2026-Q3"
 
     assert client.post("/api/import", json=export).status_code == 200
@@ -1484,7 +1615,7 @@ def test_stage_track_and_department_survive_a_round_trip(client):
     make_direction(client, "Build caching", track="Developer experience")
 
     exported = client.get("/api/export").json()
-    assert exported["version"] == 11
+    assert exported["version"] == 12
 
     for existing in client.get("/api/projects").json():
         client.delete(f"/api/projects/{existing['id']}")
@@ -1534,7 +1665,7 @@ def test_a_version_9_export_imports_and_drops_its_drafting_flag(client):
     assert client.post("/api/import", json=legacy).status_code == 200
 
     exported = client.get("/api/export").json()
-    assert exported["version"] == 11
+    assert exported["version"] == 12
     assert "draft_complete" not in exported["projects"][0]
     assert exported["milestones"] == []
     # A plan that was flagged drafted arrives with nothing to aim at, so the
@@ -1617,7 +1748,7 @@ def test_a_version_4_export_imports_with_every_deliverable_ongoing(client):
     assert client.post("/api/import", json=legacy).status_code == 200
 
     exported = client.get("/api/export").json()
-    assert exported["version"] == 11
+    assert exported["version"] == 12
     # Even under a phase marked done -- the tick is the user's to set, and a
     # phase status is not evidence about any particular deliverable.
     assert exported["deliverables"][0]["done"] == 0
