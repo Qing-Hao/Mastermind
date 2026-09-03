@@ -1778,6 +1778,7 @@ const PROJECT_FIELDS = {
   "project-start": "start_date",
   "project-stage": "stage",
   "project-tier": "tier",
+  "project-kind": "kind",
   "project-track": "track",
   "project-velocity": "velocity_override",
 };
@@ -1794,6 +1795,7 @@ function renderProjectFields() {
   // its own, so it reads back as 'planned' -- the same thing to the ladder.
   $("project-stage").value = project.stage === "active" ? "planned" : project.stage;
   $("project-tier").value = String(project.tier ?? 0);
+  $("project-kind").value = project.kind || "";
   $("project-track").value = project.track || "";
   $("project-velocity").value = project.velocity_override ?? "";
 }
@@ -8427,6 +8429,7 @@ function bindEvents() {
       start_date: $("project-start").value,
       stage: $("project-stage").value,
       tier: Number($("project-tier").value),
+      kind: $("project-kind").value,
       track: $("project-track").value,
       velocity_override: velocity === "" ? null : Number(velocity),
     };
@@ -8445,8 +8448,8 @@ function bindEvents() {
     await loadProjects();
   };
   for (const id of ["project-name", "project-goal", "project-start",
-                    "project-stage", "project-tier", "project-track",
-                    "project-velocity"]) {
+                    "project-stage", "project-tier", "project-kind",
+                    "project-track", "project-velocity"]) {
     $(id).onchange = saveProject;
   }
 
