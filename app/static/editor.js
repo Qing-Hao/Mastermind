@@ -2524,6 +2524,28 @@ const SPRINT_MENU = [
   { key: "rule", label: "Divider", markdown: "---" },
 ];
 
+// Entries the **block** menu grows at open time -- the twin of
+// `CELL_MENU_PROVIDERS`, and the same argument: `app.js` knows what a roadmap is
+// and this file must not.
+//
+// One difference, and it is the whole contract. A cell provider returns nothing
+// for an empty filter, because what it offers is a list as long as the roadmap. A
+// block provider is offered the empty filter too, so what it adds must be a
+// **fixed, small** way in -- one entry beside the nine above -- and never a list
+// that grows with the data.
+//
+// An entry may carry `run(index, area)` in place of `markdown`: it inserts for
+// itself, in its own time, and is handed the block index and the box the slash was
+// typed in. What it puts there is its own business.
+const SPRINT_MENU_PROVIDERS = [];
+
+function registerBlockMenu(provider) {
+  SPRINT_MENU_PROVIDERS.push(provider);
+}
+
+const blockMenuEntries = (filter) => SPRINT_MENU.concat(
+  ...SPRINT_MENU_PROVIDERS.map((provide) => provide(filter)));
+
 // Inside a cell the same gesture cannot mean the same thing. Six of the nine
 // entries above are **block** constructs, and `pickSprintMenuItem` inserts one by
 // replacing the whole block and re-splitting it -- fired from a cell that would
@@ -2597,7 +2619,8 @@ function maybeOpenSprintMenu(area, index) {
   // menu, so a line that genuinely starts with a slash is only a menu until you
   // type the next character.
   if (text.startsWith("/") && !/\s/.test(text)) {
-    openSprintMenu(area, index, text.slice(1), SPRINT_MENU, insertSprintMenuBlock);
+    const filter = text.slice(1);
+    openSprintMenu(area, index, filter, blockMenuEntries(filter), insertSprintMenuBlock);
   } else closeSprintMenu();
 }
 
@@ -2709,8 +2732,11 @@ function pickSprintMenuItem(position) {
   const item = sprintMenu.items[position];
   const pick = sprintMenu.pick;
   const index = sprintMenu.index;
+  // The box the menu was opened from, read before the close: an entry that
+  // inserts for itself is anchored to it, and nothing else can say which it was.
+  const area = sprintMenu.area;
   closeSprintMenu();
-  if (item && pick) pick(item, index);
+  if (item && pick) pick(item, index, area);
 }
 
 // The span of `text` holding the line offset `at` sits on, as `[from, to)`. A cell
@@ -2789,7 +2815,16 @@ function insertIntoCell(item, cell, block, index, r, column, from) {
   tableEdited(block);
 }
 
-async function insertSprintMenuBlock(item, index) {
+async function insertSprintMenuBlock(item, index, area) {
+  // A registered entry that inserts for itself, handed the block and the box the
+  // slash was typed in. Nothing is committed here: what happens to that box is
+  // what happens to any box you click out of, and the entry writes when it is
+  // ready to.
+  if (typeof item.run === "function") {
+    item.run(index, area);
+    return;
+  }
+
   await commitSprintBlock(index, item.markdown);
 
   // Land where the typing goes next. A table has no markdown editor at all, so

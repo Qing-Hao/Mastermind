@@ -3655,6 +3655,17 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 /* The one this line is already synced to. A ring rather than a fill, so it does
    not compete with the row the keyboard is on. */
 .sync-picker-row.here { box-shadow: inset 0 0 0 1px var(--accent-ring); }
+/* Marked for writing, in the many-pick picker. A fill and a ring together,
+   because it has to read as chosen from across the list while the keyboard's own
+   row moves over it -- and `here` never appears in the same picker, since a
+   many-pick run has no one line to be linked to. */
+.sync-picker-row.picked {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent-ring);
+}
+/* Already named somewhere in the open file. On the reference and nowhere else:
+   it is a note about the file, not a state of the row. */
+.sync-picker-row.named .sync-picker-ref { color: var(--accent); }
 .sync-picker-row input {
   width: 12px;
   min-width: 0;
@@ -3704,6 +3715,16 @@ body.resizing-column { cursor: col-resize; user-select: none; }
   margin-left: auto;
   font: 10.5px ui-monospace, SFMono-Regular, Consolas, monospace;
   color: var(--faint);
+}
+/* The write, at the end of the foot: the one press in this panel that changes the
+   file, so it wears `btn-primary` and sits apart from the two that only change
+   what is listed. Sized down to the foot -- the base button is 13px and would
+   stand a row taller than the toggles beside it. */
+.sync-picker-add {
+  font: inherit;
+  font-size: 11.5px;
+  padding: 2px 8px;
+  border-radius: 4px;
 }
 
 /* The box for one line. Everything `.sprint-raw` says about a whole block is wrong

@@ -5275,6 +5275,90 @@ function withoutReference(text) {
   return cut.replace(/[ \t]{2,}/g, " ").replace(/[ \t]+$/, "");
 }
 
+// --- tasks taken from the roadmap --------------------------------------------
+
+// **The other direction.** Everything above links a line you have already typed;
+// this writes the lines. `/` on an empty block offers one entry, it opens the
+// picker in its many-pick mode, and every deliverable marked lands as its own task
+// line carrying its own reference -- the same text the picker would have written
+// onto a line you typed yourself, and the same text you could type by hand.
+//
+// **It reverses a decision, so the line it is on is worth writing down.** An
+// insert was asked for on 2026-08-17 and refused, as one step from allocating
+// deliverables into sprints -- a Phase 2 non-goal, and still one. What keeps this
+// on the safe side of it is what it writes: a name and a `[#D-42]`, nothing else.
+// No points, no dates, no owner, no sum, nothing stored anywhere but the markdown
+// file, and nothing that reads back as an allocation. The scope panel beside it
+// still writes nothing at all.
+//
+// Registered through `registerBlockMenu` for `registerCellMenu`'s reason:
+// `editor.js` draws the menu and must not learn what a deliverable is.
+function roadmapMenuEntries() {
+  const number = state.sprint.number;
+  // The template's reason is `loadSprintLinks`': it plans no fortnight and copies
+  // into every future file, so a reference written into it would point real
+  // roadmap state at a document about nothing.
+  if (number === null || isTemplate(number)) return [];
+  // Nothing to offer until the roadmap has been read. An entry that opens an
+  // empty picker teaches nothing about why it is empty.
+  if (!state.allDeliverables.length) return [];
+  return [{
+    key: "roadmap",
+    label: "Tasks from the roadmap",
+    run: openRoadmapTasks,
+  }];
+}
+
+registerBlockMenu(roadmapMenuEntries);
+
+// The picker, anchored to the box the slash was typed in.
+//
+// **The `/roadmap` text is left to commit.** Focusing the picker's search blurs
+// that box, and a blur commits what was typed -- which is the editor's own stated
+// answer for blurring past an open menu. So the block becomes a paragraph reading
+// `/roadmap`, the insert below replaces it, and closing the picker without marking
+// anything leaves that paragraph on screen one edit from gone. Deliberate: the
+// alternative is this file reaching in to undo a commit the editor owns.
+function openRoadmapTasks(index, area) {
+  const number = state.sprint.number;
+  openSyncPicker(area, null, (ids) => insertRoadmapTasks(number, index, ids),
+    null, { many: true });
+}
+
+// One task line per deliverable, in the order they were marked.
+//
+// **The box is written ticked when the deliverable is done**, which is the answer
+// `linkTickedLine` reaches by asking: a linked line's box draws the deliverable,
+// so a fresh line showing `[ ]` for something already finished would be a
+// disagreement nobody typed. Nothing on the roadmap is written from here.
+function roadmapTaskLine(one) {
+  const link = sprintLink(one.id);
+  const done = Boolean(link && !link.missing ? link.done : one.done);
+  return `- [${done ? "x" : " "}] ${withReference(one.name, one.id)}`;
+}
+
+async function insertRoadmapTasks(number, index, ids) {
+  const rows = ids
+    .map((id) => state.allDeliverables.find((one) => one.id === id))
+    .filter(Boolean);
+  if (!rows.length) return;
+
+  // The blur commit is already in flight -- see `openRoadmapTasks` -- and a commit
+  // splices at the index it began with, so this waits for it rather than racing
+  // it. What it leaves behind is one paragraph, because `/roadmap` is one line with
+  // no whitespace in it, so `index` still names the block to replace.
+  await sprintCommit;
+  if (state.sprint.number !== number || !state.sprint.blocks[index]) return;
+
+  const lines = rows.map(roadmapTaskLine);
+  await commitSprintBlock(index, lines.join("\n"));
+  // The last line, so the caret is where the next thing gets typed. Only when the
+  // split gave back what it should have: a failed commit has kept the text as a
+  // draft and opening a line of it would fight that.
+  const fresh = state.sprint.blocks[index];
+  if (fresh && fresh.type === "list") editSprintBlock(index, lines.length - 1);
+}
+
 // --- saying what just happened ------------------------------------------------
 
 // One notice at a time, at the foot of the window, gone in eight seconds or when
@@ -5414,7 +5498,18 @@ function pickerMatches(one, filter) {
 // the row already linked -- the one drawn `.here` -- takes the reference off
 // instead of writing it again. **A link you cannot undo is a link you hesitate to
 // make**, and picking the same thing twice is the gesture people try first.
-function openSyncPicker(anchor, currentId, choose, unlink = null) {
+//
+// `options.many` makes it a **many-pick** picker: a press marks a row instead of
+// closing the panel, and `choose` is handed the ids in the order they were marked
+// when the press at the foot is made. One picker rather than two, because writing
+// a reference and writing a task line are the same question -- *which deliverable*
+// -- and the fortnight toggle, the grouping and the keyboard are worth having once.
+//
+// **Selection is a fill on the row, never a second checkbox.** Every row already
+// draws one for the deliverable's own tick, and a box beside it that meant
+// "chosen" is exactly the two-box confusion a linked line had before the chip
+// handed its tick over.
+function openSyncPicker(anchor, currentId, choose, unlink = null, options = {}) {
   closeSyncPicker();
 
   const panel = element("div", "sync-picker");
@@ -5431,8 +5526,16 @@ function openSyncPicker(anchor, currentId, choose, unlink = null) {
   const everything = element("button", "sync-picker-scope");
   scopeOnly.type = "button";
   everything.type = "button";
-  const hint = element("span", "sync-picker-hint", "↑↓ · ⏎ · esc");
+  const many = Boolean(options.many);
+  const hint = element("span", "sync-picker-hint",
+    many ? "↑↓ · ⏎ mark · ⌃⏎ add · esc" : "↑↓ · ⏎ · esc");
+  const add = many ? element("button", "sync-picker-add btn-primary") : null;
   foot.append(scopeOnly, everything, hint);
+  if (add) {
+    add.type = "button";
+    add.title = "Write one task line per deliverable marked above";
+    foot.appendChild(add);
+  }
   panel.append(head, list, foot);
 
   const scoped = scopedDeliverableIds();
@@ -5442,12 +5545,31 @@ function openSyncPicker(anchor, currentId, choose, unlink = null) {
   let selected = 0;
   let shown = [];
 
+  // The ids marked so far, in the order they were marked -- which is the order
+  // they are written in. Many-pick only; empty everywhere else.
+  const taken = [];
+
   // One place, so the keyboard and the mouse cannot disagree about what picking
-  // the row you are already on means.
+  // the row you are already on means. In many-pick mode a press marks and
+  // unmarks, and nothing is written until the press at the foot.
   const pick = (id) => {
+    if (many) {
+      const at = taken.indexOf(id);
+      if (at === -1) taken.push(id);
+      else taken.splice(at, 1);
+      draw();
+      return;
+    }
     closeSyncPicker();
     if (id === currentId && unlink) unlink();
     else choose(id);
+  };
+
+  const commit = () => {
+    if (!taken.length) return;
+    const ids = taken.slice();
+    closeSyncPicker();
+    choose(ids);
   };
 
   const draw = () => {
@@ -5464,6 +5586,12 @@ function openSyncPicker(anchor, currentId, choose, unlink = null) {
     scopeOnly.disabled = !scoped || scoped.size === 0;
     scopeOnly.classList.toggle("on", !wide);
     everything.classList.toggle("on", wide);
+    if (add) {
+      // The count and not just "Add": what the press writes is several lines, and
+      // a marked row can be scrolled out of sight above it.
+      add.textContent = taken.length === 1 ? "Add 1 task" : `Add ${taken.length} tasks`;
+      add.disabled = taken.length === 0;
+    }
 
     list.textContent = "";
     if (shown.length === 0) {
@@ -5497,6 +5625,13 @@ function openSyncPicker(anchor, currentId, choose, unlink = null) {
         }
         const here = one.id === currentId;
         if (here) row.classList.add("here");
+        // Marked for writing, and -- separately -- already named somewhere in the
+        // open file. The second is a note and never a refusal: a deliverable
+        // carried over into the next fortnight is named twice on purpose, and
+        // `sprint_task_refs` keeps repeats for that reason.
+        if (many && taken.includes(one.id)) row.classList.add("picked");
+        const named = many && state.sprintLinks.byId.has(one.id);
+        if (named) row.classList.add("named");
         const tick = element("input", null);
         tick.type = "checkbox";
         tick.checked = Boolean(one.done);
@@ -5508,6 +5643,7 @@ function openSyncPicker(anchor, currentId, choose, unlink = null) {
         // what it does there is the opposite of what it does everywhere else.
         if (here && unlink) row.title = "Linked to this line — press again to unlink";
         else if (here) row.title = "Linked to this line";
+        else if (named) row.title = "Already named in this file — pick it to name it again";
         else row.title = one.done ? "Already done" : "Not done yet";
         // `mousedown` rather than `click`: the press must not blur the search field
         // first, which is what closes the picker.
@@ -5533,7 +5669,10 @@ function openSyncPicker(anchor, currentId, choose, unlink = null) {
     }
     if (event.key === "Enter") {
       event.preventDefault();
-      if (shown[selected]) pick(shown[selected].id);
+      // `Ctrl`/`Cmd`+`Enter` is the write, so `Enter` stays the mark and a
+      // many-pick run never needs the mouse: mark, mark, mark, write.
+      if (many && (event.ctrlKey || event.metaKey)) commit();
+      else if (shown[selected]) pick(shown[selected].id);
       return;
     }
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -5558,6 +5697,15 @@ function openSyncPicker(anchor, currentId, choose, unlink = null) {
     draw();
     search.focus();
   };
+
+  // `mousedown` like the rows, and for the same reason: the press must not blur
+  // the search field, which is what the dismiss handler closes the panel on.
+  if (add) {
+    add.onmousedown = (event) => {
+      event.preventDefault();
+      commit();
+    };
+  }
 
   // Filled before it is placed: an empty panel measures a few pixels tall, and a
   // panel placed on that measurement is one that fits everywhere and then grows
