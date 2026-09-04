@@ -2874,21 +2874,29 @@ function deliverableRow(phase) {
     tickCell.appendChild(tick);
     line.appendChild(tickCell);
 
-    const nameCell = fieldCell(deliverable, "name", "text", saveDeliverable,
+    // A textarea rather than an input: a deliverable is named in a sentence
+    // often enough that a single line hid the end of it, and a field that
+    // scrolls sideways is a field you cannot read. It wraps and grows instead.
+    const nameCell = fieldCell(deliverable, "name", "textarea", saveDeliverable,
       {}, "deliverable");
     // Enter on a name already in the list ends up in the adder too, so a
     // correction leaves the cursor where the next one is typed. The flag is set
-    // in keydown; the `change` Enter fires next is what saves and re-renders.
+    // in keydown; the `change` that follows is what saves and re-renders.
     // With nothing edited there is no change to wait for, so render now.
-    const nameInput = nameCell.querySelector("input");
+    const nameInput = nameCell.querySelector("textarea");
     // The reference you would type into a sprint file, on hover. A tooltip rather
     // than a column: the id matters only while writing `[#D-42]` somewhere else,
     // and a column of ids would be read once a fortnight and looked past daily.
     nameInput.title = `D-${deliverable.id}`;
     nameInput.onkeydown = (event) => {
       if (event.key !== "Enter") return;
+      // A textarea would take this as a newline, and a name is one line. Blur
+      // instead: a textarea fires `change` on blur rather than on Enter, so the
+      // blur is what reaches `saveDeliverable`.
+      event.preventDefault();
       state.focusAdder = phase.id;
       if (nameInput.value === deliverable.name) renderPhases();
+      else nameInput.blur();
     };
     // The other end of `D-42`: which sprint files planned this, and a way into
     // the newest of them. In the name cell rather than a column of its own --
@@ -3031,10 +3039,20 @@ async function saveDeliverableOrder(deliverables) {
   await loadPlan();
 }
 
+// `type` is an input type, plus one word that is not: "textarea" asks for a
+// field that wraps. It is still one value and still one line of record -- the
+// call site is what keeps Enter meaning "done" so a newline never reaches the
+// database. Everything below this point is the same for both.
 function fieldCell(record, key, type, save, attributes = {}, kind = "") {
   const cell = element("td");
-  const input = element("input");
-  input.type = type;
+  const multiline = type === "textarea";
+  const input = element(multiline ? "textarea" : "input");
+  if (multiline) {
+    input.rows = 1;
+    input.oninput = () => growField(input);
+  } else {
+    input.type = type;
+  }
   input.value = record[key];
   Object.assign(input, attributes);
   // What presence names this cell by, and the reason every typed field in the
@@ -3051,7 +3069,19 @@ function fieldCell(record, key, type, save, attributes = {}, kind = "") {
     save(record.id, { [key]: value, expect: { [key]: record[key] } });
   };
   cell.appendChild(input);
+  // Measured after the cell is in the document: `scrollHeight` on a detached
+  // node is 0, and this function returns before its caller appends the row.
+  if (multiline) requestAnimationFrame(() => growField(input));
   return cell;
+}
+
+// A textarea as tall as its own text -- one line at rest, taller as the name
+// wraps. `auto` first, so deleting a line gives the height back. The border is
+// added on because `box-sizing: border-box` is global here and `scrollHeight`
+// does not count it, which would otherwise leave the last line clipped.
+function growField(field) {
+  field.style.height = "auto";
+  field.style.height = `${field.scrollHeight + field.offsetHeight - field.clientHeight}px`;
 }
 
 // A refused write, said out loud. 409 here means the field this save was about
