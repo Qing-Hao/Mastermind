@@ -7299,11 +7299,20 @@ function mapGroups(projects) {
     flattened: false, folded: new Set(),
   });
   const root = node(null, []);
+  // The untracked projects get a node of their own rather than sitting on
+  // `root`. Root is the container every track hangs off, so handing it to the
+  // renderer as a wedge draws the whole map a second time: `collectSlots` and
+  // `place` both recurse into `.kids`, and root's kids are every track there
+  // is. That second copy came out grey (a nameless group takes no hue), one
+  // ring further out (kids placed at `depth + 1`) and about half a turn round
+  // the map (root's `total` counts every project, so its wedge claimed half the
+  // ring). One untracked project switched it on for everybody.
+  const untracked = node(null, []);
 
   for (const project of projects) {
     const full = trackPath(project.track);
     const shown = foldPath(full);
-    let at = root;
+    let at = shown.length ? root : untracked;
     shown.forEach((name, index) => {
       if (!at.children.has(name)) {
         at.children.set(name, node(name, shown.slice(0, index + 1)));
@@ -7326,11 +7335,12 @@ function mapGroups(projects) {
     return at;
   };
   settle(root);
+  settle(untracked);
 
   // One wedge per top-level track, then the untracked projects last -- they
   // draw no group node at all and hang straight off the hub.
   const groups = [...root.kids];
-  if (root.direct.length) groups.push(root);
+  if (untracked.direct.length) groups.push(untracked);
   return groups;
 }
 
