@@ -203,8 +203,11 @@
 
 .sidebar-filter { margin: 0 4px 8px; width: calc(100% - 8px); padding: 4px 9px; }
 
-.sidebar-foot { display: flex; gap: 6px; padding: 8px 4px 0; }
-.sidebar-foot button { flex: 1; font-size: 12px; }
+/* Export, Import and the sign-in label share one row. The label is a name the
+   realm chose rather than a word we picked, so it wraps to its own line rather
+   than setting the row's width -- see `.sidebar-link`. */
+.sidebar-foot { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 4px 0; }
+.sidebar-foot button { flex: 1 1 0; min-width: 0; font-size: 12px; }
 
 /* --- the project list ---------------------------------------------------
    One row per project: where it stands, its name, its rank. The row is the
@@ -1028,8 +1031,20 @@ td.presence-held:has(.presence-take:not([hidden])) input { padding-right: 78px; 
 
 /* --- the sign-in configuration page ---------------------------------------
    `sso.html` only, and the sidebar link that reaches it. */
+/* `loadSignInLabel` puts whatever the realm returned in here, and an email
+   address is one unbreakable token -- there is no space in it to break at. So it
+   takes a row of its own and is allowed to break mid-token; without both halves
+   it runs past the 240px edge, and `.sidebar`'s `overflow-y: auto` forces the
+   other axis to `auto` as well, which turns that into a sidescrolling nav.
+   `anywhere` rather than `break-word`: only `anywhere` also shrinks the
+   intrinsic minimum width, which is what stops the flex item setting the floor.
+   Sets no `display` -- see the `[hidden]` note in Working style. */
 .sidebar-link {
   display: inline-block;
+  flex: 1 1 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: center;
   text-decoration: none;
   font-size: 13px;
   padding: 5px 12px;
