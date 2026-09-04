@@ -4724,19 +4724,25 @@ function renderSprintRef() {
   const pills = $("sprint-ref-pills");
   const body = $("sprint-ref-body");
   // `sprint.files` is the picker's own list, newest first, and the template is
-  // deliberately not in it -- which is exactly the list wanted here: the
+  // deliberately not in it -- which is most of the list wanted here: the
   // template plans no fortnight, so there is nothing to read it against.
-  const files = state.sprint.files;
+  //
+  // The file open in the editor comes off it too. Reading the file you are
+  // typing in, beside itself, says nothing, so offering it in the list is
+  // offering a choice with no answer -- and with it gone, switching the editor
+  // *to* the file being referenced drops the key the list no longer has, and
+  // the block below picks the next one down.
+  const files = state.sprint.files.filter(
+    (file) => file.number !== state.sprint.number);
 
   // Fired from the render for `loadSprintLinks`' reason: the panel is the only
   // thing that wants it, and asking on boot would be a request nobody opening
   // the Project tab ever needs.
   if (!ref.boilerplateAsked) loadRefBoilerplate();
 
-  // Which file: the one picked, else the newest that is **not** the file open in
-  // the editor. Reading the file you are typing in, beside itself, says nothing.
+  // Which file: the one picked, else the newest on offer.
   if (ref.key === null || !files.some((file) => file.number === ref.key)) {
-    const wanted = files.find((file) => file.number !== state.sprint.number) ?? files[0];
+    const wanted = files[0];
     Object.assign(ref, {
       key: wanted ? wanted.number : null,
       file: null, asked: null, sections: null, error: "",
@@ -4756,9 +4762,13 @@ function renderSprintRef() {
   pills.innerHTML = "";
   body.innerHTML = "";
 
+  // Two ways to have nothing on offer, and they read differently: no files at
+  // all, or the only file there is the one being typed in.
   if (ref.key === null) {
     body.appendChild(element("p", "sprint-ref-note",
-      "No sprint files on disk yet — there is nothing to read against."));
+      state.sprint.files.length
+        ? "The only sprint file on disk is the one open here — there is nothing to read it against."
+        : "No sprint files on disk yet — there is nothing to read against."));
     return;
   }
 
