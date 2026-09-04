@@ -379,6 +379,12 @@ let state = {
     // answer for every file the panel shows, and `null` until it lands, which
     // draws the file whole rather than guessing.
     boilerplate: null, boilerplateAsked: false,
+    // Where a carried row would land: `{number, index}` of the last table cell
+    // the caret was in. **Remembered rather than read at the moment of the
+    // press**, because pressing a button in the panel takes the focus out of the
+    // grid first, and the number rides along so a row cannot land in a file the
+    // cursor was never in.
+    into: null,
   },
   // `D-42` in a sprint row, read in both directions and cached differently on
   // purpose. `sprintLinks` is the open file's references with the deliverable
@@ -5033,6 +5039,7 @@ function refCard(grid, row) {
   const at = refBodyColumn(grid, cells);
   const lines = cells[at].split("\n");
   const card = element("div", "ref-card");
+  card.appendChild(refCarryButton(grid, row));
 
   const title = element("div", "ref-title");
   renderCellInline(title, refLineText(lines[0]), { ownTick: false });
@@ -5140,6 +5147,169 @@ function refLine(line) {
   row.style.setProperty("--line-depth", depth);
   renderCellInline(row, refLineText(line), { ownTick: false });
   return row;
+}
+
+// --- carrying a row across -----------------------------------------------
+//
+// **The panel's one write, and it reverses the second half of a refusal.**
+// Carrying rows across files was designed in full and dropped on 2026-08-17 --
+// see `.design/sprint-carryover/` -- and `e123e87` then reversed that refusal
+// for the roadmap by narrowing what a press writes down to a name and a
+// `[#D-42]`. This is wider on purpose: the requester asked for the row, PIC, SP
+// and Status included, and the line it stays on is what it does **not** do.
+//
+// Nothing is stored outside the markdown file. Nothing is summed -- the SP that
+// lands is text in a cell, exactly as it was text in a cell, and no window adds
+// it up. Nothing is derived: the Status that rides across is last fortnight's
+// word for it, drawn as written and parsed by nothing. And the panel still
+// writes no file itself -- it hands the row to `insertGridRow` and
+// `tableEdited`, which is the same path `+ Row` takes, so a hold, an undo,
+// presence and autosave all behave exactly as they do for a row typed by hand.
+//
+// It carries a **person's name** across, and that is inside non-negotiable 7
+// rather than over it: `@Song Le` is eight characters of markdown in a file, and
+// the app grows no row keyed by them, no assignee field, no lookup. It would be
+// over the line the moment anything read that cell as a person.
+
+// The Task cell of a row that has come across arrives as text; `Actual` does not
+// come at all. It is time already spent, in a fortnight that is over, and a
+// carried row has spent none of this one's -- the single value in the row that
+// would be **wrong** rather than merely stale. Every other column is carried as
+// written, including the ones that are only nearly right.
+const CARRY_SKIP = ["actual"];
+
+// **Two columns the template gives two names and one meaning.** §3 heads its
+// body `Task` and §4 heads it `Work`; §3 calls the HIGH / MEDIUM / LOW column
+// `Priority` and §4 calls it `Commitment`. Matched on the name alone, a row
+// carried from §3 into §4 loses its task text -- the one cell the row is
+// actually about -- and that is a mapping failing rather than two columns
+// honestly disagreeing.
+//
+// It is the same licence `REF_BODY_HEADS` above already takes, and kept to the
+// same size for the same reason: a list of column names is a thing to keep in
+// step with `templates/sprint.md`, so it holds the two pairs the template itself
+// creates and nothing else. Anything outside it is dropped and named in the
+// toast, which is where a third disagreement will show up rather than be guessed
+// at.
+const CARRY_SAME = [["task", "work"], ["priority", "commitment"]];
+
+// Every name this column answers to, itself first.
+const carryNames = (name) => {
+  const pair = CARRY_SAME.find((names) => names.includes(name));
+  return pair ? [name, ...pair.filter((one) => one !== name)] : [name];
+};
+
+// The caret is in a cell, so that cell's table is where a carried row would go.
+// Read off the presence field rather than the DOM's shape, because that string
+// is already the editor's own answer to "which cell is this" -- `sprintCellField`
+// builds it, and re-deriving it here would be a second spelling to keep in step.
+//
+// **It is never cleared.** A row carried after the caret has moved elsewhere in
+// the same file still has a table to land in, and one carried after switching
+// files does not, because the file number rides along and stops matching.
+function rememberCarryGrid() {
+  const active = document.activeElement;
+  const holder = active && typeof active.closest === "function"
+    ? active.closest("[data-presence]")
+    : null;
+  const found = /:(\d+):cell:\d+:\d+$/.exec(holder ? holder.dataset.presence || "" : "");
+  if (!found) return;
+  state.sprintRef.into = { number: state.sprint.number, index: Number(found[1]) };
+}
+
+function refCarryButton(grid, row) {
+  const button = element("button", "ref-carry", "+");
+  button.type = "button";
+  button.title = "Add this row to the file you are planning";
+  button.setAttribute("aria-label", "Add this row to the file you are planning");
+  button.onclick = () => carryRefRow(grid, row);
+  return button;
+}
+
+// **Columns are matched by the name in the header**, trimmed and case-folded.
+// Position cannot do it -- §5's first column is a Date where §3's is the Task --
+// and neither can order, since the two tables need not have the same width.
+//
+// It maps what matches rather than refusing a carry that does not line up
+// exactly: a row landing with one column missing is a cell to fill in, where a
+// refusal is the whole row to retype. **What it will not do is drop something
+// quietly** -- a column that held text and found no home is named in the toast.
+// A column that was empty is not, because nothing was lost.
+//
+// A target column is claimed once. Two source columns can want the same one
+// through `CARRY_SAME` -- a hand-made table heading two columns `Task` and
+// `Work` -- and the second would otherwise overwrite the first silently, which
+// is the one thing this is written not to do.
+function carryColumns(from, to, row) {
+  const heads = to.head.map((cell) => cellText(cell).trim().toLowerCase());
+  const taken = new Set();
+  const pairs = [];
+  const dropped = [];
+
+  from.head.forEach((cell, at) => {
+    const name = cellText(cell).trim();
+    if (!name) return;
+    const lower = name.toLowerCase();
+    const found = CARRY_SKIP.includes(lower)
+      ? -1
+      : carryNames(lower)
+        .map((one) => heads.indexOf(one))
+        .find((one) => one !== -1 && !taken.has(one)) ?? -1;
+    if (found !== -1) {
+      taken.add(found);
+      pairs.push([at, found]);
+      return;
+    }
+    if (cellText(row[at] ?? "").trim()) dropped.push(name);
+  });
+  return { pairs, dropped };
+}
+
+// One row, into the grid the caret was last in. Every refusal says why: a
+// gesture that does nothing and explains nothing is the one thing worse than a
+// gesture that is not offered.
+function carryRefRow(grid, row) {
+  const number = state.sprint.number;
+  const into = state.sprintRef.into;
+
+  if (number === null || isTemplate(number)) {
+    showToast("Open a sprint file to carry a row into. The template plans no fortnight.");
+    return;
+  }
+  if (state.sprintRef.key === number) {
+    showToast("This panel is reading the file you have open — the row is already in it.");
+    return;
+  }
+
+  const index = into && into.number === number ? into.index : null;
+  const block = index === null ? null : state.sprint.blocks[index];
+  if (!block || !block.table) {
+    showToast("Put the cursor in the table this row should join, then press + again.");
+    return;
+  }
+  // A row arriving renumbers every cell below it, so it waits for anybody in a
+  // cell of that table -- the same reason `+ Row` and the grip menu wait.
+  if (refuseWhileHeld(index)) return;
+
+  const map = carryColumns(grid, block.table, row);
+  if (!map.pairs.length) {
+    showToast("No column in that table is named like this one — nothing to carry across.");
+    return;
+  }
+
+  // `insertGridRow` takes the undo snapshot, so `Ctrl+Z` takes the whole row
+  // back in one press.
+  const rows = block.table.rows;
+  insertGridRow(block, rows.length);
+  const landed = rows[rows.length - 1];
+  // The cell's own spelling, not its text: `<br>`, the checklist and a `[#D-42]`
+  // are what the file said, and the file is what is being written.
+  for (const [from, to] of map.pairs) landed[to] = row[from] ?? "";
+
+  applyGridChange(block, index, rows.length - 1, 0);
+  showToast(map.dropped.length
+    ? `Row carried across. That table has no ${map.dropped.join(", ")} — those stayed behind.`
+    : "Row carried across.");
 }
 
 // Somebody else saved the file this panel is reading. It owes no merge and has
@@ -9338,6 +9508,11 @@ function bindEvents() {
     if (pill.dataset.all) toggleAllRefSections();
     else toggleRefSection(pill.dataset.section);
   };
+  // Where a carried row would land. Delegated on the document rather than bound
+  // per cell, for the reason presence is: the cells are rebuilt by every render
+  // of the document, and a binding per cell would be a binding to forget.
+  document.addEventListener("focusin", rememberCarryGrid);
+
   // Blur, not input: re-splitting the whole file on every keystroke would rebuild
   // the document under the cursor.
   $("sprint-raw-file").onblur = (event) => commitSprintRawFile(event.target.value);

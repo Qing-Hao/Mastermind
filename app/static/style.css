@@ -2620,13 +2620,40 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
    other non-empty cell as a label. Nothing is dropped and nothing is summarised;
    the file is untouched, and the whole-file pill draws it as the editor does. */
 .ref-card {
+  position: relative;   /* the carry button parks in the corner */
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 6px 8px;
   margin-bottom: 6px;
 }
 .ref-card:last-child { margin-bottom: 0; }
-.ref-title { font-size: 12px; font-weight: 600; line-height: 1.35; }
+.ref-card:hover { border-color: var(--accent-ring); }
+.ref-title { font-size: 12px; font-weight: 600; line-height: 1.35; padding-right: 22px; }
+
+/* Carry this row into the file being planned. **Faded rather than hidden, and
+   never `display`**: one of these sits on every card down a 380px column, so all
+   of them at full strength would read as the loudest thing in the panel -- but a
+   `display` toggle would take it out of the tab order, and this is a button. It
+   comes up on the card's hover and on its own focus, so the keyboard reaches
+   what the mouse does. */
+.ref-carry {
+  position: absolute;
+  top: 4px;
+  right: 5px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  line-height: 1;
+  font-size: 13px;
+  border-color: var(--accent-ring);
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.ref-card:hover .ref-carry,
+.ref-carry:focus-visible { opacity: 1; }
+.ref-carry:hover { background: var(--accent-ring); }
 .ref-meta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 /* Deliberately one neutral pill for every column. A colour here would be saying
    something about the data, and what Priority and Status mean is free text in
