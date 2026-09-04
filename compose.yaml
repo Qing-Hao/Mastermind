@@ -59,7 +59,13 @@ services:
       - ./sprints:/app/sprints
       # Editable from the Sprint tab **and** tracked by git. Without this mount
       # an `Edit template` save vanishes on the next rebuild.
-      - ./templates/sprint.md:/app/templates/sprint.md
+      #
+      # Mounted as the **directory**, not as `sprint.md` itself: a single-file
+      # bind mount is its own mount point inside the container, and
+      # `write_sprint_file` renames a scratch file over its target, which is
+      # `EBUSY` onto a mount point every time and for every uid. The directory
+      # mount leaves `sprint.md` an ordinary file, so the rename stays atomic.
+      - ./templates:/app/templates
 
     # On Linux, a bind mount keeps the host's ownership, and the image runs as
     # uid 10001. Either `sudo chown -R 10001:10001 data sprints`, or uncomment

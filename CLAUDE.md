@@ -133,7 +133,7 @@ Type checking is pyright, `basic` mode, config in `pyrightconfig.json`.
 | `scripts/wire_check.js` | Runs `bindEvents()` behind a stub DOM and names every id the frontend asks for that `index.html` does not define. Node, no deps. |
 | `scripts/css_check.js` | The `[hidden]`-versus-`display` trap, a `var()` with neither definition nor fallback, a rule for an id nothing creates, brace balance. Node, no deps. |
 | `scripts/lock_check.js` | Two people in one sprint file: which node a hold names, what a locked one refuses, what a save owes as cells rather than blocks, a remote cell write merging into a grid being typed in, and which edits `Ctrl+Z` can take back without writing over somebody else's. Loads both frontend files in one scope behind a stub DOM. Node, no deps. |
-| `Dockerfile`, `compose.yaml`, `.env.example` | How it is served to the team. One worker — the connection registry is process memory. Three mounts: `data/`, `sprints/`, `templates/sprint.md`, each irreplaceable for its own reason. |
+| `Dockerfile`, `compose.yaml`, `.env.example` | How it is served to the team. One worker — the connection registry is process memory. Three mounts: `data/`, `sprints/`, `templates/`, each irreplaceable for its own reason — all three are directories, because a save renames over its target and `rename` onto a single-file bind mount is `EBUSY`. |
 | `.design/*.dc.html` | The UI as artboards, plus `canvas.json`. Source only; the published canvas beside them is gitignored. |
 | `data/roadmap.db` | The dataset. Gitignored. `.bak` is an **old** backup, not a scratch slot. |
 

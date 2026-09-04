@@ -23,7 +23,7 @@ own reason:
 |---|---|
 | `./data` | The dataset and the startup backups beside it. Irreplaceable. |
 | `./sprints` | The real record of work done — one markdown file per fortnight, and there is no sprint table anywhere. |
-| `./templates/sprint.md` | Editable from the Sprint tab *and* tracked by git. Without the mount, an *Edit template* save vanishes on the next rebuild. |
+| `./templates` | Holds `sprint.md`, editable from the Sprint tab *and* tracked by git. Without the mount, an *Edit template* save vanishes on the next rebuild. Mounted as the directory, not the file: a single-file bind mount is its own mount point, and a template save renames a scratch file over its target, which fails with `EBUSY` onto a mount point. |
 
 > **Run it with one worker.** The live-connection registry — who is here, and who
 > gets told a write landed — is process memory. A second worker would announce a
