@@ -150,15 +150,20 @@
         <li class="drop"><span>Actual</span><span class="to">&#8594; left empty</span></li>
       </ul>
       <p style="margin-top: 10px;">Case-insensitive, trimmed. A target column the source has no name for stays empty.
-        <b>Actual is deliberately not carried</b> &#8212; it is time already spent in a fortnight that is over. One line to change if you disagree.</p>
+        <b>Actual is deliberately not carried</b> &#8212; it is time already spent in a fortnight that is over.</p>
     </div>
 
-    <div class="box warn">
-      <h3>The mismatch to decide</h3>
-      <p>&#167;4 Enablement calls the same column <code>Commitment</code>, where &#167;3 calls it <code>Priority</code>.
-        Carrying a &#167;3 row into a &#167;4 table matches six of eight names, leaves <code>Commitment</code> empty and drops <code>Priority</code>.</p>
-      <p><b>Default:</b> map what matches, and say what was dropped in the toast &#8212; never silently.
-        The alternative is refusing a cross-section carry outright.</p>
+    <div class="box">
+      <h3>Two names, one column</h3>
+      <p>&#167;4 heads its body <code>Work</code> where &#167;3 heads it <code>Task</code>, and calls the
+        HIGH / MEDIUM / LOW column <code>Commitment</code> where &#167;3 calls it <code>Priority</code>.</p>
+      <ul class="map">
+        <li><span>Task</span><span class="to">&#8594; Work</span></li>
+        <li><span>Priority</span><span class="to">&#8594; Commitment</span></li>
+      </ul>
+      <p style="margin-top: 10px;">Those two pairs, and nothing else. A &#167;3 row carried into &#167;4 maps all seven
+        and drops nothing. Any other disagreement is dropped and <b>named in the toast</b>, never silently &#8212;
+        and a column that was empty is not named, because nothing was lost.</p>
     </div>
 
     <div class="box">
@@ -169,6 +174,7 @@
         <li><span class="k">3</span><span>The open file is <code>templates/sprint.md</code>, or is the file the panel is reading.</span></li>
         <li><span class="k">4</span><span>Somebody else holds the target grid.</span></li>
       </ul>
+      <p style="margin-top: 10px;">Built and committed as <code>4fb002e</code>. Not yet looked at in the running app.</p>
     </div>
   </div>
 </div>
