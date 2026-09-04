@@ -373,6 +373,12 @@ let state = {
   sprintRef: {
     tab: "scope", shut: false,
     key: null, asked: null, file: null, sections: null, error: "",
+    // The template's own blocks, as a set of trimmed `raw`. Every sprint file is
+    // a copy of it, so this is what tells a sentence the template wrote from one
+    // somebody typed -- see `refBoilerplate`. Read once and kept: it is the same
+    // answer for every file the panel shows, and `null` until it lands, which
+    // draws the file whole rather than guessing.
+    boilerplate: null, boilerplateAsked: false,
   },
   // `D-42` in a sprint row, read in both directions and cached differently on
   // purpose. `sprintLinks` is the open file's references with the deliverable
@@ -4686,6 +4692,11 @@ function renderSprintRef() {
   // template plans no fortnight, so there is nothing to read it against.
   const files = state.sprint.files;
 
+  // Fired from the render for `loadSprintLinks`' reason: the panel is the only
+  // thing that wants it, and asking on boot would be a request nobody opening
+  // the Project tab ever needs.
+  if (!ref.boilerplateAsked) loadRefBoilerplate();
+
   // Which file: the one picked, else the newest that is **not** the file open in
   // the editor. Reading the file you are typing in, beside itself, says nothing.
   if (ref.key === null || !files.some((file) => file.number === ref.key)) {
@@ -4739,7 +4750,43 @@ function renderSprintRef() {
     body.appendChild(element("p", "sprint-ref-note", "Nothing picked above."));
     return;
   }
-  for (const section of chosen) body.appendChild(refSection(section));
+  let drew = 0;
+  for (const section of chosen) {
+    const node = refSection(section);
+    if (!node) continue;
+    body.appendChild(node);
+    drew += 1;
+  }
+
+  // Every picked section was template and nothing else. **Saying so is the price
+  // of not drawing an empty heading**: a pill that is on over a blank body reads
+  // as broken, and this is the line that says which of the two it is.
+  if (!drew) {
+    body.appendChild(element("p", "sprint-ref-note",
+      chosen.length === 1
+        ? `Nothing was filled in under ${chosen[0].title}.`
+        : "Nothing was filled in under the sections picked above."));
+  }
+}
+
+// The template, once, in the shape a sprint file is read in -- so the comparison
+// in `refBoilerplate` is block against block rather than a second parse.
+//
+// **A failure is not an error here.** `boilerplate` stays null, `refBoilerplate`
+// answers no to everything, and the panel draws the file whole, which is what it
+// did before this cut existed. A readout that refuses to draw because a second
+// file could not be read would be worse than one that draws too much.
+async function loadRefBoilerplate() {
+  const ref = state.sprintRef;
+  ref.boilerplateAsked = true;
+  let payload;
+  try {
+    payload = await api(sprintEndpoint(TEMPLATE_KEY));
+  } catch (_) {
+    return;
+  }
+  ref.boilerplate = new Set(payload.blocks.map((block) => refRaw(block)));
+  if (state.view === "sprint" && !ref.shut && ref.tab === "ref") renderSprintSide();
 }
 
 // Fired from the render and re-rendering when it lands, like `loadSprintScope`.
@@ -4825,29 +4872,146 @@ function toggleAllRefSections() {
   renderSprintSide();
 }
 
+// **What the template wrote is not what last fortnight said.** Every sprint file
+// is a copy of `templates/sprint.md`, so every one of them carries the same
+// prompts: "Work that directly advances the Sprint Goal.", the italic note under
+// §5, and a label for every answer nobody filled in. Read beside the fortnight
+// being planned they are noise -- the same sentence in both columns, saying
+// nothing about either one.
+//
+// Two cuts, deliberately different in kind:
+//
+// 1. **A block identical to one in the template is dropped**, byte for byte on
+//    `raw`. That is what tells a prompt from a paragraph somebody typed, and
+//    shape cannot: "What meaningful product outcome are we trying to achieve in
+//    this Sprint?" and a real note written into §6 are both plain prose. It also
+//    keeps the sentences out of this file, which matters -- a copy of them here
+//    would be a second thing to keep in step with the template.
+//    Edit the template and an old file's copies stop matching and start being
+//    drawn: that degrades to showing a sentence rather than to hiding one, and
+//    every file made afterwards is right again.
+//
+// 2. **Inside a list, a line with no answer on it is dropped**, because
+//    `- **Planned Product SP: 16**` and `- **Must SP:**` are one block and only
+//    the first is an answer. Survivors go through `refLine`, the editor's own
+//    reader, so an item here is what the grid calls one.
+//
+// And the section itself is dropped when the two cuts leave nothing but its
+// heading. A heading with nothing under it is a hole rather than a readout; the
+// pill stays on, and `renderSprintRef` says why the body is empty.
 function refSection(section) {
+  const blocks = section.blocks;
+  const drawn = [];
+
+  blocks.forEach((block, at) => {
+    if (block.table) {
+      for (const row of block.table.rows) {
+        const card = refCard(block.table, row);
+        if (card) drawn.push(card);
+      }
+      return;
+    }
+    // The comment the template ships with is an HTML block, and drawing it would
+    // be drawing instructions to yourself from a file about last fortnight.
+    if (!refDrawable(block)) return;
+    for (const node of refProse(block, blocks, at)) drawn.push(node);
+  });
+
+  if (!drawn.length) return null;
+
   const box = element("div", "ref-sec");
   const head = element("h4", "ref-sec-head");
   // Through the cell renderer, so a heading written `**Sprint Goal:**` reads as
   // bold rather than as four asterisks.
   renderCellInline(head, section.title, { ownTick: false });
   box.appendChild(head);
-  for (const block of section.blocks) {
-    if (block.table) {
-      for (const row of block.table.rows) {
-        const card = refCard(block.table, row);
-        if (card) box.appendChild(card);
-      }
-      continue;
-    }
-    // The comment the template ships with is an HTML block, and drawing it would
-    // be drawing instructions to yourself from a file about last fortnight.
-    if (block.type === "html" || !block.html) continue;
-    const prose = element("div", "ref-prose");
-    prose.innerHTML = block.html;
-    box.appendChild(prose);
-  }
+  for (const node of drawn) box.appendChild(node);
   return box;
+}
+
+// A block's markdown, trimmed -- the one spelling both cuts compare on.
+const refRaw = (block) => String(block?.raw ?? "").trim();
+
+// Worth drawing at all, before either cut: a table, or a block with rendered
+// HTML that is not the template's own comment.
+const refDrawable = (block) =>
+  Boolean(block) && (Boolean(block.table) || (block.type !== "html" && Boolean(block.html)));
+
+// A line with its marker and emphasis off. `**Must SP:**` and `Must SP:` are the
+// same unanswered prompt, and `refLineText` already knows every marker the editor
+// writes -- a bullet, both checkbox spellings, a bold title.
+const refBare = (line) => refLineText(line).replace(/[*_`]/g, "").trim();
+
+// Does this line carry an answer? What is left ending in a colon is a label
+// nobody filled in.
+const refTyped = (line) => {
+  const bare = refBare(line);
+  return Boolean(bare) && !bare.endsWith(":");
+};
+
+// `**Sprint Goal:**` alone in its block -- a label whose answer is the block
+// underneath rather than the rest of its own line.
+function refLabelOnly(block) {
+  const lines = refRaw(block).split("\n").filter((line) => line.trim());
+  return lines.length === 1 && refBare(lines[0]).endsWith(":");
+}
+
+// Cut 1's question. Null until `/api/template` lands, and null forever if it
+// refused: both answer no to everything, which draws the file whole.
+function refBoilerplate(block) {
+  const seen = state.sprintRef.boilerplate;
+  return Boolean(seen) && seen.has(refRaw(block));
+}
+
+// Does this block still draw something after both cuts? Asked of the *next*
+// block, to decide whether a label the template wrote is a prompt nobody
+// answered or the caption on something that was.
+function refAnswered(block) {
+  if (block.table) {
+    return block.table.rows.some((row) => row.some((cell) => cellText(cell).trim()));
+  }
+  if (!refDrawable(block)) return false;
+  const lines = refRaw(block).split("\n");
+  if (refListed(lines)) return !refBoilerplate(block) && lines.some(refTyped);
+  return !refBoilerplate(block);
+}
+
+const refListed = (lines) =>
+  lines.some((line) => CELL_TODO.test(line) || CELL_BULLET.test(line));
+
+// One non-table block, as the nodes it is worth drawing -- none, one, or a line
+// each. A list is filtered a line at a time; a paragraph is kept or dropped
+// whole and still drawn from its own rendered HTML, so a link or a code span in
+// something somebody typed reads the way it does in the document.
+function refProse(block, blocks, at) {
+  const lines = refRaw(block).split("\n");
+
+  if (refListed(lines)) {
+    // Cut 1 reaches a list too, and it has to: `templates/sprint.md` ships a
+    // Definition of Done checklist, and a copy of it nobody has touched is the
+    // template tick for tick. One box ticked and the raw differs, so it is drawn.
+    if (refBoilerplate(block)) return [];
+    const kept = [];
+    lines.forEach((line, i) => {
+      // A label with the answer on the line below it survives, the same rescue
+      // the paragraph branch makes across blocks: `- Backend:` over two ticked
+      // children is a group, not a prompt.
+      const next = lines.slice(i + 1).find((one) => one.trim());
+      if (!refTyped(line) && !(refBare(line) && next && refTyped(next))) return;
+      const node = refLine(line);
+      if (node) kept.push(node);
+    });
+    return kept;
+  }
+
+  if (refBoilerplate(block)) {
+    const next = blocks.slice(at + 1).find(refDrawable);
+    if (!refLabelOnly(block) || !next || !refAnswered(next)) return [];
+  }
+
+  const prose = element("div", "ref-prose");
+  prose.innerHTML = block.html;
+  return [prose];
 }
 
 // **One card per table row**, and the reason is measured rather than aesthetic:
@@ -4984,6 +5148,18 @@ function refLine(line) {
 // panel that is shut or on the other tab picks it up when it is next drawn.
 function liveSprintRefChanged(key) {
   const ref = state.sprintRef;
+
+  // The template was saved, so what counts as boilerplate just changed under
+  // every file this panel can show. Re-armed rather than re-read: the render
+  // that follows fires the fetch, and a panel that is shut or on the other tab
+  // picks it up when it is next drawn.
+  if (isTemplate(sprintFileKey(key))) {
+    ref.boilerplate = null;
+    ref.boilerplateAsked = false;
+    if (state.view === "sprint" && !ref.shut && ref.tab === "ref") renderSprintSide();
+    return;
+  }
+
   if (ref.key === null || sprintFileKey(key) !== ref.key) return;
   ref.asked = null;
   if (state.view === "sprint" && !ref.shut && ref.tab === "ref") renderSprintSide();

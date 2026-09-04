@@ -33,6 +33,7 @@ sprints/
 .design/map-theme/map-galaxy-or-brain.html
 .design/project-kind/project-kind-on-the-map.html
 .design/sprint-carryover/sprint-carryover-options.html
+.design/sprint-ref-prose/sprint-reference-panel.html
 
 # The AI provider key, and whatever sign-in values a deployment still keeps out
 # here rather than on the Sign-in page.

@@ -1,0 +1,177 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: #18181b; background: #fafafa; }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+
+    .wrap { display: grid; grid-template-columns: 404px minmax(0, 1fr); gap: 36px; padding: 20px; background: #fafafa; }
+    .col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+    .cap { margin: 0; font-size: 11px; color: #71717a; }
+    .cap b { color: #18181b; font-weight: 600; }
+
+    .panel { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid #e6e6ea; border-radius: 10px; background: #fff; width: 380px; }
+    .sec-head { margin: 0 0 5px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #a1a1aa; }
+
+    .card { position: relative; border: 1px solid #e6e6ea; border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; }
+    .card.hovered { border-color: #c7d2fe; background: #fbfbff; }
+    .title { font-size: 12px; font-weight: 600; line-height: 1.35; padding-right: 24px; }
+    .meta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+    .label { font-size: 10px; padding: 0 5px; border-radius: 8px; background: #f4f4f5; color: #52525b; white-space: nowrap; }
+    .label.lit { background: #eef2ff; color: #4338ca; }
+    .label-head { color: #a1a1aa; }
+    .label.lit .label-head { color: #818cf8; }
+    .note { margin-top: 4px; font-size: 11px; color: #52525b; }
+    .note-head { display: block; font-size: 10px; letter-spacing: 0.03em; text-transform: uppercase; color: #a1a1aa; }
+    .group { margin-top: 4px; font-size: 10.5px; color: #71717a; padding-left: calc(var(--line-depth, 0) * 8px); }
+    .item { display: flex; align-items: flex-start; gap: 4px; font-size: 11px; line-height: 1.45; padding-left: calc(var(--line-depth, 0) * 8px); }
+    .item input { width: 12px; height: 12px; min-width: 0; margin: 3px 0 0; padding: 0; flex: none; accent-color: #4f46e5; }
+
+    .add { position: absolute; top: 5px; right: 6px; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; border: 1px solid #c7d2fe; border-radius: 6px; background: #eef2ff; color: #4338ca; padding: 0; }
+    .add svg { display: block; }
+
+    .box { border: 1px solid #e6e6ea; border-radius: 10px; background: #fff; padding: 12px 14px; }
+    .box h3 { margin: 0 0 8px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #a1a1aa; }
+    .box p { margin: 0 0 8px; font-size: 12px; color: #3f3f46; }
+    .box p:last-child { margin: 0; }
+    .box code { font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
+
+    .grid { overflow-x: auto; border: 1px solid #e6e6ea; border-radius: 6px; }
+    table { border-collapse: collapse; font: 12.5px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; font-variant-numeric: tabular-nums; width: 100%; }
+    th, td { border: 1px solid #e6e6ea; padding: 5px 7px; text-align: left; vertical-align: top; }
+    th { background: #f4f4f5; font-weight: 400; white-space: nowrap; }
+    tbody tr.was td { color: #a1a1aa; }
+    tbody tr.new td { background: #eef2ff; color: #18181b; }
+    td .sub { color: #71717a; }
+    tbody tr.new td .sub { color: #4338ca; }
+
+    .map { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 18px; font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: #3f3f46; }
+    .map li { display: flex; gap: 6px; align-items: baseline; }
+    .map .to { color: #a1a1aa; }
+    .map li.drop { color: #a1a1aa; }
+
+    .list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #3f3f46; }
+    .list li { display: flex; gap: 8px; align-items: flex-start; }
+    .k { flex: none; width: 14px; color: #a1a1aa; }
+
+    .warn { border-color: #fcd34d; background: #fffbeb; }
+    .warn h3 { color: #b45309; }
+
+    .arrow { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #71717a; }
+    .arrow svg { flex: none; color: #a1a1aa; }
+  </style>
+</helmet>
+<div class="wrap">
+  <div class="col">
+    <p class="cap"><b>The affordance.</b> One button per card, on hover. It carries the whole row, not a line.</p>
+
+    <div class="panel">
+      <h4 class="sec-head">3. Product Work &#183; 02.md</h4>
+
+      <div class="card hovered">
+        <button type="button" class="add" title="Carry this row into the open file">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+            <path d="M6 2.5v7M2.5 6h7"></path>
+          </svg>
+        </button>
+        <div class="title">Multidatasource Adoption</div>
+        <div class="meta">
+          <span class="label lit"><span class="label-head">PIC </span>@Song Le</span>
+          <span class="label lit"><span class="label-head">Reviewer </span>@QingHao</span>
+          <span class="label lit"><span class="label-head">SP </span>5</span>
+          <span class="label lit"><span class="label-head">Priority </span>&#128997; HIGH</span>
+          <span class="label lit"><span class="label-head">Status </span>ON PR</span>
+        </div>
+        <div class="note">
+          <span class="note-head">Dependency / Remarks</span>
+          <div>Waiting to merge with DQL poller and Autorecovery transaction</div>
+        </div>
+        <div class="group">Backend Method Adapting to MultiDatasource</div>
+        <div class="item" style="--line-depth: 1"><input type="checkbox" disabled><span>add new test cases (manage new source)</span></div>
+        <div class="item" style="--line-depth: 1"><input type="checkbox" disabled><span>Merge dev branch, remove python code for polling metrics</span></div>
+      </div>
+    </div>
+
+    <div class="arrow">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 8h10M9 4l4 4-4 4"></path>
+      </svg>
+      <span>written as cells, through the editor&#8217;s own commit path &#8212; holds, presence and Ctrl+Z all behave</span>
+    </div>
+
+    <div class="box warn">
+      <h3>What this changes</h3>
+      <p>A whole row can only land in a <b>table</b>, so the target is the grid the caret is in &#8212; not
+        &#8220;the block at the caret&#8221;. With no caret in a table, it refuses.</p>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="box">
+      <h3>What lands in 03.md &#183; &#167;3 Product Work</h3>
+      <div class="grid">
+        <table>
+          <thead>
+            <tr>
+              <th>Task</th><th>PIC</th><th>Reviewer</th><th>SP</th><th>Priority</th><th>Status</th><th>Dependency / Remarks</th><th>Actual</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="was">
+              <td>Draft the v2.9.0 release note</td><td>@QingHao</td><td></td><td>1</td><td>&#128993; MEDIUM</td><td>Not Started</td><td></td><td></td>
+            </tr>
+            <tr class="new">
+              <td><b>Multidatasource Adoption</b><br><span class="sub">- Backend Method Adapting to MultiDatasource<br>&nbsp; - [ ] add new test cases (manage new source)<br>&nbsp; - [ ] Merge dev branch, remove python code for polling metrics</span></td>
+              <td>@Song Le</td><td>@QingHao</td><td>5</td><td>&#128997; HIGH</td><td>ON PR</td><td>Waiting to merge with DQL poller and Autorecovery transaction</td><td></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top: 8px;">Every cell verbatim, checklist and line breaks included. The grid scrolls sideways here exactly as it does in the editor.</p>
+    </div>
+
+    <div class="box">
+      <h3>Columns map by header name</h3>
+      <ul class="map">
+        <li><span>Task</span><span class="to">&#8594; Task</span></li>
+        <li><span>Priority</span><span class="to">&#8594; Priority</span></li>
+        <li><span>PIC</span><span class="to">&#8594; PIC</span></li>
+        <li><span>Status</span><span class="to">&#8594; Status</span></li>
+        <li><span>Reviewer</span><span class="to">&#8594; Reviewer</span></li>
+        <li><span>Dependency / Remarks</span><span class="to">&#8594; same</span></li>
+        <li><span>SP</span><span class="to">&#8594; SP</span></li>
+        <li class="drop"><span>Actual</span><span class="to">&#8594; left empty</span></li>
+      </ul>
+      <p style="margin-top: 10px;">Case-insensitive, trimmed. A target column the source has no name for stays empty.
+        <b>Actual is deliberately not carried</b> &#8212; it is time already spent in a fortnight that is over. One line to change if you disagree.</p>
+    </div>
+
+    <div class="box warn">
+      <h3>The mismatch to decide</h3>
+      <p>&#167;4 Enablement calls the same column <code>Commitment</code>, where &#167;3 calls it <code>Priority</code>.
+        Carrying a &#167;3 row into a &#167;4 table matches six of eight names, leaves <code>Commitment</code> empty and drops <code>Priority</code>.</p>
+      <p><b>Default:</b> map what matches, and say what was dropped in the toast &#8212; never silently.
+        The alternative is refusing a cross-section carry outright.</p>
+    </div>
+
+    <div class="box">
+      <h3>When it refuses, and says so</h3>
+      <ul class="list">
+        <li><span class="k">1</span><span>The caret is not in a table &#8212; there is no grid to add a row to.</span></li>
+        <li><span class="k">2</span><span>No header name matches at all &#8212; that is a different kind of table.</span></li>
+        <li><span class="k">3</span><span>The open file is <code>templates/sprint.md</code>, or is the file the panel is reading.</span></li>
+        <li><span class="k">4</span><span>Somebody else holds the target grid.</span></li>
+      </ul>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

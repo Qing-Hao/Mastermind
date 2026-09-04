@@ -1,0 +1,33 @@
+{
+  "artboards": [
+    { "file": "Today.dc.html", "x": 0, "y": 0, "w": 404, "h": 1120, "title": "As shipped" },
+    { "file": "OptionA.dc.html", "x": 484, "y": 0, "w": 404, "h": 1120, "title": "Option A — tables only" },
+    { "file": "Main.dc.html", "x": 968, "y": 0, "w": 404, "h": 1120, "title": "Option B — typed content only (recommended)" },
+    { "file": "OptionC.dc.html", "x": 1452, "y": 0, "w": 404, "h": 1120, "title": "Option C — tables only, empty sections hidden" },
+    { "file": "Import.dc.html", "x": 0, "y": 1240, "w": 1320, "h": 900, "title": "Carry a whole row into the open file" }
+  ],
+  "annotations": [
+    {
+      "id": "prose-axis",
+      "x": 0,
+      "y": -150,
+      "w": 900,
+      "text": "One change point: refSection in app.js:4835-4849. Table blocks become cards; everything else paints block.html into .ref-prose. A, B and C differ only in what that branch keeps."
+    },
+    {
+      "id": "compose",
+      "x": 968,
+      "y": -150,
+      "w": 888,
+      "text": "B and C compose. B decides what survives inside a section; C decides whether a section left with nothing is drawn at all. B+C is a legitimate pick."
+    },
+    {
+      "id": "import-line",
+      "x": 1400,
+      "y": 1240,
+      "w": 440,
+      "text": "Whole row, not a line: PIC, SP, Status and the rest ride along. That means the target is a table and the columns have to be mapped — the one thing the 2026-09-03 roadmap insert avoided. Still nothing stored outside the markdown, and still nothing summed."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}
