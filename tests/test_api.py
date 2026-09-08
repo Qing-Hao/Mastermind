@@ -5167,3 +5167,305 @@ def test_an_export_carries_no_sign_in_configuration(client, realm):
     sign_in(client, realm, arm=True)
     client.post("/api/import", json={"version": 10, "settings": {}, "projects": []})
     assert client.get("/api/sso").json()["enabled"] is True
+
+
+# --- the directory, and the two readouts on top of it ------------------------
+#
+# A directory, never an account model: PROMPT.md amendment 6 and non-negotiable
+# 7. The tests that matter most here are the ones asserting what is *absent* --
+# no timestamp, nothing in the export, no gate on the workload page.
+
+
+WORK_TABLE = """# Sprint 1 · 2026-08-03 → 2026-08-17
+
+## 2. Capacity & Constraints
+
+| Person   | Available Days | Leave / Holiday | Notes |
+| -------- | -------------- | --------------- | ----- |
+| @qinghao | 9              |                 |       |
+| @bernard | 10             |                 |       |
+
+## 3. Product Work
+
+| Task | PIC | Reviewer | SP | Priority | Status | Dependency / Remarks | Actual |
+| ---- | --- | -------- | -- | -------- | ------ | -------------------- | ------ |
+| Auth API | @qinghao | bernard | 5 | HIGH | Development | | |
+| Map legend | bernard | | 3 | LOW | Done | ask @qinghao | |
+| Import fix | @bernard | | 2 | HIGH | Blocked | | |
+
+## 6. Sprint Summary
+
+**Carry Over**
+
+| Work | Reason | New Plan |
+|---|---|---|
+| Map legend | @qinghao was away | next sprint |
+"""
+
+
+def people_of(client):
+    response = client.get("/api/people")
+    assert response.status_code == 200
+    return response.json()
+
+
+def test_the_directory_is_seeded_from_the_allowlist(client, realm):
+    """The picker works before anybody has signed in -- which is what saves this
+    feature an admin screen."""
+    client.put("/api/sso", json={"issuer": STUB_ISSUER, "client_id": "mastermind",
+                                 "identity_claim": "preferred_username",
+                                 "allowlist": "qinghao, bernard\nsong le",
+                                 "mode": "allowlist"})
+    handles = [person["handle"] for person in people_of(client)]
+    assert sorted(handles) == ["bernard", "qinghao", "song le"]
+    assert all(person["sub"] is None for person in people_of(client))
+
+
+def test_seeding_is_idempotent_and_case_insensitive(client, realm):
+    client.put("/api/sso", json={"issuer": STUB_ISSUER, "client_id": "mastermind",
+                                 "identity_claim": "preferred_username",
+                                 "allowlist": "QingHao", "mode": "allowlist"})
+    people_of(client)
+    client.put("/api/sso", json={"issuer": STUB_ISSUER, "client_id": "mastermind",
+                                 "identity_claim": "preferred_username",
+                                 "allowlist": "QingHao\nqinghao\nQINGHAO",
+                                 "mode": "allowlist"})
+    assert len(people_of(client)) == 1
+
+
+def test_signing_in_claims_the_seeded_row_rather_than_adding_a_second(client, realm):
+    realm.claims = {"sub": "abc-123", "preferred_username": "qinghao",
+                    "name": "Qing Hao Tan"}
+    people_of(client)          # seeds `qinghao` from the allowlist, sub NULL
+    sign_in(client, realm)
+
+    people = people_of(client)
+    assert len(people) == 1
+    assert people[0]["sub"] == "abc-123"
+    assert people[0]["display_name"] == "Qing Hao Tan"
+
+
+def test_the_directory_records_no_timestamp(client, realm):
+    """The line non-negotiable 7 was narrowed to: who can be named, never when
+    the app last saw them."""
+    sign_in(client, realm)
+    assert set(people_of(client)[0]) == {"id", "sub", "handle", "display_name"}
+
+
+def test_a_renamed_username_moves_the_row_it_does_not_fork_it(client, realm):
+    realm.claims = {"sub": "abc-123", "preferred_username": "qinghao"}
+    sign_in(client, realm)
+    client.put("/api/sso", json={"issuer": STUB_ISSUER, "client_id": "mastermind",
+                                 "identity_claim": "preferred_username",
+                                 "allowlist": "qinghao, qing.hao", "mode": "allowlist"})
+    realm.claims = {"sub": "abc-123", "preferred_username": "qing.hao"}
+    client.cookies.clear()
+    sign_in(client, realm)
+
+    subs = [person["sub"] for person in people_of(client) if person["sub"]]
+    assert subs == ["abc-123"]
+    assert "qing.hao" in [person["handle"] for person in people_of(client)]
+
+
+def test_the_directory_is_not_in_the_export(client, realm):
+    """An export is a file that gets emailed, and this one names people."""
+    sign_in(client, realm)
+    payload = client.get("/api/export").json()
+    assert "person" not in payload
+    assert "qinghao" not in json.dumps(payload).lower()
+
+
+def test_importing_a_plan_leaves_the_directory_alone(client, realm):
+    """It describes this deployment's realm, not the dataset."""
+    sign_in(client, realm)
+    client.post("/api/import", json={"version": 12, "settings": {}, "projects": []})
+    assert [person["handle"] for person in people_of(client)] == ["qinghao"]
+
+
+def test_mine_reads_the_pic_and_reviewer_columns(client, realm, sprints):
+    client.put("/api/sso", json={"issuer": STUB_ISSUER, "client_id": "mastermind",
+                                 "identity_claim": "preferred_username",
+                                 "allowlist": "qinghao, bernard", "mode": "allowlist"})
+    write_sprint(sprints, "01.md", WORK_TABLE)
+
+    mine = client.get("/api/mine?handle=qinghao").json()
+    assert mine["handle"] == "qinghao"
+    tasks = {(row["task"], row["role"]) for row in mine["rows"]}
+    assert ("Auth API", "pic") in tasks
+    # Parked in Remarks rather than a person column: still your name on the work.
+    assert ("Map legend", "") in tasks
+
+
+def test_the_capacity_and_carry_over_tables_are_not_read_as_work(client, realm, sprints):
+    """Neither has a PIC column, and that is exactly the test -- both name
+    people and neither assigns anything."""
+    client.put("/api/sso", json={"issuer": STUB_ISSUER, "client_id": "mastermind",
+                                 "identity_claim": "preferred_username",
+                                 "allowlist": "qinghao, bernard", "mode": "allowlist"})
+    write_sprint(sprints, "01.md", WORK_TABLE)
+
+    sections = {row["section"] for row in client.get("/api/mine?handle=qinghao").json()["rows"]}
+    assert sections == {"3. Product Work"}
+
+
+def test_the_untouched_template_assigns_nobody(client, realm, sprints):
+    """The shipped template's capacity table names four people. None of them is
+    thereby carrying anything."""
+    client.put("/api/sso", json={"issuer": STUB_ISSUER, "client_id": "mastermind",
+                                 "identity_claim": "preferred_username",
+                                 "allowlist": "QingHao, Shahirul, Song Le, Bernard",
+                                 "mode": "allowlist"})
+    with open(main.SPRINT_TEMPLATE, encoding="utf-8") as handle:
+        write_sprint(sprints, "01.md", handle.read())
+
+    assert client.get("/api/workload").json()["tally"]["total"] == 0
+
+
+def test_the_bell_rings_for_open_and_blocked_but_not_done(client, realm, sprints):
+    client.put("/api/sso", json={"issuer": STUB_ISSUER, "client_id": "mastermind",
+                                 "identity_claim": "preferred_username",
+                                 "allowlist": "qinghao, bernard", "mode": "allowlist"})
+    write_sprint(sprints, "01.md", WORK_TABLE)
+
+    tally = client.get("/api/mine?handle=bernard").json()["tally"]
+    # Reviewer on Auth API (open), PIC on Map legend (done), PIC on Import fix
+    # (blocked). Blocked rings: stuck work is what wants a reminder.
+    assert tally == {"open": 1, "blocked": 1, "done": 1, "ringing": 2, "total": 3}
+
+
+def test_reading_mine_twice_gives_the_same_answer(client, realm, sprints):
+    """No read state, no dismissal, no 'new since you last looked'."""
+    client.put("/api/sso", json={"issuer": STUB_ISSUER, "client_id": "mastermind",
+                                 "identity_claim": "preferred_username",
+                                 "allowlist": "qinghao", "mode": "allowlist"})
+    write_sprint(sprints, "01.md", WORK_TABLE)
+
+    first = client.get("/api/mine?handle=qinghao").json()
+    assert client.get("/api/mine?handle=qinghao").json() == first
+
+
+def test_ticking_the_status_cell_stops_the_bell(client, realm, sprints):
+    client.put("/api/sso", json={"issuer": STUB_ISSUER, "client_id": "mastermind",
+                                 "identity_claim": "preferred_username",
+                                 "allowlist": "qinghao", "mode": "allowlist"})
+    write_sprint(sprints, "01.md", WORK_TABLE)
+    assert client.get("/api/mine?handle=qinghao").json()["tally"]["ringing"] > 0
+
+    write_sprint(sprints, "01.md", WORK_TABLE.replace("| Development |", "| Done |"))
+    assert client.get("/api/mine?handle=qinghao").json()["tally"]["ringing"] == 0
+
+
+def test_mine_defaults_to_whoever_holds_the_cookie(client, realm, sprints):
+    write_sprint(sprints, "01.md", WORK_TABLE)
+    sign_in(client, realm)
+    assert client.get("/api/mine").json()["handle"] == "qinghao"
+
+
+def test_mine_answers_the_same_for_anybody_who_asks(client, realm, sprints):
+    """There is nothing private here. A page that hid one person's rows from
+    another would be the per-user view non-negotiable 7 rules out."""
+    client.put("/api/sso", json={"issuer": STUB_ISSUER, "client_id": "mastermind",
+                                 "identity_claim": "preferred_username",
+                                 "allowlist": "qinghao, bernard", "mode": "allowlist"})
+    write_sprint(sprints, "01.md", WORK_TABLE)
+
+    anonymous = client.get("/api/mine?handle=bernard").json()
+    sign_in(client, realm)
+    assert client.get("/api/mine?handle=bernard").json() == anonymous
+
+
+def test_a_name_the_directory_has_never_seen_is_a_state_not_an_error(client, sprints):
+    answer = client.get("/api/mine?handle=nobody").json()
+    assert answer["known"] is False
+    assert answer["asked_for"] == "nobody"
+    assert answer["rows"] == []
+
+
+def test_the_workload_page_lists_everybody_including_the_idle(client, realm, sprints):
+    """'Bernard has nothing this fortnight' is the answer somebody is looking
+    for; dropping the row would read as Bernard not existing."""
+    client.put("/api/sso", json={"issuer": STUB_ISSUER, "client_id": "mastermind",
+                                 "identity_claim": "preferred_username",
+                                 "allowlist": "qinghao, bernard, idle",
+                                 "mode": "allowlist"})
+    write_sprint(sprints, "01.md", WORK_TABLE)
+
+    groups = client.get("/api/workload").json()["groups"]
+    assert [group["handle"] for group in groups] == ["bernard", "qinghao", "idle"]
+    assert groups[-1]["rows"] == []
+
+
+def test_the_workload_page_is_not_gated_and_takes_no_handle(client, realm, sprints):
+    """Everyone opens it and sees the same thing -- there is no root user."""
+    client.put("/api/sso", json={"issuer": STUB_ISSUER, "client_id": "mastermind",
+                                 "identity_claim": "preferred_username",
+                                 "allowlist": "qinghao, bernard", "mode": "allowlist"})
+    write_sprint(sprints, "01.md", WORK_TABLE)
+
+    anonymous = client.get("/api/workload").json()
+    sign_in(client, realm)
+    assert client.get("/api/workload").json() == anonymous
+
+
+def test_a_handle_with_a_space_is_matched_whole(client, realm, sprints):
+    """`templates/sprint.md` ships `@Song Le`. A word-character pattern would
+    read that as `@Song` and drop the rest."""
+    client.put("/api/sso", json={"issuer": STUB_ISSUER, "client_id": "mastermind",
+                                 "identity_claim": "preferred_username",
+                                 "allowlist": "Song Le, Song", "mode": "allowlist"})
+    write_sprint(sprints, "01.md",
+                 "# Sprint 1\n\n## 3. Product Work\n\n"
+                 "| Task | PIC | Status |\n| --- | --- | --- |\n"
+                 "| Migration note | @Song Le | Testing |\n")
+
+    assert client.get("/api/mine?handle=Song Le").json()["tally"]["total"] == 1
+    assert client.get("/api/mine?handle=Song").json()["tally"]["total"] == 0
+
+
+def test_a_bare_name_in_prose_is_not_an_assignment(client, realm, sprints):
+    """Outside a person column an `@` is required, or every mention of somebody
+    becomes work they are carrying."""
+    client.put("/api/sso", json={"issuer": STUB_ISSUER, "client_id": "mastermind",
+                                 "identity_claim": "preferred_username",
+                                 "allowlist": "qinghao", "mode": "allowlist"})
+    write_sprint(sprints, "01.md",
+                 "# Sprint 1\n\n## 3. Product Work\n\n"
+                 "- ask qinghao about the realm\n- and email qinghao@example.com\n")
+
+    assert client.get("/api/mine?handle=qinghao").json()["rows"] == []
+
+
+def test_a_ticked_list_line_is_done(client, realm, sprints):
+    """A fortnight is as often planned as a checklist as it is as a table, and a
+    list line has no Status column to read."""
+    client.put("/api/sso", json={"issuer": STUB_ISSUER, "client_id": "mastermind",
+                                 "identity_claim": "preferred_username",
+                                 "allowlist": "qinghao", "mode": "allowlist"})
+    write_sprint(sprints, "01.md",
+                 "# Sprint 1\n\n## Definition of Done\n\n"
+                 "- [x] @qinghao merged it\n- [ ] @qinghao wrote it up\n")
+
+    tally = client.get("/api/mine?handle=qinghao").json()["tally"]
+    assert tally == {"open": 1, "blocked": 0, "done": 1, "ringing": 1, "total": 2}
+
+
+def test_the_scan_names_the_sprint_a_row_came_from(client, realm, sprints):
+    client.put("/api/sso", json={"issuer": STUB_ISSUER, "client_id": "mastermind",
+                                 "identity_claim": "preferred_username",
+                                 "allowlist": "qinghao", "mode": "allowlist"})
+    write_sprint(sprints, "01.md", WORK_TABLE)
+    write_sprint(sprints, "02.md", WORK_TABLE.replace("Sprint 1", "Sprint 2"))
+
+    rows = client.get("/api/mine?handle=qinghao").json()["rows"]
+    assert {row["sprint"] for row in rows} == {1, 2}
+    assert {row["file"] for row in rows} == {"01.md", "02.md"}
+
+
+def test_no_deliverable_ever_gains_an_assignee(client, realm, sprints):
+    """Assignment is markdown. Non-negotiable 4 is untouched by any of this."""
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Build", "2026-01-05", 2, 8)
+    created = client.post(f"/api/phases/{phase['id']}/deliverables",
+                          json={"name": "Auth API"}).json()
+    assert "assignee" not in created
+    assert "person_id" not in created

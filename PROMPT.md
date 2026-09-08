@@ -29,8 +29,14 @@ yourself choosing between a working feature and a better-looking one, ship the w
 This is NOT a replacement for Jira, Linear, or a full project management system. Do not build:
 
 - Ticket/issue tracking, comments, mentions, or activity feeds
+  *(mentions narrowed by amendment 6 — `@handle` is text in a sprint file, and
+  the readout of it remembers nothing)*
 - Notifications or email
+  *(narrowed by amendment 6 — a bell derived on read is a readout; email and
+  anything with unread state are still out)*
 - User accounts, roles, or permissions
+  *(narrowed by amendments 4 and 6 — a gate, and a directory of who exists. No
+  roles, no permissions.)*
 - Integrations with any external system
 - Reporting/BI dashboards
 - Mobile-specific layouts
@@ -230,6 +236,55 @@ the text above, **the amendment wins** — the code follows the amendments.
    deliberately, not casually** — seven buckets a roadmap can be read through is
    useful, and twenty is a tracker's status enum with extra steps. The test is
    whether somebody being shown the roadmap would ask about the difference.
+
+6. **The gate keeps a directory of who exists.** *(Added 2026-09-08. Narrows
+   amendment 4; it does not reverse it.)* Amendment 4 said the app stores nothing
+   about the answer Keycloak gives, and named a `user` table as the line. One row
+   per person now exists, and this is the argument for why that row is a
+   directory rather than the account model amendment 4 refused.
+
+   **The use case is specific and the design is deliberately not general.** The
+   team writes `@QingHao` into a sprint file's **PIC** and **Reviewer** columns
+   already — that convention predates this and is in `templates/sprint.md`. Three
+   things were wanted from it: a picker so the name is spelled the way everyone
+   else spells it, a way to see the rows that name you without reading four files,
+   and a page showing what everyone is carrying. All three need one thing the app
+   did not have: **a list of who exists**. Nothing more.
+
+   So `person`: `sub`, `handle`, `display_name`. Populated by upsert at sign-in
+   and seeded from `sso_allowlist`, which already names everyone permitted. It
+   carries no role, no permissions, no preferences, and **no timestamps** — a
+   `last_seen` would be the app remembering when it saw you, which is the first
+   step back toward the thing this amendment is narrowing. It is excluded from
+   `/api/export` for the reason the `sso_` columns are: an export is a file handed
+   to somebody, and the directory rebuilds itself from the allowlist and the next
+   sign-in.
+
+   The lines this must not cross, each of which turns a directory into the tracker
+   **Non-goals** forbids:
+
+   - **Assignment is markdown, never a column.** A `PIC` cell naming you is text
+     in a file the team edits, and `deliverable` gains no `assignee`. Amendment 2's
+     reasoning holds unchanged: the moment assignment is a foreign key, the
+     deliverable is a ticket.
+   - **Nothing remembers who looked.** `GET /api/mine` scans the sprint files and
+     derives its answer from them and the handle asked about, exactly as
+     `/api/late` derives from the rows and today. The bell rings while a row
+     naming you is not `Done` and stops when it is. **No dismissal, no snooze, no
+     "new since you last looked", no per-person mute** — each of those is a row
+     keyed by a person, and each is still refused.
+   - **The dashboard is not gated and there is no root user.** "What is everyone
+     carrying" is one page everyone can open, grouped by person, derived from the
+     same scan. A viewer who sees more than another viewer is a permission, and a
+     permission is the whole of what amendment 4 refused.
+   - **The directory describes people, never their work.** It answers "who can be
+     named"; it never accumulates what they were named in.
+
+   **Deliberately specific, and generalisable later.** A directory keyed to one
+   realm, matched against handles typed in one team's markdown convention, is not
+   a user model and should not be mistaken for the beginning of one. If this is
+   ever wanted generally, the work is a fresh decision recorded here — not an
+   extra column added to `person` on the grounds that the table already exists.
 
 Deliverables inside a phase are treated as **sequential**, so durations sum. Work
 that genuinely runs in parallel belongs in separate phases.

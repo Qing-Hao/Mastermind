@@ -137,6 +137,32 @@
       </button>
       <div id="late-panel" class="menu-panel late-panel" hidden></div>
     </span>
+    <!-- What the sprint files hand to you, and to everybody else. The second
+         bell, and deliberately not folded into the first: that one reads the
+         roadmap rows and is cached against `roadmapRevision`, this one scans
+         markdown on disk, which a roadmap write cannot say anything about.
+         Filled by `drawMine`.
+
+         **A readout, exactly as the bell beside it is.** It rings while a row
+         naming you is not Done and stops when it is -- there is no dismissal, no
+         snooze and no "new since you last looked", because each of those would
+         be the app remembering who was looking. See non-negotiable 7 and
+         PROMPT.md amendment 6.
+
+         The Everyone half is ungated and there is no root user: whoever opens
+         this sees the same answer. -->
+    <span class="late-menu">
+      <button id="task-alert" class="late-bell task-bell" aria-expanded="false"
+              aria-haspopup="true" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 8a6 6 0 0 0-12 0c0 5-2 6-2 6h16s-2-1-2-6"></path>
+          <path d="M10.5 19a1.8 1.8 0 0 0 3 0"></path>
+        </svg>
+        <span id="task-count" class="late-count task-count" hidden></span>
+      </button>
+      <div id="task-panel" class="menu-panel late-panel task-panel" hidden></div>
+    </span>
     <!-- Who else is here, on whichever tab you are on. Outside `topbar-actions`
          for the same reason the offline badge is: that block is hidden when no
          project is open, and presence is not about a project. -->

@@ -191,11 +191,34 @@ and argument are in `PROMPT.md`, `feature_request.md` and `git log`.
 
    **Narrowed 2026-08-21, not dropped.** Keycloak over OIDC is now built, and it
    is *a gate, not an account model*: the app asks the realm "is this you" and
-   stores nothing about the answer. Still never built, and each is the line where
-   the gate would become the tracker the brief forbids — a `user` table or any row
-   keyed by a person, roles, permissions, per-user views, `created_by`, an
-   assignee, an audit log, per-user preferences. Presence shows a name it was
-   handed; it does not record one.
+   stores nothing about the answer. Presence shows a name it was handed; it does
+   not record one.
+
+   **Narrowed again 2026-09-08 — the gate now keeps a directory.** `person`
+   (`sub`, `handle`, `display_name`) is one row per person, upserted at sign-in
+   and seeded from `sso_allowlist`. It answers *who can be named* and nothing
+   else, so that `@handle` in a sprint file's PIC column can be picked rather than
+   spelled from memory. PROMPT.md amendment 6 carries the argument.
+
+   Still never built, and each is the line where the gate would become the tracker
+   the brief forbids — **roles, permissions, per-user views**, `created_by`, an
+   **assignee column**, an audit log, per-user preferences, and any *second* row
+   keyed by a person. Four specific traps, because the directory makes each of
+   them one column away:
+
+   - **`person` gains no timestamp.** No `last_seen`, no `first_seen`. The app
+     does not record when it saw you.
+   - **Assignment is markdown, never a column.** A PIC cell is text in a file;
+     `deliverable` gains no `assignee`. Non-negotiable 4 is unchanged.
+   - **`/api/mine` and the who-has-what dashboard derive on read**, from the
+     sprint files and the handle asked about — the `/api/late` genus. No
+     dismissal, no snooze, no "new since you last looked", no per-person mute.
+   - **The dashboard is ungated and there is no root user.** Everyone opens the
+     same page and sees the same thing. A viewer seeing more than another viewer
+     is a permission.
+
+   `person` is excluded from `/api/export` for the reason the `sso_` columns are —
+   see `db.export_all`.
 
    **A readout is not a notification, and the difference is memory.** The overdue
    bell (`GET /api/late`) counts what is past its date, derived on read from the

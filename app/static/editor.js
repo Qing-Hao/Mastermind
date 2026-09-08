@@ -2602,12 +2602,32 @@ function registerCellMenu(provider) {
 const cellMenuEntries = (filter) => CELL_MENU.concat(
   ...CELL_MENU_PROVIDERS.map((provide) => provide(filter)));
 
+// A second trigger, `@`, and **the only thing this file knows about it is the
+// character**. There is no fixed inventory behind it the way `CELL_MENU` sits
+// behind the slash: everything it offers comes from a provider, so with nothing
+// registered `@` opens nothing and this file has learnt nothing new.
+//
+// Two differences from the slash, both deliberate. It offers on an **empty**
+// filter, because "show me who I can name" is the whole gesture — where `/`
+// alone means the editor's own inventory and a bare list of everything would
+// bury it. And it sets no `lineUnique`: a row may hand work to one person and
+// its review to another, and a cell may name two.
+const CELL_MENTION_PROVIDERS = [];
+
+function registerCellMention(provider) {
+  CELL_MENTION_PROVIDERS.push(provider);
+}
+
+const cellMentionEntries = (filter) => [].concat(
+  ...CELL_MENTION_PROVIDERS.map((provide) => provide(filter)));
+
 // `pick` is what the chosen entry does, set by whichever surface opened the menu:
 // a block replaces itself and re-splits, a cell inserts text at the caret. The
 // rendering, the filtering and the keyboard are the same either way, which is the
 // only reason a second menu is cheap.
 const sprintMenu = {
   open: false, node: null, items: [], selected: 0, area: null, index: 0, pick: null,
+  prefix: "/",
 };
 
 // `area` is a textarea for a fence and a `contenteditable` for prose, so what was
@@ -2638,23 +2658,38 @@ function maybeOpenSprintMenu(area, index) {
 // re-derived there: only this function knows which slash opened the menu.
 const CELL_MENU_TRIGGER = /(?:^|\s)\/(\S*)$/;
 
+// The `@` read the same way, and the word boundary is doing more work here than
+// it is above: it is what keeps `qinghao@example.com` an email address. A second
+// `@` inside the filter closes the menu for the same reason.
+const CELL_MENTION_TRIGGER = /(?:^|\s)@([^\s@]*)$/;
+
 function maybeOpenCellMenu(cell, block, index, r, column) {
   const { text, at } = inlineSurface(cell);
   const line = text.slice(0, at).split("\n").pop();
+  // The slash first: it has an inventory of its own and answers for itself.
+  // Only one of the two can match, since neither trigger's filter may hold the
+  // other's character.
   const found = CELL_MENU_TRIGGER.exec(line);
-  if (found) {
-    const filter = found[1];
+  const mention = found ? null : CELL_MENTION_TRIGGER.exec(line);
+  const filter = found ? found[1] : (mention ? mention[1] : "");
+  const entries = found ? cellMenuEntries(filter)
+    : (mention ? cellMentionEntries(filter) : null);
+  if (entries && entries.length) {
     const from = at - filter.length - 1;
-    openSprintMenu(cell, index, filter, cellMenuEntries(filter),
-      (item) => insertIntoCell(item, cell, block, index, r, column, from));
+    openSprintMenu(cell, index, filter, entries,
+      (item) => insertIntoCell(item, cell, block, index, r, column, from),
+      found ? "/" : "@");
   } else closeSprintMenu();
 }
 
-function openSprintMenu(area, index, filter, entries, pick) {
+function openSprintMenu(area, index, filter, entries, pick, prefix = "/") {
   const wanted = filter.toLowerCase();
   sprintMenu.area = area;
   sprintMenu.index = index;
   sprintMenu.pick = pick;
+  // The character that opened it, so the key hint beside each row says what to
+  // type rather than always saying a slash.
+  sprintMenu.prefix = prefix;
   sprintMenu.items = entries.filter((item) => !wanted
     || item.label.toLowerCase().startsWith(wanted)
     || item.key.startsWith(wanted));
@@ -2680,7 +2715,16 @@ function renderSprintMenu() {
   sprintMenu.items.forEach((item, position) => {
     const row = element("div", "sprint-menu-item");
     row.setAttribute("aria-selected", position === sprintMenu.selected ? "true" : "false");
-    row.append(element("span", null, item.label), element("span", "sprint-menu-key", `/${item.key}`));
+    row.append(element("span", null, item.label));
+    // The key is a hint at what to type to reach this row, so it wears the
+    // character that opened the menu rather than a hardcoded slash. An entry
+    // whose key is only its own label back again says `hint: false` and shows
+    // none -- a person's handle is both, and printing it twice reads as two
+    // different things.
+    if (item.hint !== false) {
+      row.append(element("span", "sprint-menu-key",
+        `${sprintMenu.prefix}${item.key}`));
+    }
     // `mousedown` with the default prevented, so the textarea never loses focus
     // and its blur handler never commits the `/table` you were typing.
     row.onmousedown = (event) => {

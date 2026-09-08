@@ -41,6 +41,9 @@ from app.validation import (
     same_stored_value,
     sequential_layout,
     stale_expectations,
+    task_rings,
+    task_state,
+    task_tally,
     track_path,
     track_value,
     validate_plan,
@@ -1543,3 +1546,59 @@ def test_a_date_typed_years_out_is_capped_and_counted():
         [("2026-07-01", "2031-01-01")], date(2026, 8, 27), limit=4)
     assert columns == ["2026-Q3", "2026-Q4", "2027-Q1", "2027-Q2"]
     assert beyond == 15
+
+
+# --- reading a sprint row's status -------------------------------------------
+
+
+def test_the_template_workflow_reads_as_done_or_open():
+    """The five steps `templates/sprint.md` suggests, plus Blocked."""
+    assert task_state("Not Started") == "open"
+    assert task_state("Development") == "open"
+    assert task_state("PR Review") == "open"
+    assert task_state("Testing") == "open"
+    assert task_state("Done") == "done"
+    assert task_state("Blocked") == "blocked"
+
+
+def test_status_is_read_case_and_space_insensitively():
+    """It is a cell somebody typed, not a value the app wrote."""
+    assert task_state("  DONE  ") == "done"
+    assert task_state("done") == "done"
+    assert task_state("On   Hold") == "blocked"
+
+
+def test_an_unrecognised_status_is_open():
+    """The honest default: nothing in the file said the work was finished."""
+    assert task_state("") == "open"
+    assert task_state(None) == "open"
+    assert task_state("Somebody's own word") == "open"
+
+
+def test_a_note_is_not_matched_as_a_state():
+    """Whole cell only -- otherwise a remark closes a row that is not closed."""
+    assert task_state("Blocked on the Done-ness question") == "open"
+    assert task_state("nearly done") == "open"
+
+
+def test_blocked_work_keeps_ringing():
+    """Blocked is exactly what wants a reminder; only done stops the bell."""
+    assert task_rings("open") is True
+    assert task_rings("blocked") is True
+    assert task_rings("done") is False
+
+
+def test_the_tally_counts_what_rings_separately_from_what_is_left():
+    rows = [{"state": "open"}, {"state": "blocked"}, {"state": "done"},
+            {"state": "done"}]
+    assert task_tally(rows) == {"open": 1, "blocked": 1, "done": 2,
+                                "ringing": 2, "total": 4}
+
+
+def test_a_row_with_no_state_counts_as_open():
+    """Rows arrive from a scan of markdown; a missing key is not a fourth state."""
+    assert task_tally([{}])["open"] == 1
+
+
+def test_an_empty_tally_rings_nothing():
+    assert task_tally([])["ringing"] == 0

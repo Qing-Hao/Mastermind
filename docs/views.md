@@ -133,5 +133,36 @@ in a cell and start typing the deliverable's name to pick one. A linked row draw
 that deliverable's tick and an arrow to it, and ticking either place is the same
 tick. One link per row; rows without a reference are ordinary tasks.
 
+**Naming somebody on a row.** Type `@` in a cell to pick a name from the
+directory — it writes `@handle`, which is the convention the team already used in
+the **PIC** and **Reviewer** columns. Picking is only a spelling aid: a name typed
+by hand works identically, and nothing is stored anywhere but the markdown file.
+No deliverable gains an assignee.
+
 Nothing in this tab writes to the roadmap. A sprint that overruns is recorded in
 the file; phase dates change by hand on the Project tab or not at all.
+
+## The two bells
+
+Both sit in the top bar, both are **readouts rather than notifications**: each is
+derived on every read, everyone sees the same answer, and neither remembers that
+you looked. No dismissal, no snooze, no "new since you last looked".
+
+| Bell | Reads | Shows |
+|---|---|---|
+| Amber | The roadmap rows and today's date | What is past its date, and what is finished but still open |
+| Indigo | The sprint files on disk | Rows whose **PIC** or **Reviewer** names you, or that mention `@you` |
+
+The indigo one **rings** — a short shake every twenty seconds — while any row
+against your name is not `Done`. Setting that row's Status cell to `Done` is what
+stops it; there is nothing to dismiss. `Blocked` keeps ringing, because stuck work
+is exactly what wants a reminder.
+
+Its panel has two halves. **Mine** is your rows. **Everyone** is the same scan
+grouped by person, busiest first, and it is **not gated** — there is no root user,
+and whoever opens it sees the same page. People with nothing against them are
+listed as such, because "Bernard has nothing this fortnight" is an answer.
+
+Rows a table names but does not assign are left out: the capacity table and the
+carry-over table name people and neither hands out work, so neither is read. What
+makes a table count is having a PIC-style column at all.

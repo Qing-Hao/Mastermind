@@ -588,6 +588,100 @@
   color: var(--muted);
 }
 
+/* The second bell: what the sprint files hand out. Indigo rather than the amber
+   one beside it, because it is a different question -- amber is "the plan
+   slipped", this is "somebody's name is on this". Neither colour means anything
+   about the data, so both are chrome and both sit above the chart line. */
+.task-bell {
+  border-color: #cfd4f5;
+  background: #f3f4fd;
+  color: #3730a3;
+}
+.task-bell:hover { background: #e5e7fb; color: #312e81; }
+.task-count { background: #4f46e5; }
+
+/* Rings while a row naming you is not Done, and it is deliberately a nudge
+   rather than an alarm: `keepRinging` adds this class for under a second at a
+   time and takes it off again. A bell that shakes without stopping is a bell
+   people learn to ignore.
+
+   **`animation` only, never `display`.** The bell is folded away with the
+   `hidden` attribute, and a class here setting `display` would outrank the UA
+   sheet's `[hidden]` and pin it open -- the trap `css_check.js` exists for. */
+@keyframes task-ring {
+  0%, 100% { transform: rotate(0); }
+  15%      { transform: rotate(-11deg); }
+  30%      { transform: rotate(9deg); }
+  45%      { transform: rotate(-7deg); }
+  60%      { transform: rotate(5deg); }
+  75%      { transform: rotate(-3deg); }
+}
+.task-bell.is-ringing svg { animation: task-ring 0.9s ease-in-out; }
+/* Somebody who has asked for less motion is asking for less of exactly this.
+   The count still says how many; only the shake goes. */
+@media (prefers-reduced-motion: reduce) {
+  .task-bell.is-ringing svg { animation: none; }
+}
+
+/* Mine and Everyone. Two halves of one scan rather than two panels: the
+   Everyone half is ungated and there is no root user, so it is a tab and not a
+   thing you have to be somebody to reach. */
+.task-tabs {
+  display: flex;
+  gap: 4px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.task-tab {
+  padding: 4px 11px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+}
+.task-tab:hover { background: var(--hover); color: var(--ink-2); }
+.task-tab.active {
+  border-color: #cfd4f5;
+  background: #f3f4fd;
+  color: #3730a3;
+}
+
+.task-who { font-weight: 600; }
+
+.task-empty {
+  padding: 6px 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Indigo where a late row is amber, for the bell's reason. The state pill is the
+   Status cell as written, read through `validation.task_state` -- three words,
+   because the file's own vocabulary is the team's and only "is it finished"
+   needs to be agreed on. */
+.task-row { background: #f7f7fe; }
+.task-row:hover { background: #eeeffc; border-color: #cfd4f5; }
+.task-row .late-days { color: var(--muted); font-weight: 600; }
+
+.task-pill {
+  flex: 0 0 auto;
+  margin-right: 8px;
+  text-transform: capitalize;
+}
+/* Written as `.pill.task-*` for the reason `.menu-panel.late-panel` is: `.pill`
+   sets a background at the same specificity a bare `.task-open` would have, and
+   it is defined further down the file, so source order would silently win and
+   every state would draw the same grey. */
+.pill.task-blocked { background: #fee2e2; color: #991b1b; }
+.pill.task-open { background: #e0e7ff; color: #3730a3; }
+.pill.task-done { background: #dcfce7; color: #166534; }
+/* Finished work is still listed -- it is what the fortnight did -- but it is not
+   what the panel is for, so it recedes. */
+.task-row.is-done { opacity: 0.62; }
+
 /* --- the ⋯ menu ----------------------------------------------------------
    Rename, the global settings and Delete: everything about the open project you
    touch rarely, and the one thing that must not be a click away from `New

@@ -58,13 +58,45 @@ which replaces the entire dataset by design.
 
 ## What sign-in is, and is not
 
-The gate asks Keycloak "is this you" over OIDC and stores nothing about the
-answer. There is no `user` table, no roles, no permissions, no `created_by`, no
-assignee, no audit log and no per-user preferences. Everyone who gets in sees the
-same planner. The session is a signed cookie; there is no session store.
+The gate asks Keycloak "is this you" over OIDC. There are no roles, no
+permissions, no `created_by`, no assignee column, no audit log and no per-user
+preferences. Everyone who gets in sees the same planner. The session is a signed
+cookie; there is no session store.
 
 Presence — the badge showing who is typing in a field — shows a name it was
 handed for as long as the socket is open. It records nothing.
+
+## The directory of people
+
+One thing about a person *is* stored, and it is deliberately the smallest thing
+that works: a `person` row of `sub`, `handle` and `display_name`. It exists so
+that `@QingHao` in a sprint file's **PIC** column can be picked from a list
+rather than spelled from memory, and so the task bell has a name to match rows
+against. There is **no timestamp on it** — the app does not record when it last
+saw you — and no role, no permissions and no preferences. The argument in full is
+[PROMPT.md](../PROMPT.md) amendment 6.
+
+Rows arrive by themselves, two ways, and there is no screen to manage them:
+
+- **Seeded from the sign-in allowlist.** Everyone on it is offered by the picker
+  before they have ever signed in. Edit the allowlist on the Sign-in page and the
+  directory follows on the next read.
+- **Upserted at sign-in.** The first time somebody signs in, their Keycloak
+  subject and whatever the realm calls them are recorded against the handle. A
+  realm that later renames a username moves the row rather than forking it.
+
+With `sso_mode` set to `any` there is no allowlist, so the directory fills in as
+people sign in and the picker starts empty.
+
+**On a machine with the gate off** (`MASTERMIND_SSO=off`) nobody signs in, so the
+allowlist is the only source. Typing names into the allowlist field on the
+Sign-in page populates the picker without arming anything — which is how a
+developer gets the feature working locally.
+
+The table is **left out of `/api/export`** and **untouched by `/api/import`**,
+for the reason the `sso_` columns are: an export is a file you hand to somebody,
+and this one names people. A restore rebuilds it from the allowlist and the next
+sign-in.
 
 ## Where configuration lives
 

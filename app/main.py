@@ -9,6 +9,7 @@ import asyncio
 import json
 import os
 import re
+import sqlite3
 import tempfile
 import time
 from contextlib import asynccontextmanager
@@ -64,6 +65,8 @@ from app.validation import (
     retrack,
     sequential_layout,
     stale_expectations,
+    task_state,
+    task_tally,
     track_path,
     track_value,
     validate_plan,
@@ -637,6 +640,23 @@ def sign_in_callback(request: Request, code: str = "", state: str = "",
         # claims that satisfy `is_allowed`, and nowhere else. A misconfiguration
         # therefore cannot arm itself.
         db.update_settings({"sso_enabled": 1})
+
+    # The one write this flow makes about a person, and it is a directory entry:
+    # `sub`, the handle, and whatever the realm calls them. No timestamp, so
+    # nothing here records that you signed in -- only that you can be named. It
+    # claims the row `db.seed_people` left for this handle rather than adding a
+    # second one. See PROMPT.md amendment 6.
+    #
+    # Failing to record it must not fail the sign-in: the gate works without a
+    # directory, and the worst case is a name the picker cannot offer yet.
+    try:
+        db.upsert_person(
+            claims.get("sub", ""),
+            auth.identity_of(claims, config["identity_claim"]),
+            str(claims.get("name") or "").strip(),
+        )
+    except sqlite3.Error:
+        pass
 
     response = RedirectResponse(local_path(transaction["next"]), status_code=303)
     response.set_cookie(
@@ -1527,6 +1547,12 @@ def read_late():
     open page gets the same answer. `ready` joins under exactly that test: it is
     recomputed from the rows every time and forgets that you saw it.
 
+    **`/api/mine` is the other bell and is deliberately not folded into this
+    one.** It answers the same shape of question from the sprint files rather
+    than the rows, which means it cannot be cached against `roadmapRevision` --
+    a sprint save does not touch the roadmap. Joining them would make this cheap
+    request pay that scan's price on every roadmap write.
+
     Nothing here closes a phase. `ready` reports the disagreement between the
     ticks and the status; the write is still a button someone presses, which is
     what rule 4 and non-negotiable 5 between them require.
@@ -2163,6 +2189,205 @@ def resolved_links(text):
     return [links[one] for one in order]
 
 
+# --- who a sprint file names -------------------------------------------------
+#
+# The team writes `@QingHao` into a PIC or Reviewer cell, and did so before any
+# of this existed. That convention is the data: **nothing here is stored**, and
+# `deliverable` gains no assignee. This reads the files the same way
+# `sprint_task_refs` does and derives its answer every time, which is what keeps
+# the task bell a readout rather than the notification system non-negotiable 7
+# rules out -- see PROMPT.md amendment 6.
+#
+# Deliberately in `main.py` beside `sprint_task_refs` rather than in
+# `markdown.py`: `PIC`, `Reviewer` and `Status` are sprint vocabulary, and
+# `markdown.py` must stay ignorant of sprints.
+
+# A column whose header is one of these names a person. **`Person` is not on the
+# list, and that is the whole reason the capacity table is not read as work**:
+# `templates/sprint.md` heads it `Person | Available Days | Leave | Notes`, and
+# every row of it names somebody who is emphatically not thereby assigned
+# anything.
+PERSON_COLUMNS = ("pic", "reviewer", "owner", "assignee")
+STATUS_COLUMN = "status"
+
+# One cell may hand a row to two people: `@QingHao, @Bernard` and `QingHao / Bernard`
+# are both written.
+_MENTION_SPLIT = re.compile(r"[,;/]|<br\s*/?>", re.I)
+_HEADING_HASHES = re.compile(r"^[ \t]*#+[ \t]*")
+_CHECKBOX = re.compile(r"\[([ xX])\]")
+
+
+def mentioned_handles(text, handles):
+    """Handles named with an `@` in `text`, in reading order, no repeats.
+
+    Matched against the directory rather than by a word-character pattern,
+    because a handle may contain spaces -- `templates/sprint.md` ships
+    `@Song Le`, which a `\\w+` pattern would read as `@Song`. Longest spelling
+    first, and a match is blanked out so a shorter handle sitting inside it
+    cannot match the same characters again.
+    """
+    lowered = (text or "").lower()
+    if "@" not in lowered:
+        return []
+    found = []
+    for handle in sorted(handles, key=len, reverse=True):
+        needle = "@" + handle.lower()
+        start = 0
+        while True:
+            at = lowered.find(needle, start)
+            if at < 0:
+                break
+            after = at + len(needle)
+            # `@Bern` must not match inside `@Bernard`. Only a following word
+            # character rules it out; punctuation and space end a handle.
+            if after < len(lowered) and (lowered[after].isalnum() or lowered[after] in "_-"):
+                start = after
+                continue
+            found.append((at, handle))
+            lowered = lowered[:at] + " " * len(needle) + lowered[after:]
+            start = after
+    return [handle for _, handle in sorted(found)]
+
+
+def named_handles(cell, handles):
+    """Who a PIC-style cell names, with or without the `@`.
+
+    Inside a column that exists to name a person, a bare `QingHao` means the same
+    thing as `@QingHao` -- and people write both. The whole piece has to match a
+    handle, so a Remarks-style sentence that happens to contain a name is not read
+    as an assignment; outside these columns an `@` is required for exactly that
+    reason.
+    """
+    found = list(mentioned_handles(cell, handles))
+    index = {handle.lower(): handle for handle in handles}
+    for piece in _MENTION_SPLIT.split(cell or ""):
+        name = " ".join(piece.split()).lstrip("@").strip()
+        match = index.get(name.lower())
+        if match and match not in found:
+            found.append(match)
+    return found
+
+
+def heading_text(raw):
+    """A heading block's words, hashes and numbering left off."""
+    line = (raw or "").splitlines()[0] if raw else ""
+    return " ".join(_HEADING_HASHES.sub("", line).split())
+
+
+def row_people(row, head, person_columns, status_at, section, handles):
+    """Everyone one table row hands work to, one entry each.
+
+    The row's own first non-empty cell is the task, the same label rule
+    `row_references` uses. A name found outside a person column -- parked in
+    Remarks, say -- carries an empty `role` rather than being dropped: it is
+    still somebody's name on somebody's work.
+    """
+    task = next((cell.strip() for cell in row if cell.strip()), "")
+    status = row[status_at].strip() if 0 <= status_at < len(row) else ""
+    state = task_state(status)
+
+    seen = {}
+    for index, cell in enumerate(row):
+        if index in person_columns:
+            for handle in named_handles(cell, handles):
+                seen.setdefault(handle, head[index] if index < len(head) else "")
+        else:
+            for handle in mentioned_handles(cell, handles):
+                seen.setdefault(handle, "")
+    return [
+        {"handle": handle, "role": role, "task": task, "section": section,
+         "status": status, "state": state}
+        for handle, role in seen.items()
+    ]
+
+
+def sprint_task_people(text, handles):
+    """Every row of a document that names somebody, in file order.
+
+    Two shapes are read, and both are things the team already writes.
+
+    A **table row**, but only in a table that has a PIC-style column at all. That
+    condition is what keeps the capacity table and the carry-over table out: they
+    name people, and neither is a list of assigned work. Inside a work table a
+    name anywhere in the row counts, which is the rule `row_references` already
+    applies to deliverable references.
+
+    A **list line** carrying an `@`, because a fortnight is as often planned as a
+    checklist as it is as a table. Its checkbox is its status -- there is no
+    Status column on a list line to read.
+
+    Repeats are kept. One person on two rows is two entries, and what that means
+    is the caller's to decide.
+    """
+    if not handles:
+        return []
+    found = []
+    section = ""
+    for block in split_blocks(text):
+        if block["type"] == "heading":
+            section = heading_text(block["raw"])
+            continue
+
+        table = block.get("table")
+        if table:
+            head = [" ".join(cell.split()).lower() for cell in table["head"]]
+            person_columns = {index for index, name in enumerate(head)
+                              if name in PERSON_COLUMNS}
+            if not person_columns:
+                continue
+            status_at = head.index(STATUS_COLUMN) if STATUS_COLUMN in head else -1
+            for row in table["rows"]:
+                found.extend(row_people(row, head, person_columns, status_at,
+                                        section, handles))
+            continue
+
+        if block["type"] not in ("list", "quote"):
+            continue
+        for line in block["raw"].splitlines():
+            item = _LIST_LINE.match(line)
+            if not item:
+                continue
+            body = item.group(1)
+            named = mentioned_handles(body, handles)
+            if not named:
+                continue
+            box = _CHECKBOX.search(body)
+            status = "Done" if box and box.group(1).lower() == "x" else ""
+            label = " ".join(_TASK_MARK.sub("", body).split())
+            for handle in named:
+                found.append({"handle": handle, "role": "", "task": label,
+                              "section": section, "status": status,
+                              "state": task_state(status)})
+    return found
+
+
+def directory_handles():
+    """The directory's handles, seeded from the allowlist first. See `db.seed_people`.
+
+    Seeding happens on read rather than on a settings save, so editing the
+    allowlist on the Sign-in page is enough and there is no second place to
+    remember. It is `INSERT OR IGNORE` over a handful of rows.
+    """
+    settings = db.get_settings()
+    db.seed_people(auth.parse_allowlist(settings.get("sso_allowlist", "")))
+    return db.list_people()
+
+
+def scan_sprint_people(handles):
+    """Every assignment in every sprint file on disk, newest sprint last.
+
+    A scan rather than an index, for the reason `list_sprint_links` gives: the
+    references live in markdown that is edited outside the app, so anything
+    stored beside them goes stale the moment somebody opens a text editor.
+    """
+    found = []
+    for number, name in sprint_files(SPRINTS_DIR):
+        path = os.path.join(SPRINTS_DIR, name)
+        for entry in sprint_task_people(read_sprint_file(path), handles):
+            found.append({**entry, "sprint": number, "file": name})
+    return found
+
+
 # The sprint editor reads and writes these files as blocks of markdown. The file
 # on disk stays the one record: no table, no column, nothing for `migrate` to do,
 # and no export version to bump. Nothing below knows what a sprint section is --
@@ -2197,6 +2422,91 @@ def list_sprint_links():
         {"deliverable_id": deliverable_id, "sprints": sprints}
         for deliverable_id, sprints in sorted(found.items())
     ]
+
+
+@app.get("/api/people")
+def list_people():
+    """Everyone who can be named, for the `@` picker. A directory, nothing more.
+
+    Declared above `/api/sprints/{number}` is not a concern here -- this is its
+    own path -- but it belongs beside `links` for a different reason: both answer
+    "what do the sprint files refer to", and this one supplies the vocabulary the
+    other half of that question is asked in.
+    """
+    return directory_handles()
+
+
+@app.get("/api/mine")
+def read_mine(request: Request, handle: str = ""):
+    """What the sprint files hand to one person. The task bell's whole payload.
+
+    `handle` defaults to whoever holds the cookie, which is the only thing this
+    reads about the caller -- and it reads it from the request, never from a
+    stored row. Passing a handle explicitly is allowed and answers identically
+    for anybody: there is nothing private here, and a gate that hid one person's
+    row from another would be the per-user view non-negotiable 7 rules out.
+
+    Derives everything and stores nothing. `ringing` counts what is not done, so
+    the bell stops when the last row's Status cell says so and starts again when
+    somebody types something else -- there is no read state, no dismissal and no
+    "new since you last looked". Same genus as `/api/late`, different source: that
+    one reads rows and today, this one reads the files on disk.
+    """
+    people = directory_handles()
+    handles = [person["handle"] for person in people]
+    who = (handle or "").strip() or signed_in_name(request)
+    matched = next((one for one in handles if one.lower() == who.lower()), "")
+
+    rows = [entry for entry in scan_sprint_people(handles)
+            if entry["handle"].lower() == matched.lower()] if matched else []
+    return {
+        "handle": matched,
+        "asked_for": who,
+        # An empty `handle` with a name in `asked_for` is a real state worth
+        # drawing rather than an error: signed in as somebody the directory has
+        # never seen, which is what `sso_mode = any` and an empty allowlist look
+        # like before that person's first sign-in lands.
+        "known": bool(matched),
+        "rows": rows,
+        "tally": task_tally(rows),
+    }
+
+
+@app.get("/api/workload")
+def read_workload():
+    """What everybody is carrying, grouped by person. The same scan as `/api/mine`.
+
+    **Ungated on purpose, and there is no root user.** Everyone opens this and
+    sees the same answer -- a viewer who saw more than another viewer would be a
+    permission, which is the whole of what non-negotiable 7 refuses. It takes no
+    handle for the same reason.
+
+    People with nothing against them are included with an empty list: "Bernard has
+    nothing this fortnight" is the answer somebody is looking for, and dropping
+    the row would make it indistinguishable from Bernard not existing.
+    """
+    people = directory_handles()
+    handles = [person["handle"] for person in people]
+    rows = scan_sprint_people(handles)
+
+    by_handle = {person["handle"]: [] for person in people}
+    for entry in rows:
+        by_handle.setdefault(entry["handle"], []).append(entry)
+
+    groups = []
+    for person in people:
+        mine = by_handle.get(person["handle"], [])
+        groups.append({
+            "handle": person["handle"],
+            "display_name": person["display_name"],
+            "rows": mine,
+            "tally": task_tally(mine),
+        })
+    # Busiest first, then alphabetically -- the page is read to find who is
+    # carrying too much, and an empty person at the top buries that.
+    groups.sort(key=lambda group: (-group["tally"]["ringing"],
+                                   group["handle"].lower()))
+    return {"groups": groups, "tally": task_tally(rows)}
 
 
 @app.post("/api/sprints/marks")

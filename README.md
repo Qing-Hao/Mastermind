@@ -29,10 +29,46 @@ forever.
 
 ### What it deliberately is not
 
-No tickets, no comments, no activity feed, no notifications, no assignees, no
-accounts or roles, no external integrations, no BI dashboards. Sign-in exists,
-but it is a gate rather than an account model — the app asks Keycloak "is this
-you" and stores nothing about the answer.
+No tickets, no comments, no activity feed, no external integrations, no BI
+dashboards. Deliverables carry no assignee. Sign-in exists, but it is a gate
+rather than an account model — the app asks Keycloak "is this you", and the one
+thing it keeps is a directory of who exists, so a name can be picked rather than
+spelled from memory.
+
+### Why there is a `person` table, and why it is this small
+
+This is the one place the tool stores a row about a person, and it was added for
+a **specific use case rather than a general one**. That is a deliberate choice
+worth writing down, because a user table is normally where a planning tool starts
+turning into a tracker.
+
+The team already writes `@QingHao` into the **PIC** and **Reviewer** columns of a
+sprint file — a markdown convention that predates any of this. Three things were
+wanted from it: pick a name instead of spelling it, see the rows that name you
+without opening four files, and see what everyone is carrying on one page. All
+three need a list of who exists. None of them needs an account.
+
+So `person` holds `sub`, `handle` and `display_name`, and nothing else. **No
+role, no permissions, no preferences, and no timestamps** — the app does not
+record when it last saw you. Rows arrive by themselves: upserted when someone
+signs in, and seeded from the sign-in allowlist, which already names everyone
+permitted. The table is left out of the JSON export, because an export is a file
+you hand to somebody, and the directory rebuilds itself from the allowlist and
+the next sign-in.
+
+Everything built on top of it derives on read and remembers nothing:
+
+- **Assignment stays markdown.** A PIC cell is text in a file the team edits. No
+  deliverable gains an `assignee` column.
+- **The task bell has no unread state.** It rings while a row naming you is not
+  `Done`, and stops when it is. There is no dismiss, no snooze and no "new since
+  you last looked" — each of those would mean storing something about you.
+- **The who-has-what page is not gated and there is no root user.** Everyone
+  opens the same page and sees the same thing.
+
+If a general user model is ever wanted, that is a fresh decision to make and
+record — not extra columns added to `person` because the table happens to exist.
+The reasoning in full is [PROMPT.md](PROMPT.md) amendment 6.
 
 Sprint generation from a project's date range, allocating deliverables into
 sprints against velocity, and a delivery forecast are **not built** (they are
@@ -102,6 +138,14 @@ cycle.
 The bell in the top bar counts two things across every committed project: what
 is past its date, and what is finished but still open. It is derived on every
 read and nothing about it is stored — no dismissals, no "new since you looked".
+
+**See what is on your plate**
+
+The second bell beside it reads the sprint files rather than the roadmap. Type
+`@` in a sprint cell to pick a name from the directory; a row whose **PIC** or
+**Reviewer** names you is yours. The bell rings gently while any of those rows is
+not `Done`, and stops when they all are. Switch it to **Everyone** for the same
+scan grouped by person — that page is the same for whoever opens it.
 
 **Run a fortnight**
 

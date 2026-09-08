@@ -419,6 +419,21 @@ let state = {
   // remembers which of these rows it has already shown you, which is what keeps
   // the bell a readout. A missed toast costs nothing because of this line.
   late: { groups: [], count: 0, ready: [], readyCount: 0, asOf: "" },
+  // What the sprint files hand out, as `/api/mine` and `/api/workload` last
+  // answered. `who` is the handle the directory matched for this page, empty
+  // when it has never seen you -- a real state, and the panel says so rather
+  // than drawing an empty list that looks like "nothing to do".
+  //
+  // `tab` is which half of the panel is open, and it is the one thing here that
+  // is remembered at all: in this variable, for as long as the page is open, and
+  // nowhere else. Held for the same reason `late` is -- thrown away on reload,
+  // and no page remembers which of these rows it has already shown you.
+  mine: {
+    who: "", known: false, rows: [], tally: { ringing: 0, total: 0 },
+    groups: [], tab: "mine", loadedWorkload: false,
+  },
+  // The directory, for the `@` picker and the Everyone list. Read on demand.
+  people: [],
   // What each rule number means, from `/api/rules`, for the tooltip on a `.rule`
   // chip. Read once at boot: the sentences are a constant, and they live beside
   // the rules in `validation.py` so this page carries no second copy.
@@ -1709,6 +1724,243 @@ function watchTheClock() {
   }, CLOCK_TICK_MS);
 }
 
+// --- what the sprint files hand to you --------------------------------------
+
+// The second bell. **A readout, exactly as the one beside it is**: it scans the
+// sprint files every time it is asked and remembers nothing, so it rings while a
+// row naming you is not Done and goes quiet when it is. No dismissal, no snooze,
+// no "new since you last looked" -- each of those is the app remembering who was
+// looking, which is the line non-negotiable 7 draws. See PROMPT.md amendment 6.
+//
+// Not folded into `/api/late` on purpose: that one is cached against
+// `roadmapRevision`, and a sprint save does not touch the roadmap, so the two
+// cannot share a trigger without one of them being wrong.
+
+// The ring is a nudge, not an alarm: a short shake, then a long wait. Twenty
+// seconds is often enough to catch the eye of somebody looking elsewhere on the
+// page and rare enough not to be the thing they end up looking at.
+const RING_EVERY_MS = 20000;
+const RING_FOR_MS = 900;
+
+let ringTimer = null;
+
+async function refreshMine() {
+  try {
+    const payload = await api("/api/mine");
+    state.mine.who = payload.handle || payload.asked_for || "";
+    state.mine.known = Boolean(payload.known);
+    state.mine.rows = payload.rows || [];
+    state.mine.tally = payload.tally || { ringing: 0, total: 0 };
+  } catch (_) {
+    // `refreshLate`'s reason: nobody asked for this read, the bell keeps drawing
+    // what it last knew rather than blanking, and the next write comes back to it.
+    return;
+  }
+  // The Everyone list is the same scan from the other end, so a change to one is
+  // a change to both. Re-read only if it has already been opened once.
+  if (state.mine.loadedWorkload) await refreshWorkload();
+  drawMine();
+}
+
+async function refreshWorkload() {
+  try {
+    const payload = await api("/api/workload");
+    state.mine.groups = payload.groups || [];
+    state.mine.loadedWorkload = true;
+  } catch (_) {
+    return;
+  }
+}
+
+// Silent when there is nothing to say, for the reason `drawLate` is: a fortnight
+// with nothing open against your name is the ordinary case and should not
+// announce itself. One count, not two -- open and blocked both ring, and the
+// difference between them is drawn in the panel where there is room to say it.
+function drawMine() {
+  const bell = $("task-alert");
+  const count = $("task-count");
+  const ringing = state.mine.tally.ringing || 0;
+  // Somebody the directory has never seen has no rows to be missing, and a bell
+  // that stayed hidden would look identical to having nothing to do. The panel
+  // explains it; the bell has to be there to be opened.
+  const nothing = ringing === 0 && state.mine.tally.total === 0 && state.mine.known;
+
+  bell.hidden = nothing;
+  count.hidden = ringing === 0;
+  count.textContent = String(ringing);
+  bell.title = ringing
+    ? `${ringing} thing${ringing === 1 ? "" : "s"} in the sprint files with your`
+      + " name on it. It stops ringing when the Status cell says Done."
+    : "Nothing open against your name in the sprint files.";
+
+  keepRinging(ringing > 0 && !nothing);
+  if (nothing) {
+    closeTask();
+    return;
+  }
+  if (!$("task-panel").hidden) renderTaskPanel();
+}
+
+// The animation is added and taken off again rather than left running: a bell
+// that shakes forever is a bell people stop seeing. Nothing is stored about
+// whether you have watched it -- the interval restarts with the page.
+//
+// The class sets `animation` and never `display`, which is the trap `css_check`
+// exists for: a class setting `display` on an element toggled with the `hidden`
+// attribute outranks the UA sheet and the element never hides.
+function keepRinging(on) {
+  if (ringTimer) {
+    clearInterval(ringTimer);
+    ringTimer = null;
+  }
+  const bell = $("task-alert");
+  if (!on) {
+    bell.classList.remove("is-ringing");
+    return;
+  }
+  const shake = () => {
+    bell.classList.add("is-ringing");
+    setTimeout(() => bell.classList.remove("is-ringing"), RING_FOR_MS);
+  };
+  shake();
+  ringTimer = setInterval(shake, RING_EVERY_MS);
+}
+
+function renderTaskPanel() {
+  const panel = $("task-panel");
+  panel.innerHTML = "";
+
+  const tabs = element("div", "task-tabs");
+  tabs.appendChild(taskTab("mine", state.mine.who ? `@${state.mine.who}` : "Mine"));
+  tabs.appendChild(taskTab("everyone", "Everyone"));
+  panel.appendChild(tabs);
+
+  if (state.mine.tab === "everyone") renderWorkload(panel);
+  else renderMyRows(panel);
+}
+
+function taskTab(name, label) {
+  const tab = element("button", "task-tab", label);
+  tab.type = "button";
+  tab.classList.toggle("active", state.mine.tab === name);
+  tab.onclick = async () => {
+    state.mine.tab = name;
+    if (name === "everyone" && !state.mine.loadedWorkload) await refreshWorkload();
+    renderTaskPanel();
+  };
+  return tab;
+}
+
+function renderMyRows(panel) {
+  if (!state.mine.known) {
+    panel.appendChild(element("div", "task-empty",
+      state.mine.who
+        ? `The directory has no @${state.mine.who} yet. It fills in from the`
+          + " sign-in allowlist and from people signing in."
+        : "Nobody is signed in, so there is no name to match rows against."));
+    return;
+  }
+  if (!state.mine.rows.length) {
+    panel.appendChild(element("div", "task-empty",
+      "Nothing in the sprint files has your name on it."));
+    return;
+  }
+  for (const row of taskOrder(state.mine.rows)) panel.appendChild(taskRow(row));
+  panel.appendChild(element("div", "late-foot",
+    "A row leaves when its Status cell says Done. Nothing here is dismissed or"
+    + " marked read, and everybody sees the same lists."));
+}
+
+function renderWorkload(panel) {
+  const groups = state.mine.groups.filter((group) => group.tally.total > 0);
+  const idle = state.mine.groups.filter((group) => group.tally.total === 0);
+
+  if (!groups.length && !idle.length) {
+    panel.appendChild(element("div", "task-empty",
+      "The directory is empty. It fills in from the sign-in allowlist and from"
+      + " people signing in."));
+    return;
+  }
+
+  for (const group of groups) {
+    const block = element("div", "late-group");
+    const heading = element("div", "late-project");
+    heading.appendChild(element("span", "task-who",
+      group.display_name || `@${group.handle}`));
+    heading.appendChild(element("span", "spacer"));
+    heading.appendChild(element("span", "pill pill-warn", String(group.tally.ringing)));
+    block.appendChild(heading);
+    for (const row of taskOrder(group.rows)) block.appendChild(taskRow(row));
+    panel.appendChild(block);
+  }
+
+  if (idle.length) {
+    // Named rather than left out: "Bernard has nothing this fortnight" is the
+    // answer somebody is looking for, and an absent row reads as Bernard not
+    // existing.
+    panel.appendChild(element("div", "task-empty",
+      `Nothing against ${idle.map((group) => `@${group.handle}`).join(", ")}.`));
+  }
+  panel.appendChild(element("div", "late-foot",
+    "Read from the sprint files every time. Nothing is stored, and this page is"
+    + " the same for whoever opens it."));
+}
+
+// Blocked first, then open, then done: the order to look at them in. Within a
+// state, the newest sprint first -- what somebody is carrying now.
+const TASK_STATE_ORDER = { blocked: 0, open: 1, done: 2 };
+
+function taskOrder(rows) {
+  return [...rows].sort((one, two) =>
+    (TASK_STATE_ORDER[one.state] ?? 1) - (TASK_STATE_ORDER[two.state] ?? 1)
+    || two.sprint - one.sprint);
+}
+
+// A row is a way into the sprint file it came from -- the same move a late row
+// makes into a project. It reads; nothing here writes, and the Status cell stays
+// the file's to change.
+function taskRow(row) {
+  const item = element("button", `late-row task-row is-${row.state}`);
+  item.type = "button";
+  item.appendChild(element("span", `pill task-pill task-${row.state}`, row.state));
+  item.appendChild(element("span", "late-message", row.task || "(unnamed)"));
+  const where = [row.role ? row.role.toUpperCase() : "", `Sprint ${row.sprint}`]
+    .filter(Boolean).join(" · ");
+  item.appendChild(element("span", "late-days", where));
+  item.title = `Open ${row.file}${row.section ? ` — ${row.section}` : ""}.`;
+  item.onclick = async () => {
+    closeTask();
+    await openSprintFromTask(row.sprint);
+  };
+  return item;
+}
+
+// The Sprint tab, on the file the row came from. A tab switch rather than a
+// jump inside the document: the row names a section, not a block index, and
+// guessing at one would land the caret somewhere nobody asked for.
+async function openSprintFromTask(number) {
+  state.view = "sprint";
+  await refreshView();
+  if (state.sprint && state.sprint.number !== number) await loadSprintFile(number);
+}
+
+function openTask(open) {
+  $("task-panel").hidden = !open;
+  $("task-alert").setAttribute("aria-expanded", String(open));
+  if (open) {
+    // Opening it is not "marking it read" -- there is nothing to mark. The ring
+    // stops while the panel is up only because looking at the list is the thing
+    // the ring was asking for, and it starts again on the next refresh if the
+    // rows are still open.
+    keepRinging(false);
+    renderTaskPanel();
+  }
+}
+
+function closeTask() {
+  openTask(false);
+}
+
 async function refreshView() {
   const isProject = state.view === "project";
   const isPortfolio = state.view === "portfolio";
@@ -1734,6 +1986,10 @@ async function refreshView() {
   } else if (isPortfolio) {
     await loadPortfolio();
   } else if (isSprint) {
+    // The `@` picker's vocabulary, read beside the files it is typed into. Not
+    // awaited with them: a menu that has not loaded yet simply offers nothing,
+    // and the next keystroke opens it.
+    loadPeople();
     await loadSprints();
   } else {
     await loadGraph();
@@ -1746,6 +2002,9 @@ async function refreshView() {
   // one, so nothing on screen is waiting for the answer. It draws itself when it
   // arrives.
   refreshLate();
+  // The task bell, for the same reason and on the same terms. It scans files
+  // rather than rows, so it is not tied to `roadmapRevision` and re-reads here.
+  refreshMine();
   // A render rebuilds the tables, so the badges drawn on the old nodes went with
   // them. Redraw from the roll this page already holds, and say where this page
   // is now looking -- a tab switch moves you as surely as a click does.
@@ -5583,6 +5842,50 @@ function deliverableMenuEntries(filter) {
 
 registerCellInline({ mark: DELIVERABLE_REF, render: deliverableChip });
 registerCellMenu(deliverableMenuEntries);
+
+// --- naming somebody in a cell ----------------------------------------------
+
+// The `@` picker. Here rather than in `editor.js` for `registerCellMenu`'s
+// reason: that file draws the menu and must not learn what a person is, any more
+// than it may learn what a deliverable is. It knows one character; everything
+// behind it comes through the seam.
+//
+// **What this writes is text, and that is the whole design.** `@QingHao` in a
+// PIC cell is a convention the team had before the app did; the picker only
+// spells it the way everybody else spells it, so `/api/mine` can match it. No
+// row is written, no deliverable gains an assignee, and a name typed by hand
+// works exactly as well as one picked -- see PROMPT.md amendment 6.
+//
+// No `lineUnique`: a row hands the work to one person and its review to another,
+// and both are on the same line.
+function personMenuEntries() {
+  return state.people.map((person) => ({
+    key: person.handle.toLowerCase(),
+    // The handle is the label, because the handle is what gets written and a
+    // menu that showed a full name would leave you guessing what landed. The
+    // name rides behind it where the two differ.
+    label: person.display_name && person.display_name !== person.handle
+      ? `${person.handle} — ${person.display_name}`
+      : person.handle,
+    // The key is the handle lowercased, so printing it beside the label would
+    // say the same word twice. `openSprintMenu` filters on it either way.
+    hint: false,
+    markdown: `@${person.handle} `,
+  }));
+}
+
+// The directory, for the picker. Failing is quiet: the menu offers nothing, the
+// handles people type by hand still work, and the next tab switch asks again.
+async function loadPeople() {
+  try {
+    state.people = await api("/api/people");
+  } catch (_) {
+    // Left as it was rather than emptied -- a picker that forgets everybody
+    // because one read failed is worse than a slightly stale one.
+  }
+}
+
+registerCellMention(personMenuEntries);
 
 // --- a task line's own link --------------------------------------------------
 
@@ -9676,10 +9979,22 @@ function bindEvents() {
   // not race the document handler that would close it.
   $("late-alert").onclick = (event) => {
     event.stopPropagation();
+    closeTask();
     openLate($("late-panel").hidden);
   };
   $("late-panel").onclick = (event) => event.stopPropagation();
   document.addEventListener("click", () => closeLate());
+
+  // The task bell, on the same terms. Opening one closes the other: two panels
+  // hanging off the same corner would overlap, and reading both at once is not a
+  // thing anybody does.
+  $("task-alert").onclick = (event) => {
+    event.stopPropagation();
+    closeLate();
+    openTask($("task-panel").hidden);
+  };
+  $("task-panel").onclick = (event) => event.stopPropagation();
+  document.addEventListener("click", () => closeTask());
 
   // Both reveals, and the topbar's primary action is the third caller. Focus
   // follows, because the button's whole purpose is to get you into the first
@@ -10054,6 +10369,10 @@ function handleLiveMessage(message) {
   }
   if (message.type !== "changed") return;
   if (message.scope === "sprint") {
+    // Somebody wrote a sprint file, so what it hands out may have moved. Read
+    // ahead of every guard below: those decide what happens to the *document* on
+    // screen, and the bell is about the files whether or not one is open here.
+    refreshMine();
     // The reference panel is holding a **different** file, so a write to that one
     // is a change to nothing this page has open and none of the guards below
     // apply to it. Checked first and unconditionally, because every one of them

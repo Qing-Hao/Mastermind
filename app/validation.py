@@ -1498,3 +1498,64 @@ def retrack(projects, target, name=None):
             "to": value,
         })
     return moves
+
+
+# --- what a sprint row's status means ---------------------------------------
+#
+# The Status column is free text a person types into a markdown table, and
+# `templates/sprint.md` suggests a five-step workflow plus `Blocked`. This reads
+# it and says nothing else about it: no status is stored anywhere, nothing here
+# writes one, and no date or stage moves because of one. It exists so the task
+# bell can stop ringing, and so the who-has-what page can group.
+#
+# **Deliberately not an enum on a column.** Non-negotiable 4 keeps deliverables
+# free of intermediate states; this is the same restraint applied one level out.
+# The file stays the record, this is a reading of it, and a row whose status is
+# something nobody anticipated is open rather than rejected.
+
+TASK_DONE = "done"
+TASK_BLOCKED = "blocked"
+TASK_OPEN = "open"
+
+# Matched case- and space-insensitively, and only ever as the whole cell: a
+# Status cell reading "Blocked on Done-ness" is one person's note, not two
+# states. Anything unrecognised -- including empty -- reads as open, which is the
+# honest default: nothing in the file said the work was finished.
+DONE_WORDS = ("done", "complete", "completed", "closed", "shipped")
+BLOCKED_WORDS = ("blocked", "on hold", "waiting", "paused")
+
+
+def normalised_status(status):
+    """A Status cell reduced to lowercase words with single spaces."""
+    return " ".join(str(status or "").split()).strip().lower()
+
+
+def task_state(status):
+    """Read a sprint row's Status cell as `done`, `blocked` or `open`."""
+    text = normalised_status(status)
+    if text in DONE_WORDS:
+        return TASK_DONE
+    if text in BLOCKED_WORDS:
+        return TASK_BLOCKED
+    return TASK_OPEN
+
+
+def task_rings(state):
+    """Whether a row in this state should keep the bell ringing.
+
+    Blocked rings with open: blocked work is exactly what somebody needs to be
+    reminded of, and treating it as finished would let a stuck row go quiet.
+    """
+    return state != TASK_DONE
+
+
+def task_tally(rows):
+    """Count rows by state, plus how many of them ring. Pure -- reads no file."""
+    tally = {TASK_OPEN: 0, TASK_BLOCKED: 0, TASK_DONE: 0}
+    for row in rows:
+        state = row.get("state") or TASK_OPEN
+        if state in tally:
+            tally[state] += 1
+    tally["ringing"] = tally[TASK_OPEN] + tally[TASK_BLOCKED]
+    tally["total"] = sum(tally[state] for state in (TASK_OPEN, TASK_BLOCKED, TASK_DONE))
+    return tally

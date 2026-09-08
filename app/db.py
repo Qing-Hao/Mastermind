@@ -215,6 +215,50 @@ CREATE TABLE IF NOT EXISTS quarter_goal (
     achieved INTEGER NOT NULL DEFAULT 0 CHECK (achieved IN (0, 1))
 );
 
+-- Who can be named, and nothing else. **The only row in this file keyed to a
+-- person**, and the whole of what non-negotiable 7 was narrowed to permit --
+-- PROMPT.md amendment 6 carries the argument. It exists so `@handle` in a sprint
+-- file's PIC column can be picked from a list instead of spelled from memory.
+--
+-- What it deliberately does not have, each of which is one column away and each
+-- of which would make this the account model the brief forbids:
+--
+--   * **No timestamp.** No `last_seen`, no `first_seen`. The app does not record
+--     when it saw you. This is the easiest one to add by accident and the one
+--     that most clearly changes what the table is.
+--   * **No role, no permissions, no preferences.** The who-has-what page is
+--     ungated and there is no root user: everyone opens it and sees the same
+--     thing.
+--   * **Nothing about their work.** Assignment is text in a markdown file the
+--     team edits; `deliverable` gains no `assignee`. This table answers "who can
+--     be named", never "what are they carrying" -- that is derived on read by
+--     `main.sprint_task_people`, which stores nothing.
+--
+-- `sub` is Keycloak's subject and is the durable identity: a realm may rename a
+-- username, and the row should follow the person rather than fork. It is NULL
+-- for a row seeded from `sso_allowlist` -- somebody permitted who has not signed
+-- in yet -- and SQLite permits many NULLs in a UNIQUE column, which is what
+-- makes that seeding possible without a second table. `upsert_person` claims the
+-- seeded row when its owner first arrives.
+--
+-- `handle` is what `@` matches, and it is NOCASE for the reason
+-- `auth.is_allowed` compares the allowlist case-insensitively: an entry
+-- differing only in case is a typo, not a second person. It may contain spaces
+-- (`templates/sprint.md` ships `@Song Le`), which is why the scanner matches
+-- against this list instead of a word-character regular expression -- that
+-- would have matched `@Song` and silently dropped the rest of the name.
+--
+-- Left out of `export_all` and untouched by `import_all`, for the reason the
+-- `sso_` columns are: it describes this deployment's realm, not the dataset, and
+-- an export is a file that gets emailed. It rebuilds itself from the allowlist
+-- and the next sign-in.
+CREATE TABLE IF NOT EXISTS person (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    sub          TEXT UNIQUE,
+    handle       TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    display_name TEXT NOT NULL DEFAULT ''
+);
+
 CREATE INDEX IF NOT EXISTS idx_phase_project ON phase(project_id);
 CREATE INDEX IF NOT EXISTS idx_deliverable_phase ON deliverable(phase_id);
 CREATE INDEX IF NOT EXISTS idx_milestone_project ON milestone(project_id);
@@ -617,6 +661,91 @@ def update_settings(fields):
                 f"UPDATE settings SET {assignments} WHERE id = 1", list(updates.values())
             )
     return get_settings()
+
+
+# --- people -----------------------------------------------------------------
+#
+# A directory, not an account model. See the `person` table's comment for what
+# this must never grow, and PROMPT.md amendment 6 for why it exists at all.
+
+
+def list_people():
+    """Everyone who can be named, best display name first, then handle."""
+    with connect() as connection:
+        rows = connection.execute(
+            "SELECT * FROM person "
+            "ORDER BY display_name = '', display_name COLLATE NOCASE, "
+            "handle COLLATE NOCASE"
+        ).fetchall()
+    return rows_to_dicts(rows)
+
+
+def upsert_person(sub, handle, display_name=""):
+    """Record who just signed in. Claims a seeded row rather than duplicating it.
+
+    Three cases, in order. A row already carrying this `sub` is the same person
+    and is updated -- a realm that renames a username must move the handle, not
+    fork the row. Otherwise a sub-less row with this handle is the allowlist seed
+    for exactly this person, and signing in is what claims it. Otherwise this is
+    somebody new, which happens whenever `sso_mode` is 'any'.
+
+    `display_name` is left alone when the caller has none, so a realm that stops
+    sending the `name` claim does not blank what it sent last time.
+    """
+    handle = (handle or "").strip()
+    if not handle:
+        return None
+    sub = (sub or "").strip() or None
+    display_name = (display_name or "").strip()
+
+    with connect() as connection:
+        existing = None
+        if sub:
+            existing = connection.execute(
+                "SELECT * FROM person WHERE sub = ?", (sub,)
+            ).fetchone()
+        if existing is None:
+            existing = connection.execute(
+                "SELECT * FROM person WHERE handle = ? AND sub IS NULL", (handle,)
+            ).fetchone()
+
+        if existing is None:
+            connection.execute(
+                "INSERT INTO person (sub, handle, display_name) VALUES (?, ?, ?)",
+                (sub, handle, display_name),
+            )
+        else:
+            connection.execute(
+                "UPDATE person SET sub = ?, handle = ?, display_name = ? WHERE id = ?",
+                (sub or existing["sub"], handle,
+                 display_name or existing["display_name"], existing["id"]),
+            )
+        row = connection.execute(
+            "SELECT * FROM person WHERE handle = ?", (handle,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def seed_people(handles):
+    """Add allowlist entries nobody has signed in as yet. Returns how many landed.
+
+    The picker is useful before anyone has signed in because the allowlist
+    already names everyone permitted -- which is what saves this feature an admin
+    screen. `INSERT OR IGNORE` leans on the NOCASE UNIQUE on `handle`, so an
+    entry that differs only in case is the person already there.
+    """
+    wanted = [handle.strip() for handle in handles or [] if handle.strip()]
+    if not wanted:
+        return 0
+    added = 0
+    with connect() as connection:
+        for handle in wanted:
+            cursor = connection.execute(
+                "INSERT OR IGNORE INTO person (sub, handle) VALUES (NULL, ?)",
+                (handle,),
+            )
+            added += cursor.rowcount or 0
+    return added
 
 
 # --- projects ---------------------------------------------------------------
@@ -1103,6 +1232,13 @@ def export_all():
         # the file that gets emailed. `import_all` names its four settings
         # columns explicitly, so a restore leaves the gate exactly as it found
         # it. The version does not move: what a consumer reads is unchanged.
+        #
+        # `person` is absent for the same reason and it is absent by omission --
+        # this function names its tables, so the safeguard is that nobody adds a
+        # line for it. A directory of one realm's handles means nothing on the
+        # machine an export is carried to, and an export names people. It
+        # rebuilds from the allowlist and the next sign-in. The version does not
+        # move here either.
         "settings": settings_without_sso(get_settings()),
         "projects": projects,
         "phases": phases,
@@ -1159,6 +1295,11 @@ def import_all(payload):
     Ids are preserved so dependency links survive the round trip -- except when
     a pre-version-6 file has to have its phase links translated, which cannot
     keep them.
+
+    `person` is not cleared, for the reason the `sso_*` columns are not written:
+    it describes this deployment's realm rather than the dataset, and importing
+    somebody's plan must not empty the directory the sprint files are written
+    against. It is not in the payload either -- see `export_all`.
     """
     with connect() as connection:
         connection.execute("PRAGMA foreign_keys = OFF")
