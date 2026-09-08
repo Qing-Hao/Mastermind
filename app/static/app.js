@@ -373,6 +373,13 @@ let state = {
   sprintRef: {
     tab: "scope", shut: false,
     key: null, asked: null, file: null, sections: null, error: "",
+    // Which editor file `key` was last defaulted for. `key` of null is now a
+    // resting state rather than "not decided yet" -- the first fortnight has
+    // nothing before it, and the picker can be put back to nothing by hand --
+    // so the render needs a second value to tell "nobody has chosen" from
+    // "chosen, and the answer is none". Starts `false`, which no file key can
+    // be, so the first render defaults even with no file open.
+    forFile: false,
     // The template's own blocks, as a set of trimmed `raw`. Every sprint file is
     // a copy of it, so this is what tells a sentence the template wrote from one
     // somebody typed -- see `refBoilerplate`. Read once and kept: it is the same
@@ -4718,6 +4725,38 @@ function setSprintSideTab(tab) {
   renderSprintSide();
 }
 
+// The newest fortnight earlier than `open`, or null when there is none.
+//
+// Computed rather than taken off the front of the list: `sprint.files` is newest
+// first, but that is the picker's ordering, and a default that quietly depends
+// on it breaks the day the picker sorts differently. `open` is `'template'` or
+// null when no numbered file is open, and neither has a place in the sequence,
+// so neither has anything before it.
+function previousSprintFile(files, open) {
+  if (typeof open !== "number") return null;
+  const earlier = files.filter((file) => file.number < open);
+  return earlier.length ? Math.max(...earlier.map((file) => file.number)) : null;
+}
+
+// Why the body is empty, in terms of what the reader can do about it. Two of
+// these say there is nothing to offer; the other two say nothing is picked and
+// the select above is how to pick.
+function refEmptyNote(files) {
+  if (!files.length) {
+    return state.sprint.files.length
+      ? "The only sprint file on disk is the one open here — there is nothing to read it against."
+      : "No sprint files on disk yet — there is nothing to read against.";
+  }
+  // Only when there really is nothing earlier: the same empty body is what a
+  // hand-picked `— no reference —` leaves behind, and that one is not the
+  // earliest anything.
+  const open = state.sprint.number;
+  if (typeof open === "number" && !files.some((file) => file.number < open)) {
+    return `${state.sprint.name || "This file"} is the earliest fortnight on disk — nothing comes before it. Pick a later one above if you want to read it anyway.`;
+  }
+  return "No fortnight picked — choose one above.";
+}
+
 function renderSprintRef() {
   const ref = state.sprintRef;
   const select = $("sprint-ref-select");
@@ -4729,9 +4768,7 @@ function renderSprintRef() {
   //
   // The file open in the editor comes off it too. Reading the file you are
   // typing in, beside itself, says nothing, so offering it in the list is
-  // offering a choice with no answer -- and with it gone, switching the editor
-  // *to* the file being referenced drops the key the list no longer has, and
-  // the block below picks the next one down.
+  // offering a choice with no answer.
   const files = state.sprint.files.filter(
     (file) => file.number !== state.sprint.number);
 
@@ -4740,16 +4777,34 @@ function renderSprintRef() {
   // the Project tab ever needs.
   if (!ref.boilerplateAsked) loadRefBoilerplate();
 
-  // Which file: the one picked, else the newest on offer.
-  if (ref.key === null || !files.some((file) => file.number === ref.key)) {
-    const wanted = files[0];
+  // Which file, by default: **the fortnight before the one being planned**, and
+  // nothing at all when there is none. Planning 4 means reading 3, so that is
+  // what opening 4 draws; the earliest file on disk has nothing behind it and
+  // says so rather than reaching forward to a later fortnight, which would be
+  // reading the future against the past.
+  //
+  // Defaulted once per editor file: a pick made by hand stands until the editor
+  // moves to another file, and then the new file's own default wins. That does
+  // discard a deliberate choice on every switch -- the alternative, remembering
+  // a pick per file, is per-file state for a panel whose whole point is that it
+  // remembers nothing.
+  //
+  // The `some` half is a file leaving disk while the same one is open.
+  if (ref.forFile !== state.sprint.number
+    || (ref.key !== null && !files.some((file) => file.number === ref.key))) {
     Object.assign(ref, {
-      key: wanted ? wanted.number : null,
+      forFile: state.sprint.number,
+      key: previousSprintFile(files, state.sprint.number),
       file: null, asked: null, sections: null, error: "",
     });
   }
 
   select.innerHTML = "";
+  // Nothing picked is a real answer here, so it is a real option: without one,
+  // a null key would leave the select showing a file the panel is not drawing.
+  const none = element("option", null, "— no reference —");
+  none.value = "";
+  select.appendChild(none);
   for (const file of files) {
     const option = element("option", null,
       file.heading ? `${file.name} · ${file.heading}` : file.name);
@@ -4757,18 +4812,13 @@ function renderSprintRef() {
     select.appendChild(option);
   }
   select.disabled = files.length === 0;
-  if (ref.key !== null) select.value = ref.key;
+  select.value = ref.key === null ? "" : String(ref.key);
 
   pills.innerHTML = "";
   body.innerHTML = "";
 
-  // Two ways to have nothing on offer, and they read differently: no files at
-  // all, or the only file there is the one being typed in.
   if (ref.key === null) {
-    body.appendChild(element("p", "sprint-ref-note",
-      state.sprint.files.length
-        ? "The only sprint file on disk is the one open here — there is nothing to read it against."
-        : "No sprint files on disk yet — there is nothing to read against."));
+    body.appendChild(element("p", "sprint-ref-note", refEmptyNote(files)));
     return;
   }
 
@@ -9544,9 +9594,17 @@ function bindEvents() {
   // `switchSprintFile`: nothing is being left, because nothing here is open for
   // writing. The pills are cleared, since a different file has different headings
   // and its own three to pre-select.
+  //
+  // The empty value is the `— no reference —` row, and `Number("")` is 0 rather
+  // than null, which would ask the server for a file called `00`. `forFile` is
+  // written along with the key so the render reads this as a decision already
+  // made for the open file and leaves it alone -- including the decision to
+  // draw nothing.
   $("sprint-ref-select").onchange = (event) => {
+    const picked = event.target.value;
     Object.assign(state.sprintRef, {
-      key: Number(event.target.value),
+      forFile: state.sprint.number,
+      key: picked === "" ? null : Number(picked),
       file: null, asked: null, sections: null, error: "",
     });
     renderSprintSide();
