@@ -114,6 +114,7 @@ Type checking is pyright, `basic` mode, config in `pyrightconfig.json`.
 | `app/db.py` | Schema, CRUD, `migrate`, export/import. Rows in/out as plain dicts. The only module that touches SQLite. |
 | `app/markdown.py` | Splits a markdown file into blocks, renders one to HTML, serialises a table back. **Pure functions, no I/O** — the `validation.py` genre. **Knows nothing about sprints, and must not.** |
 | `app/auth.py` | The OIDC sign-in flow and its pure predicates — `is_allowed`, the claim checks, the signed cookie. The `validation.py` genre, different subject: scheduling rules do not live here and OIDC does not live there. **A gate, not an account model.** |
+| `app/issues.py` | The issue reader: three host adapters, the URL/header/state shapes, normalising three payloads into one, and the configuration change log's diff. The `auth.py` genre — pure functions plus one `http_client` seam. **Reads only; nothing here writes to a host, and it knows nothing about roadmaps or sprints.** |
 | `app/config.py` | Reads `.env` into `os.environ` at import of `app.main`, via `python-dotenv` with `override=False`. Environment beats file; does nothing under pytest, because the real `.env` holds the client secret and often `MASTERMIND_SSO=off`. |
 | `app/main.py` | FastAPI routes. Thin — assembly and HTTP only, no business logic. |
 | `app/static/index.html` | The shell. Deleting an element here is a migration — see Working style. |
@@ -125,6 +126,7 @@ Type checking is pyright, `basic` mode, config in `pyrightconfig.json`.
 | `tests/test_validation.py` | Rules, pure. |
 | `tests/test_markdown.py` | The block model, mirroring `app/markdown.py`. The round trip is the gate. |
 | `tests/test_api.py` | Acceptance criteria, via `TestClient` + `tmp_path` db. |
+| `tests/test_issues.py` | The issue reader, mirroring `app/issues.py`. Offline — the hosts are `httpx.MockTransport` behind the one seam. |
 | `tests/test_sprint_review.py` | Sprint script — pure helpers + one `TestModel` run. Offline. |
 | `templates/sprint.md` | The sprint template. **Tracked by git**, unlike `sprints/`. Copied to `sprints/NN.md` on create, and editable in the Sprint tab like a sprint file. |
 | `sprints/NN.md` | One markdown file per fortnight. Gitignored. **The markdown file is the one record** — there is no sprint table and no sidecar store. |
@@ -260,7 +262,7 @@ and argument are in `PROMPT.md`, `feature_request.md` and `git log`.
    the argument).* Client secret, session key, redirect URI override and the
    plain-http flag are `sso_` columns in the settings row; the matching
    environment variables are a fallback, read only where a column is empty.
-   `db.settings_without_sso` strips the whole `sso_` prefix from `/api/export`,
+   `db.settings_for_export` strips the whole `sso_` prefix from `/api/export`,
    which is the one line keeping a secret out of the JSON — **a sign-in column
    added without that prefix walks straight into the file.**
 

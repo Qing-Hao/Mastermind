@@ -15,7 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from app import auth, db, main
+from app import auth, db, issues, main
 from app.main import app
 
 
@@ -5560,3 +5560,167 @@ def test_no_deliverable_ever_gains_an_assignee(client, realm, sprints):
                           json={"name": "Auth API"}).json()
     assert "assignee" not in created
     assert "person_id" not in created
+
+
+# --- the Issues reader --------------------------------------------------------
+
+# The routes, the flag, the token mask and the change log. The hosts themselves
+# are stubbed through `issues.http_client` -- the same one seam `test_issues.py`
+# uses, so nothing here needs a network or a token either.
+
+
+@pytest.fixture
+def issues_on(monkeypatch):
+    """The feature switched on, with every host answering with one open issue."""
+    monkeypatch.setenv(issues.ENV_ISSUES, "on")
+
+    def handler(request):
+        return httpx.Response(200, json=[
+            {"number": 1, "title": "Import drops dependencies", "state": "open",
+             "html_url": "https://github.com/core/mm/issues/1",
+             "labels": [{"name": "bug"}], "user": {"login": "engineer"},
+             "comments": 2, "created_at": "2026-09-01T09:00:00Z",
+             "updated_at": "2026-09-08T09:00:00Z"},
+        ])
+
+    monkeypatch.setattr(
+        issues, "http_client",
+        lambda timeout=None: httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+
+GITHUB_REPO = {"provider": "github", "owner": "core", "repo": "mm", "token": "t0ken"}
+
+
+def configure_repos(client, repos):
+    response = client.put("/api/issues/repos", json={"repos": repos})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_the_whole_feature_is_absent_until_the_environment_says_otherwise(client, monkeypatch):
+    """Off means absent, not empty: a quiet page would read as no issues."""
+    monkeypatch.delenv(issues.ENV_ISSUES, raising=False)
+    for path in ("/api/issues", "/api/issues/counts", "/api/issues/changes"):
+        assert client.get(path).status_code == 404
+    assert client.put("/api/issues/repos", json={"repos": []}).status_code == 404
+    # The one route that answers either way, because the shell asks it before
+    # drawing and a 404 would look like an older build.
+    off = client.get("/api/issues/config")
+    assert off.status_code == 200
+    assert off.json() == {"enabled": False, "repos": []}
+
+
+def test_issues_are_read_live_and_carry_the_link_out(client, issues_on):
+    configure_repos(client, [GITHUB_REPO])
+    body = client.get("/api/issues").json()
+    assert [issue["title"] for issue in body["issues"]] == ["Import drops dependencies"]
+    assert body["issues"][0]["url"] == "https://github.com/core/mm/issues/1"
+    assert body["errors"] == []
+
+
+def test_the_sprint_panel_asks_for_counts_only(client, issues_on):
+    configure_repos(client, [GITHUB_REPO])
+    body = client.get("/api/issues/counts").json()
+    assert body["counts"] == [{"repo_ref": "github:core/mm",
+                              "repo_label": "core/mm", "count": 1}]
+    assert "issues" not in body
+
+
+def test_the_configured_token_never_reaches_the_frontend(client, issues_on):
+    """Not the token, and not its tail. The Sign-in page already echoes one secret."""
+    configured = configure_repos(client, [GITHUB_REPO])
+    assert configured["repos"][0]["token_set"] is True
+    assert "token" not in configured["repos"][0]
+    assert "t0ken" not in client.get("/api/issues/config").text
+
+
+def test_a_save_that_sends_no_token_keeps_the_stored_one(client, issues_on):
+    """The page shows a mask; a save that echoed it back would store the dots."""
+    configure_repos(client, [GITHUB_REPO])
+    configure_repos(client, [{"provider": "github", "owner": "core", "repo": "mm",
+                              "label": "Mastermind"}])
+    stored = issues.repos_from_json(db.get_settings()["issues_repos"])
+    assert stored[0]["token"] == "t0ken"
+    assert stored[0]["label"] == "Mastermind"
+
+
+def test_a_token_sent_empty_is_the_deliberate_clear(client, issues_on):
+    configure_repos(client, [GITHUB_REPO])
+    configure_repos(client, [{**GITHUB_REPO, "token": ""}])
+    stored = issues.repos_from_json(db.get_settings()["issues_repos"])
+    assert stored[0]["token"] == ""
+
+
+def test_a_repository_listed_twice_is_refused(client, issues_on):
+    response = client.put("/api/issues/repos",
+                          json={"repos": [GITHUB_REPO, dict(GITHUB_REPO)]})
+    assert response.status_code == 400
+
+
+def test_an_unknown_provider_is_refused_by_name(client, issues_on):
+    response = client.put("/api/issues/repos",
+                          json={"repos": [{"provider": "bitbucket", "owner": "c", "repo": "m"}]})
+    assert response.status_code == 400
+    assert "bitbucket" in response.json()["detail"]
+
+
+def test_the_change_log_records_what_moved_and_never_who(client, issues_on):
+    configure_repos(client, [GITHUB_REPO])
+    configure_repos(client, [{**GITHUB_REPO, "label": "Mastermind", "token": None}])
+    changes = client.get("/api/issues/changes").json()["changes"]
+    fields = [(row["field"], row["old_value"], row["new_value"]) for row in changes]
+    assert ("label", "", "Mastermind") in fields
+    assert ("repository", "", "github:core/mm") in fields
+    # Amendment 7's bound, asserted rather than trusted.
+    for row in changes:
+        assert set(row) == {"id", "at", "repo_ref", "field", "old_value", "new_value"}
+
+
+def test_the_change_log_never_stores_a_token_value(client, issues_on):
+    configure_repos(client, [GITHUB_REPO])
+    configure_repos(client, [{**GITHUB_REPO, "token": "rotated"}])
+    body = client.get("/api/issues/changes").text
+    assert "t0ken" not in body and "rotated" not in body
+    assert issues.TOKEN_CHANGED in body
+
+
+def test_the_issues_configuration_is_stripped_from_the_export(client, issues_on):
+    """A token in the JSON that gets emailed. The `issues_` prefix is the one line."""
+    configure_repos(client, [GITHUB_REPO])
+    exported = client.get("/api/export")
+    assert "t0ken" not in exported.text
+    assert not [key for key in exported.json()["settings"] if key.startswith("issues_")]
+
+
+def test_an_import_leaves_the_configured_repositories_alone(client, issues_on):
+    """Importing somebody's plan must not reconfigure this deployment's connections."""
+    configure_repos(client, [GITHUB_REPO])
+    exported = client.get("/api/export").json()
+    assert client.post("/api/import", json=exported).status_code == 200
+    assert issues.repos_from_json(db.get_settings()["issues_repos"])[0]["token"] == "t0ken"
+
+
+def test_the_change_log_is_not_exported(client, issues_on):
+    configure_repos(client, [GITHUB_REPO])
+    assert "issues_audit" not in client.get("/api/export").text
+
+
+def test_no_deliverable_ever_gains_an_issue(client, issues_on):
+    """Amendment 7's line: a planning unit that points at a ticket is one."""
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Build", "2026-01-05", 2, 8)
+    created = client.post(f"/api/phases/{phase['id']}/deliverables",
+                          json={"name": "Auth API"}).json()
+    assert "issue_id" not in created and "issue_url" not in created
+
+
+def test_nothing_writes_back_to_a_host(client, issues_on):
+    """No comment, no close, no label. The link out is the feature."""
+    paths = [getattr(route, "path", "") for route in app.routes
+             if getattr(route, "path", "").startswith("/api/issues")]
+    methods = {method for route in app.routes
+               if getattr(route, "path", "").startswith("/api/issues")
+               for method in getattr(route, "methods", set())}
+    assert methods <= {"GET", "PUT", "HEAD", "OPTIONS"}
+    assert not [path for path in paths if path.rstrip("/").endswith(("comment", "close"))]

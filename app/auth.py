@@ -36,7 +36,7 @@ import httpx
 # Every value below is configured on the Sign-in page and stored in the settings
 # row; these variables are the fallback for a deployment that predates those
 # columns, and are read only where the column is empty. The rule that keeps the
-# secrets out of `/api/export` is `db.settings_without_sso`, which strips the
+# secrets out of `/api/export` is `db.settings_for_export`, which strips the
 # whole `sso_` prefix -- see the comment on the settings table.
 #
 # Two exceptions, both deliberate, and both environment-only:

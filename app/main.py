@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import auth, config, db
+from app import auth, config, db, issues
 from app.markdown import (
     SpliceRefused,
     document_blocks,
@@ -864,6 +864,24 @@ class SettingsIn(BaseModel):
     sprint_length_days: int | None = None
     v1_tolerance_pct: float | None = None
     department_name: str | None = None
+
+
+class IssueRepoIn(BaseModel):
+    provider: str
+    owner: str
+    repo: str
+    base_url: str = ""
+    label: str = ""
+    enabled: bool = True
+    # Absent means "leave the stored token alone" -- the page shows a mask, and a
+    # save that echoed the mask back would store the dots. Present and empty is
+    # the deliberate clear. Exactly the arrangement `sso_client_secret` uses, for
+    # exactly the same reason.
+    token: str | None = None
+
+
+class IssueReposIn(BaseModel):
+    repos: list[IssueRepoIn] = []
 
 
 class ProjectIn(BaseModel):
@@ -3484,6 +3502,114 @@ def add_dependency(body: DependencyIn):
 def remove_dependency(dependency_id: int):
     db.delete_dependency(dependency_id)
     announce_roadmap()
+
+
+# --- issues ------------------------------------------------------------------
+
+# A reader, not a tracker: every route below asks the hosts at request time and
+# returns what they said. Nothing is stored, nothing is written back, and every
+# issue carries its host's own URL because that is where it is answered. The
+# client and all its pure parts are `app.issues`; what is here is assembly, HTTP
+# and the one write -- the configuration, and its change log.
+#
+# PROMPT.md amendment 7 carries the argument and the lines this must not cross.
+
+ISSUES_OFF = ("The Issues feature is off on this deployment. "
+              "Set MASTERMIND_ISSUES to switch it on.")
+
+
+def issues_on_or_404():
+    """404 every Issues route while the feature is off. `/api/issues/config` excepted.
+
+    Off means absent rather than empty: a deployment that never configured this
+    should answer as though the feature were not built, not as though every
+    repository were quiet.
+    """
+    if not issues.is_enabled():
+        raise HTTPException(status_code=404, detail=ISSUES_OFF)
+
+
+def stored_repos():
+    """The configured repositories, tokens included. Never handed to the frontend as-is."""
+    return issues.repos_from_json(db.get_settings().get("issues_repos", ""))
+
+
+@app.get("/api/issues/config")
+def read_issues_config():
+    """Whether the feature is on, and what it is pointed at. The one route that answers when off.
+
+    The shell asks this before drawing, so it has to answer either way -- a 404
+    here would be indistinguishable from a deployment running an older build.
+    """
+    if not issues.is_enabled():
+        return {"enabled": False, "repos": []}
+    return {"enabled": True, "repos": [issues.without_token(repo) for repo in stored_repos()]}
+
+
+@app.get("/api/issues")
+def read_issues(state: str = "open", limit: int = issues.DEFAULT_LIMIT):
+    """Open issues across every configured repository, read live and stored nowhere."""
+    issues_on_or_404()
+    return issues.fetch_all(stored_repos(), state=state, limit=limit)
+
+
+@app.get("/api/issues/counts")
+def read_issue_counts(state: str = "open", limit: int = issues.DEFAULT_LIMIT):
+    """Per-repository open counts. What the Sprint tab's panel draws.
+
+    The same read as `/api/issues` with the issues dropped: one page of each
+    repository is what the count is derived from, so a repository with more open
+    issues than `limit` reports the page rather than the total. That is the
+    honest number for a panel whose job is "is there anything here", and paging
+    every repository to total them would be a request per hundred issues.
+    """
+    issues_on_or_404()
+    found = issues.fetch_all(stored_repos(), state=state, limit=limit)
+    return {"counts": found["counts"], "errors": found["errors"]}
+
+
+@app.put("/api/issues/repos")
+def write_issue_repos(body: IssueReposIn):
+    """Replace the configured repositories, and log what moved. The only write here."""
+    issues_on_or_404()
+    before = stored_repos()
+    token_of = {issues.repo_ref(repo): repo.get("token", "") for repo in before}
+    incoming = []
+    for entry in body.repos:
+        repo = entry.model_dump()
+        # An absent token means the page sent the mask back rather than a new
+        # secret. Carry the stored one forward, keyed by the repository it
+        # belongs to -- a repository that was renamed has no stored token to
+        # carry, which is correct: to the host it is a different repository.
+        if repo.get("token") is None:
+            repo["token"] = token_of.get(issues.repo_ref(repo), "")
+        try:
+            incoming.append(issues.clean_repo(repo))
+        except issues.IssuesError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    refs = [issues.repo_ref(repo) for repo in incoming]
+    if len(set(refs)) != len(refs):
+        # The change log is keyed by `repo_ref` and so is the token carry-forward,
+        # so a duplicate would make both ambiguous.
+        raise HTTPException(status_code=400, detail="That repository is listed twice.")
+
+    # Written before the save rather than after: `audit_diff` is where a token
+    # becomes the word 'changed', and it needs both lists to say so.
+    db.log_issue_changes(issues.audit_diff(before, incoming))
+    db.update_settings({"issues_repos": issues.repos_to_json(incoming)})
+    return read_issues_config()
+
+
+@app.get("/api/issues/changes")
+def read_issue_changes(limit: int = db.CHANGE_LOG_LIMIT):
+    """The configuration change log: when, which repository, which field, both values.
+
+    Never who -- see the `issues_audit` table's comment for why that column does
+    not exist.
+    """
+    issues_on_or_404()
+    return {"changes": db.list_issue_changes(limit)}
 
 
 # --- export / import --------------------------------------------------------

@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS settings (
     department_name                   TEXT    NOT NULL DEFAULT '',
     -- Sign-in configuration, secrets included, all of it editable from the
     -- Sign-in page. `export_all` writes this row out, so every `sso_` column is
-    -- stripped from the export by `settings_without_sso` -- that strip is what
+    -- stripped from the export by `settings_for_export` -- that strip is what
     -- keeps a secret out of the JSON, and it is a prefix test, so a sign-in
     -- column added without the prefix would walk straight into the file.
     --
@@ -45,7 +45,22 @@ CREATE TABLE IF NOT EXISTS settings (
     sso_session_key                   TEXT    NOT NULL DEFAULT '',
     sso_redirect_uri                  TEXT    NOT NULL DEFAULT '',
     sso_allow_http                    INTEGER NOT NULL DEFAULT 0
-                                      CHECK (sso_allow_http IN (0, 1))
+                                      CHECK (sso_allow_http IN (0, 1)),
+    -- The repositories the Issues page reads, as a JSON list: provider, base
+    -- URL, owner, name, label, and a per-repo token. One column rather than a
+    -- table because it is a handful of connection settings edited on one page
+    -- and joined against nothing -- see PROMPT.md amendment 7.
+    --
+    -- **It holds tokens, so it is named `issues_` for the reason the sign-in
+    -- columns are named `sso_`**: `settings_for_export` strips both prefixes,
+    -- and that one line is what keeps these out of the JSON. An Issues column
+    -- added without the prefix walks its token straight into the file.
+    --
+    -- Whether the feature exists at all is `MASTERMIND_ISSUES` in the
+    -- environment and deliberately not a column: this row travels in
+    -- `/api/export`, so a column would carry the feature into a deployment that
+    -- was never meant to reach the internet.
+    issues_repos                      TEXT    NOT NULL DEFAULT ''
 );
 """
 
@@ -259,6 +274,33 @@ CREATE TABLE IF NOT EXISTS person (
     display_name TEXT NOT NULL DEFAULT ''
 );
 
+-- The Issues configuration change log, and it is the audit log **Non-goals**
+-- and amendment 4 both refuse. It is allowed on bounds, and the bounds are the
+-- whole argument -- PROMPT.md amendment 7 carries it. Do not generalise this
+-- table to anything else; an audit log over the plan is still refused outright.
+--
+-- Four bounds, each of which is a column this table does not have:
+--
+-- * **No person.** `at`, which repository, which field, and the two values.
+--   Recording the handle was offered and declined: it would be the second row
+--   keyed by a person that amendment 6 exists to prevent.
+-- * **No token values.** A changed token is logged as 'set', 'changed' or
+--   'cleared' -- see `issues.audit_diff`. There is no `issues_` prefix
+--   protecting this table, so a value here would be a second copy of a secret
+--   with nothing standing between it and an export.
+-- * **Connection settings only.** Never a project, phase, deliverable or
+--   sprint file.
+-- * **Out of `export_all`**, by omission, for the reason `person` is: it
+--   describes this deployment's connections, not the dataset.
+CREATE TABLE IF NOT EXISTS issues_audit (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    at        TEXT NOT NULL,
+    repo_ref  TEXT NOT NULL,
+    field     TEXT NOT NULL,
+    old_value TEXT NOT NULL DEFAULT '',
+    new_value TEXT NOT NULL DEFAULT ''
+);
+
 CREATE INDEX IF NOT EXISTS idx_phase_project ON phase(project_id);
 CREATE INDEX IF NOT EXISTS idx_deliverable_phase ON deliverable(phase_id);
 CREATE INDEX IF NOT EXISTS idx_milestone_project ON milestone(project_id);
@@ -335,6 +377,10 @@ ADDED_COLUMNS = [
     ("settings", "sso_redirect_uri", "TEXT NOT NULL DEFAULT ''"),
     ("settings", "sso_allow_http", "INTEGER NOT NULL DEFAULT 0 "
                                    "CHECK (sso_allow_http IN (0, 1))"),
+    # The Issues configuration. An existing file arrives with no repositories
+    # configured, which with `MASTERMIND_ISSUES` unset is the feature switched
+    # off twice over -- exactly how a file that has never seen it should read.
+    ("settings", "issues_repos", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 # Columns retired after the first release. Deliverables stopped carrying their
@@ -619,14 +665,18 @@ def get_settings():
     return dict(row)
 
 
-def settings_without_sso(settings):
-    """The settings row minus sign-in configuration. See `export_all`.
+# Every column group that describes this deployment rather than the dataset, and
+# each one holds a secret: the OIDC client secret and cookie key, and the tokens
+# inside `issues_repos`. A prefix test is why they are named this way, and it is
+# the single line standing between them and the JSON that gets emailed -- a
+# column of either kind added without its prefix walks straight into the file.
+PRIVATE_PREFIXES = ("sso_", "issues_")
 
-    A prefix test, and the reason every sign-in column is named `sso_`: two of
-    them hold secrets, and this is the single line standing between them and the
-    JSON that gets emailed.
-    """
-    return {key: value for key, value in settings.items() if not key.startswith("sso_")}
+
+def settings_for_export(settings):
+    """The settings row minus sign-in and Issues configuration. See `export_all`."""
+    return {key: value for key, value in settings.items()
+            if not key.startswith(PRIVATE_PREFIXES)}
 
 
 def update_settings(fields):
@@ -652,6 +702,11 @@ def update_settings(fields):
         "sso_session_key",
         "sso_redirect_uri",
         "sso_allow_http",
+        # The Issues repositories, as one JSON list. `main.write_issue_repos`
+        # is the only caller: it cleans the list through `issues.clean_repo`,
+        # carries forward a token the page sent back as a mask, and writes the
+        # change log in the same breath.
+        "issues_repos",
     }
     updates = {key: value for key, value in fields.items() if key in allowed}
     if updates:
@@ -661,6 +716,46 @@ def update_settings(fields):
                 f"UPDATE settings SET {assignments} WHERE id = 1", list(updates.values())
             )
     return get_settings()
+
+
+# --- the Issues change log ---------------------------------------------------
+#
+# Two functions, and they are the whole of it. See the `issues_audit` table's
+# comment for the four bounds this must keep, and PROMPT.md amendment 7 for why
+# a table the brief refuses exists at all.
+
+# What the page shows without being asked for more. A settings log that needs
+# paging is a settings log somebody is using as a history of the work.
+CHANGE_LOG_LIMIT = 200
+
+
+def log_issue_changes(rows):
+    """Record configuration changes. Rows come from `issues.audit_diff`, never raw input.
+
+    The caller passing rows it built itself is the one guard against a token
+    reaching this table: `audit_diff` is where a token becomes the word 'changed',
+    and nothing else may write here.
+    """
+    if not rows:
+        return 0
+    stamp = now_iso()
+    with connect() as connection:
+        connection.executemany(
+            "INSERT INTO issues_audit (at, repo_ref, field, old_value, new_value) "
+            "VALUES (?, ?, ?, ?, ?)",
+            [(stamp, row["repo_ref"], row["field"], row.get("old", ""), row.get("new", ""))
+             for row in rows],
+        )
+    return len(rows)
+
+
+def list_issue_changes(limit=CHANGE_LOG_LIMIT):
+    """The change log, newest first."""
+    with connect() as connection:
+        rows = connection.execute(
+            "SELECT * FROM issues_audit ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+    return rows_to_dicts(rows)
 
 
 # --- people -----------------------------------------------------------------
@@ -1239,7 +1334,10 @@ def export_all():
         # machine an export is carried to, and an export names people. It
         # rebuilds from the allowlist and the next sign-in. The version does not
         # move here either.
-        "settings": settings_without_sso(get_settings()),
+        # `issues_audit` is absent for the reason `person` is, and by the same
+        # mechanism -- omission from the list of tables above. It records this
+        # deployment's connection settings, not the dataset.
+        "settings": settings_for_export(get_settings()),
         "projects": projects,
         "phases": phases,
         "deliverables": deliverables,

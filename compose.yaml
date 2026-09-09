@@ -50,6 +50,11 @@ services:
       # the one derived from the request will not match what is registered.
       # Also a field on the Sign-in page, which wins over this when filled in.
       MASTERMIND_OIDC_REDIRECT_URI: ${MASTERMIND_OIDC_REDIRECT_URI:-}
+      # `on` builds the Issues page and the Sprint tab's issue panel; unset
+      # leaves both absent. Deliberately not a field on any page: the settings
+      # row travels in /api/export, so a column would carry the one feature that
+      # reaches off this machine into a deployment that never meant to.
+      MASTERMIND_ISSUES: ${MASTERMIND_ISSUES:-}
 
     volumes:
       # The dataset, and the startup backups beside it. Irreplaceable.
