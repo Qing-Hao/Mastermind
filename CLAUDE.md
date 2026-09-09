@@ -220,6 +220,31 @@ and argument are in `PROMPT.md`, `feature_request.md` and `git log`.
    `person` is excluded from `/api/export` for the reason the `sso_` columns are —
    see `db.export_all`.
 
+   **Narrowed a third time 2026-09-09 — the app reads somebody else's issue
+   tracker.** An Issues page and a Sprint-tab count panel list open issues from
+   configured repositories and **link out to the host** for every one of them.
+   Read through, store nothing: no issue table, no cached state, no sync — the
+   `/api/late` genus, reaching one hop further. Off unless
+   `MASTERMIND_ISSUES` is on; environment-only and **not a column**, because the
+   settings row travels in `/api/export` and a column would carry the feature into
+   a deployment never meant to reach the internet. Repositories and their
+   per-repo tokens are `issues_` columns, stripped from the export exactly as
+   `sso_` is. PROMPT.md amendment 7 carries the argument.
+
+   Still refused, and each is where the reader becomes the tracker: **no
+   `deliverable.issue_id`** or external key of any kind, **no write-back** (no
+   comment, close, label or assignment — the link out is the feature), nothing
+   per-person (no "my issues", dismissal, snooze or unread count), and nothing
+   derived from an issue by any rule, stage or date.
+
+   **`issues_audit` is a real exception, bounded on purpose.** It logs changes to
+   the Issues configuration — `at`, repository, field, old, new — and it is the
+   audit log the line above refuses. It is allowed for external connection
+   settings *only*, never for planning data; it **records no person** (declined
+   deliberately, 2026-09-09 — that is the second person-keyed row amendment 6
+   prevents); it **never records a token value**, only that one changed; and it is
+   out of `/api/export`. Do not generalise it to anything else.
+
    **A readout is not a notification, and the difference is memory.** The overdue
    bell (`GET /api/late`) counts what is past its date, derived on read from the
    rows and today. Everyone sees the same list and nothing about it is stored, so

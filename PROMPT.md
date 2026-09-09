@@ -30,7 +30,9 @@ This is NOT a replacement for Jira, Linear, or a full project management system.
 
 - Ticket/issue tracking, comments, mentions, or activity feeds
   *(mentions narrowed by amendment 6 — `@handle` is text in a sprint file, and
-  the readout of it remembers nothing)*
+  the readout of it remembers nothing; issues narrowed by amendment 7 — the app
+  reads somebody else's tracker and links out to it, stores no issue and writes
+  nothing back)*
 - Notifications or email
   *(narrowed by amendment 6 — a bell derived on read is a readout; email and
   anything with unread state are still out)*
@@ -38,6 +40,8 @@ This is NOT a replacement for Jira, Linear, or a full project management system.
   *(narrowed by amendments 4 and 6 — a gate, and a directory of who exists. No
   roles, no permissions.)*
 - Integrations with any external system
+  *(narrowed by amendment 7 — one read-only reader of repository issues, off
+  unless `MASTERMIND_ISSUES` says otherwise. Nothing else reaches out.)*
 - Reporting/BI dashboards
 - Mobile-specific layouts
 
@@ -285,6 +289,92 @@ the text above, **the amendment wins** — the code follows the amendments.
    a user model and should not be mistaken for the beginning of one. If this is
    ever wanted generally, the work is a fresh decision recorded here — not an
    extra column added to `person` on the grounds that the table already exists.
+
+7. **Issues are read from where the engineers already file them.** *(Added
+   2026-09-09. Narrows the "Integrations with any external system" non-goal. The
+   ticket-tracking non-goal is untouched — see the lines below.)* The engineers
+   log issues in their repositories. Planning happens here. The two are read at
+   different times by different people, so an issue that should have shaped a
+   fortnight's plan is routinely not seen until after it was needed.
+
+   What is built is **a reader, not a tracker**. An Issues page lists what is open
+   across the configured repositories, and the Sprint tab carries a panel of
+   repository names and open counts so the question is in front of whoever is
+   planning. Every issue on both is **a link to the host's own page** — that is
+   where an issue is read properly and where it is answered. Mastermind does not
+   answer it.
+
+   **Nothing is stored.** The server asks each host at request time, normalises
+   the reply and renders it; there is no issue table, no comment body, no cached
+   state, no sync job. It is the genus of `/api/late` and `/api/mine`: derived on
+   read, remembering nothing, identical for everyone who opens it. A stored issue
+   would drift from the host silently, and a drifting copy of somebody else's
+   tracker is worse than no copy.
+
+   **Off unless the deployment asks for it.** `MASTERMIND_ISSUES` is
+   environment-only and is not a column, for a reason particular to it: the
+   settings row travels in `/api/export`, so a column would carry the feature
+   into an environment that was never meant to reach the internet. The flag
+   describes the deployment, as `MASTERMIND_SSO` and `MASTERMIND_PUBLIC` do. With
+   it off the routes are absent and the frontend shows neither the tab nor the
+   panel.
+
+   **The repositories are configured on the page**, in one `issues_repos` JSON
+   column: provider, base URL, owner, repository, and a **per-repo token**,
+   because a self-hosted Forgejo and github.com will never share a credential.
+   Read-only scope is sufficient and is what should be issued. Every column is
+   named `issues_` and the whole prefix is stripped from `/api/export`, exactly
+   as `sso_` is — and for the same reason, with the same trap: **a column added
+   without that prefix walks its token straight into the JSON.**
+
+   Hosts are an **adapter registry in `app/issues.py`** — GitHub, GitLab and
+   Forgejo to start. A fourth host is thirty lines of code in that file, and
+   deliberately not a URL-template language in a settings dialog: authentication
+   and pagination differ per host, so the configurable version would not have
+   covered the fourth one anyway.
+
+   The lines this must not cross:
+
+   - **No issue is stored, and no issue is linked to a deliverable.** `deliverable`
+     gains no `issue_id`, no `issue_url`, no external key of any kind. Amendment
+     2's reasoning is unchanged and is the whole point: the moment a planning unit
+     points at a ticket, it is one.
+   - **No write-back.** No comment, no close, no label, no assignment. The link
+     out is the feature. *(Write-back was asked for on 2026-09-09 and withdrawn in
+     the same conversation in favour of the link — recorded because the reason was
+     cost, not principle, and a later ask should be argued fresh rather than
+     treated as settled.)*
+   - **Nothing per-person.** No "issues assigned to me", no dismissal, no snooze,
+     no unread count, no "new since you last looked". Each is a row keyed by a
+     person, and amendment 6 refuses each already.
+   - **Nothing derives from an issue.** No rule reads one, no date moves because of
+     one, no count feeds a stage or a warning. The panel is a readout beside the
+     plan, not an input to it.
+
+   **The one place this crosses the brief rather than narrowing it: a change log.**
+   `issues_audit` records changes to the Issues configuration — when a repository
+   was added, removed or edited, and which field moved. **Non-goals** and
+   amendment 4 both refuse an audit log, and this is one. It is allowed here on a
+   bounded argument, and the bounds are the argument:
+
+   - It logs **configuration of an external connection only** — never a project,
+     phase, deliverable, sprint file or any planning data. An audit log over the
+     plan is still refused outright.
+   - It records **no person**. `at`, the repository it concerns, the field, and
+     the old and new values. Not who. Recording the handle was offered on
+     2026-09-09 and declined: it would be the second row keyed by a person that
+     amendment 6 exists to prevent, and the precedent, not the column, is the
+     cost.
+   - It **never records a token value.** A changed token is logged as the fact
+     that it changed. The `issues_` strip keeps the settings row out of the
+     export; a log of old and new values would be a second copy of the secret with
+     nothing protecting it.
+   - It is excluded from `/api/export`, for the reason `person` and the `sso_`
+     columns are: it describes this deployment's connections, not the dataset.
+
+   The failure it exists to catch is "a repository stopped appearing and nobody
+   knows when". If it is ever asked to answer "who changed this", that is a fresh
+   decision argued here — not a column added because the table already exists.
 
 Deliverables inside a phase are treated as **sequential**, so durations sum. Work
 that genuinely runs in parallel belongs in separate phases.
