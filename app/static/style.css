@@ -3930,6 +3930,113 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 .save-failed, .save-conflict { color: #b00020; }
 .save-action { font-size: 12px; padding: 1px 8px; }
 
+/* --- issues view -------------------------------------------------------------
+   A window onto somebody else's tracker, so it is deliberately the plainest
+   surface here: a list of links, and nothing that looks like something you could
+   change. No state colours, no severity ramp -- a label is drawn in the host's
+   own words and nothing on this tab means anything about the plan. */
+
+/* Load-bearing: `refreshView` folds this away with the `hidden` attribute like
+   the other four views, and any class here setting `display` would outrank the
+   UA sheet's `[hidden]`. The guard is the cheap half of the trap that has broken
+   nine features -- see the note above `.app`. */
+.issues-view[hidden] { display: none; }
+/* The tab in the sidebar is hidden whenever the deployment has the feature off,
+   and `.nav-item` sets `display: flex`. Same trap, same guard. */
+.nav-item[hidden] { display: none; }
+
+.issues-filter { max-width: 260px; margin: 0; }
+
+.issues-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+
+/* An anchor, not a row with a handler: this is a link out, and it should drag,
+   middle-click and copy like one. */
+.issue-row {
+  display: block;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  color: inherit;
+  text-decoration: none;
+}
+.issue-row:hover { background: var(--hover); }
+
+.issue-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.issue-title { font-size: 13.5px; color: var(--ink); }
+.issue-label {
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.issue-meta {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+.issue-repo { font-weight: 600; color: var(--ink-3); }
+.issue-number { font-variant-numeric: tabular-nums; }
+
+/* --- the repositories, and the change log --- */
+/* Wider than the ⋯ menu: a connection is six fields on one line, and wrapped
+   across two it stops reading as one repository. */
+.issues-panel { width: 620px; }
+
+.issue-repo-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.issue-repo-row input[type="text"],
+.issue-repo-row input[type="password"] { min-width: 0; flex: 1 1 110px; }
+.issue-repo-provider { flex: 0 0 auto; }
+.issue-repo-enabled { display: flex; align-items: center; gap: 4px; font-size: 11.5px; }
+.issue-repo-clear, .issue-repo-remove { flex: 0 0 auto; font-size: 11.5px; }
+
+.issues-changes { max-height: 180px; overflow-y: auto; }
+.issue-change {
+  display: flex;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.issue-change-when { color: var(--faint); font-variant-numeric: tabular-nums; }
+.issue-change-repo { font-weight: 600; }
+
+/* --- the sprint tab's issue panel --- */
+/* The third readout in that column, and the same card as the other two. */
+.sprint-issues {
+  position: sticky;
+  top: calc(var(--topbar-h) + 12px);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+/* The rule above sets `display`, and `renderSprintSide` folds this away with the
+   `hidden` attribute whenever another tab in that column is showing. Same trap
+   as `.sprint-scope[hidden]` and `.sprint-ref[hidden]` beside it. */
+.sprint-issues[hidden] { display: none; }
+
+.sprint-issue-row { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; }
+.sprint-issue-name { flex: 1 1 auto; }
+/* An em dash where a count should be means the host could not be reached, which
+   is a different answer from nought and has to look like one. */
+.sprint-issue-count { font-variant-numeric: tabular-nums; font-weight: 600; }
+.sprint-issue-open { margin-top: 8px; font-size: 11.5px; }
+
 /* --- map view --- */
 /* Positions are computed in app.js; everything here is colour and type only,
    so the layout stays in one place. */

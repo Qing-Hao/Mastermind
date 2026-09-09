@@ -193,6 +193,19 @@ let state = {
   // keystroke ping, and `tick` is the one-second timer that reveals a Take
   // button, running only while somebody else is holding something.
   presence: { me: null, name: "", users: [], said: null, heard: 0, pinged: 0, tick: null },
+  // Somebody else's tracker, read live and held only until the next read. It is
+  // a way of looking, like `projectFilter`: `state` never persists, and there is
+  // no cache here to invalidate -- `refreshView` asks the hosts again on every
+  // visit to the tab. `enabled` comes from `/api/issues/config` at boot and is
+  // what unhides the tab; with the feature off nothing below ever runs.
+  issues: {
+    enabled: false, repos: [], rows: [], counts: [], errors: [],
+    state: "open", filter: "", loading: false, changes: [],
+    // The repository rows being edited in the ⚙ panel, which are deliberately
+    // not `repos`: a half-typed connection must not become what the page reads
+    // from until it is saved.
+    draft: null,
+  },
   currentProjectId: null,
   plan: null,
   portfolio: null,
@@ -1461,6 +1474,11 @@ const VIEW_TITLE = {
   portfolio: "Portfolio",
   map: "Team map",
   sprint: "Sprint",
+  // Named here even where the deployment has the feature off, so a bookmarked
+  // `#/issues` is routable rather than half-applied. `refreshView` draws an
+  // empty view and the tab beside it stays hidden, which is the honest answer:
+  // the page exists in this build and this deployment does not serve it.
+  issues: "Issues",
 };
 
 function renderTopbar() {
@@ -1984,6 +2002,10 @@ async function refreshView() {
   const isPortfolio = state.view === "portfolio";
   const isMap = state.view === "map";
   const isSprint = state.view === "sprint";
+  // Nothing about the roadmap either, and one step further out: these are
+  // somebody else's repositories. The tab is unreachable unless the deployment
+  // switched the feature on, so this is false on most of them.
+  const isIssues = state.view === "issues";
   // The map is still worth showing with nothing planned -- it is where the
   // first future direction gets captured. So is the sprint tab: its files are
   // on disk and have nothing to do with whether a project exists.
@@ -1994,13 +2016,19 @@ async function refreshView() {
   $("portfolio-view").hidden = !isPortfolio;
   $("map-view").hidden = !isMap;
   $("sprint-view").hidden = !isSprint;
+  $("issues-view").hidden = !isIssues;
   $("tab-project").classList.toggle("active", isProject);
   $("tab-portfolio").classList.toggle("active", isPortfolio);
   $("tab-map").classList.toggle("active", isMap);
   $("tab-sprint").classList.toggle("active", isSprint);
+  $("tab-issues").classList.toggle("active", isIssues);
 
   if (isProject) {
     if (!noProjects) await loadPlan();
+  } else if (isIssues) {
+    // Read on every visit, because there is nothing stored to go stale: what is
+    // on screen is what the hosts said when this tab was last opened.
+    await loadIssues();
   } else if (isPortfolio) {
     await loadPortfolio();
   } else if (isSprint) {
@@ -5004,12 +5032,19 @@ function renderSprintSide() {
   collapse.textContent = ref.shut ? "‹" : "›";
   collapse.title = ref.shut ? "Show the panel" : "Hide the panel";
 
-  $("sprint-side-scope").classList.toggle("active", !onRef);
+  // Three readouts now, so "which tab" is a name rather than a boolean. `onRef`
+  // survives as its own thing because it is what widens the column.
+  const onIssues = ref.tab === "issues" && state.issues.enabled;
+  const onScope = !onRef && !onIssues;
+
+  $("sprint-side-scope").classList.toggle("active", onScope);
   $("sprint-side-ref").classList.toggle("active", onRef);
-  // Both panels set `display`, so both carry a `[hidden]` guard in the
+  $("sprint-side-issues").classList.toggle("active", onIssues);
+  // All three panels set `display`, so all three carry a `[hidden]` guard in the
   // stylesheet -- the trap that has broken nine features here.
   $("sprint-ref").hidden = !onRef;
-  $("sprint-scope").hidden = onRef;
+  $("sprint-scope").hidden = !onScope;
+  $("sprint-issues").hidden = !onIssues;
 
   // Nothing to draw while it is shut: the render behind a 34px rail is work
   // nobody can see, and switching back runs it again.
@@ -5019,6 +5054,7 @@ function renderSprintSide() {
   }
 
   if (onRef) renderSprintRef();
+  else if (onIssues) loadSprintIssues();
   else renderSprintScope();
 
   // The definite height the scope panel's split needs -- see the measured note
@@ -9906,6 +9942,347 @@ function trackEditForm(node, projects) {
   return form;
 }
 
+// --- issues -------------------------------------------------------------------
+//
+// A window onto somebody else's tracker. Everything here reads: there is no
+// tick, no assignee, no state to change, and every row is a link out to the host
+// because that is where an issue is answered. The one write on this tab is the
+// configuration -- which repositories, and their tokens.
+//
+// PROMPT.md amendment 7 carries the argument. The lines that matter while
+// editing this file: nothing here may store an issue, link one to a deliverable,
+// or remember anything per person.
+
+const ISSUE_PROVIDERS = [
+  ["github", "GitHub"],
+  ["gitlab", "GitLab"],
+  ["forgejo", "Forgejo"],
+];
+
+// How old, in words, without a library and without pretending to a precision the
+// host's timestamp does not have. Planning wants "a fortnight ago", not a date.
+function issueAge(iso) {
+  if (!iso) return "";
+  const days = Math.floor((Date.now() - Date.parse(iso)) / MS_PER_DAY);
+  if (!Number.isFinite(days)) return "";
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 14) return `${days} days ago`;
+  if (days < 60) return `${Math.floor(days / 7)} weeks ago`;
+  return `${Math.floor(days / 30)} months ago`;
+}
+
+// Asked once at boot, and it is the only Issues call that answers with the
+// feature off. Everything else on this tab is behind the flag, including the tab
+// itself -- a deployment without it should look like a build that never had it.
+async function loadIssuesConfig() {
+  let config;
+  try {
+    config = await api("/api/issues/config");
+  } catch (_) {
+    // An older server has no such route. The tab stays hidden, which is exactly
+    // what a deployment without the feature should look like.
+    return;
+  }
+  state.issues.enabled = Boolean(config.enabled);
+  state.issues.repos = config.repos || [];
+  $("tab-issues").hidden = !state.issues.enabled;
+  $("sprint-side-issues").hidden = !state.issues.enabled;
+}
+
+async function loadIssues() {
+  if (!state.issues.enabled) return;
+  const status = $("issues-status");
+  state.issues.loading = true;
+  if (status) status.textContent = "Reading…";
+  try {
+    const body = await api(
+      `/api/issues?state=${encodeURIComponent(state.issues.state)}`);
+    state.issues.rows = body.issues || [];
+    state.issues.counts = body.counts || [];
+    state.issues.errors = body.errors || [];
+  } catch (error) {
+    // The whole read failed rather than one host: nothing to draw and something
+    // to say, which is not the same as a repository being quiet.
+    state.issues.rows = [];
+    state.issues.counts = [];
+    state.issues.errors = [{ repo_label: "", message: error.message }];
+  } finally {
+    state.issues.loading = false;
+    if (status) status.textContent = "";
+  }
+  renderIssues();
+}
+
+function issueMatches(issue, needle) {
+  if (!needle) return true;
+  const haystack = [
+    issue.title, issue.repo_label, issue.author, `#${issue.number}`,
+    ...(issue.labels || []),
+  ].join(" ").toLowerCase();
+  return haystack.includes(needle);
+}
+
+function renderIssues() {
+  const list = $("issues-list");
+  if (!list) return;
+  const needle = state.issues.filter.trim().toLowerCase();
+  const rows = state.issues.rows.filter((issue) => issueMatches(issue, needle));
+
+  const errors = $("issues-errors");
+  errors.hidden = state.issues.errors.length === 0;
+  errors.textContent = state.issues.errors
+    .map((failure) => (failure.repo_label
+      ? `${failure.repo_label}: ${failure.message}`
+      : failure.message))
+    .join("  ·  ");
+
+  list.replaceChildren();
+  $("issues-empty").hidden = rows.length > 0 || state.issues.loading;
+
+  for (const issue of rows) {
+    // An anchor rather than a div with a click handler: this is a link out, and
+    // it should behave like one -- middle-click, copy address, open in a tab.
+    const row = element("a", "issue-row");
+    row.href = issue.url || "#";
+    row.target = "_blank";
+    row.rel = "noopener noreferrer";
+
+    const head = element("div", "issue-head");
+    head.append(element("span", "issue-title", issue.title));
+    for (const label of issue.labels || []) {
+      head.append(element("span", "issue-label", label));
+    }
+    row.append(head);
+
+    const meta = element("div", "issue-meta");
+    meta.append(element("span", "issue-repo", issue.repo_label));
+    if (issue.number) meta.append(element("span", "issue-number", `#${issue.number}`));
+    if (issue.author) meta.append(element("span", "", issue.author));
+    const age = issueAge(issue.updated_at || issue.created_at);
+    if (age) meta.append(element("span", "", `updated ${age}`));
+    if (issue.comments) {
+      meta.append(element("span", "", `${issue.comments} comments`));
+    }
+    row.append(meta);
+    list.append(row);
+  }
+}
+
+// --- the repositories, and what has changed about them ------------------------
+
+function issueRepoDraft() {
+  // Cloned rather than aliased: the panel is a draft until Save, and a cancelled
+  // edit must leave the list the page reads from untouched.
+  if (!state.issues.draft) {
+    state.issues.draft = state.issues.repos.map((repo) => ({ ...repo, token: null }));
+  }
+  return state.issues.draft;
+}
+
+function renderIssueRepoRows() {
+  const host = $("issues-repo-rows");
+  if (!host) return;
+  host.replaceChildren();
+
+  issueRepoDraft().forEach((repo, index) => {
+    const row = element("div", "issue-repo-row");
+
+    const provider = element("select", "issue-repo-provider");
+    for (const [value, label] of ISSUE_PROVIDERS) {
+      const option = element("option", "", label);
+      option.value = value;
+      provider.append(option);
+    }
+    provider.value = repo.provider || "github";
+    provider.onchange = () => { repo.provider = provider.value; };
+    row.append(provider);
+
+    const fields = [
+      ["base_url", "https://git.example.com", "Blank uses the host's cloud. Forgejo needs one."],
+      ["owner", "owner or group", "The owner, organisation or GitLab group."],
+      ["repo", "repository", "The repository's own name."],
+      ["label", "shown as…", "What to call it on screen. Blank uses owner/name."],
+    ];
+    for (const [field, placeholder, hint] of fields) {
+      const input = element("input", `issue-repo-${field.replace("_", "-")}`);
+      input.type = "text";
+      input.placeholder = placeholder;
+      input.title = hint;
+      input.value = repo[field] || "";
+      input.oninput = () => { repo[field] = input.value; };
+      row.append(input);
+    }
+
+    // A token box that starts empty means "leave the stored one alone" -- the
+    // server reads an absent token that way, which is what lets this panel show
+    // a placeholder rather than the secret. Typing replaces it; the ✕ clears it.
+    const token = element("input", "issue-repo-token");
+    token.type = "password";
+    token.placeholder = repo.token_set ? "•••••• stored" : "read-only token";
+    token.title = "Read-only scope is enough — nothing here writes to a host.";
+    token.oninput = () => { repo.token = token.value; };
+    row.append(token);
+
+    if (repo.token_set) {
+      const clear = element("button", "btn-ghost issue-repo-clear", "✕");
+      clear.type = "button";
+      clear.title = "Forget the stored token";
+      clear.onclick = () => {
+        repo.token = "";
+        repo.token_set = false;
+        renderIssueRepoRows();
+      };
+      row.append(clear);
+    }
+
+    const enabled = element("label", "issue-repo-enabled");
+    const tick = element("input");
+    tick.type = "checkbox";
+    tick.checked = repo.enabled !== false;
+    tick.title = "Unticked: kept here, not read.";
+    tick.onchange = () => { repo.enabled = tick.checked; };
+    enabled.append(tick, element("span", "", "read"));
+    row.append(enabled);
+
+    const remove = element("button", "btn-ghost issue-repo-remove", "Remove");
+    remove.type = "button";
+    remove.onclick = () => {
+      state.issues.draft.splice(index, 1);
+      renderIssueRepoRows();
+    };
+    row.append(remove);
+
+    host.append(row);
+  });
+}
+
+async function saveIssueRepos() {
+  const error = $("issues-repo-error");
+  error.hidden = true;
+  const repos = issueRepoDraft().map((repo) => ({
+    provider: repo.provider || "github",
+    base_url: repo.base_url || "",
+    owner: repo.owner || "",
+    repo: repo.repo || "",
+    label: repo.label || "",
+    enabled: repo.enabled !== false,
+    // null is "keep what is stored". An empty string is the deliberate clear,
+    // and the two must stay distinguishable all the way to the server.
+    token: repo.token === null || repo.token === undefined ? null : repo.token,
+  }));
+  try {
+    const config = await api("/api/issues/repos", {
+      method: "PUT",
+      body: JSON.stringify({ repos }),
+    });
+    state.issues.repos = config.repos || [];
+    state.issues.draft = null;
+    renderIssueRepoRows();
+    await loadIssueChanges();
+    await loadIssues();
+  } catch (failure) {
+    error.textContent = failure.message;
+    error.hidden = false;
+  }
+}
+
+async function loadIssueChanges() {
+  try {
+    const body = await api("/api/issues/changes");
+    state.issues.changes = body.changes || [];
+  } catch (_) {
+    state.issues.changes = [];
+  }
+  renderIssueChanges();
+}
+
+function renderIssueChanges() {
+  const host = $("issues-changes");
+  if (!host) return;
+  host.replaceChildren();
+  if (state.issues.changes.length === 0) {
+    host.append(element("p", "hint", "Nothing has changed here yet."));
+    return;
+  }
+  for (const change of state.issues.changes) {
+    const row = element("div", "issue-change");
+    row.append(element("span", "issue-change-when", (change.at || "").slice(0, 16)));
+    row.append(element("span", "issue-change-repo", change.repo_ref));
+    const moved = change.old_value
+      ? `${change.field}: ${change.old_value} → ${change.new_value || "—"}`
+      : `${change.field}: ${change.new_value || "—"}`;
+    row.append(element("span", "", moved));
+    host.append(row);
+  }
+}
+
+function openIssueSettings(open) {
+  $("issues-settings-panel").hidden = !open;
+  $("issues-settings").setAttribute("aria-expanded", String(open));
+  if (!open) {
+    // Closing is cancelling: the draft goes, and the next open reads the saved
+    // list again.
+    state.issues.draft = null;
+    return;
+  }
+  renderIssueRepoRows();
+  loadIssueChanges();
+}
+
+// --- the sprint tab's issue panel ---------------------------------------------
+//
+// Counts and a link out, beside the fortnight being planned. It is the third
+// read on that column and the only one that leaves this machine.
+
+async function loadSprintIssues() {
+  if (!state.issues.enabled) return;
+  const panel = $("sprint-issues");
+  if (!panel) return;
+  try {
+    const body = await api("/api/issues/counts");
+    state.issues.counts = body.counts || [];
+    state.issues.errors = body.errors || [];
+  } catch (error) {
+    state.issues.counts = [];
+    state.issues.errors = [{ repo_label: "", message: error.message }];
+  }
+  renderSprintIssues();
+}
+
+function renderSprintIssues() {
+  const panel = $("sprint-issues");
+  if (!panel) return;
+  panel.replaceChildren();
+
+  const failed = new Map(state.issues.errors.map((row) => [row.repo_ref, row.message]));
+  if (state.issues.counts.length === 0 && failed.size === 0) {
+    panel.append(element("p", "hint",
+      "No repositories configured. The Issues tab's ⚙ is where they go."));
+    return;
+  }
+
+  for (const row of state.issues.counts) {
+    const line = element("div", "sprint-issue-row");
+    line.append(element("span", "sprint-issue-name", row.repo_label));
+    // A repository that could not be read reports nothing rather than zero --
+    // "quiet" and "unreachable" are different answers to a planning question.
+    const count = row.count === null || row.count === undefined ? "—" : String(row.count);
+    const badge = element("span", "sprint-issue-count", count);
+    if (failed.has(row.repo_ref)) badge.title = failed.get(row.repo_ref);
+    line.append(badge);
+    panel.append(line);
+  }
+
+  const open = element("button", "btn-ghost sprint-issue-open", "Open the Issues tab");
+  open.type = "button";
+  open.onclick = async () => {
+    state.view = "issues";
+    await refreshView();
+  };
+  panel.append(open);
+}
+
 // --- events -----------------------------------------------------------------
 
 function bindEvents() {
@@ -9929,6 +10306,36 @@ function bindEvents() {
     state.view = "sprint";
     await refreshView();
   };
+  // Wired whether or not the deployment has the feature: the button exists in
+  // the shell either way and is unhidden by `loadIssuesConfig`, so there is no
+  // second code path to keep in step.
+  $("tab-issues").onclick = async () => {
+    state.view = "issues";
+    await refreshView();
+  };
+
+  $("issues-refresh").onclick = () => loadIssues();
+  $("issues-state").onchange = () => {
+    state.issues.state = $("issues-state").value;
+    loadIssues();
+  };
+  $("issues-filter").oninput = () => {
+    // Narrows what is drawn, never what is asked for: re-reading three hosts on
+    // every keystroke would be a request per letter.
+    state.issues.filter = $("issues-filter").value;
+    renderIssues();
+  };
+  $("issues-settings").onclick = () => {
+    openIssueSettings($("issues-settings-panel").hidden);
+  };
+  $("issues-repo-add").onclick = () => {
+    issueRepoDraft().push({
+      provider: "github", base_url: "", owner: "", repo: "",
+      label: "", enabled: true, token: "", token_set: false,
+    });
+    renderIssueRepoRows();
+  };
+  $("issues-repo-save").onclick = () => saveIssueRepos();
 
   // `sprintFileKey` rather than `Number`: the last row of the picker is the
   // template, whose key is a string.
@@ -9944,6 +10351,7 @@ function bindEvents() {
   // The panel beside the document: which readout, and whether it is there.
   $("sprint-side-scope").onclick = () => setSprintSideTab("scope");
   $("sprint-side-ref").onclick = () => setSprintSideTab("ref");
+  $("sprint-side-issues").onclick = () => setSprintSideTab("issues");
   $("sprint-side-collapse").onclick = () => {
     state.sprintRef.shut = !state.sprintRef.shut;
     renderSprintSide();
@@ -10970,6 +11378,10 @@ loadSignInLabel();
 // Before the first `refreshLate`, so the chips the panel draws already have
 // their tooltips rather than gaining them on the second read.
 loadRuleSummary();
+// Whether this deployment has the Issues tab at all. Not awaited: the tab
+// unhides itself when the answer arrives, and every other tab is usable in the
+// meantime. With the feature off this is the only Issues request ever made.
+loadIssuesConfig();
 loadProjects();
 // After the first read, not before: the socket's job is to say what changed
 // *since*, and its own first open deliberately reloads nothing.

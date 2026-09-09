@@ -64,6 +64,18 @@
           <path d="M3 10h18M8 3v4M16 3v4"></path>
         </svg><span class="nav-label">Sprint</span>
       </button>
+      <!-- The one tab that can be absent: `MASTERMIND_ISSUES` decides whether
+           this deployment has it, and `loadIssuesConfig` unhides it. Hidden here
+           rather than built by JS so `bindEvents` wires it either way -- and
+           `.nav-item` sets `display`, so it carries a `[hidden]` guard in the
+           stylesheet like everything else that folds away. -->
+      <button id="tab-issues" class="nav-item" title="Issues" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9"></circle>
+          <path d="M12 7.5v5M12 16.5h.01"></path>
+        </svg><span class="nav-label">Issues</span>
+      </button>
     </div>
 
     <div class="sidebar-rule"></div>
@@ -740,6 +752,12 @@
             <button id="sprint-side-ref" type="button" class="mode"
               data-tip="Another fortnight, read-only"
               data-tip-body="Any sprint file on disk, drawn beside the one you are planning. It writes nothing.">Reference</button>
+            <!-- Hidden with the tab in the sidebar, and for the same reason.
+                 `.mode` sets no `display`, so the UA sheet's `[hidden]` is
+                 enough here -- unlike `.mode-switch` around it. -->
+            <button id="sprint-side-issues" type="button" class="mode" hidden
+              data-tip="What is filed against the repositories"
+              data-tip-body="Open counts per repository, read live. Click one to open its issues on the host — planning against them happens here, answering them happens there.">Issues</button>
           </span>
           <span class="spacer"></span>
           <!-- The document is 4:1 of the row; the Reference tab takes a wider
@@ -768,8 +786,91 @@
              this file's own heading; it writes nothing and offers no insert,
              because putting a deliverable into a sprint is the Phase 2 line. -->
         <aside id="sprint-scope" class="sprint-scope"></aside>
+
+        <!-- The third readout, and the third read: what the engineers have filed
+             against the repositories, so the question is in front of whoever is
+             planning the fortnight. Counts and a link out, nothing more -- an
+             issue is read and answered on its host. Hidden with its tab when the
+             deployment has the feature off. -->
+        <div id="sprint-issues" class="sprint-issues" hidden></div>
       </div>
      </div>
+    </div>
+
+    <!-- ---------------- Issues view ---------------- -->
+    <!-- Read live on every open and stored nowhere: this is a window onto
+         somebody else's tracker, which is why there is no tick, no assignee and
+         no state to change here. See PROMPT.md amendment 7. -->
+    <div id="issues-view" class="issues-view" hidden>
+      <section>
+        <h2>
+          Issues
+          <span id="issues-status" class="save-state"></span>
+        </h2>
+        <p class="hint">
+          What is open in the repositories this deployment is pointed at, read
+          from each host as this page loads. Nothing here is stored and nothing
+          is written back &mdash; every row opens the issue on its own host,
+          which is where it is answered.
+        </p>
+
+        <div class="row">
+          <label>Show
+            <select id="issues-state"
+              data-tip="Which issues to ask each host for"
+              data-tip-body="Open is the planning question. Closed and all are here for a look back at a repository, and cost the same one request per repository.">
+              <option value="open">open</option>
+              <option value="closed">closed</option>
+              <option value="all">all</option>
+            </select>
+          </label>
+          <input id="issues-filter" type="search" class="sidebar-filter issues-filter"
+                 placeholder="Filter…"
+                 title="Matches the title, the repository, a label or the author. Nothing is stored; it only narrows what is drawn.">
+          <button id="issues-refresh" type="button"
+            data-tip="Ask the hosts again"
+            data-tip-body="There is no cache to clear — this page holds what the last request returned and nothing else.">Refresh</button>
+          <span class="spacer"></span>
+          <span class="topbar-menu">
+            <button id="issues-settings" class="btn-ghost topbar-more" aria-expanded="false"
+                    title="Repositories, and what has changed about them">&#9881;</button>
+            <div id="issues-settings-panel" class="menu-panel issues-panel" hidden>
+              <span class="menu-caption">Repositories</span>
+              <p class="hint menu-hint">
+                Issue a <strong>read-only</strong> token: nothing here ever writes
+                to a host. Tokens are stored in <code>data/roadmap.db</code> with
+                the sign-in secrets, and stripped from every export.
+              </p>
+              <div id="issues-repo-rows"></div>
+              <button id="issues-repo-add" type="button" class="btn-ghost">Add repository</button>
+              <p id="issues-repo-error" class="error" hidden></p>
+              <div class="menu-rule"></div>
+              <button id="issues-repo-save" class="btn-primary">Save repositories</button>
+
+              <div class="menu-rule"></div>
+              <span class="menu-caption">Change log</span>
+              <p class="hint menu-hint">
+                What was pointed at, and when it moved. Never who, and never a
+                token &mdash; a rotated one is recorded as having changed.
+              </p>
+              <div id="issues-changes" class="issues-changes"></div>
+            </div>
+          </span>
+        </div>
+
+        <!-- A host that cannot be reached has to read as a failure rather than
+             as a quiet repository, or the page under-reports the thing it is
+             for. -->
+        <p id="issues-errors" class="sprint-overlap" hidden></p>
+
+        <p id="issues-empty" class="hint" hidden>
+          Nothing to show. Add a repository under &#9881; above, or widen
+          <em>Show</em> &mdash; a repository with no open issues is a repository
+          with nothing to plan around.
+        </p>
+
+        <div id="issues-list" class="issues-list"></div>
+      </section>
     </div>
   </main>
   </div>
