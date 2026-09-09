@@ -4940,6 +4940,9 @@ async function refreshSprintFiles() {
     return;   // The save landed. A label one edit out of date is not a failure.
   }
   if (state.sprint.number !== number) return;
+  // Read before the listing is adopted: the window comes off `sprint.files`, so
+  // after the assignment there is nothing left to compare against.
+  const before = openSprintWindow();
   state.sprint.files = files;
   renderSprintPicker();
   // Editing the dates in a heading is the one way an overlap can still arrive, and
@@ -4948,8 +4951,20 @@ async function refreshSprintFiles() {
   renderSprintOverlaps();
   // Same reason, second consequence: the heading is where this file's fortnight
   // is written down, so retyping its dates re-aims the scope panel beside it.
+  //
+  // **Only when they moved.** That render rebuilds the panel from nothing, and
+  // this runs on every landed save -- one per pause in typing -- so a reader
+  // scrolled into a long list of deliverables was put back at the top a second
+  // after touching the keyboard. `keepingScroll` now holds the position through
+  // a redraw; not redrawing at all is the half of the fix that stops the work.
+  if (sameSprintWindow(before, openSprintWindow())) return;
   renderSprintScope();
 }
+
+// Two fortnights, or the absence of one. A heading with no readable dates has no
+// window at all, and going from that to a real one is a change like any other.
+const sameSprintWindow = (was, now) =>
+  (was ? `${was.start}/${was.end}` : "") === (now ? `${now.start}/${now.end}` : "");
 
 // **A refused write is news, not a mode.** Somebody wrote the block or the cell
 // this save was about before it landed, so the file already holds their version:

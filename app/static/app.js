@@ -4782,6 +4782,33 @@ function scopeSilence() {
   return "This file's first line names no dates, so there is no fortnight to look up.";
 }
 
+// **A panel rebuilt from scratch forgets where it was scrolled to**, and these
+// two are rebuilt on writes that have nothing to do with them -- a landed sprint
+// save redrew the scope panel, so scrolling down a long list of deliverables and
+// then typing put the list back at the top a second later. Emptying a scroller
+// does it as surely as replacing one: the content collapses, the browser clamps
+// `scrollTop` to 0, and refilling does not bring it back.
+//
+// So the positions are read before the redraw and written back after, in the
+// same task, before anything is painted. Each caller names **its own** scroller,
+// because only the caller knows which of its nodes is one -- the selector may
+// match `host` itself (the reference panel is the scroller) or its descendants
+// (the scope panel's two halves are rebuilt inside it).
+//
+// Matched by document order, since these lists carry no ids. That is exact while
+// the redraw draws the same shape, and a redraw that draws a *different* shape --
+// switching file, a fortnight with nothing in it -- has fewer scrollers or none,
+// so the position is dropped rather than pasted onto somebody else's list.
+function keepingScroll(host, selector, redraw) {
+  const scrollers = () => (host.matches(selector) ? [host] : [])
+    .concat(Array.from(host.querySelectorAll(selector)));
+  const was = scrollers().map((node) => node.scrollTop);
+  redraw();
+  scrollers().forEach((node, at) => {
+    if (was[at]) node.scrollTop = was[at];
+  });
+}
+
 function renderSprintScope() {
   // The links ride in on this render rather than one of their own: it is the
   // app.js end of the sprint view, it runs on every draw of the tab, and the
@@ -4790,6 +4817,10 @@ function renderSprintScope() {
 
   const panel = $("sprint-scope");
   if (!panel) return;
+  keepingScroll(panel, ".sprint-scope-half-body", () => drawSprintScope(panel));
+}
+
+function drawSprintScope(panel) {
   const scope = state.sprintScope;
   const window = openSprintWindow();
   panel.innerHTML = "";
@@ -5017,6 +5048,12 @@ function refEmptyNote(files) {
 }
 
 function renderSprintRef() {
+  // The body **is** the scroller here, and emptying it loses the position the
+  // same way the scope panel's rebuild does -- see `keepingScroll`.
+  keepingScroll($("sprint-ref-body"), ".sprint-ref-body", drawSprintRef);
+}
+
+function drawSprintRef() {
   const ref = state.sprintRef;
   const select = $("sprint-ref-select");
   const pills = $("sprint-ref-pills");
