@@ -5722,5 +5722,61 @@ def test_nothing_writes_back_to_a_host(client, issues_on):
     methods = {method for route in app.routes
                if getattr(route, "path", "").startswith("/api/issues")
                for method in getattr(route, "methods", set())}
-    assert methods <= {"GET", "PUT", "HEAD", "OPTIONS"}
+    # The two writes are inward: PUT the configuration, POST a connection test
+    # that does one GET against the host and stores nothing. Neither sends the
+    # host anything to keep.
+    assert methods <= {"GET", "PUT", "POST", "HEAD", "OPTIONS"}
     assert not [path for path in paths if path.rstrip("/").endswith(("comment", "close"))]
+    writes = {getattr(route, "path", "") for route in app.routes
+              if "POST" in getattr(route, "methods", set()) or "PUT" in getattr(route, "methods", set())}
+    assert {path for path in writes if path.startswith("/api/issues")} == \
+        {"/api/issues/repos", "/api/issues/test"}
+
+
+def test_a_connection_test_uses_the_stored_token_when_the_page_sends_none(client, issues_on):
+    """The page shows a mask, so Test has to work without the secret being retyped."""
+    configure_repos(client, [GITHUB_REPO])
+    answer = client.post("/api/issues/test", json={"provider": "github", "owner": "core",
+                                                   "repo": "mm"})
+    assert answer.status_code == 200
+    assert answer.json()["ok"] is True
+
+
+def test_a_failed_connection_test_is_an_answer_not_an_error(client, issues_on, monkeypatch):
+    monkeypatch.setattr(
+        issues, "http_client",
+        lambda timeout=None: httpx.Client(
+            transport=httpx.MockTransport(lambda request: httpx.Response(404, json={}))),
+    )
+    answer = client.post("/api/issues/test", json={"provider": "github", "owner": "core",
+                                                   "repo": "nope", "token": "t"})
+    assert answer.status_code == 200
+    body = answer.json()
+    assert body["ok"] is False and "cannot see it" in body["message"]
+
+
+def test_a_connection_test_stores_nothing(client, issues_on):
+    """Not the repository, and not the token that was tried."""
+    client.post("/api/issues/test", json={"provider": "github", "owner": "core",
+                                          "repo": "mm", "token": "typed-but-not-saved"})
+    assert db.get_settings()["issues_repos"] in ("", "[]")
+    assert client.get("/api/issues/changes").json()["changes"] == []
+
+
+def test_the_totals_route_answers_per_state(client, issues_on, monkeypatch):
+    monkeypatch.setattr(
+        issues, "http_client",
+        lambda timeout=None: httpx.Client(transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json=[], headers={"X-Total": "3"}))),
+    )
+    configure_repos(client, [{"provider": "gitlab", "owner": "core", "repo": "mm"}])
+    body = client.get("/api/issues/totals").json()
+    assert body["totals"] == {"open": 3, "closed": 3, "all": 3}
+    assert body["partial"] is False
+
+
+def test_totals_are_behind_the_flag_like_everything_else(client, monkeypatch):
+    monkeypatch.delenv(issues.ENV_ISSUES, raising=False)
+    assert client.get("/api/issues/totals").status_code == 404
+    assert client.post("/api/issues/test", json={"provider": "github", "owner": "c",
+                                                 "repo": "m"}).status_code == 404

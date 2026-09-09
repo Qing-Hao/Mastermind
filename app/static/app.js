@@ -205,6 +205,19 @@ let state = {
     // not `repos`: a half-typed connection must not become what the page reads
     // from until it is saved.
     draft: null,
+    // Which entry has its fields open, by index in `draft`. One at a time: six
+    // boxes per repository, all open at once, was unreadable.
+    editing: null,
+    // What the last connection test said, keyed by draft index. Cleared on a
+    // re-edit, never stored -- a test is a question asked of the host now.
+    tested: {},
+    // How many there are per state, from `/api/issues/totals`, and whether a
+    // host refused to say. Not how many were fetched -- see `page`.
+    totals: null,
+    // Drawing, not fetching. `size` is how much of what arrived is shown at
+    // once; `limit` is how much is asked of each host, which is the request that
+    // actually costs something.
+    page: 0, size: 25, limit: 50,
   },
   currentProjectId: null,
   plan: null,
@@ -444,6 +457,10 @@ let state = {
   mine: {
     who: "", known: false, rows: [], tally: { ringing: 0, total: 0 },
     groups: [], tab: "mine", loadedWorkload: false,
+    // Whether `/api/mine` has answered at all. The bell is shared with `late`
+    // now, so something has to tell "nothing against your name" from "not asked
+    // yet" -- see `taskRinging`.
+    asked: false,
   },
   // The directory, for the `@` picker and the Everyone list. Read on demand.
   people: [],
@@ -1580,25 +1597,49 @@ async function refreshLate() {
 // to close, and they are never added together: one number for both would make
 // the same red mean a slipped date and a finished phase.
 function drawLate() {
-  const bell = $("late-alert");
   const count = $("late-count");
   const ready = $("ready-count");
-  const nothing = state.late.count === 0 && state.late.readyCount === 0;
 
-  bell.hidden = nothing;
   count.hidden = state.late.count === 0;
   ready.hidden = state.late.readyCount === 0;
-  // The bell's own amber says "something slipped". With nothing late it would be
-  // saying that about a plan where nothing has, before you opened it.
-  bell.classList.toggle("is-ready-only",
-    state.late.count === 0 && state.late.readyCount > 0);
-  if (nothing) {
-    closeLate();
-    return;
-  }
-
   count.textContent = String(state.late.count);
   ready.textContent = String(state.late.readyCount);
+  syncAlertBell();
+  if (!$("alert-panel").hidden) renderAlertPanel();
+}
+
+// --- one bell, two tabs -------------------------------------------------------
+//
+// Which pane the panel is showing. Not in `state`: it is where a menu is parked,
+// the same kind of thing as `projectMenu`'s own open flag, and nothing reloads
+// because of it.
+let alertTab = "late";
+
+const lateRinging = () => state.late.count > 0 || state.late.readyCount > 0;
+const taskRinging = () => state.mine.asked
+  && ((state.mine.tally.ringing || 0) > 0 || state.mine.tally.total > 0
+      || !state.mine.known);
+
+// Which half to open on. The one with news wins; with news on both, whichever
+// tab was last read, because a press should not move you off what you were
+// looking at.
+function alertTabWanted() {
+  if (alertTab === "late" && !lateRinging() && taskRinging()) return "task";
+  if (alertTab === "task" && !taskRinging() && lateRinging()) return "late";
+  return alertTab;
+}
+
+// The bell is silent when neither half has anything, for the reason it always
+// was: a plan where nothing has slipped and a fortnight with nothing against
+// your name are the ordinary case, and should say nothing about themselves.
+function syncAlertBell() {
+  const bell = $("late-alert");
+  const nothing = !lateRinging() && !taskRinging();
+  bell.hidden = nothing;
+  // The bell's own amber says "something slipped". With nothing late it would be
+  // saying that about a plan where nothing has.
+  bell.classList.toggle("is-ready-only",
+    state.late.count === 0 && (state.late.readyCount > 0 || taskRinging()));
   bell.title = [
     state.late.count
       ? `${state.late.count} thing${state.late.count === 1 ? "" : "s"} past its`
@@ -1608,8 +1649,44 @@ function drawLate() {
       ? `${state.late.readyCount} phase${state.late.readyCount === 1 ? "" : "s"}`
         + " finished but still open. Closing one is your click, not the tool's."
       : "",
+    state.mine.tally.ringing
+      ? `${state.mine.tally.ringing} row${state.mine.tally.ringing === 1 ? "" : "s"}`
+        + " in the sprint files with your name on it."
+      : "",
   ].filter(Boolean).join(" ");
-  if (!$("late-panel").hidden) renderLatePanel();
+  if (nothing) closeAlerts();
+}
+
+function openAlerts(open, tab) {
+  if (tab) alertTab = tab;
+  $("alert-panel").hidden = !open;
+  $("late-alert").setAttribute("aria-expanded", String(open));
+  if (!open) return;
+  // Looking at the list is the thing the ring was asking for, so it stops while
+  // the panel is up -- and starts again on the next refresh if the rows are
+  // still open. Nothing is stored about having looked.
+  keepRinging(false);
+  renderAlertPanel();
+}
+
+function closeAlerts() {
+  openAlerts(false);
+}
+
+// The tab strip, its two counts, and whichever pane is showing. Both panes keep
+// their own renderer and their own id -- this only decides which one is drawn.
+function renderAlertPanel() {
+  const onTask = alertTab === "task";
+  $("alert-tab-late").classList.toggle("active", !onTask);
+  $("alert-tab-task").classList.toggle("active", onTask);
+  $("alert-tab-late").textContent =
+    `Overdue${lateRinging() ? ` · ${state.late.count + state.late.readyCount}` : ""}`;
+  $("alert-tab-task").textContent =
+    `Assigned${state.mine.tally.ringing ? ` · ${state.mine.tally.ringing}` : ""}`;
+  $("late-panel").hidden = onTask;
+  $("task-panel").hidden = !onTask;
+  if (onTask) renderTaskPanel();
+  else renderLatePanel();
 }
 
 function renderLatePanel() {
@@ -1741,14 +1818,14 @@ function agoText(days) {
   return `${days} days`;
 }
 
+// Kept as names of their own because the rows inside both panes call them to get
+// out of the way after a jump. Both now open the one panel on their own tab.
 function openLate(open) {
-  $("late-panel").hidden = !open;
-  $("late-alert").setAttribute("aria-expanded", String(open));
-  if (open) renderLatePanel();
+  openAlerts(open, "late");
 }
 
 function closeLate() {
-  openLate(false);
+  closeAlerts();
 }
 
 // Nothing writes at midnight, so no message arrives to say the date moved and
@@ -1787,6 +1864,10 @@ async function refreshMine() {
     state.mine.known = Boolean(payload.known);
     state.mine.rows = payload.rows || [];
     state.mine.tally = payload.tally || { ringing: 0, total: 0 };
+    // One bell for both halves now, and `drawLate` can reach it first. Without
+    // this the Assigned mark would draw off `known: false` -- the "we have never
+    // seen you" state -- before the scan has actually answered.
+    state.mine.asked = true;
   } catch (_) {
     // `refreshLate`'s reason: nobody asked for this read, the bell keeps drawing
     // what it last knew rather than blanking, and the next write comes back to it.
@@ -1813,28 +1894,17 @@ async function refreshWorkload() {
 // announce itself. One count, not two -- open and blocked both ring, and the
 // difference between them is drawn in the panel where there is room to say it.
 function drawMine() {
-  const bell = $("task-alert");
   const count = $("task-count");
   const ringing = state.mine.tally.ringing || 0;
-  // Somebody the directory has never seen has no rows to be missing, and a bell
-  // that stayed hidden would look identical to having nothing to do. The panel
-  // explains it; the bell has to be there to be opened.
-  const nothing = ringing === 0 && state.mine.tally.total === 0 && state.mine.known;
-
-  bell.hidden = nothing;
+  // Somebody the directory has never seen has no rows to be missing, and a mark
+  // that stayed hidden would look identical to having nothing to do. The pane
+  // explains it; the tab has to be there to be opened.
   count.hidden = ringing === 0;
   count.textContent = String(ringing);
-  bell.title = ringing
-    ? `${ringing} thing${ringing === 1 ? "" : "s"} in the sprint files with your`
-      + " name on it. It stops ringing when the Status cell says Done."
-    : "Nothing open against your name in the sprint files.";
 
-  keepRinging(ringing > 0 && !nothing);
-  if (nothing) {
-    closeTask();
-    return;
-  }
-  if (!$("task-panel").hidden) renderTaskPanel();
+  keepRinging(ringing > 0);
+  syncAlertBell();
+  if (!$("alert-panel").hidden) renderAlertPanel();
 }
 
 // The animation is added and taken off again rather than left running: a bell
@@ -1849,7 +1919,7 @@ function keepRinging(on) {
     clearInterval(ringTimer);
     ringTimer = null;
   }
-  const bell = $("task-alert");
+  const bell = $("late-alert");
   if (!on) {
     bell.classList.remove("is-ringing");
     return;
@@ -1980,21 +2050,14 @@ async function openSprintFromTask(number) {
   if (state.sprint && state.sprint.number !== number) await loadSprintFile(number);
 }
 
+// The same panel as `openLate`, on the other tab. Opening it is not "marking it
+// read" -- there is nothing to mark; see `openAlerts`.
 function openTask(open) {
-  $("task-panel").hidden = !open;
-  $("task-alert").setAttribute("aria-expanded", String(open));
-  if (open) {
-    // Opening it is not "marking it read" -- there is nothing to mark. The ring
-    // stops while the panel is up only because looking at the list is the thing
-    // the ring was asking for, and it starts again on the next refresh if the
-    // rows are still open.
-    keepRinging(false);
-    renderTaskPanel();
-  }
+  openAlerts(open, "task");
 }
 
 function closeTask() {
-  openTask(false);
+  closeAlerts();
 }
 
 async function refreshView() {
@@ -9988,6 +10051,23 @@ async function loadIssuesConfig() {
   state.issues.repos = config.repos || [];
   $("tab-issues").hidden = !state.issues.enabled;
   $("sprint-side-issues").hidden = !state.issues.enabled;
+  // How many are configured, on the button itself: an Issues tab drawing nothing
+  // is either "no repositories" or "nothing open", and the two want different
+  // reactions.
+  const tally = $("issues-repo-tally");
+  if (tally) tally.textContent = state.issues.repos.length ? String(state.issues.repos.length) : "";
+}
+
+// Eight hues, and they are **chrome rather than data**: a hue means "this label
+// is that label", never anything about the plan or about how bad an issue is.
+// The words are the host's and a severity ramp would be us inventing a reading
+// of them, so this is the presence-badge trick, not the map's stage colours.
+const ISSUE_LABEL_HUES = 8;
+
+function issueLabelHue(label) {
+  let total = 0;
+  for (const character of label) total = (total + character.charCodeAt(0)) % 997;
+  return total % ISSUE_LABEL_HUES;
 }
 
 async function loadIssues() {
@@ -9997,7 +10077,8 @@ async function loadIssues() {
   if (status) status.textContent = "Reading…";
   try {
     const body = await api(
-      `/api/issues?state=${encodeURIComponent(state.issues.state)}`);
+      `/api/issues?state=${encodeURIComponent(state.issues.state)}`
+      + `&limit=${state.issues.limit}`);
     state.issues.rows = body.issues || [];
     state.issues.counts = body.counts || [];
     state.issues.errors = body.errors || [];
@@ -10011,7 +10092,68 @@ async function loadIssues() {
     state.issues.loading = false;
     if (status) status.textContent = "";
   }
+  // A new read is a new list, so page 1: staying on page 4 of a list that just
+  // got shorter shows an empty page and reads as a broken filter.
+  state.issues.page = 0;
   renderIssues();
+  // Its own request, and not awaited with the list: three small calls per
+  // repository, and the list should draw the moment it arrives rather than
+  // waiting on a count.
+  loadIssueTotals();
+}
+
+// How many there are, against how many were fetched. Best-effort by design: a
+// host that will not answer contributes nothing and `partial` says so, because
+// "none closed" and "nobody would tell me" must not read the same.
+async function loadIssueTotals() {
+  if (!state.issues.enabled) return;
+  try {
+    state.issues.totals = await api("/api/issues/totals");
+  } catch (_) {
+    state.issues.totals = null;
+  }
+  renderIssueTotals();
+}
+
+function renderIssueTotals() {
+  const host = $("issues-totals");
+  if (!host) return;
+  host.replaceChildren();
+  const answer = state.issues.totals;
+  if (!answer) return;
+
+  for (const [label, key] of [["open", "open"], ["closed", "closed"], ["all", "all"]]) {
+    const chip = element("button", "issues-total");
+    chip.type = "button";
+    const found = answer.totals[key];
+    chip.classList.toggle("is-current", state.issues.state === key);
+    chip.append(element("span", "issues-total-n", found === null ? "—" : String(found)));
+    chip.append(element("span", "issues-total-label", label));
+    chip.title = found === null
+      ? "No host would give a count for this. The list below is still real."
+      : `${found} ${label} across every repository being read. Click to show them.`;
+    // The totals row doubles as the state switch: the number you just read is
+    // the thing you then want listed.
+    chip.onclick = () => {
+      state.issues.state = key;
+      $("issues-state").value = key;
+      loadIssues();
+    };
+    host.append(chip);
+  }
+
+  const fetched = state.issues.rows.length;
+  const shown = answer.totals[state.issues.state];
+  if (shown !== null && shown !== undefined && fetched < shown) {
+    // The one thing the reader can be wrong about, said out loud rather than
+    // left for somebody to work out from a short list.
+    host.append(element("span", "issues-total-note",
+      `showing ${fetched} — raise “read per repository” to fetch more`));
+  }
+  if (answer.partial) {
+    host.append(element("span", "issues-total-note",
+      "one host would not give a count"));
+  }
 }
 
 function issueMatches(issue, needle) {
@@ -10027,7 +10169,7 @@ function renderIssues() {
   const list = $("issues-list");
   if (!list) return;
   const needle = state.issues.filter.trim().toLowerCase();
-  const rows = state.issues.rows.filter((issue) => issueMatches(issue, needle));
+  const matched = state.issues.rows.filter((issue) => issueMatches(issue, needle));
 
   const errors = $("issues-errors");
   errors.hidden = state.issues.errors.length === 0;
@@ -10037,8 +10179,16 @@ function renderIssues() {
       : failure.message))
     .join("  ·  ");
 
+  // Paged after filtering, not before: a filter that left three matches on page
+  // four would draw nothing and read as broken.
+  const size = state.issues.size;
+  const pages = Math.max(1, Math.ceil(matched.length / size));
+  state.issues.page = Math.min(Math.max(state.issues.page, 0), pages - 1);
+  const from = state.issues.page * size;
+  const rows = matched.slice(from, from + size);
+
   list.replaceChildren();
-  $("issues-empty").hidden = rows.length > 0 || state.issues.loading;
+  $("issues-empty").hidden = matched.length > 0 || state.issues.loading;
 
   for (const issue of rows) {
     // An anchor rather than a div with a click handler: this is a link out, and
@@ -10047,16 +10197,25 @@ function renderIssues() {
     row.href = issue.url || "#";
     row.target = "_blank";
     row.rel = "noopener noreferrer";
+    row.title = `Opens #${issue.number} on ${issue.repo_label}. Answering it happens there.`;
 
     const head = element("div", "issue-head");
+    if (issue.state && issue.state !== "open") {
+      head.append(element("span", "issue-state", issue.state));
+    }
     head.append(element("span", "issue-title", issue.title));
     for (const label of issue.labels || []) {
-      head.append(element("span", "issue-label", label));
+      head.append(element("span",
+        `issue-label issue-hue-${issueLabelHue(label)}`, label));
     }
     row.append(head);
 
     const meta = element("div", "issue-meta");
-    meta.append(element("span", "issue-repo", issue.repo_label));
+    const repo = element("span", "issue-repo", issue.repo_label);
+    // The same hue the settings entry draws, so a repository is the same colour
+    // wherever it appears on this tab.
+    repo.classList.add(`issue-hue-${issueLabelHue(issue.repo_label)}`);
+    meta.append(repo);
     if (issue.number) meta.append(element("span", "issue-number", `#${issue.number}`));
     if (issue.author) meta.append(element("span", "", issue.author));
     const age = issueAge(issue.updated_at || issue.created_at);
@@ -10067,6 +10226,26 @@ function renderIssues() {
     row.append(meta);
     list.append(row);
   }
+
+  renderIssuePager(matched.length, pages);
+  renderIssueTotals();
+}
+
+function renderIssuePager(found, pages) {
+  const pager = $("issues-pager");
+  if (!pager) return;
+  // Kept on screen even at one page: the two size controls are the reason it is
+  // there, and a bar that appears only once a list is long is a control nobody
+  // finds when they need it.
+  pager.hidden = state.issues.rows.length === 0;
+  const size = state.issues.size;
+  const from = state.issues.page * size;
+  $("issues-page-label").textContent = found === 0
+    ? "nothing to show"
+    : `${from + 1}–${Math.min(from + size, found)} of ${found}`
+      + (pages > 1 ? ` · page ${state.issues.page + 1}/${pages}` : "");
+  $("issues-prev").disabled = state.issues.page === 0;
+  $("issues-next").disabled = state.issues.page >= pages - 1;
 }
 
 // --- the repositories, and what has changed about them ------------------------
@@ -10080,81 +10259,217 @@ function issueRepoDraft() {
   return state.issues.draft;
 }
 
+const issueRepoName = (repo) => (repo.label || "").trim()
+  || [repo.owner, repo.repo].filter(Boolean).join("/")
+  || "new repository";
+
+// One line per repository, its fields only while it is being edited. Every
+// repository's six boxes open at once was the mess this replaces.
 function renderIssueRepoRows() {
   const host = $("issues-repo-rows");
   if (!host) return;
   host.replaceChildren();
+  const draft = issueRepoDraft();
 
-  issueRepoDraft().forEach((repo, index) => {
-    const row = element("div", "issue-repo-row");
+  const tally = $("issues-repo-tally");
+  if (tally) {
+    tally.textContent = state.issues.repos.length
+      ? String(state.issues.repos.length) : "";
+  }
 
-    const provider = element("select", "issue-repo-provider");
-    for (const [value, label] of ISSUE_PROVIDERS) {
-      const option = element("option", "", label);
-      option.value = value;
-      provider.append(option);
-    }
-    provider.value = repo.provider || "github";
-    provider.onchange = () => { repo.provider = provider.value; };
-    row.append(provider);
+  if (draft.length === 0) {
+    host.append(element("p", "hint",
+      "Nothing configured yet. Add one, test it, then save."));
+    return;
+  }
 
-    const fields = [
-      ["base_url", "https://git.example.com", "Blank uses the host's cloud. Forgejo needs one."],
-      ["owner", "owner or group", "The owner, organisation or GitLab group."],
-      ["repo", "repository", "The repository's own name."],
-      ["label", "shown as…", "What to call it on screen. Blank uses owner/name."],
-    ];
-    for (const [field, placeholder, hint] of fields) {
-      const input = element("input", `issue-repo-${field.replace("_", "-")}`);
-      input.type = "text";
-      input.placeholder = placeholder;
-      input.title = hint;
-      input.value = repo[field] || "";
-      input.oninput = () => { repo[field] = input.value; };
-      row.append(input);
+  draft.forEach((repo, index) => {
+    const entry = element("div", "issue-repo-entry");
+    if (state.issues.editing === index) entry.classList.add("is-editing");
+
+    const line = element("div", "issue-repo-line");
+    line.append(element("span",
+      `issue-repo-dot issue-hue-${issueLabelHue(issueRepoName(repo))}`, ""));
+    line.append(element("span", "issue-repo-name", issueRepoName(repo)));
+    line.append(element("span", "issue-repo-host",
+      (ISSUE_PROVIDERS.find(([value]) => value === repo.provider) || ["", ""])[1]));
+    if (repo.enabled === false) {
+      line.append(element("span", "issue-repo-off", "not read"));
     }
 
-    // A token box that starts empty means "leave the stored one alone" -- the
-    // server reads an absent token that way, which is what lets this panel show
-    // a placeholder rather than the secret. Typing replaces it; the ✕ clears it.
-    const token = element("input", "issue-repo-token");
-    token.type = "password";
-    token.placeholder = repo.token_set ? "•••••• stored" : "read-only token";
-    token.title = "Read-only scope is enough — nothing here writes to a host.";
-    token.oninput = () => { repo.token = token.value; };
-    row.append(token);
-
-    if (repo.token_set) {
-      const clear = element("button", "btn-ghost issue-repo-clear", "✕");
-      clear.type = "button";
-      clear.title = "Forget the stored token";
-      clear.onclick = () => {
-        repo.token = "";
-        repo.token_set = false;
-        renderIssueRepoRows();
-      };
-      row.append(clear);
+    const result = state.issues.tested[index];
+    if (result) {
+      line.append(element("span",
+        `issue-repo-test ${result.ok ? "is-ok" : "is-bad"}`,
+        result.ok ? `✓ ${result.open} open` : "✗ refused"));
     }
 
-    const enabled = element("label", "issue-repo-enabled");
-    const tick = element("input");
-    tick.type = "checkbox";
-    tick.checked = repo.enabled !== false;
-    tick.title = "Unticked: kept here, not read.";
-    tick.onchange = () => { repo.enabled = tick.checked; };
-    enabled.append(tick, element("span", "", "read"));
-    row.append(enabled);
-
-    const remove = element("button", "btn-ghost issue-repo-remove", "Remove");
-    remove.type = "button";
-    remove.onclick = () => {
-      state.issues.draft.splice(index, 1);
+    line.append(element("span", "spacer", ""));
+    const edit = element("button", "btn-ghost issue-repo-edit",
+      state.issues.editing === index ? "Done" : "Edit");
+    edit.type = "button";
+    edit.onclick = () => {
+      state.issues.editing = state.issues.editing === index ? null : index;
       renderIssueRepoRows();
     };
-    row.append(remove);
+    line.append(edit);
+    entry.append(line);
 
-    host.append(row);
+    if (state.issues.editing === index) entry.append(issueRepoFields(repo, index));
+    host.append(entry);
   });
+}
+
+function issueRepoFields(repo, index) {
+  const form = element("div", "issue-repo-fields");
+
+  const providerLabel = element("label", "issue-repo-field");
+  providerLabel.append(element("span", "issue-repo-field-name", "Host"));
+  const provider = element("select", "issue-repo-provider");
+  for (const [value, label] of ISSUE_PROVIDERS) {
+    const option = element("option", "", label);
+    option.value = value;
+    provider.append(option);
+  }
+  provider.value = repo.provider || "github";
+  provider.onchange = () => {
+    repo.provider = provider.value;
+    renderIssueRepoRows();
+  };
+  providerLabel.append(provider);
+  form.append(providerLabel);
+
+  const fields = [
+    ["base_url", "Base URL", "https://git.example.com",
+      "Blank uses the host's own cloud. Forgejo needs one."],
+    ["owner", "Owner", "owner or group", "The owner, organisation or GitLab group."],
+    ["repo", "Repository", "name", "The repository's own name."],
+    ["label", "Shown as", "optional", "What to call it on screen. Blank uses owner/name."],
+  ];
+  for (const [field, name, placeholder, hint] of fields) {
+    const wrap = element("label", "issue-repo-field");
+    wrap.append(element("span", "issue-repo-field-name", name));
+    const input = element("input", `issue-repo-${field.replace("_", "-")}`);
+    input.type = "text";
+    input.placeholder = placeholder;
+    input.title = hint;
+    input.value = repo[field] || "";
+    input.oninput = () => {
+      repo[field] = input.value;
+      // The entry's own line is what changed, and re-rendering it while the
+      // caret is in a box would take the caret with it. So only the name is
+      // touched, in place.
+      const line = input.closest(".issue-repo-entry").querySelector(".issue-repo-name");
+      if (line) line.textContent = issueRepoName(repo);
+    };
+    wrap.append(input);
+    form.append(wrap);
+  }
+
+  // A token box that starts empty means "leave the stored one alone" -- the
+  // server reads an absent token that way, which is what lets this panel show a
+  // placeholder rather than the secret. Typing replaces it; Forget clears it.
+  const tokenWrap = element("label", "issue-repo-field issue-repo-field-wide");
+  tokenWrap.append(element("span", "issue-repo-field-name", "Token"));
+  const token = element("input", "issue-repo-token");
+  token.type = "password";
+  token.placeholder = repo.token_set ? "•••••• stored" : "read-only token";
+  token.title = "Read-only scope is enough — nothing here ever writes to a host.";
+  token.oninput = () => {
+    repo.token = token.value;
+    // **Tested as it is typed, not on save.** A token that is wrong is the
+    // failure this panel exists to catch, and finding out after a save means the
+    // list quietly reads nothing. Debounced, because every keystroke of a
+    // 40-character token would be forty requests.
+    scheduleIssueRepoTest(index);
+  };
+  tokenWrap.append(token);
+  form.append(tokenWrap);
+
+  const controls = element("div", "issue-repo-controls");
+  const enabled = element("label", "issue-repo-enabled");
+  const tick = element("input");
+  tick.type = "checkbox";
+  tick.checked = repo.enabled !== false;
+  tick.title = "Unticked: kept here, not read.";
+  tick.onchange = () => {
+    repo.enabled = tick.checked;
+    renderIssueRepoRows();
+  };
+  enabled.append(tick, element("span", "", "read this one"));
+  controls.append(enabled);
+
+  const test = element("button", "btn-ghost issue-repo-test-now", "Test connection");
+  test.type = "button";
+  test.onclick = () => testIssueRepo(index);
+  controls.append(test);
+
+  if (repo.token_set) {
+    const clear = element("button", "btn-ghost", "Forget token");
+    clear.type = "button";
+    clear.onclick = () => {
+      repo.token = "";
+      repo.token_set = false;
+      delete state.issues.tested[index];
+      renderIssueRepoRows();
+    };
+    controls.append(clear);
+  }
+
+  controls.append(element("span", "spacer", ""));
+  const remove = element("button", "btn-ghost issue-repo-remove", "Remove");
+  remove.type = "button";
+  remove.onclick = () => {
+    state.issues.draft.splice(index, 1);
+    state.issues.editing = null;
+    state.issues.tested = {};
+    renderIssueRepoRows();
+  };
+  controls.append(remove);
+  form.append(controls);
+
+  const said = state.issues.tested[index];
+  if (said && !said.ok) {
+    form.append(element("p", "error issue-repo-said", said.message));
+  }
+  return form;
+}
+
+// Debounced per entry: typing a token is a burst of keystrokes and each one
+// would otherwise be a request to somebody else's host.
+const ISSUE_TEST_AFTER_MS = 900;
+let issueTestTimer = null;
+
+function scheduleIssueRepoTest(index) {
+  if (issueTestTimer) clearTimeout(issueTestTimer);
+  issueTestTimer = setTimeout(() => testIssueRepo(index), ISSUE_TEST_AFTER_MS);
+}
+
+// Asks the host whether this connection works, before it is saved. Nothing about
+// the attempt is stored -- not the token that was tried, not the fact of trying.
+async function testIssueRepo(index) {
+  const repo = (state.issues.draft || [])[index];
+  if (!repo || !repo.owner || !repo.repo) return;
+  state.issues.tested[index] = { ok: false, message: "Asking the host…", pending: true };
+  renderIssueRepoRows();
+  try {
+    const answer = await api("/api/issues/test", {
+      method: "POST",
+      body: JSON.stringify({
+        provider: repo.provider || "github",
+        base_url: repo.base_url || "",
+        owner: repo.owner,
+        repo: repo.repo,
+        label: repo.label || "",
+        enabled: repo.enabled !== false,
+        token: repo.token === null || repo.token === undefined ? null : repo.token,
+      }),
+    });
+    state.issues.tested[index] = answer;
+  } catch (failure) {
+    state.issues.tested[index] = { ok: false, message: failure.message };
+  }
+  renderIssueRepoRows();
 }
 
 async function saveIssueRepos() {
@@ -10178,6 +10493,8 @@ async function saveIssueRepos() {
     });
     state.issues.repos = config.repos || [];
     state.issues.draft = null;
+    state.issues.editing = null;
+    state.issues.tested = {};
     renderIssueRepoRows();
     await loadIssueChanges();
     await loadIssues();
@@ -10220,14 +10537,23 @@ function renderIssueChanges() {
 function openIssueSettings(open) {
   $("issues-settings-panel").hidden = !open;
   $("issues-settings").setAttribute("aria-expanded", String(open));
+  $("issues-settings").classList.toggle("is-open", open);
   if (!open) {
     // Closing is cancelling: the draft goes, and the next open reads the saved
-    // list again.
+    // list again. Focus goes back to the button that opened it, or a keyboard is
+    // left standing in a panel that is no longer there.
     state.issues.draft = null;
+    state.issues.editing = null;
+    state.issues.tested = {};
+    if (issueTestTimer) clearTimeout(issueTestTimer);
+    $("issues-settings").focus();
     return;
   }
   renderIssueRepoRows();
   loadIssueChanges();
+  // The panel takes focus so Esc and Tab belong to it, and so the click-outside
+  // handler has something to move away from.
+  $("issues-settings-panel").focus();
 }
 
 // --- the sprint tab's issue panel ---------------------------------------------
@@ -10325,17 +10651,54 @@ function bindEvents() {
     state.issues.filter = $("issues-filter").value;
     renderIssues();
   };
-  $("issues-settings").onclick = () => {
+  // The panel, and getting out of it: a press outside closes it, Esc closes it,
+  // and the panel stops its own clicks so typing in a field does not close the
+  // box you are typing in. The same arrangement as the ⋯ menu and the bell.
+  $("issues-settings").onclick = (event) => {
+    event.stopPropagation();
     openIssueSettings($("issues-settings-panel").hidden);
   };
+  $("issues-settings-panel").onclick = (event) => event.stopPropagation();
+  $("issues-settings-close").onclick = () => openIssueSettings(false);
+  document.addEventListener("click", () => {
+    if (!$("issues-settings-panel").hidden) openIssueSettings(false);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !$("issues-settings-panel").hidden) {
+      openIssueSettings(false);
+    }
+  });
+
   $("issues-repo-add").onclick = () => {
-    issueRepoDraft().push({
+    const draft = issueRepoDraft();
+    draft.push({
       provider: "github", base_url: "", owner: "", repo: "",
       label: "", enabled: true, token: "", token_set: false,
     });
+    // Opened on the one just added: an entry that is only a name is a line
+    // saying "new repository" and nothing to type into.
+    state.issues.editing = draft.length - 1;
     renderIssueRepoRows();
   };
   $("issues-repo-save").onclick = () => saveIssueRepos();
+
+  const turnIssuePage = (by) => {
+    state.issues.page += by;
+    renderIssues();
+  };
+  $("issues-prev").onclick = () => turnIssuePage(-1);
+  $("issues-next").onclick = () => turnIssuePage(1);
+  $("issues-page-size").onchange = () => {
+    state.issues.size = Number($("issues-page-size").value);
+    state.issues.page = 0;
+    renderIssues();
+  };
+  // The one control here that costs a request: it changes what is asked of each
+  // host, so it re-reads rather than redrawing.
+  $("issues-limit").onchange = () => {
+    state.issues.limit = Number($("issues-limit").value);
+    loadIssues();
+  };
 
   // `sprintFileKey` rather than `Number`: the last row of the picker is the
   // template, whose key is a string.
@@ -10442,22 +10805,14 @@ function bindEvents() {
   // not race the document handler that would close it.
   $("late-alert").onclick = (event) => {
     event.stopPropagation();
-    closeTask();
-    openLate($("late-panel").hidden);
+    // Opens on whichever half has something to say, so one press lands on the
+    // news rather than on an empty pane you then have to switch out of.
+    openAlerts($("alert-panel").hidden, alertTabWanted());
   };
-  $("late-panel").onclick = (event) => event.stopPropagation();
-  document.addEventListener("click", () => closeLate());
-
-  // The task bell, on the same terms. Opening one closes the other: two panels
-  // hanging off the same corner would overlap, and reading both at once is not a
-  // thing anybody does.
-  $("task-alert").onclick = (event) => {
-    event.stopPropagation();
-    closeLate();
-    openTask($("task-panel").hidden);
-  };
-  $("task-panel").onclick = (event) => event.stopPropagation();
-  document.addEventListener("click", () => closeTask());
+  $("alert-panel").onclick = (event) => event.stopPropagation();
+  document.addEventListener("click", () => closeAlerts());
+  $("alert-tab-late").onclick = () => openAlerts(true, "late");
+  $("alert-tab-task").onclick = () => openAlerts(true, "task");
 
   // Both reveals, and the topbar's primary action is the third caller. Focus
   // follows, because the button's whole purpose is to get you into the first

@@ -328,6 +328,98 @@ def test_a_disabled_repository_is_not_asked(monkeypatch):
     assert result == {"issues": [], "counts": [], "errors": []}
 
 
+# --- how many there are -------------------------------------------------------
+
+
+def test_github_counts_through_search_because_its_list_counts_branches():
+    repo = {"provider": issues.GITHUB, "owner": "core", "repo": "mm"}
+    assert issues.total_url(repo) == "https://api.github.com/search/issues"
+    params = issues.total_params(repo, "open")
+    assert params["q"] == "repo:core/mm is:issue state:open"
+    # `all` drops the state term rather than sending "state:all", which the
+    # search syntax has no word for.
+    assert issues.total_params(repo, "all")["q"] == "repo:core/mm is:issue"
+    assert issues.total_from(repo, {}, {"total_count": 42}) == 42
+
+
+def test_the_other_two_count_from_a_header_on_a_one_row_page():
+    gitlab = {"provider": issues.GITLAB, "owner": "core", "repo": "mm"}
+    forgejo = {"provider": issues.FORGEJO, "base_url": "https://git.example.com",
+               "owner": "core", "repo": "mm"}
+    assert issues.total_url(gitlab).endswith("/issues")
+    assert issues.total_params(gitlab, "open")["per_page"] == 1
+    assert issues.total_from(gitlab, {"X-Total": "17"}, []) == 17
+    assert issues.total_from(forgejo, {"X-Total-Count": "9"}, []) == 9
+
+
+def test_forgejo_asks_the_host_to_leave_pull_requests_out():
+    """Unlike GitHub's, Forgejo's endpoint can be told -- so its total is right too."""
+    assert issues.request_params({"provider": issues.FORGEJO})["type"] == "issues"
+    assert "type" not in issues.request_params({"provider": issues.GITHUB})
+
+
+def test_a_host_that_gives_no_count_reads_as_unknown_not_zero():
+    gitlab = {"provider": issues.GITLAB, "owner": "core", "repo": "mm"}
+    assert issues.total_from(gitlab, {}, []) is None
+    assert issues.total_from(gitlab, {"X-Total": "not a number"}, []) is None
+
+
+def test_totals_are_summed_across_repositories_and_say_when_partial(monkeypatch):
+    def handler(request):
+        if "quiet" in str(request.url):
+            # A host that answers without the header: it contributes nothing, and
+            # the readout has to admit the total is incomplete.
+            return httpx.Response(200, json=[])
+        return httpx.Response(200, json=[], headers={"X-Total": "5"})
+
+    stub_host(monkeypatch, handler)
+    answer = issues.fetch_totals(
+        [{"provider": "gitlab", "owner": "core", "repo": "loud"},
+         {"provider": "gitlab", "owner": "core", "repo": "quiet"}],
+        states=("open",))
+    assert answer["totals"]["open"] == 5
+    assert answer["partial"] is True
+
+
+def test_a_totals_read_never_raises(monkeypatch):
+    """A count is a nicety beside the list; a host being down must not cost the page."""
+    def handler(request):
+        raise httpx.ConnectError("no route to host", request=request)
+
+    stub_host(monkeypatch, handler)
+    answer = issues.fetch_totals([{"provider": "gitlab", "owner": "c", "repo": "m"}],
+                                 states=("open",))
+    assert answer == {"totals": {"open": None}, "partial": True}
+
+
+# --- testing a connection before it is saved ----------------------------------
+
+
+def test_a_connection_test_asks_for_one_issue(monkeypatch):
+    seen = {}
+
+    def handler(request):
+        seen["url"] = str(request.url)
+        return httpx.Response(200, json=[
+            {"number": 1, "title": "Real", "state": "open",
+             "html_url": "https://github.com/core/mm/issues/1"},
+        ])
+
+    stub_host(monkeypatch, handler)
+    answer = issues.test_repo({"provider": "github", "owner": "core", "repo": "mm",
+                               "token": "t0ken"})
+    assert answer == {"ok": True, "open": 1, "repo_ref": "github:core/mm"}
+    assert "per_page=1" in seen["url"]
+
+
+def test_a_bad_token_fails_the_test_by_name(monkeypatch):
+    stub_host(monkeypatch, lambda request: httpx.Response(403, json={}))
+    with pytest.raises(issues.IssuesError) as raised:
+        issues.test_repo({"provider": "github", "owner": "core", "repo": "mm",
+                          "token": "wrong"})
+    assert "token" in str(raised.value)
+
+
 # --- the flag -----------------------------------------------------------------
 
 

@@ -3568,6 +3568,41 @@ def read_issue_counts(state: str = "open", limit: int = issues.DEFAULT_LIMIT):
     return {"counts": found["counts"], "errors": found["errors"]}
 
 
+@app.get("/api/issues/totals")
+def read_issue_totals():
+    """How many issues exist per state, which is not how many were fetched.
+
+    Its own route because it is a different cost: one small request per
+    repository per state, asked when the tab opens rather than on every filter
+    change. `partial` is true when a host would not give a count -- "none closed"
+    and "nobody would say" must not read the same.
+    """
+    issues_on_or_404()
+    return issues.fetch_totals(stored_repos())
+
+
+@app.post("/api/issues/test")
+def test_issue_repo(body: IssueRepoIn):
+    """Try one repository's URL and token before it is saved. Stores nothing.
+
+    The token in the body is the one just typed on the page; an absent one falls
+    back to what is already stored for that repository, which is what makes the
+    button work without retyping a secret. Neither is written anywhere -- not to
+    the settings row, and not to the change log.
+    """
+    issues_on_or_404()
+    repo = body.model_dump()
+    if repo.get("token") is None:
+        stored = {issues.repo_ref(row): row.get("token", "") for row in stored_repos()}
+        repo["token"] = stored.get(issues.repo_ref(repo), "")
+    try:
+        return issues.test_repo(issues.clean_repo(repo))
+    except issues.IssuesError as error:
+        # 200 with `ok: false`, not a 4xx: the request was fine and the answer is
+        # what the page is asking for. A failed test is a result, not an error.
+        return {"ok": False, "message": str(error), "repo_ref": issues.repo_ref(repo)}
+
+
 @app.put("/api/issues/repos")
 def write_issue_repos(body: IssueReposIn):
     """Replace the configured repositories, and log what moved. The only write here."""

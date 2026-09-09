@@ -136,6 +136,20 @@
          are different news: the amber mark is late, the green is ready to close,
          and folding them into one number would make red mean both. Either one
          alone is enough to show the bell. -->
+    <!-- **One bell, two tabs** *(was two bells side by side until 2026-09-09)*.
+         They answer different questions off different sources -- the roadmap's
+         rows against today, and the `@handle` rows in the sprint files -- but two
+         identical bells in one corner read as one thing gone wrong twice. The
+         marks stay separate on the one button, because a slipped date, a phase
+         waiting to be closed and a row with your name on it are three different
+         pieces of news.
+
+         Both halves are **readouts, not notifications**: everyone sees the same
+         lists, both are derived on read, and nothing about either is stored --
+         no dismissal, no snooze, no "new since you last looked". See
+         non-negotiable 7, PROMPT.md amendment 6, and `Scope.dc.html` for the
+         line this must not cross. Filled by `drawLate` and `drawMine`; the panes
+         keep their own ids and their own renderers. -->
     <span class="late-menu">
       <button id="late-alert" class="late-bell" aria-expanded="false"
               aria-haspopup="true" hidden>
@@ -146,34 +160,18 @@
         </svg>
         <span id="late-count" class="late-count" hidden></span>
         <span id="ready-count" class="late-count late-count-ready" hidden></span>
-      </button>
-      <div id="late-panel" class="menu-panel late-panel" hidden></div>
-    </span>
-    <!-- What the sprint files hand to you, and to everybody else. The second
-         bell, and deliberately not folded into the first: that one reads the
-         roadmap rows and is cached against `roadmapRevision`, this one scans
-         markdown on disk, which a roadmap write cannot say anything about.
-         Filled by `drawMine`.
-
-         **A readout, exactly as the bell beside it is.** It rings while a row
-         naming you is not Done and stops when it is -- there is no dismissal, no
-         snooze and no "new since you last looked", because each of those would
-         be the app remembering who was looking. See non-negotiable 7 and
-         PROMPT.md amendment 6.
-
-         The Everyone half is ungated and there is no root user: whoever opens
-         this sees the same answer. -->
-    <span class="late-menu">
-      <button id="task-alert" class="late-bell task-bell" aria-expanded="false"
-              aria-haspopup="true" hidden>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M18 8a6 6 0 0 0-12 0c0 5-2 6-2 6h16s-2-1-2-6"></path>
-          <path d="M10.5 19a1.8 1.8 0 0 0 3 0"></path>
-        </svg>
         <span id="task-count" class="late-count task-count" hidden></span>
       </button>
-      <div id="task-panel" class="menu-panel late-panel task-panel" hidden></div>
+      <div id="alert-panel" class="menu-panel late-panel alert-panel" hidden>
+        <span id="alert-tabs" class="mode-switch alert-tabs">
+          <button id="alert-tab-late" type="button" class="mode active">Overdue</button>
+          <button id="alert-tab-task" type="button" class="mode">Assigned</button>
+        </span>
+        <!-- Two panes, one visible at a time. Each keeps the id its renderer
+             already writes into, so neither renderer knows this moved. -->
+        <div id="late-panel" class="late-panel alert-pane"></div>
+        <div id="task-panel" class="late-panel task-panel alert-pane" hidden></div>
+      </div>
     </span>
     <!-- Who else is here, on whichever tab you are on. Outside `topbar-actions`
          for the same reason the offline badge is: that block is hidden when no
@@ -814,8 +812,11 @@
           which is where it is answered.
         </p>
 
-        <div class="row">
-          <label>Show
+        <!-- One flex row, every control on one baseline. A `.row` of labels put
+             the select a line below its own caption and the filter a line above
+             the button, which is what "not aligned" was. -->
+        <div class="issues-bar">
+          <label class="issues-field">Show
             <select id="issues-state"
               data-tip="Which issues to ask each host for"
               data-tip-body="Open is the planning question. Closed and all are here for a look back at a repository, and cost the same one request per repository.">
@@ -824,7 +825,7 @@
               <option value="all">all</option>
             </select>
           </label>
-          <input id="issues-filter" type="search" class="sidebar-filter issues-filter"
+          <input id="issues-filter" type="search" class="issues-filter"
                  placeholder="Filter…"
                  title="Matches the title, the repository, a label or the author. Nothing is stored; it only narrows what is drawn.">
           <button id="issues-refresh" type="button"
@@ -832,31 +833,58 @@
             data-tip-body="There is no cache to clear — this page holds what the last request returned and nothing else.">Refresh</button>
           <span class="spacer"></span>
           <span class="topbar-menu">
-            <button id="issues-settings" class="btn-ghost topbar-more" aria-expanded="false"
-                    title="Repositories, and what has changed about them">&#9881;</button>
-            <div id="issues-settings-panel" class="menu-panel issues-panel" hidden>
-              <span class="menu-caption">Repositories</span>
+            <!-- A named button rather than a bare glyph: at 15px in the corner of
+                 a toolbar the gear was there and nobody could see it. -->
+            <button id="issues-settings" class="btn-settings" aria-expanded="false"
+                    aria-haspopup="true"
+                    title="Which repositories are read, and what has changed about them">
+              <span aria-hidden="true">&#9881;</span> Repositories
+              <span id="issues-repo-tally" class="btn-settings-tally"></span>
+            </button>
+            <div id="issues-settings-panel" class="menu-panel issues-panel" hidden
+                 role="dialog" aria-label="Repositories" tabindex="-1">
+              <div class="issues-panel-head">
+                <span class="menu-caption">Repositories</span>
+                <span class="spacer"></span>
+                <button id="issues-settings-close" type="button" class="btn-ghost"
+                        title="Close (Esc)">&times;</button>
+              </div>
               <p class="hint menu-hint">
                 Issue a <strong>read-only</strong> token: nothing here ever writes
                 to a host. Tokens are stored in <code>data/roadmap.db</code> with
                 the sign-in secrets, and stripped from every export.
               </p>
-              <div id="issues-repo-rows"></div>
-              <button id="issues-repo-add" type="button" class="btn-ghost">Add repository</button>
+              <!-- One line per repository, and the fields only when you press
+                   Edit. Six boxes per repository, all of them open at once, was
+                   the mess. -->
+              <div id="issues-repo-rows" class="issues-repo-entries"></div>
+              <div class="issues-panel-foot">
+                <button id="issues-repo-add" type="button" class="btn-ghost">+ Add repository</button>
+                <span class="spacer"></span>
+                <button id="issues-repo-save" class="btn-primary">Save</button>
+              </div>
               <p id="issues-repo-error" class="error" hidden></p>
-              <div class="menu-rule"></div>
-              <button id="issues-repo-save" class="btn-primary">Save repositories</button>
 
-              <div class="menu-rule"></div>
-              <span class="menu-caption">Change log</span>
-              <p class="hint menu-hint">
-                What was pointed at, and when it moved. Never who, and never a
-                token &mdash; a rotated one is recorded as having changed.
-              </p>
-              <div id="issues-changes" class="issues-changes"></div>
+              <!-- Folded away, because the log is for the day something has gone
+                   missing rather than for every visit. `<details>` so the fold is
+                   the browser's own and needs no state of ours. -->
+              <details id="issues-changes-box" class="issues-changes-box">
+                <summary>Change log</summary>
+                <p class="hint menu-hint">
+                  What was pointed at, and when it moved. Never who, and never a
+                  token &mdash; a rotated one is recorded as having changed.
+                </p>
+                <div id="issues-changes" class="issues-changes"></div>
+              </details>
             </div>
           </span>
         </div>
+
+        <!-- How many there are, which is not how many were fetched: one small
+             request per repository per state, asked when the tab opens. The
+             three read as a set, so a shrinking "open" beside a steady "all" is
+             the thing worth seeing. -->
+        <div id="issues-totals" class="issues-totals"></div>
 
         <!-- A host that cannot be reached has to read as a failure rather than
              as a quiet repository, or the page under-reports the thing it is
@@ -870,6 +898,36 @@
         </p>
 
         <div id="issues-list" class="issues-list"></div>
+
+        <!-- Two different limits, and they are not the same decision. **Per
+             page** is how much of what arrived is drawn at once; **read per
+             repository** is how much is asked of each host in the first place,
+             which is what keeps a repository with nine hundred open issues from
+             being a nine-hundred-row read every time this tab opens. The totals
+             above say when the second one is cutting something off. -->
+        <div id="issues-pager" class="issues-pager" hidden>
+          <button id="issues-prev" type="button" class="btn-ghost">&lsaquo; Newer</button>
+          <span id="issues-page-label" class="issues-page-label"></span>
+          <button id="issues-next" type="button" class="btn-ghost">Older &rsaquo;</button>
+          <span class="spacer"></span>
+          <label class="issues-field">Per page
+            <select id="issues-page-size">
+              <option value="10">10</option>
+              <option value="25" selected>25</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
+          </label>
+          <label class="issues-field">Read per repository
+            <select id="issues-limit"
+              data-tip="How much is asked of each host"
+              data-tip-body="One request per repository, this many issues. Raising it costs a slower open; the totals row says whether it is cutting anything off.">
+              <option value="25">25</option>
+              <option value="50" selected>50</option>
+              <option value="100">100</option>
+            </select>
+          </label>
+        </div>
       </section>
     </div>
   </main>

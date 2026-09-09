@@ -141,9 +141,62 @@ def request_params(repo, state="open", limit=DEFAULT_LIMIT):
     }
     if provider == FORGEJO:
         params["limit"] = limit
+        # Forgejo's issues endpoint lists pull requests too, and unlike GitHub's
+        # it can be asked not to. Cheaper and more accurate than filtering the
+        # reply, and it makes the host's own total count the right number.
+        params["type"] = "issues"
     else:
         params["per_page"] = limit
     return params
+
+
+# --- how many there are, which is not how many were fetched -------------------
+
+# One page per repository is what a planning readout wants; "42 open" is what
+# tells you whether the page is the whole story. No host gives both in one call,
+# and each gives the count a different way:
+#
+# * GitHub's issues endpoint sends no total at all, and its `Link` header counts
+#   pull requests among the issues. Its search endpoint answers exactly, excludes
+#   pull requests with `is:issue`, and costs one small request.
+# * GitLab sends `X-Total` on the list itself, so a one-row page carries it.
+# * Forgejo sends `X-Total-Count`, and `type=issues` keeps pull requests out of
+#   it.
+TOTAL_HEADERS = {GITLAB: "X-Total", FORGEJO: "X-Total-Count"}
+
+
+def total_url(repo):
+    """Where a count comes from. GitHub asks its search endpoint; the others count a page."""
+    if repo.get("provider") == GITHUB:
+        return f"{api_root(GITHUB, repo.get('base_url'))}/search/issues"
+    return issues_url(repo)
+
+
+def total_params(repo, state="open"):
+    """A count asks for as little as the host will send: one row, or none at all."""
+    provider = repo.get("provider")
+    if provider == GITHUB:
+        # `is:issue` is what excludes pull requests, and it is the reason this
+        # endpoint is used rather than the cheaper `Link`-header trick.
+        query = [f"repo:{project_path(repo)}", "is:issue"]
+        if state in ("open", "closed"):
+            query.append(f"state:{state}")
+        return {"q": " ".join(query), "per_page": 1}
+    return {**request_params(repo, state, 1)}
+
+
+def total_from(repo, headers, payload):
+    """The count out of one host's answer, or None when it did not give one."""
+    provider = repo.get("provider")
+    if provider == GITHUB:
+        return payload.get("total_count") if isinstance(payload, dict) else None
+    raw = (headers or {}).get(TOTAL_HEADERS.get(provider, ""), "")
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        # A GitLab or Forgejo old enough not to send the header. The page is
+        # still drawn; the total simply reads as unknown rather than as zero.
+        return None
 
 
 def is_pull_request(provider, raw):
@@ -371,6 +424,61 @@ def fetch_repo(repo, state="open", limit=DEFAULT_LIMIT, timeout=FETCH_TIMEOUT_SE
     provider = repo.get("provider")
     return [normalise_issue(repo, raw) for raw in payload
             if isinstance(raw, dict) and not is_pull_request(provider, raw)]
+
+
+def fetch_total(repo, state="open", timeout=FETCH_TIMEOUT_SECONDS):
+    """How many issues one repository has in that state, or None if the host will not say."""
+    url = total_url(repo)
+    try:
+        with http_client(timeout) as client:
+            response = client.get(url, headers=request_headers(repo),
+                                  params=total_params(repo, state))
+    except httpx.HTTPError:
+        return None
+    if response.status_code != 200:
+        return None
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+    return total_from(repo, response.headers, payload)
+
+
+def fetch_totals(repos, states=("open", "closed", "all"),
+                 timeout=FETCH_TIMEOUT_SECONDS):
+    """Totals per state across every enabled repository. A readout, and best-effort.
+
+    A host that will not give a count contributes nothing rather than a zero, and
+    `partial` says so -- "0 closed" and "nobody would tell me" must not read the
+    same way. Called once when the tab opens, not on every filter change: it is
+    one small request per repository per state.
+    """
+    totals = {}
+    partial = False
+    for state in states:
+        running = 0
+        counted = False
+        for repo in repos:
+            if not repo.get("enabled", True):
+                continue
+            found = fetch_total(repo, state, timeout)
+            if found is None:
+                partial = True
+                continue
+            running += found
+            counted = True
+        totals[state] = running if counted else None
+    return {"totals": totals, "partial": partial}
+
+
+def test_repo(repo, timeout=FETCH_TIMEOUT_SECONDS):
+    """Ask a repository for one issue, to prove the URL and the token before a save.
+
+    The one place a token that is not yet stored is used: the page sends what was
+    just typed, this tries it, and nothing about the attempt is written down.
+    """
+    found = fetch_repo(repo, "open", 1, timeout)
+    return {"ok": True, "open": len(found), "repo_ref": repo_ref(repo)}
 
 
 def fetch_all(repos, state="open", limit=DEFAULT_LIMIT, timeout=FETCH_TIMEOUT_SECONDS):

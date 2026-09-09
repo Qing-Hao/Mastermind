@@ -499,6 +499,17 @@
   gap: 12px;
 }
 
+/* One bell, two panes *(2026-09-09 — it was two bells and two panels)*. The
+   wrapper is the panel and the scroller; each pane keeps `.late-panel` so every
+   descendant rule inside it still matches, and neither pane is a `.menu-panel`,
+   so the width and padding above apply once rather than twice. */
+.alert-tabs { margin-left: 0; align-self: flex-start; }
+.alert-pane { display: flex; flex-direction: column; gap: 12px; }
+/* Load-bearing: the rule above sets `display`, and `renderAlertPanel` folds the
+   pane that is not showing with the `hidden` attribute. Same trap as
+   `.sprint-scope[hidden]`. */
+.alert-pane[hidden] { display: none; }
+
 .late-head { display: flex; align-items: baseline; gap: 8px; }
 .late-title { font-size: 13px; font-weight: 700; }
 .late-asof { font-size: 11.5px; color: var(--faint); }
@@ -3945,9 +3956,109 @@ body.resizing-column { cursor: col-resize; user-select: none; }
    and `.nav-item` sets `display: flex`. Same trap, same guard. */
 .nav-item[hidden] { display: none; }
 
-.issues-filter { max-width: 260px; margin: 0; }
+/* One baseline for every control. The view used the shell's `.row`, whose
+   labels stack their caption above the field, so the select sat a line below the
+   filter and the button a line above both -- which is what "not aligned" was. */
+.issues-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.issues-field {
+  display: inline-flex;
+  /* **`row` said out loud.** The shell's bare `label` rule is a column, so
+     without this the caption stacks above the select, the field grows a line
+     taller than the boxes beside it, and the row is out of line by exactly that
+     -- measured at 12px before this was added. */
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.issues-field select { margin: 0; }
+.issues-filter {
+  flex: 0 1 240px;
+  margin: 0;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-input, 6px);
+  font-size: 12.5px;
+}
+
+/* The settings button. It was a 15px glyph in a `btn-ghost` and nobody could
+   find it, so it is a named, filled control with a count on it -- the one thing
+   on this toolbar that changes what the page reads. */
+.btn-settings {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-input, 6px);
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.btn-settings:hover { background: var(--accent); color: #fff; }
+.btn-settings.is-open { background: var(--accent); color: #fff; }
+.btn-settings-tally {
+  min-width: 17px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--accent-hover);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.btn-settings-tally:empty { display: none; }
+
+/* How many there are, per state, and the state switch in the same three chips:
+   the number you just read is what you then want listed. */
+.issues-totals {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.issues-total {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.issues-total:hover { background: var(--hover); }
+.issues-total.is-current { border-color: var(--accent); color: var(--accent-hover); }
+.issues-total-n { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.issues-total-label { font-size: 11.5px; }
+/* Said out loud rather than left to be worked out from a short list: the reader
+   fetches one page per repository, and this is where that shows. */
+.issues-total-note { font-size: 11.5px; color: var(--faint); }
 
 .issues-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+
+/* Kept on screen even at one page: the two size controls are the reason it is
+   there, and a bar that appears only once a list is long is a control nobody
+   finds when they need it. Sets `display`, so it carries a guard. */
+.issues-pager {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-soft);
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.issues-pager[hidden] { display: none; }
+.issues-page-label { font-variant-numeric: tabular-nums; }
+.issues-pager button[disabled] { opacity: 0.4; }
 
 /* An anchor, not a row with a handler: this is a link out, and it should drag,
    middle-click and copy like one. */
@@ -3964,12 +4075,50 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 
 .issue-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .issue-title { font-size: 13.5px; color: var(--ink); }
+.issue-state {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--line-soft);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
 .issue-label {
   padding: 1px 7px;
   border: 1px solid var(--line);
   border-radius: 999px;
   font-size: 11px;
   color: var(--ink-3);
+}
+
+/* --- label and repository hues ---
+   **Chrome, not data.** A hue here means "this label is that label" and nothing
+   about the plan or about how bad an issue is: the words belong to the host, and
+   a severity ramp would be this app inventing a reading of them. The same trick
+   `.presence-badge` uses, and it sits above the chart rules for the same reason.
+   Eight, because two labels on one row should differ and a ninth would start
+   repeating a neighbour anyway. */
+.issue-hue-0 { --issue-hue: 210; }
+.issue-hue-1 { --issue-hue: 145; }
+.issue-hue-2 { --issue-hue: 275; }
+.issue-hue-3 { --issue-hue: 25; }
+.issue-hue-4 { --issue-hue: 340; }
+.issue-hue-5 { --issue-hue: 190; }
+.issue-hue-6 { --issue-hue: 95; }
+.issue-hue-7 { --issue-hue: 250; }
+.issue-label[class*="issue-hue-"] {
+  border-color: hsl(var(--issue-hue, 210) 60% 82%);
+  background: hsl(var(--issue-hue, 210) 82% 96%);
+  color: hsl(var(--issue-hue, 210) 55% 34%);
+}
+.issue-repo[class*="issue-hue-"] { color: hsl(var(--issue-hue, 210) 50% 38%); }
+.issue-repo-dot {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 50%;
+  background: hsl(var(--issue-hue, 210) 60% 55%);
 }
 .issue-meta {
   display: flex;
@@ -3982,32 +4131,111 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 .issue-repo { font-weight: 600; color: var(--ink-3); }
 .issue-number { font-variant-numeric: tabular-nums; }
 
-/* --- the repositories, and the change log --- */
-/* Wider than the ⋯ menu: a connection is six fields on one line, and wrapped
-   across two it stops reading as one repository. */
-.issues-panel { width: 620px; }
+/* --- the repositories, and the change log ---
+   **A list of names, with the fields only where you are working.** Every
+   repository's six boxes open at once made a panel nobody could read: the entry
+   is one line, Edit opens the form under it, and one is open at a time. */
+.issues-panel {
+  width: 440px;
+  max-height: min(78vh, 680px);
+  overflow-y: auto;
+  /* The panel is what scrolls, so the change log inside it never grows its own
+     second scrollbar -- see `.issues-changes`. */
+  overscroll-behavior: contain;
+}
+.issues-panel:focus { outline: none; }
 
-.issue-repo-row {
+.issues-panel-head { display: flex; align-items: center; gap: 6px; }
+.issues-panel-foot { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+
+.issues-repo-entries { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+
+.issue-repo-entry {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-input, 6px);
+  background: var(--surface);
+}
+.issue-repo-entry.is-editing { border-color: var(--accent); }
+.issue-repo-line {
   display: flex;
   align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--line-soft);
+  gap: 7px;
+  padding: 6px 9px;
+  font-size: 12.5px;
 }
-.issue-repo-row input[type="text"],
-.issue-repo-row input[type="password"] { min-width: 0; flex: 1 1 110px; }
-.issue-repo-provider { flex: 0 0 auto; }
-.issue-repo-enabled { display: flex; align-items: center; gap: 4px; font-size: 11.5px; }
-.issue-repo-clear, .issue-repo-remove { flex: 0 0 auto; font-size: 11.5px; }
+.issue-repo-name { color: var(--ink); font-weight: 600; }
+.issue-repo-host { font-size: 11px; color: var(--faint); }
+.issue-repo-off {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--line-soft);
+  font-size: 10.5px;
+  color: var(--ink-3);
+}
+/* What the host said when the token was tried. Green and red mean pass and fail
+   about a connection -- nothing about the plan, so this stays chrome. */
+.issue-repo-test { font-size: 11px; }
+.issue-repo-test.is-ok { color: #2e7d32; }
+.issue-repo-test.is-bad { color: #b00020; }
+.issue-repo-edit { flex: 0 0 auto; font-size: 11.5px; }
 
-.issues-changes { max-height: 180px; overflow-y: auto; }
+.issue-repo-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 8px;
+  padding: 9px;
+  border-top: 1px solid var(--line-soft);
+  background: var(--hover);
+}
+.issue-repo-field { display: flex; flex-direction: column; gap: 2px; margin: 0; }
+.issue-repo-field-wide { grid-column: 1 / -1; }
+.issue-repo-field-name { font-size: 10.5px; color: var(--faint); }
+.issue-repo-field input, .issue-repo-field select { width: 100%; min-width: 0; }
+.issue-repo-controls {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 4px;
+  border-top: 1px solid var(--line-soft);
+}
+/* `row` for the reason `.issues-field` needs it: the bare `label` rule is a
+   column, and the tick would sit above its own word. */
+.issue-repo-enabled {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+}
+.issue-repo-controls button { font-size: 11.5px; }
+.issue-repo-said { grid-column: 1 / -1; margin: 0; font-size: 11.5px; }
+
+/* Folded away, because the log is for the day something has gone missing rather
+   than for every visit. `<details>` so the fold is the browser's own. */
+.issues-changes-box { margin-top: 10px; border-top: 1px solid var(--line-soft); }
+.issues-changes-box summary {
+  padding: 8px 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+  cursor: pointer;
+}
+/* No inner scroller and no height cap: the panel above is what scrolls, and a
+   box scrolling inside a scrolling panel is the overflow trap this had. Long
+   values wrap rather than running past the edge. */
+.issues-changes { display: flex; flex-direction: column; gap: 2px; }
 .issue-change {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
   padding: 3px 0;
   font-size: 11.5px;
   color: var(--ink-3);
+  overflow-wrap: anywhere;
 }
 .issue-change-when { color: var(--faint); font-variant-numeric: tabular-nums; }
 .issue-change-repo { font-weight: 600; }
