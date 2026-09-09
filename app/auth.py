@@ -81,6 +81,7 @@ TRANSACTION_COOKIE = "mm_oidc_tx"
 # own answer: an account disabled in the realm keeps a Mastermind session until
 # it goes idle, because that would need a round trip the app deliberately does
 # not make on a page load. Removing the handle from the allowlist is the lever.
+# That is a known limitation and an argued one -- see FR-24.
 SESSION_DAYS = 30
 SESSION_RECHECK_HOURS = 12
 TRANSACTION_MINUTES = 10

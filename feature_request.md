@@ -111,6 +111,7 @@ put FR-13 above FR-12, and both are built and gone from this table.
 | FR-6 | Slippage memory — has this date moved before? | Large | Low | High | **P3** — deferred deliberately |
 | FR-23 | Versioning: who changed what, and revert | Large (needs a store) | — | High | **P3** — a brief decision |
 | FR-7 | Owners at roadmap level | Small | — | Negative | **Won't build** |
+| FR-24 | Ask the realm, on every request, whether an account is still valid | Medium | Every request | Low here | **Won't build** — known limitation, decided 2026-09-09 |
 
 **Nothing left in this table is code.** FR-19 and FR-1 are a number and a
 paragraph, and **FR-19 goes first**: FR-1 writes down that SP and `effort_points`
@@ -548,6 +549,39 @@ column on a phase would be the tracker rather than the convenience.
 It is also the single change that would turn the roster (FR-4) from reference
 data into assignment, and the tool into the tracker the brief forbids. If the
 overlap problem is real, FR-3 addresses it without naming anybody.
+
+---
+
+## FR-24 · Check with Keycloak that an account is still valid — **Won't build**
+
+*Not a request. Written down on 2026-09-09, when sessions went from twelve hours
+to thirty days, because that is what makes the gap worth naming.*
+
+**What it would take:** the app currently decides a session from its own signed
+cookie, and re-reads its own allowlist every `auth.SESSION_RECHECK_HOURS`. It
+never asks the realm anything after sign-in. Closing that would mean either a
+token introspection call against Keycloak on the recheck, or holding the refresh
+token and swapping it — and the cookie is signed, not encrypted, so a refresh
+token in it would be readable by anyone holding the cookie.
+
+**The limitation, stated plainly:** an account disabled or deleted *in Keycloak*
+keeps its Mastermind session until the session goes idle for
+`auth.SESSION_DAYS`. So does a stolen cookie. Signing somebody out promptly is
+done by taking their handle off the allowlist on the Sign-in page, which the
+recheck picks up within twelve hours.
+
+**Verdict: recommend not building.** This is an internal planning tool on the
+office network, and sign-in is a gate rather than an account model
+(non-negotiable 7) — the thing behind it is a roadmap, not payroll. The lever
+that exists is one field on a page somebody already has open, and it is enough
+for the case this actually has: somebody leaves the team. Paying a network round
+trip to the realm on a page load, and either a second secret store or an
+encrypted cookie, buys promptness nobody here has asked for. Usage first.
+
+**What would change the argument:** the app being reachable from outside the
+office, or the dataset carrying something worse than dates. Either makes prompt
+revocation worth a round trip, and then introspection on the recheck — not on
+every request — is the shape to build.
 
 ---
 
