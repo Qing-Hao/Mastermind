@@ -70,7 +70,19 @@ SESSION_COOKIE = "mm_session"
 # closed instead of confusingly.
 TRANSACTION_COOKIE = "mm_oidc_tx"
 
-SESSION_HOURS = 12
+# How long a session cookie is honoured, and it slides: using the app carries it
+# forward, so nobody signs in again on a fortnightly rhythm. Thirty days idle
+# ends it.
+#
+# **Nothing is stored server-side, so this number is also the revocation lag** --
+# and that is what `SESSION_RECHECK_HOURS` is for. Every slide re-reads the
+# allowlist and refuses a name that has left it, which puts the lag on the
+# recheck rather than on the thirty days. What a recheck cannot see is Keycloak's
+# own answer: an account disabled in the realm keeps a Mastermind session until
+# it goes idle, because that would need a round trip the app deliberately does
+# not make on a page load. Removing the handle from the allowlist is the lever.
+SESSION_DAYS = 30
+SESSION_RECHECK_HOURS = 12
 TRANSACTION_MINUTES = 10
 
 # Small tolerance for a clock that disagrees with the realm's by a few seconds.
@@ -236,20 +248,24 @@ def identity_of(claims, identity_claim):
     return str(value).strip() if value not in (None, "") else ""
 
 
-def is_allowed(claims, mode, allowlist, identity_claim=DEFAULT_IDENTITY_CLAIM):
-    """Whether these claims may in. Pure -- the whole authorisation decision.
+def name_allowed(identity, mode, allowlist):
+    """Whether this identity may in. Pure -- the whole authorisation decision.
 
     `allowlist` is compared case-insensitively: Keycloak usernames are
     case-preserving, and an entry differing only in case is a typo rather than a
     different person.
     """
-    identity = identity_of(claims, identity_claim)
     if not identity:
         return False
     if mode == MODE_ANY:
         return True
     permitted = {entry.lower() for entry in parse_allowlist(allowlist)}
     return identity.lower() in permitted
+
+
+def is_allowed(claims, mode, allowlist, identity_claim=DEFAULT_IDENTITY_CLAIM):
+    """The same decision from a token's claims, which is where sign-in asks it."""
+    return name_allowed(identity_of(claims, identity_claim), mode, allowlist)
 
 
 # --- the provider ------------------------------------------------------------
@@ -459,14 +475,44 @@ def unseal(value, key, now=None):
     return payload
 
 
-def new_session(claims, identity_claim, hours=SESSION_HOURS, now=None):
-    """The cookie payload for a signed-in person: subject, name, expiry."""
+def new_session(claims, identity_claim, days=SESSION_DAYS, now=None):
+    """The cookie payload for a signed-in person: subject, name, expiry, last recheck.
+
+    `checked` is when the allowlist last answered for this name. It is a property
+    of the decision, not of the person: it lives in the cookie the browser holds
+    and no row anywhere records that this session exists. See non-negotiable 7 --
+    `person` gains no timestamp, and this is not one.
+    """
     now = time.time() if now is None else now
     return {
         "sub": str(claims.get("sub", "")),
         "name": identity_of(claims, identity_claim),
-        "exp": int(now + hours * 3600),
+        "exp": int(now + days * 86400),
+        "checked": int(now),
     }
+
+
+def is_recheck_due(session, hours=SESSION_RECHECK_HOURS, now=None):
+    """Whether this session is old enough to owe the allowlist another answer.
+
+    A cookie sealed before `checked` existed reads as due immediately, which is
+    what upgrades it in place rather than signing that person out.
+    """
+    now = time.time() if now is None else now
+    checked = (session or {}).get("checked")
+    if not isinstance(checked, (int, float)):
+        return True
+    return now - checked >= hours * 3600
+
+
+def slide_session(session, days=SESSION_DAYS, now=None):
+    """The same session carried forward: a fresh expiry and a fresh recheck stamp.
+
+    Pure. Called only where the allowlist has just said yes again -- sliding a
+    session is the act of re-deciding it, so the two belong together.
+    """
+    now = time.time() if now is None else now
+    return {**session, "exp": int(now + days * 86400), "checked": int(now)}
 
 
 def new_transaction(state, nonce, destination, arming, minutes=TRANSACTION_MINUTES, now=None):

@@ -28,7 +28,8 @@
     <p id="signin-error" class="signin-error" hidden></p>
 
     <p class="signin-lead">This planner is behind your company sign-in.</p>
-    <a class="btn-primary signin-action" href="/auth/login">Sign in with Keycloak</a>
+    <a class="btn-primary signin-action" id="signin-start"
+       href="/auth/login">Sign in with Keycloak</a>
 
     <p id="signin-issuer" class="signin-note" hidden></p>
 
@@ -52,6 +53,16 @@
       const box = document.getElementById("signin-error");
       box.textContent = message;
       box.hidden = false;
+    }
+
+    // Where the page was when the gate stopped it, carried through the round trip
+    // so signing in lands back there rather than at the roadmap. A path on this
+    // app only -- `main.local_path` refuses anything else, and this refuses it
+    // twice rather than putting a `//host` into a link the page draws.
+    const next = parameters.get("next") || "";
+    if (next.startsWith("/") && !next.startsWith("//")) {
+      document.getElementById("signin-start").href =
+        "/auth/login?next=" + encodeURIComponent(next);
     }
 
     fetch("/auth/status")

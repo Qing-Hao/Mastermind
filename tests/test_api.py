@@ -13,6 +13,7 @@ from urllib.parse import parse_qsl, urlsplit
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from app import auth, db, main
 from app.main import app
@@ -4979,6 +4980,96 @@ def test_a_tampered_cookie_is_not_a_session(client, realm):
     sealed = client.cookies[auth.SESSION_COOKIE]
     client.cookies.set(auth.SESSION_COOKIE, sealed[:-2] + "xy")
     assert client.get("/api/projects").status_code == 401
+
+
+def age_session(client, seconds):
+    """Push this client's recheck stamp into the past, as a quiet fortnight would.
+
+    Re-sealed into the jar's own cookie rather than set as a new one: a host-only
+    cookie is stored under `testserver.local`, so `cookies.set` would add a second
+    of the same name that the app can neither replace nor delete.
+    """
+    key = auth.session_key(db.get_settings())
+    for cookie in client.cookies.jar:
+        if cookie.name != auth.SESSION_COOKIE:
+            continue
+        session = auth.unseal(cookie.value, key)
+        session["checked"] = int(time.time()) - seconds
+        cookie.value = auth.seal(session, key)
+        return session
+    raise AssertionError("there is no session cookie to age")
+
+
+def test_a_session_lasts_thirty_days_and_asks_the_allowlist_again_twice_a_day():
+    now = 1_700_000_000
+    session = auth.new_session({"sub": "abc", "preferred_username": "qinghao"},
+                               "preferred_username", now=now)
+    assert session["exp"] == now + 30 * 86400
+    assert not auth.is_recheck_due(session, now=now + 11 * 3600)
+    assert auth.is_recheck_due(session, now=now + 13 * 3600)
+    # A cookie sealed before `checked` existed owes an answer at once, which is
+    # what upgrades it in place instead of signing that person out.
+    assert auth.is_recheck_due({"name": "qinghao", "exp": now + 60}, now=now)
+
+    slid = auth.slide_session(session, now=now + 13 * 3600)
+    assert slid["exp"] == now + 13 * 3600 + 30 * 86400
+    assert not auth.is_recheck_due(slid, now=now + 13 * 3600)
+    # Who it is does not change: a slide re-decides the session, not the person.
+    assert (slid["sub"], slid["name"]) == (session["sub"], session["name"])
+
+
+def test_using_the_app_carries_the_session_forward(client, realm):
+    sign_in(client, realm, arm=True)
+    key = auth.session_key(db.get_settings())
+    first = auth.unseal(client.cookies[auth.SESSION_COOKIE], key)
+
+    # Inside the recheck window nothing is re-sealed, so the ordinary response
+    # carries no Set-Cookie.
+    response = client.get("/api/projects")
+    assert response.status_code == 200
+    assert auth.SESSION_COOKIE not in response.cookies
+
+    age_session(client, auth.SESSION_RECHECK_HOURS * 3600 + 60)
+    response = client.get("/api/projects")
+    assert response.status_code == 200
+    assert auth.SESSION_COOKIE in response.cookies
+    slid = auth.unseal(client.cookies[auth.SESSION_COOKIE], key)
+    assert slid["exp"] >= first["exp"]
+    assert slid["name"] == "qinghao"
+    assert not auth.is_recheck_due(slid)
+    # And no second round trip to Keycloak: the slide is the app's own decision.
+    assert realm.exchanges == 1
+
+
+def test_leaving_the_allowlist_ends_a_session_at_the_next_recheck(client, realm):
+    sign_in(client, realm, arm=True)
+    assert client.get("/api/projects").status_code == 200
+
+    assert client.put("/api/sso", json={"allowlist": "someone-else"}).status_code == 200
+    # Still in until the recheck falls due. That lag is the point of the recheck:
+    # without it the lag would be the whole thirty days.
+    assert client.get("/api/projects").status_code == 200
+
+    age_session(client, auth.SESSION_RECHECK_HOURS * 3600 + 60)
+    assert client.get("/api/projects").status_code == 401
+    # The cookie goes with the refusal, so the next request is a clean sign-in
+    # rather than this same refusal again.
+    assert not client.cookies.get(auth.SESSION_COOKIE)
+
+
+def test_an_armed_socket_refuses_a_page_whose_session_has_run_out(client, realm):
+    sign_in(client, realm, arm=True)
+    with client.websocket_connect("/ws") as socket:
+        # Signed in, so the badge is the Keycloak claim and never a guest number.
+        assert socket.receive_json()["name"] == "qinghao"
+
+    client.cookies.clear()
+    with pytest.raises(WebSocketDisconnect) as refusal:
+        with client.websocket_connect("/ws") as socket:
+            socket.receive_json()
+    # The page reads this code as "go and sign in". Before it existed the socket
+    # was accepted and everybody's badges drew the expired page as `guest-N`.
+    assert refusal.value.code == main.WS_SIGN_IN_REQUIRED
 
 
 def test_the_wrong_state_or_nonce_is_refused(client, realm):

@@ -452,12 +452,30 @@ let state = {
 
 // --- api --------------------------------------------------------------------
 
+// The gate ended this page's session while it was open, so the page is no longer
+// looking at anything it may see. Sent to the sign-in page carrying where it was,
+// and latched: several reads fail together and one navigation is the answer to
+// all of them.
+let signingOut = false;
+
+function goToSignIn() {
+  if (signingOut) return;
+  signingOut = true;
+  const here = location.pathname + location.search + location.hash;
+  location.href = "/auth/signin?next=" + encodeURIComponent(here);
+}
+
 async function api(path, options = {}) {
   const method = (options.method || "GET").toUpperCase();
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json" },
     ...options,
   });
+  // A 401 is the gate, not a bad request: the cookie ran out under a page that
+  // was left open. Showing it as a failed read would leave stale data on screen
+  // looking live, so the page leaves instead. The throw still happens, so the
+  // caller stops.
+  if (response.status === 401) goToSignIn();
   if (!response.ok) {
     let detail = response.statusText;
     try {
@@ -10327,6 +10345,9 @@ function bindEvents() {
 
 const LIVE_BACKOFF_MS = 1000;
 const LIVE_BACKOFF_CAP_MS = 30000;
+// The close code the server sends when the gate is armed and this socket carries
+// no session. Its own constant in `main.py` -- see `WS_SIGN_IN_REQUIRED` there.
+const WS_SIGN_IN_REQUIRED = 1008;
 
 function connectLive() {
   const scheme = location.protocol === "https:" ? "wss" : "ws";
@@ -10365,13 +10386,21 @@ function connectLive() {
 
   // `onerror` fires before `onclose` on a failed connect, so the reconnect is
   // scheduled from `onclose` alone -- both would double the attempts.
-  socket.onclose = () => {
+  socket.onclose = (event) => {
     state.live.socket = null;
     markLiveDown(true);
     // Their badges are as stale as this page is. Clearing them is the honest
     // read: while the socket is down, nothing here knows where anybody is.
     state.presence.users = [];
     drawPresence();
+    // The gate refused the socket: armed, and this page's cookie has run out
+    // under it. **No reconnect** -- the server would refuse the next one too, and
+    // the page has no business drawing the roadmap either way. This is the case
+    // that used to come back as a `guest-N` badge.
+    if (event && event.code === WS_SIGN_IN_REQUIRED) {
+      goToSignIn();
+      return;
+    }
     scheduleLiveReconnect();
   };
 }

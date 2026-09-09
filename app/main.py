@@ -177,6 +177,10 @@ next_connection_id = 0
 # is no name to be had, and a typed one would be a self-asserted label, which
 # PLAN-multi-user.md B1 rejected.
 guest_count = 0
+# RFC 6455's "policy violation", and the only close code this app chooses. It
+# means the gate is armed and this socket carries no session; `app.js` reads it as
+# "go to the sign-in page" instead of reconnecting.
+WS_SIGN_IN_REQUIRED = 1008
 
 
 def _fan_out(message):
@@ -299,19 +303,28 @@ def take_hold(connection_id, client, field):
 
 
 def live_name(socket):
-    """Who this socket belongs to: the Keycloak claim, or a guest number.
+    """Who this socket belongs to: the Keycloak claim, a guest number, or nobody.
 
-    Nothing is stored about either. With the gate off there is no name to be had,
-    and a typed one would be exactly the self-asserted label B1 rejected -- so the
-    badge is honest about being anonymous instead of pretending otherwise.
+    Nothing is stored about any of the three. With the gate off there is no name
+    to be had, and a typed one would be exactly the self-asserted label B1
+    rejected -- so the badge is honest about being anonymous instead of pretending
+    otherwise.
+
+    **None means the gate is armed and this page has no session**, which is a page
+    left open past its cookie rather than a stranger: the socket is the only
+    gated surface that outlives a page load, so it is where an expired session is
+    noticed. Returning a guest number there would draw somebody who *was* signed
+    in as an anonymous stranger on everybody else's badges.
     """
     global guest_count
-    _, armed, _ = gate_state()
+    settings = db.get_settings()
+    _, armed, _ = gate_state(settings)
     if armed:
         session = auth.unseal(socket.cookies.get(auth.SESSION_COOKIE, ""),
-                              auth.session_key(db.get_settings()))
-        if session and session.get("name"):
-            return session["name"]
+                              auth.session_key(settings))
+        if not session or not session.get("name"):
+            return None
+        return session["name"]
     guest_count += 1
     return f"guest-{guest_count}"
 
@@ -387,10 +400,18 @@ async def live_updates(socket: WebSocket):
     off a holder who has stopped typing for `HOLD_IDLE_SECONDS`.
     """
     global next_connection_id
+    name = live_name(socket)
     await socket.accept()
+    if name is None:
+        # The gate is armed and this page's session has run out while it sat open.
+        # Accepted first and then closed, because a handshake refused before the
+        # accept reaches the browser as 1006 with no code to read: `app.js` reads
+        # 1008 as "go and sign in" and does not reconnect into it.
+        await socket.close(code=WS_SIGN_IN_REQUIRED)
+        return
     next_connection_id += 1
     connection_id = next_connection_id
-    client = LiveClient(live_name(socket))
+    client = LiveClient(name)
     live_clients[connection_id] = client
     # Tell this page who it is, so a badge can say "you" rather than drawing you
     # as a stranger in your own other window.
@@ -438,8 +459,10 @@ EXEMPT_PREFIXES = (
 )
 
 EXEMPT_PATHS = (
-    # Live invalidation. It carries "something changed" and no data, and it
-    # learns who you are in its own right once presence lands.
+    # Live invalidation. Exempt from *this* check and not from the gate: a
+    # middleware cannot answer a handshake with a redirect or a 401, so the socket
+    # makes the same decision itself and closes with `WS_SIGN_IN_REQUIRED`. See
+    # `live_name`.
     "/ws",
 )
 
@@ -472,9 +495,9 @@ class SsoConfigIn(BaseModel):
     allow_http: bool | None = None
 
 
-def gate_state():
+def gate_state(settings=None):
     """Whether the gate is armed, and why not when it is not."""
-    settings = db.get_settings()
+    settings = db.get_settings() if settings is None else settings
     config = auth.config_from_settings(settings)
     if auth.sso_env_off():
         return config, False, f"{auth.ENV_SSO}=off"
@@ -489,11 +512,16 @@ def gate_state():
     return config, True, "armed"
 
 
+def session_of(request, settings=None):
+    """The sealed session this request carries, or None. Expiry is `auth.unseal`'s."""
+    settings = db.get_settings() if settings is None else settings
+    return auth.unseal(request.cookies.get(auth.SESSION_COOKIE, ""),
+                       auth.session_key(settings))
+
+
 def signed_in_name(request):
     """The `preferred_username` of whoever holds a valid cookie, else empty."""
-    session = auth.unseal(request.cookies.get(auth.SESSION_COOKIE, ""),
-                          auth.session_key(db.get_settings()))
-    return (session or {}).get("name", "")
+    return (session_of(request) or {}).get("name", "")
 
 
 def is_exempt(path):
@@ -502,19 +530,74 @@ def is_exempt(path):
     return path in SSO_CONFIG_PATHS and not auth.is_public_binding()
 
 
+def set_session_cookie(response, request, payload, key, now=None):
+    """Seal a session into the cookie. One place, so a refresh cannot drift from a sign-in.
+
+    `max_age` follows the payload's own expiry rather than a constant: a slid
+    session and a fresh one then agree, and the browser stops holding a cookie the
+    server would refuse anyway.
+    """
+    now = time.time() if now is None else now
+    response.set_cookie(
+        auth.SESSION_COOKIE,
+        auth.seal(payload, key),
+        httponly=True,
+        samesite="lax",
+        secure=request.url.scheme == "https",
+        max_age=max(1, int(payload["exp"] - now)),
+        path="/",
+    )
+    return response
+
+
+def refuse_sign_in(path):
+    """What an ungated caller gets: a 401 for the API, the sign-in page for a browser.
+
+    The page carries where it was heading, so signing in lands there rather than
+    at the roadmap. `signin.html` puts it back on `/auth/login`, and `local_path`
+    is what keeps it a path on this app.
+    """
+    if path.startswith("/api/"):
+        return JSONResponse({"detail": "Sign in required."}, status_code=401)
+    destination = "/auth/signin"
+    if path not in ("", "/"):
+        destination += "?next=" + quote(path)
+    return RedirectResponse(destination, status_code=303)
+
+
 @app.middleware("http")
 async def require_sign_in(request, call_next):
+    """The gate, and the one place a session is carried forward.
+
+    A cookie is honoured for `auth.SESSION_DAYS` and slid every time it is used,
+    so nobody signs in again on a rhythm. Because nothing is stored server-side,
+    that would also be the revocation lag -- so a slide is a re-decision: the
+    allowlist answers again, and a name that has left it is signed out here rather
+    than at the end of the thirty days. See `auth.SESSION_RECHECK_HOURS`.
+    """
     path = request.url.path
-    _, armed, _ = gate_state()
+    settings = db.get_settings()
+    config, armed, _ = gate_state(settings)
     if not armed or is_exempt(path):
         return await call_next(request)
 
-    if signed_in_name(request):
+    session = session_of(request, settings)
+    if not session or not session.get("name"):
+        return refuse_sign_in(path)
+
+    if not auth.is_recheck_due(session):
         return await call_next(request)
 
-    if path.startswith("/api/"):
-        return JSONResponse({"detail": "Sign in required."}, status_code=401)
-    return RedirectResponse("/auth/signin", status_code=303)
+    if not auth.name_allowed(session["name"], config["mode"], config["allowlist"]):
+        # Taken off the list since they signed in. The cookie goes with the
+        # refusal, so the next request is a clean sign-in rather than this again.
+        response = refuse_sign_in(path)
+        response.delete_cookie(auth.SESSION_COOKIE, path="/")
+        return response
+
+    response = await call_next(request)
+    return set_session_cookie(response, request, auth.slide_session(session),
+                              auth.session_key(settings))
 
 
 def redirect_uri(request):
@@ -659,16 +742,9 @@ def sign_in_callback(request: Request, code: str = "", state: str = "",
         pass
 
     response = RedirectResponse(local_path(transaction["next"]), status_code=303)
-    response.set_cookie(
-        auth.SESSION_COOKIE,
-        auth.seal(auth.new_session(claims, config["identity_claim"]),
-                  auth.session_key(settings)),
-        httponly=True,
-        samesite="lax",
-        secure=request.url.scheme == "https",
-        max_age=auth.SESSION_HOURS * 3600,
-        path="/",
-    )
+    set_session_cookie(response, request,
+                       auth.new_session(claims, config["identity_claim"]),
+                       auth.session_key(settings))
     response.delete_cookie(auth.TRANSACTION_COOKIE, path="/")
     return response
 
