@@ -1,0 +1,112 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: #18181b; background: #fafafa; }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+    .sheet { display: flex; flex-direction: column; gap: 14px; padding: 24px; }
+    .head { display: flex; flex-direction: column; gap: 3px; }
+    .opt-cap { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa; }
+    .opt-name { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+    .opt-axis { font-size: 12.5px; color: #71717a; }
+
+    .rail { width: 280px; display: flex; flex-direction: column; gap: 8px; }
+    .rail-head { display: flex; align-items: center; }
+    .mode-switch { display: inline-flex; gap: 2px; padding: 3px; border-radius: 7px; background: #f4f4f5; }
+    .mode { border: 0; background: transparent; padding: 3px 12px; border-radius: 5px; font-size: 12px; color: #52525b; }
+    .mode.active { background: #fff; color: #18181b; box-shadow: 0 1px 2px rgba(0, 0, 0, .06); }
+    .spacer { flex: 1; }
+    .collapse { border: 1px solid transparent; background: transparent; color: #71717a; padding: 2px 7px; font-size: 13px; line-height: 1.2; border-radius: 6px; }
+
+    .panel { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid #e6e6ea; border-radius: 10px; background: #fff; }
+
+    /* Today's count row, plus a twisty. Closed is exactly what ships now. */
+    .row { display: flex; align-items: center; gap: 8px; padding: 3px 6px; margin: 0 -6px; border-radius: 6px; font-size: 12.5px; }
+    .row:hover { background: #f4f4f5; }
+    .row.is-open { background: #eef2ff; }
+    .twisty { flex: none; width: 14px; color: #a1a1aa; font-size: 10px; line-height: 1; }
+    .row-name { flex: 1 1 auto; }
+    .row-count { font-variant-numeric: tabular-nums; font-weight: 600; }
+    .row-count.dash { color: #a1a1aa; }
+
+    .kids { display: flex; flex-direction: column; padding: 2px 0 6px 14px; }
+    .item { display: flex; align-items: baseline; gap: 8px; padding: 4px 6px; margin: 0 -6px; border-radius: 6px; font-size: 12.5px; color: inherit; text-decoration: none; }
+    .item:hover { background: #f4f4f5; }
+    .item-num { flex: none; font-variant-numeric: tabular-nums; color: #a1a1aa; }
+    .item-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .item-age { flex: none; font-size: 11.5px; color: #a1a1aa; }
+    .more { font-size: 11.5px; color: #a1a1aa; padding: 4px 0 0 6px; }
+    .said { font-size: 11.5px; color: #a1a1aa; padding: 0 0 0 22px; }
+
+    .open { margin-top: 10px; border: 1px solid transparent; background: transparent; color: #71717a; font-size: 11.5px; padding: 5px 12px; border-radius: 6px; align-self: flex-start; }
+
+    .foot { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+    .foot-row { display: flex; gap: 8px; align-items: baseline; }
+    .foot-key { flex: 0 0 54px; font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa; }
+    .foot-val { color: #3f3f46; }
+  </style>
+</helmet>
+<div class="sheet">
+  <div class="head">
+    <span class="opt-cap">Option C</span>
+    <span class="opt-name">Counts that open</span>
+    <span class="opt-axis">The panel that ships today, with a twisty: click a repository and its issues unfold underneath. Nothing else is fetched &mdash; they arrived with the counts.</span>
+  </div>
+
+  <div class="rail">
+    <div class="rail-head">
+      <span class="mode-switch">
+        <button class="mode" type="button">In scope</button>
+        <button class="mode" type="button">Reference</button>
+        <button class="mode active" type="button">Issues</button>
+      </span>
+      <span class="spacer"></span>
+      <button class="collapse" type="button">&#8250;</button>
+    </div>
+
+    <div class="panel">
+      <div class="row is-open">
+        <span class="twisty">&#9660;</span>
+        <span class="row-name">core/mastermind</span>
+        <span class="row-count">12</span>
+      </div>
+      <div class="kids">
+        <a class="item" href="#"><span class="item-num">412</span><span class="item-title">Sprint save overwrites a cell edited elsewhere</span><span class="item-age">2d</span></a>
+        <a class="item" href="#"><span class="item-num">408</span><span class="item-title">Map legend forgets the track filter</span><span class="item-age">5d</span></a>
+        <a class="item" href="#"><span class="item-num">401</span><span class="item-title">Import refuses a file the export wrote</span><span class="item-age">6d</span></a>
+        <a class="item" href="#"><span class="item-num">399</span><span class="item-title">PIC picker lists a handle twice</span><span class="item-age">1w</span></a>
+        <div class="more">&hellip;and 8 more</div>
+      </div>
+
+      <div class="row">
+        <span class="twisty">&#9654;</span>
+        <span class="row-name">core/portal</span>
+        <span class="row-count">4</span>
+      </div>
+
+      <div class="row">
+        <span class="twisty">&#9654;</span>
+        <span class="row-name">ops/deploy</span>
+        <span class="row-count dash">&mdash;</span>
+      </div>
+      <div class="said">401 from the host.</div>
+
+      <button class="open" type="button">Open the Issues tab</button>
+    </div>
+  </div>
+
+  <div class="foot">
+    <div class="foot-row"><span class="foot-key">Reads</span><span class="foot-val">GET /api/issues?limit=20 at open, same as A and B &mdash; the twisty spends no request.</span></div>
+    <div class="foot-row"><span class="foot-key">Costs</span><span class="foot-val">One more piece of view state (which repositories are open), and a second renderer as in B.</span></div>
+    <div class="foot-row"><span class="foot-key">Trade</span><span class="foot-val">Short by default, and honest about a long list. But the issues start hidden, which is the thing you asked to fix.</span></div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

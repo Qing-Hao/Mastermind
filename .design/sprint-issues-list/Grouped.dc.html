@@ -1,0 +1,198 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: #18181b; background: #fafafa; }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+    .sheet { display: flex; flex-direction: column; gap: 14px; padding: 24px; }
+    .head { display: flex; flex-direction: column; gap: 3px; }
+    .opt-cap { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa; }
+    .opt-name { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+    .opt-axis { font-size: 12.5px; color: #71717a; }
+
+    .rail { width: 380px; display: flex; flex-direction: column; gap: 8px; }
+    .rail-head { display: flex; align-items: center; }
+    .mode-switch { display: inline-flex; gap: 2px; padding: 3px; border-radius: 7px; background: #f4f4f5; }
+    .mode { border: 0; background: transparent; padding: 3px 12px; border-radius: 5px; font-size: 12px; color: #52525b; }
+    .mode.active { background: #fff; color: #18181b; box-shadow: 0 1px 2px rgba(0, 0, 0, .06); }
+    .spacer { flex: 1; }
+    .collapse { border: 1px solid transparent; background: transparent; color: #71717a; padding: 2px 7px; font-size: 13px; line-height: 1.2; border-radius: 6px; }
+
+    .panel { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid #e6e6ea; border-radius: 10px; background: #fff; }
+    .btn-open { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 12px; border: 1px solid #4f46e5; border-radius: 6px; background: #eef2ff; color: #4338ca; font-size: 12.5px; font-weight: 600; text-align: left; }
+    .btn-open svg { flex: none; }
+    .btn-open-label { flex: 1 1 auto; }
+    .btn-open-tally { min-width: 17px; padding: 0 5px; border-radius: 999px; background: #fff; color: #4338ca; font-size: 11px; font-variant-numeric: tabular-nums; text-align: center; }
+    .panel-rule { height: 1px; background: #f1f1f4; margin: 8px 0 4px; }
+
+    .bar { display: flex; align-items: center; gap: 6px; }
+    .filter { flex: 1 1 auto; min-width: 0; margin: 0; padding: 5px 10px; border: 1px solid #e6e6ea; border-radius: 6px; font-size: 12.5px; color: #52525b; background: #fff; }
+    .refresh { flex: none; padding: 5px 9px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff; color: #3f3f46; font-size: 12.5px; line-height: 1.2; }
+    .only { font-size: 11.5px; color: #a1a1aa; padding: 2px 0 0; }
+    .only b { color: #52525b; font-weight: 600; }
+
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
+    .chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 1px solid #e6e6ea; border-radius: 999px; background: #fff; font-size: 11.5px; color: #52525b; }
+    .chip.is-on { border-color: #4f46e5; color: #4338ca; }
+    .chip.is-off { color: #a1a1aa; }
+    .chip.is-off .chip-dot { background: #d4d4d8; }
+    .chip-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; }
+    .dot-1 { background: hsl(145 60% 55%); }
+    .dot-2 { background: hsl(275 60% 55%); }
+    .dot-3 { background: hsl(25 60% 55%); }
+    .chip-n { font-variant-numeric: tabular-nums; font-weight: 600; }
+    .chip-n.dash { color: #a1a1aa; font-weight: 500; }
+
+    /* The twisty row from Option C, kept. It now says the same number the chip
+       above it says -- which is the argument against having both. */
+    .group { display: flex; align-items: center; gap: 8px; padding: 3px 6px; margin: 8px -6px 0; border-radius: 6px; font-size: 12.5px; }
+    .group:hover { background: #f4f4f5; }
+    .twisty { flex: none; width: 14px; color: #a1a1aa; font-size: 10px; line-height: 1; }
+    .group-name { flex: 1 1 auto; font-weight: 600; color: #3f3f46; }
+    .group-count { font-variant-numeric: tabular-nums; font-weight: 600; }
+    .group-count.dash { color: #a1a1aa; }
+    .said { font-size: 11.5px; color: #a1a1aa; padding: 0 0 0 22px; }
+
+    .list { display: flex; flex-direction: column; gap: 6px; padding: 4px 0 2px 14px; }
+    .issue-row { display: block; padding: 9px 12px; border: 1px solid #e6e6ea; border-radius: 10px; background: #fff; color: inherit; text-decoration: none; }
+    .issue-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+    .issue-title { font-size: 13.5px; color: #18181b; }
+    .issue-label { padding: 1px 7px; border: 1px solid #e6e6ea; border-radius: 999px; font-size: 11px; color: #52525b; }
+    .hue-210 { border-color: hsl(210 60% 82%); background: hsl(210 82% 96%); color: hsl(210 55% 34%); }
+    .hue-25 { border-color: hsl(25 60% 82%); background: hsl(25 82% 96%); color: hsl(25 55% 34%); }
+    .hue-275 { border-color: hsl(275 60% 82%); background: hsl(275 82% 96%); color: hsl(275 55% 34%); }
+    .issue-meta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 3px; font-size: 11.5px; color: #a1a1aa; }
+    .issue-number { font-variant-numeric: tabular-nums; color: #52525b; font-weight: 600; }
+
+    .pager { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px solid #f1f1f4; font-size: 12px; color: #52525b; }
+    .pager button { padding: 4px 10px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #71717a; font-size: 11.5px; }
+    .pager button.off { opacity: .4; }
+    .pager-label { flex: 1 1 auto; text-align: center; font-variant-numeric: tabular-nums; }
+
+    .foot { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+    .foot-row { display: flex; gap: 8px; align-items: baseline; }
+    .foot-key { flex: 0 0 54px; font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa; }
+    .foot-val { color: #3f3f46; }
+  </style>
+</helmet>
+<div class="sheet">
+  <div class="head">
+    <span class="opt-cap">Alternative</span>
+    <span class="opt-name">Keeping the twisty groups</span>
+    <span class="opt-axis">The same controls, with Option C's per-repository fold still in. Shown searching, so the page is a subset of a subset.</span>
+  </div>
+
+  <div class="rail">
+    <div class="rail-head">
+      <span class="mode-switch">
+        <button class="mode" type="button">In scope</button>
+        <button class="mode" type="button">Reference</button>
+        <button class="mode active" type="button">Issues</button>
+      </span>
+      <span class="spacer"></span>
+      <button class="collapse" type="button">&#8250;</button>
+    </div>
+
+    <div class="panel">
+      <button class="btn-open" type="button">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+          <path d="M15 3h6v6"></path>
+          <path d="M10 14 21 3"></path>
+        </svg>
+        <span class="btn-open-label">Open the Issues tab</span>
+        <span class="btn-open-tally">16</span>
+      </button>
+      <div class="panel-rule"></div>
+
+      <div class="bar">
+        <input class="filter" type="search" value="save" placeholder="Filter&hellip;">
+        <button class="refresh" type="button">&#8635;</button>
+      </div>
+      <div class="only"><b>Open issues only.</b> Closed and all are on the tab.</div>
+
+      <div class="chips">
+        <button class="chip is-on" type="button"><span class="chip-dot dot-1"></span>core/mastermind<span class="chip-n">12</span></button>
+        <button class="chip is-on" type="button"><span class="chip-dot dot-2"></span>core/portal<span class="chip-n">4</span></button>
+        <button class="chip is-off" type="button"><span class="chip-dot dot-3"></span>ops/deploy<span class="chip-n dash">&mdash;</span></button>
+      </div>
+
+      <div class="group">
+        <span class="twisty">&#9660;</span>
+        <span class="group-name">core/mastermind</span>
+        <span class="group-count">3 of 12</span>
+      </div>
+      <div class="list">
+        <a class="issue-row" href="#">
+          <span class="issue-head">
+            <span class="issue-title">Sprint <b>save</b> overwrites a cell edited in another tab</span>
+            <span class="issue-label hue-25">bug</span>
+          </span>
+          <span class="issue-meta">
+            <span class="issue-number">#412</span>
+            <span>h.lim</span>
+            <span>2d</span>
+            <span>3 comments</span>
+          </span>
+        </a>
+        <a class="issue-row" href="#">
+          <span class="issue-head">
+            <span class="issue-title">Raw <b>save</b> drops a trailing table row</span>
+            <span class="issue-label hue-210">editor</span>
+          </span>
+          <span class="issue-meta">
+            <span class="issue-number">#396</span>
+            <span>a.wong</span>
+            <span>1w</span>
+          </span>
+        </a>
+      </div>
+
+      <div class="group">
+        <span class="twisty">&#9660;</span>
+        <span class="group-name">core/portal</span>
+        <span class="group-count">1 of 4</span>
+      </div>
+      <div class="list">
+        <a class="issue-row" href="#">
+          <span class="issue-head">
+            <span class="issue-title">Profile <b>save</b> returns 500 on a blank surname</span>
+            <span class="issue-label hue-275">auth</span>
+          </span>
+          <span class="issue-meta">
+            <span class="issue-number">#72</span>
+            <span>s.ravi</span>
+            <span>4d</span>
+          </span>
+        </a>
+      </div>
+
+      <div class="group">
+        <span class="twisty">&#9654;</span>
+        <span class="group-name">ops/deploy</span>
+        <span class="group-count dash">&mdash;</span>
+      </div>
+      <div class="said">401 from the host.</div>
+
+      <div class="pager">
+        <button class="off" type="button">&lsaquo; Newer</button>
+        <span class="pager-label">1&ndash;3 of 4 matches &middot; page 1/2</span>
+        <button type="button">Older &rsaquo;</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <div class="foot-row"><span class="foot-key">Gains</span><span class="foot-val">A repository can be folded away without being switched off, and the rail keeps the shape Option C had.</span></div>
+    <div class="foot-row"><span class="foot-key">Trade</span><span class="foot-val">Three ways to say the same thing: the chip's count, the group's count, and the fold. And a page boundary can cut a group in half, so "3 of 12" is about the page, not the repository.</span></div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

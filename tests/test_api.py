@@ -5601,7 +5601,7 @@ def configure_repos(client, repos):
 def test_the_whole_feature_is_absent_until_the_environment_says_otherwise(client, monkeypatch):
     """Off means absent, not empty: a quiet page would read as no issues."""
     monkeypatch.delenv(issues.ENV_ISSUES, raising=False)
-    for path in ("/api/issues", "/api/issues/counts", "/api/issues/changes"):
+    for path in ("/api/issues", "/api/issues/totals", "/api/issues/changes"):
         assert client.get(path).status_code == 404
     assert client.put("/api/issues/repos", json={"repos": []}).status_code == 404
     # The one route that answers either way, because the shell asks it before
@@ -5619,12 +5619,13 @@ def test_issues_are_read_live_and_carry_the_link_out(client, issues_on):
     assert body["errors"] == []
 
 
-def test_the_sprint_panel_asks_for_counts_only(client, issues_on):
+def test_one_read_answers_the_list_and_the_per_repository_counts(client, issues_on):
+    """The Sprint panel draws both from this one payload, which is why it has no route of its own."""
     configure_repos(client, [GITHUB_REPO])
-    body = client.get("/api/issues/counts").json()
+    body = client.get("/api/issues", params={"state": "open"}).json()
     assert body["counts"] == [{"repo_ref": "github:core/mm",
                               "repo_label": "core/mm", "count": 1}]
-    assert "issues" not in body
+    assert [issue["repo_ref"] for issue in body["issues"]] == ["github:core/mm"]
 
 
 def test_the_configured_token_never_reaches_the_frontend(client, issues_on):

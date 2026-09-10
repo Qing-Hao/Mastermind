@@ -1,0 +1,44 @@
+{
+  "pages": [
+    { "id": "page-1", "name": "Chosen — the tab in the rail" },
+    { "id": "page-2", "name": "Sketches" }
+  ],
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 520, "h": 1060, "page": "page-1", "title": "Open only, searchable, paged" },
+    { "file": "Grouped.dc.html", "x": 600, "y": 0, "w": 520, "h": 1060, "page": "page-1", "title": "Alternative — keeping the groups" },
+    { "file": "Narrow.dc.html", "x": 1200, "y": 0, "w": 440, "h": 940, "page": "page-1", "title": "The same panel at 280px" },
+
+    { "file": "Header.dc.html", "x": 0, "y": 0, "w": 440, "h": 860, "page": "page-2", "title": "How loud the button is" },
+    { "file": "Current.dc.html", "x": 520, "y": 0, "w": 440, "h": 440, "page": "page-2", "title": "Today — counts only" },
+    { "file": "OptionA.dc.html", "x": 1040, "y": 0, "w": 440, "h": 900, "page": "page-2", "title": "Option A — shared row" },
+    { "file": "OptionB.dc.html", "x": 1560, "y": 0, "w": 440, "h": 860, "page": "page-2", "title": "Option B — compact row" },
+    { "file": "OptionC.dc.html", "x": 2080, "y": 0, "w": 440, "h": 700, "page": "page-2", "title": "Option C — counts that open" }
+  ],
+  "annotations": [
+    {
+      "id": "rail-width",
+      "x": 0,
+      "y": -210,
+      "w": 560,
+      "page": "page-1",
+      "text": "Main and the alternative are drawn at 380px — the width `.sprint-layout.side-wide` already gives the Reference tab. Narrow is the 280px the Issues tab gets today, for comparison.\nOpen only: no Show switch in the rail, and the caption says so. Search, chips and paging are all drawing — one request per visit, nothing stored."
+    },
+    {
+      "id": "sample-data",
+      "x": 1200,
+      "y": -210,
+      "w": 440,
+      "page": "page-1",
+      "text": "Repository names, issue numbers, titles and ages are sample values, not read from any host.\nColours, spacing and type are lifted from style.css."
+    },
+    {
+      "id": "settled",
+      "x": 0,
+      "y": -150,
+      "w": 560,
+      "page": "page-2",
+      "text": "Settled: the accent-soft button (Header, treatment One), and Option A's row. Kept here for the record."
+    }
+  ],
+  "launch": { "view": "canvas", "page": "page-1" }
+}

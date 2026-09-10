@@ -1,0 +1,152 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: #18181b; background: #fafafa; }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+    .sheet { display: flex; flex-direction: column; gap: 14px; padding: 24px; }
+    .head { display: flex; flex-direction: column; gap: 3px; }
+    .opt-cap { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa; }
+    .opt-name { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+    .opt-axis { font-size: 12.5px; color: #71717a; }
+
+    .rail { width: 280px; display: flex; flex-direction: column; gap: 8px; }
+    .rail-head { display: flex; align-items: center; }
+    .mode-switch { display: inline-flex; gap: 2px; padding: 3px; border-radius: 7px; background: #f4f4f5; }
+    .mode { border: 0; background: transparent; padding: 3px 12px; border-radius: 5px; font-size: 12px; color: #52525b; }
+    .mode.active { background: #fff; color: #18181b; box-shadow: 0 1px 2px rgba(0, 0, 0, .06); }
+    .spacer { flex: 1; }
+    .collapse { border: 1px solid transparent; background: transparent; color: #71717a; padding: 2px 7px; font-size: 13px; line-height: 1.2; border-radius: 6px; }
+
+    .panel { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid #e6e6ea; border-radius: 10px; background: #fff; }
+
+    /* The count line today's panel already draws, kept as the group heading. */
+    .group { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; margin-top: 6px; }
+    .group:first-child { margin-top: 0; }
+    .group-name { flex: 1 1 auto; }
+    .group-count { font-variant-numeric: tabular-nums; font-weight: 600; }
+    .group-count.dash { color: #a1a1aa; }
+    .group-said { font-size: 11.5px; color: #a1a1aa; }
+
+    .list { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 2px; }
+
+    /* Lifted from `.issue-row` and its parts, unchanged. */
+    .issue-row { display: block; padding: 9px 12px; border: 1px solid #e6e6ea; border-radius: 10px; background: #fff; color: inherit; text-decoration: none; }
+    .issue-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+    .issue-title { font-size: 13.5px; color: #18181b; }
+    .issue-label { padding: 1px 7px; border: 1px solid #e6e6ea; border-radius: 999px; font-size: 11px; color: #52525b; }
+    .hue-210 { border-color: hsl(210 60% 82%); background: hsl(210 82% 96%); color: hsl(210 55% 34%); }
+    .hue-25 { border-color: hsl(25 60% 82%); background: hsl(25 82% 96%); color: hsl(25 55% 34%); }
+    .hue-275 { border-color: hsl(275 60% 82%); background: hsl(275 82% 96%); color: hsl(275 55% 34%); }
+    .issue-meta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 3px; font-size: 11.5px; color: #a1a1aa; }
+    .issue-repo { font-weight: 600; color: hsl(145 50% 38%); }
+    .issue-repo.two { color: hsl(275 50% 38%); }
+    .issue-number { font-variant-numeric: tabular-nums; }
+
+    .more { font-size: 11.5px; color: #a1a1aa; }
+    .open { margin-top: 8px; border: 1px solid transparent; background: transparent; color: #71717a; font-size: 11.5px; padding: 5px 12px; border-radius: 6px; align-self: flex-start; }
+
+    .foot { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+    .foot-row { display: flex; gap: 8px; align-items: baseline; }
+    .foot-key { flex: 0 0 54px; font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa; }
+    .foot-val { color: #3f3f46; }
+  </style>
+</helmet>
+<div class="sheet">
+  <div class="head">
+    <span class="opt-cap">Option A</span>
+    <span class="opt-name">The Issues tab's own row, in the rail</span>
+    <span class="opt-axis">One renderer for both surfaces: <b>renderIssues</b>'s row is extracted and called here too. Grouped under the count line the panel already draws.</span>
+  </div>
+
+  <div class="rail">
+    <div class="rail-head">
+      <span class="mode-switch">
+        <button class="mode" type="button">In scope</button>
+        <button class="mode" type="button">Reference</button>
+        <button class="mode active" type="button">Issues</button>
+      </span>
+      <span class="spacer"></span>
+      <button class="collapse" type="button">&#8250;</button>
+    </div>
+
+    <div class="panel">
+      <div class="group">
+        <span class="group-name">core/mastermind</span>
+        <span class="group-count">12</span>
+      </div>
+      <div class="list">
+        <a class="issue-row" href="#">
+          <span class="issue-head">
+            <span class="issue-title">Sprint save overwrites a cell edited in another tab</span>
+            <span class="issue-label hue-25">bug</span>
+          </span>
+          <span class="issue-meta">
+            <span class="issue-repo">core/mastermind</span>
+            <span class="issue-number">#412</span>
+            <span>h.lim</span>
+            <span>2d</span>
+            <span>3 comments</span>
+          </span>
+        </a>
+        <a class="issue-row" href="#">
+          <span class="issue-head">
+            <span class="issue-title">Map legend forgets the track filter on reload</span>
+            <span class="issue-label hue-210">ui</span>
+          </span>
+          <span class="issue-meta">
+            <span class="issue-repo">core/mastermind</span>
+            <span class="issue-number">#408</span>
+            <span>a.wong</span>
+            <span>5d</span>
+          </span>
+        </a>
+        <div class="more">&hellip;and 10 more</div>
+      </div>
+
+      <div class="group">
+        <span class="group-name">core/portal</span>
+        <span class="group-count">4</span>
+      </div>
+      <div class="list">
+        <a class="issue-row" href="#">
+          <span class="issue-head">
+            <span class="issue-title">Sign-out lands on a blank page</span>
+            <span class="issue-label hue-275">auth</span>
+          </span>
+          <span class="issue-meta">
+            <span class="issue-repo two">core/portal</span>
+            <span class="issue-number">#77</span>
+            <span>s.ravi</span>
+            <span>3d</span>
+            <span>1 comment</span>
+          </span>
+        </a>
+        <div class="more">&hellip;and 3 more</div>
+      </div>
+
+      <div class="group">
+        <span class="group-name">ops/deploy</span>
+        <span class="group-count dash">&mdash;</span>
+      </div>
+      <div class="group-said">401 from the host &mdash; the token is not being accepted.</div>
+
+      <button class="open" type="button">Open the Issues tab</button>
+    </div>
+  </div>
+
+  <div class="foot">
+    <div class="foot-row"><span class="foot-key">Reads</span><span class="foot-val">GET /api/issues?limit=20 &mdash; issues, counts and errors arrive in the one payload, so /api/issues/counts loses its only caller.</span></div>
+    <div class="foot-row"><span class="foot-key">Costs</span><span class="foot-val">One renderer to keep, and both surfaces move together. The panel needs a max-height and a scroller it does not have yet.</span></div>
+    <div class="foot-row"><span class="foot-key">Trade</span><span class="foot-val">The row was drawn for a 1100px column: in 280px the title wraps and the meta line breaks in two. Three issues fill the rail.</span></div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

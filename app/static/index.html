@@ -755,7 +755,7 @@
                  enough here -- unlike `.mode-switch` around it. -->
             <button id="sprint-side-issues" type="button" class="mode" hidden
               data-tip="What is filed against the repositories"
-              data-tip-body="Open counts per repository, read live. Click one to open its issues on the host — planning against them happens here, answering them happens there.">Issues</button>
+              data-tip-body="Every open issue, read live, with a filter and the repositories as chips. Closed ones are on the Issues tab. Each row opens on its host — planning against them happens here, answering them happens there.">Issues</button>
           </span>
           <span class="spacer"></span>
           <!-- The document is 4:1 of the row; the Reference tab takes a wider
@@ -787,9 +787,12 @@
 
         <!-- The third readout, and the third read: what the engineers have filed
              against the repositories, so the question is in front of whoever is
-             planning the fortnight. Counts and a link out, nothing more -- an
-             issue is read and answered on its host. Hidden with its tab when the
-             deployment has the feature off. -->
+             planning the fortnight. The Issues tab at rail width -- filter,
+             repository chips, pager -- minus the state switch: this panel asks
+             for open and nothing else. Every row opens on its host; an issue is
+             still read and answered there. Drawn entirely by
+             `renderSprintIssues`, so nothing inside it is addressed by id.
+             Hidden with its tab when the deployment has the feature off. -->
         <div id="sprint-issues" class="sprint-issues" hidden></div>
       </div>
      </div>

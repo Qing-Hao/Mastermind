@@ -1,0 +1,75 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: #18181b; background: #fafafa; }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+    .sheet { display: flex; flex-direction: column; gap: 14px; padding: 24px; }
+    .head { display: flex; flex-direction: column; gap: 3px; }
+    .opt-cap { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa; }
+    .opt-name { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+    .opt-axis { font-size: 12.5px; color: #71717a; }
+
+    /* The rail at its real width: `.sprint-layout` is 4fr/1fr with a 260px
+       floor, so the Issues tab sits in about 280px on a 1440px window. */
+    .rail { width: 280px; display: flex; flex-direction: column; gap: 8px; }
+    .rail-head { display: flex; align-items: center; }
+    .mode-switch { display: inline-flex; gap: 2px; margin-left: 0; padding: 3px; border-radius: 7px; background: #f4f4f5; }
+    .mode { border: 0; background: transparent; padding: 3px 12px; border-radius: 5px; font-size: 12px; color: #52525b; }
+    .mode.active { background: #fff; color: #18181b; box-shadow: 0 1px 2px rgba(0, 0, 0, .06); }
+    .spacer { flex: 1; }
+    .collapse { border: 1px solid transparent; background: transparent; color: #71717a; padding: 2px 7px; font-size: 13px; line-height: 1.2; border-radius: 6px; }
+
+    .panel { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid #e6e6ea; border-radius: 10px; background: #fff; }
+    .row { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; }
+    .name { flex: 1 1 auto; }
+    .count { font-variant-numeric: tabular-nums; font-weight: 600; }
+    .count.dash { color: #a1a1aa; }
+    .open { margin-top: 8px; border: 1px solid transparent; background: transparent; color: #71717a; font-size: 11.5px; padding: 5px 12px; border-radius: 6px; align-self: flex-start; }
+
+    .foot { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+    .foot-row { display: flex; gap: 8px; align-items: baseline; }
+    .foot-key { flex: 0 0 54px; font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa; }
+    .foot-val { color: #3f3f46; }
+  </style>
+</helmet>
+<div class="sheet">
+  <div class="head">
+    <span class="opt-cap">Today</span>
+    <span class="opt-name">Counts and a way out</span>
+    <span class="opt-axis">What <b>renderSprintIssues</b> draws now: one line per repository, a number, and a button that leaves the tab.</span>
+  </div>
+
+  <div class="rail">
+    <div class="rail-head">
+      <span class="mode-switch">
+        <button class="mode" type="button">In scope</button>
+        <button class="mode" type="button">Reference</button>
+        <button class="mode active" type="button">Issues</button>
+      </span>
+      <span class="spacer"></span>
+      <button class="collapse" type="button">&#8250;</button>
+    </div>
+
+    <div class="panel">
+      <div class="row"><span class="name">core/mastermind</span><span class="count">12</span></div>
+      <div class="row"><span class="name">core/portal</span><span class="count">4</span></div>
+      <div class="row"><span class="name">ops/deploy</span><span class="count dash">&mdash;</span></div>
+      <button class="open" type="button">Open the Issues tab</button>
+    </div>
+  </div>
+
+  <div class="foot">
+    <div class="foot-row"><span class="foot-key">Reads</span><span class="foot-val">GET /api/issues/counts &mdash; the same host request as the list, with the issues thrown away.</span></div>
+    <div class="foot-row"><span class="foot-key">Trade</span><span class="foot-val">Says there is something to look at, never what. Answering the planning question means leaving the fortnight you are planning.</span></div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

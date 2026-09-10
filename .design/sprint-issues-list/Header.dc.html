@@ -1,0 +1,130 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: #18181b; background: #fafafa; }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+    .sheet { display: flex; flex-direction: column; gap: 14px; padding: 24px; }
+    .head { display: flex; flex-direction: column; gap: 3px; }
+    .opt-cap { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa; }
+    .opt-name { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+    .opt-axis { font-size: 12.5px; color: #71717a; }
+
+    .stack { display: flex; flex-direction: column; gap: 16px; }
+    .case { display: flex; flex-direction: column; gap: 5px; width: 280px; }
+    .case-key { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa; }
+    .case-note { font-size: 11.5px; color: #71717a; }
+
+    .panel { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid #e6e6ea; border-radius: 10px; background: #fff; }
+    .panel-rule { height: 1px; background: #f1f1f4; margin: 8px 0 2px; }
+    .group { display: flex; align-items: center; gap: 8px; padding: 3px 6px; margin: 0 -6px; border-radius: 6px; font-size: 12.5px; }
+    .twisty { flex: none; width: 14px; color: #a1a1aa; font-size: 10px; line-height: 1; }
+    .group-name { flex: 1 1 auto; font-weight: 600; color: #3f3f46; }
+    .group-count { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+    .btn { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 12px; border-radius: 6px; font-size: 12.5px; font-weight: 600; text-align: left; border: 1px solid #d8d8de; background: #fff; color: #3f3f46; }
+    .btn svg { flex: none; }
+    .btn-label { flex: 1 1 auto; }
+    .tally { min-width: 17px; padding: 0 5px; border-radius: 999px; font-size: 11px; font-variant-numeric: tabular-nums; text-align: center; }
+
+    /* One: the `.btn-settings` skin, which is what the Issues tab's own gear
+       already wears -- accent edge, accent-soft ground, tally in white. */
+    .btn.soft { border-color: #4f46e5; background: #eef2ff; color: #4338ca; }
+    .btn.soft:hover { background: #4f46e5; color: #fff; }
+    .btn.soft .tally { background: #fff; color: #4338ca; }
+
+    /* Two: the app's one indigo fill, which everywhere else means a write. */
+    .btn.solid { border-color: #4f46e5; background: #4f46e5; color: #fff; }
+    .btn.solid:hover { background: #4338ca; border-color: #4338ca; }
+    .btn.solid .tally { background: rgba(255, 255, 255, .22); color: #fff; }
+
+    /* Three: the plain button every form in the app uses. */
+    .btn.plain .tally { background: #f4f4f5; color: #52525b; }
+    .btn.plain:hover { background: #f4f4f5; }
+
+    /* Today, for scale: a ghost at the foot of the panel. */
+    .btn.ghost { border-color: transparent; background: transparent; color: #71717a; font-size: 11.5px; font-weight: 500; width: auto; padding: 5px 12px; }
+    .btn.ghost:hover { background: #f4f4f5; color: #18181b; }
+  </style>
+</helmet>
+<div class="sheet">
+  <div class="head">
+    <span class="opt-cap">The way out</span>
+    <span class="opt-name">How loud the button is</span>
+    <span class="opt-axis">Same position &mdash; top of the panel, above the repositories &mdash; at three weights, with today's ghost at the foot for scale.</span>
+  </div>
+
+  <div class="stack">
+    <div class="case">
+      <span class="case-key">One &mdash; accent soft</span>
+      <div class="panel">
+        <button class="btn soft" type="button">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+            <path d="M15 3h6v6"></path>
+            <path d="M10 14 21 3"></path>
+          </svg>
+          <span class="btn-label">Open the Issues tab</span>
+          <span class="tally">16</span>
+        </button>
+        <div class="panel-rule"></div>
+        <div class="group"><span class="twisty">&#9660;</span><span class="group-name">core/mastermind</span><span class="group-count">12</span></div>
+      </div>
+      <span class="case-note">Already in the app: the Issues tab's gear wears exactly this. Reads as a real control without spending the indigo fill.</span>
+    </div>
+
+    <div class="case">
+      <span class="case-key">Two &mdash; indigo fill</span>
+      <div class="panel">
+        <button class="btn solid" type="button">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+            <path d="M15 3h6v6"></path>
+            <path d="M10 14 21 3"></path>
+          </svg>
+          <span class="btn-label">Open the Issues tab</span>
+          <span class="tally">16</span>
+        </button>
+        <div class="panel-rule"></div>
+        <div class="group"><span class="twisty">&#9660;</span><span class="group-name">core/mastermind</span><span class="group-count">12</span></div>
+      </div>
+      <span class="case-note">Loudest, and it outranks the panel it sits in. Everywhere else in the app a filled indigo button writes something; this one only navigates.</span>
+    </div>
+
+    <div class="case">
+      <span class="case-key">Three &mdash; plain button</span>
+      <div class="panel">
+        <button class="btn plain" type="button">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+            <path d="M15 3h6v6"></path>
+            <path d="M10 14 21 3"></path>
+          </svg>
+          <span class="btn-label">Open the Issues tab</span>
+          <span class="tally">16</span>
+        </button>
+        <div class="panel-rule"></div>
+        <div class="group"><span class="twisty">&#9660;</span><span class="group-name">core/mastermind</span><span class="group-count">12</span></div>
+      </div>
+      <span class="case-note">The form vocabulary. Unmissable next to today's ghost, quiet next to the two above.</span>
+    </div>
+
+    <div class="case">
+      <span class="case-key">Today &mdash; ghost, at the foot</span>
+      <div class="panel">
+        <div class="group"><span class="twisty">&#9660;</span><span class="group-name">core/mastermind</span><span class="group-count">12</span></div>
+        <button class="btn ghost" type="button">Open the Issues tab</button>
+      </div>
+      <span class="case-note">Grey text under the counts, no edge, no icon &mdash; which is the thing that is not obvious.</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

@@ -218,6 +218,12 @@ let state = {
     // once; `limit` is how much is asked of each host, which is the request that
     // actually costs something.
     page: 0, size: 25, limit: 50,
+    // The Sprint tab's panel keeps its own way of looking, deliberately: typing
+    // in the rail must not move the tab's list, or switching tabs would lose the
+    // search you were reading. Same genus as the fields above it, different
+    // surface -- `off` holds the repository refs whose chip is switched off, and
+    // the panel asks only for `open`, which is the one thing it will not offer.
+    panel: { rows: [], counts: [], errors: [], filter: "", page: 0, size: 5, off: [] },
   },
   currentProjectId: null,
   plan: null,
@@ -5087,18 +5093,20 @@ function renderSprintSide() {
   const onRef = ref.tab === "ref";
   const collapse = $("sprint-side-collapse");
 
+  // Three readouts, so "which tab" is a name rather than a boolean.
+  const onIssues = ref.tab === "issues" && state.issues.enabled;
+  const onScope = !onRef && !onIssues;
+
   side.classList.toggle("shut", ref.shut);
   if (layout) {
-    layout.classList.toggle("side-wide", !ref.shut && onRef);
+    // Two of the three tabs want the wider column: a reference file's cards, and
+    // the issue panel's search box, repository chips and pager. The scope list
+    // reads in 260px and leaves the document its 4:1.
+    layout.classList.toggle("side-wide", !ref.shut && (onRef || onIssues));
     layout.classList.toggle("side-shut", ref.shut);
   }
   collapse.textContent = ref.shut ? "‹" : "›";
   collapse.title = ref.shut ? "Show the panel" : "Hide the panel";
-
-  // Three readouts now, so "which tab" is a name rather than a boolean. `onRef`
-  // survives as its own thing because it is what widens the column.
-  const onIssues = ref.tab === "issues" && state.issues.enabled;
-  const onScope = !onRef && !onIssues;
 
   $("sprint-side-scope").classList.toggle("active", onScope);
   $("sprint-side-ref").classList.toggle("active", onRef);
@@ -10165,6 +10173,45 @@ function issueMatches(issue, needle) {
   return haystack.includes(needle);
 }
 
+// One issue, as the row both surfaces draw: the Issues tab's list and the Sprint
+// tab's panel. Extracted rather than copied, so the two cannot drift.
+function issueRow(issue) {
+  // An anchor rather than a div with a click handler: this is a link out, and
+  // it should behave like one -- middle-click, copy address, open in a tab.
+  const row = element("a", "issue-row");
+  row.href = issue.url || "#";
+  row.target = "_blank";
+  row.rel = "noopener noreferrer";
+  row.title = `Opens #${issue.number} on ${issue.repo_label}. Answering it happens there.`;
+
+  const head = element("div", "issue-head");
+  if (issue.state && issue.state !== "open") {
+    head.append(element("span", "issue-state", issue.state));
+  }
+  head.append(element("span", "issue-title", issue.title));
+  for (const label of issue.labels || []) {
+    head.append(element("span",
+      `issue-label issue-hue-${issueLabelHue(label)}`, label));
+  }
+  row.append(head);
+
+  const meta = element("div", "issue-meta");
+  const repo = element("span", "issue-repo", issue.repo_label);
+  // The same hue the settings entry draws, so a repository is the same colour
+  // wherever it appears.
+  repo.classList.add(`issue-hue-${issueLabelHue(issue.repo_label)}`);
+  meta.append(repo);
+  if (issue.number) meta.append(element("span", "issue-number", `#${issue.number}`));
+  if (issue.author) meta.append(element("span", "", issue.author));
+  const age = issueAge(issue.updated_at || issue.created_at);
+  if (age) meta.append(element("span", "", `updated ${age}`));
+  if (issue.comments) {
+    meta.append(element("span", "", `${issue.comments} comments`));
+  }
+  row.append(meta);
+  return row;
+}
+
 function renderIssues() {
   const list = $("issues-list");
   if (!list) return;
@@ -10190,42 +10237,7 @@ function renderIssues() {
   list.replaceChildren();
   $("issues-empty").hidden = matched.length > 0 || state.issues.loading;
 
-  for (const issue of rows) {
-    // An anchor rather than a div with a click handler: this is a link out, and
-    // it should behave like one -- middle-click, copy address, open in a tab.
-    const row = element("a", "issue-row");
-    row.href = issue.url || "#";
-    row.target = "_blank";
-    row.rel = "noopener noreferrer";
-    row.title = `Opens #${issue.number} on ${issue.repo_label}. Answering it happens there.`;
-
-    const head = element("div", "issue-head");
-    if (issue.state && issue.state !== "open") {
-      head.append(element("span", "issue-state", issue.state));
-    }
-    head.append(element("span", "issue-title", issue.title));
-    for (const label of issue.labels || []) {
-      head.append(element("span",
-        `issue-label issue-hue-${issueLabelHue(label)}`, label));
-    }
-    row.append(head);
-
-    const meta = element("div", "issue-meta");
-    const repo = element("span", "issue-repo", issue.repo_label);
-    // The same hue the settings entry draws, so a repository is the same colour
-    // wherever it appears on this tab.
-    repo.classList.add(`issue-hue-${issueLabelHue(issue.repo_label)}`);
-    meta.append(repo);
-    if (issue.number) meta.append(element("span", "issue-number", `#${issue.number}`));
-    if (issue.author) meta.append(element("span", "", issue.author));
-    const age = issueAge(issue.updated_at || issue.created_at);
-    if (age) meta.append(element("span", "", `updated ${age}`));
-    if (issue.comments) {
-      meta.append(element("span", "", `${issue.comments} comments`));
-    }
-    row.append(meta);
-    list.append(row);
-  }
+  for (const issue of rows) list.append(issueRow(issue));
 
   renderIssuePager(matched.length, pages);
   renderIssueTotals();
@@ -10558,55 +10570,228 @@ function openIssueSettings(open) {
 
 // --- the sprint tab's issue panel ---------------------------------------------
 //
-// Counts and a link out, beside the fortnight being planned. It is the third
-// read on that column and the only one that leaves this machine.
+// The Issues tab, beside the fortnight being planned, minus the one control that
+// asks a different question: there is no Show switch here, because the planning
+// question is what is *open*. Closed and all stay on the tab.
+//
+// The search box, the repository chips and the pager are all **drawing**: one
+// request per visit to the tab, and nothing about the looking is stored. The
+// panel keeps its own filter, chips and page rather than the tab's -- typing in
+// the rail must not move the tab's list, and vice versa, or switching surfaces
+// would lose the search you were reading.
+
+const SPRINT_ISSUE_STATE = "open";
 
 async function loadSprintIssues() {
   if (!state.issues.enabled) return;
   const panel = $("sprint-issues");
   if (!panel) return;
+  const view = state.issues.panel;
   try {
-    const body = await api("/api/issues/counts");
-    state.issues.counts = body.counts || [];
-    state.issues.errors = body.errors || [];
+    const body = await api(`/api/issues?state=${SPRINT_ISSUE_STATE}`
+      + `&limit=${state.issues.limit}`);
+    view.rows = body.issues || [];
+    view.counts = body.counts || [];
+    view.errors = body.errors || [];
   } catch (error) {
-    state.issues.counts = [];
-    state.issues.errors = [{ repo_label: "", message: error.message }];
+    view.rows = [];
+    view.counts = [];
+    view.errors = [{ repo_ref: "", repo_label: "", message: error.message }];
   }
+  // A repository dropped from the configuration has no chip to switch back on,
+  // so its ref must not go on narrowing a list nobody can see it in.
+  const known = new Set(view.counts.map((row) => row.repo_ref));
+  view.off = view.off.filter((ref) => known.has(ref));
   renderSprintIssues();
 }
 
+// The chrome, drawn once per load. The list and the pager are filled by
+// `drawSprintIssueList`, which is also what the filter, the chips and the pager
+// call -- redrawing the whole panel on a keystroke would take the search box,
+// and the caret in it, out from under the typing.
 function renderSprintIssues() {
   const panel = $("sprint-issues");
   if (!panel) return;
   panel.replaceChildren();
+  const view = state.issues.panel;
 
-  const failed = new Map(state.issues.errors.map((row) => [row.repo_ref, row.message]));
-  if (state.issues.counts.length === 0 && failed.size === 0) {
+  panel.append(sprintIssueLink());
+
+  if (view.counts.length === 0 && view.errors.length === 0) {
     panel.append(element("p", "hint",
       "No repositories configured. The Issues tab's ⚙ is where they go."));
     return;
   }
 
-  for (const row of state.issues.counts) {
-    const line = element("div", "sprint-issue-row");
-    line.append(element("span", "sprint-issue-name", row.repo_label));
-    // A repository that could not be read reports nothing rather than zero --
-    // "quiet" and "unreachable" are different answers to a planning question.
-    const count = row.count === null || row.count === undefined ? "—" : String(row.count);
-    const badge = element("span", "sprint-issue-count", count);
-    if (failed.has(row.repo_ref)) badge.title = failed.get(row.repo_ref);
-    line.append(badge);
-    panel.append(line);
+  panel.append(element("div", "sprint-issue-rule"));
+  panel.append(sprintIssueBar());
+  panel.append(element("div", "sprint-issue-only",
+    "Open issues only — closed and all are on the tab."));
+  panel.append(sprintIssueChips());
+
+  // What a host said, spelled out rather than left as a dash on a chip: "quiet"
+  // and "unreachable" are different answers to a planning question.
+  for (const row of view.errors) {
+    const label = row.repo_label || row.repo_ref;
+    panel.append(element("p", "sprint-issue-said",
+      label ? `${label}: ${row.message}` : row.message));
   }
 
-  const open = element("button", "btn-ghost sprint-issue-open", "Open the Issues tab");
-  open.type = "button";
-  open.onclick = async () => {
+  panel.append(element("div", "sprint-issue-list"));
+  panel.append(element("div", "sprint-issue-pager"));
+  drawSprintIssueList();
+}
+
+// The way out, at the top of the panel and wearing `.btn-settings`' skin: the
+// tab has the closed issues, the state switch and the repository settings, and
+// this is what says so. Not `.btn-primary` -- the app's one indigo fill belongs
+// to a write, and this navigates.
+function sprintIssueLink() {
+  const link = element("button", "sprint-issue-open");
+  link.type = "button";
+  link.title = "The same issues, plus closed ones, the Show switch and the repositories";
+
+  const icon = svgElement("svg", {
+    width: 15, height: 15, viewBox: "0 0 24 24", fill: "none",
+    stroke: "currentColor", "stroke-width": 2,
+    "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true",
+  });
+  icon.append(svgElement("path",
+    { d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" }));
+  icon.append(svgElement("path", { d: "M15 3h6v6" }));
+  icon.append(svgElement("path", { d: "M10 14 21 3" }));
+  link.append(icon);
+
+  link.append(element("span", "sprint-issue-open-label", "Open the Issues tab"));
+
+  // One page per repository is what the counts are derived from, so this is the
+  // same honest total the tab's own note explains -- and a repository that
+  // refused to answer adds nothing to it rather than a nought.
+  const total = state.issues.panel.counts.reduce(
+    (sum, row) => (row.count === null || row.count === undefined ? sum : sum + row.count), 0);
+  link.append(element("span", "sprint-issue-open-tally", String(total)));
+
+  link.onclick = async () => {
     state.view = "issues";
     await refreshView();
   };
-  panel.append(open);
+  return link;
+}
+
+function sprintIssueBar() {
+  const view = state.issues.panel;
+  const bar = element("div", "sprint-issue-bar");
+
+  const filter = element("input", "sprint-issue-filter");
+  filter.type = "search";
+  filter.placeholder = "Filter…";
+  filter.value = view.filter;
+  filter.title = "Matches the title, the repository, a label or the author."
+    + " Nothing is stored; it only narrows what is drawn.";
+  filter.oninput = () => {
+    view.filter = filter.value;
+    // A narrower list has fewer pages, and page four of one match draws nothing.
+    view.page = 0;
+    drawSprintIssueList();
+  };
+  bar.append(filter);
+
+  const refresh = element("button", "sprint-issue-refresh", "↻");
+  refresh.type = "button";
+  refresh.title = "Ask the hosts again. There is no cache — the panel holds what"
+    + " the last request returned and nothing else.";
+  refresh.onclick = () => loadSprintIssues();
+  bar.append(refresh);
+  return bar;
+}
+
+// The count line and the repository filter in one control: the number you just
+// read is the thing you then switch off. Same hue the row's repository name and
+// the settings entry wear, so a repository is one colour everywhere.
+function sprintIssueChips() {
+  const view = state.issues.panel;
+  const said = new Map(view.errors.map((row) => [row.repo_ref, row.message]));
+  const chips = element("div", "sprint-issue-chips");
+
+  for (const row of view.counts) {
+    const off = view.off.includes(row.repo_ref);
+    const chip = element("button", `sprint-issue-chip${off ? " is-off" : " is-on"}`);
+    chip.type = "button";
+    chip.title = said.has(row.repo_ref)
+      ? said.get(row.repo_ref)
+      : (off ? `Draw ${row.repo_label} again` : `Leave ${row.repo_label} out`);
+
+    chip.append(element("span",
+      `sprint-issue-chip-dot issue-hue-${issueLabelHue(row.repo_label)}`, ""));
+    chip.append(element("span", "", row.repo_label));
+    const quiet = row.count === null || row.count === undefined;
+    chip.append(element("span",
+      `sprint-issue-chip-n${quiet ? " is-dash" : ""}`, quiet ? "—" : String(row.count)));
+
+    chip.onclick = () => {
+      view.off = off
+        ? view.off.filter((ref) => ref !== row.repo_ref)
+        : view.off.concat(row.repo_ref);
+      view.page = 0;
+      chip.classList.toggle("is-off");
+      chip.classList.toggle("is-on");
+      drawSprintIssueList();
+    };
+    chips.append(chip);
+  }
+  return chips;
+}
+
+function sprintIssuesShown() {
+  const view = state.issues.panel;
+  const needle = view.filter.trim().toLowerCase();
+  const off = new Set(view.off);
+  return view.rows.filter((issue) =>
+    !off.has(issue.repo_ref) && issueMatches(issue, needle));
+}
+
+function drawSprintIssueList() {
+  const panel = $("sprint-issues");
+  const list = panel && panel.querySelector(".sprint-issue-list");
+  const pager = panel && panel.querySelector(".sprint-issue-pager");
+  if (!list || !pager) return;
+  const view = state.issues.panel;
+
+  const matched = sprintIssuesShown();
+  const pages = Math.max(1, Math.ceil(matched.length / view.size));
+  view.page = Math.min(Math.max(view.page, 0), pages - 1);
+  const from = view.page * view.size;
+
+  list.replaceChildren();
+  for (const issue of matched.slice(from, from + view.size)) {
+    list.append(issueRow(issue));
+  }
+  if (matched.length === 0) {
+    list.append(element("p", "hint", view.rows.length === 0
+      ? "Nothing open on the repositories that answered."
+      : "Nothing here matches — the filter and the chips both narrow."));
+  }
+
+  pager.replaceChildren();
+  // One page of five and no size control: the rail has room for the question,
+  // and a second row of selects is what it does not have room for.
+  if (matched.length === 0) return;
+
+  const prev = element("button", "sprint-issue-page", "‹ Newer");
+  prev.type = "button";
+  prev.disabled = view.page === 0;
+  prev.onclick = () => { view.page -= 1; drawSprintIssueList(); };
+  pager.append(prev);
+
+  pager.append(element("span", "sprint-issue-page-label",
+    `${from + 1}–${Math.min(from + view.size, matched.length)} of ${matched.length}`
+    + (pages > 1 ? ` · page ${view.page + 1}/${pages}` : "")));
+
+  const next = element("button", "sprint-issue-page", "Older ›");
+  next.type = "button";
+  next.disabled = view.page >= pages - 1;
+  next.onclick = () => { view.page += 1; drawSprintIssueList(); };
+  pager.append(next);
 }
 
 // --- events -----------------------------------------------------------------

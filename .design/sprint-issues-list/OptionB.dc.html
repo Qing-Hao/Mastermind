@@ -1,0 +1,126 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: #18181b; background: #fafafa; }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+    .sheet { display: flex; flex-direction: column; gap: 14px; padding: 24px; }
+    .head { display: flex; flex-direction: column; gap: 3px; }
+    .opt-cap { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa; }
+    .opt-name { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+    .opt-axis { font-size: 12.5px; color: #71717a; }
+
+    .rail { width: 280px; display: flex; flex-direction: column; gap: 8px; }
+    .rail-head { display: flex; align-items: center; }
+    .mode-switch { display: inline-flex; gap: 2px; padding: 3px; border-radius: 7px; background: #f4f4f5; }
+    .mode { border: 0; background: transparent; padding: 3px 12px; border-radius: 5px; font-size: 12px; color: #52525b; }
+    .mode.active { background: #fff; color: #18181b; box-shadow: 0 1px 2px rgba(0, 0, 0, .06); }
+    .spacer { flex: 1; }
+    .collapse { border: 1px solid transparent; background: transparent; color: #71717a; padding: 2px 7px; font-size: 13px; line-height: 1.2; border-radius: 6px; }
+
+    .panel { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid #e6e6ea; border-radius: 10px; background: #fff; }
+
+    /* The count line the panel already draws, doing double duty as the group
+       heading: the repository is named once, so the rows below it need not. */
+    .group { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; padding-bottom: 4px; border-bottom: 1px solid #f1f1f4; }
+    .group.later { margin-top: 12px; }
+    .group-dot { width: 9px; height: 9px; flex: none; border-radius: 50%; background: hsl(145 60% 55%); }
+    .group-dot.two { background: hsl(275 60% 55%); }
+    .group-dot.three { background: hsl(25 60% 55%); }
+    .group-name { flex: 1 1 auto; font-weight: 600; color: #3f3f46; }
+    .group-count { font-variant-numeric: tabular-nums; font-weight: 600; }
+    .group-count.dash { color: #a1a1aa; }
+
+    .list { display: flex; flex-direction: column; margin-top: 2px; }
+
+    /* One line, one issue. Number, title, age -- no labels, no author, no
+       comment count: the rail has room for the question, not the detail. */
+    .item { display: flex; align-items: baseline; gap: 8px; padding: 4px 6px; margin: 0 -6px; border-radius: 6px; font-size: 12.5px; color: inherit; text-decoration: none; }
+    .item:hover { background: #f4f4f5; }
+    .item-num { flex: none; font-variant-numeric: tabular-nums; color: #a1a1aa; }
+    .item-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .item-age { flex: none; font-size: 11.5px; color: #a1a1aa; }
+    .item-flag { flex: none; width: 6px; height: 6px; border-radius: 50%; background: hsl(25 60% 55%); }
+
+    .said { font-size: 11.5px; color: #a1a1aa; margin-top: 4px; }
+    .more { font-size: 11.5px; color: #a1a1aa; padding: 4px 0 0; }
+    .open { margin-top: 10px; border: 1px solid transparent; background: transparent; color: #71717a; font-size: 11.5px; padding: 5px 12px; border-radius: 6px; align-self: flex-start; }
+
+    .foot { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+    .foot-row { display: flex; gap: 8px; align-items: baseline; }
+    .foot-key { flex: 0 0 54px; font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa; }
+    .foot-val { color: #3f3f46; }
+  </style>
+</helmet>
+<div class="sheet">
+  <div class="head">
+    <span class="opt-cap">Option B</span>
+    <span class="opt-name">One line an issue, rail-sized</span>
+    <span class="opt-axis">A row built for 280px: number, title on one line, age. The repository is the group heading; labels, author and comment count stay on the Issues tab.</span>
+  </div>
+
+  <div class="rail">
+    <div class="rail-head">
+      <span class="mode-switch">
+        <button class="mode" type="button">In scope</button>
+        <button class="mode" type="button">Reference</button>
+        <button class="mode active" type="button">Issues</button>
+      </span>
+      <span class="spacer"></span>
+      <button class="collapse" type="button">&#8250;</button>
+    </div>
+
+    <div class="panel">
+      <div class="group">
+        <span class="group-dot"></span>
+        <span class="group-name">core/mastermind</span>
+        <span class="group-count">12</span>
+      </div>
+      <div class="list">
+        <a class="item" href="#"><span class="item-num">412</span><span class="item-title">Sprint save overwrites a cell edited in another tab</span><span class="item-age">2d</span></a>
+        <a class="item" href="#"><span class="item-num">408</span><span class="item-title">Map legend forgets the track filter on reload</span><span class="item-age">5d</span></a>
+        <a class="item" href="#"><span class="item-num">401</span><span class="item-title">Import refuses a file the export wrote</span><span class="item-age">6d</span></a>
+        <a class="item" href="#"><span class="item-num">399</span><span class="item-title">PIC picker lists a handle twice</span><span class="item-age">1w</span></a>
+        <a class="item" href="#"><span class="item-num">394</span><span class="item-title">Overdue bell counts a closed phase</span><span class="item-age">1w</span></a>
+        <a class="item" href="#"><span class="item-num">388</span><span class="item-title">Checkpoint drag lands a day early at week 1</span><span class="item-age">2w</span></a>
+        <div class="more">&hellip;and 6 more</div>
+      </div>
+
+      <div class="group later">
+        <span class="group-dot two"></span>
+        <span class="group-name">core/portal</span>
+        <span class="group-count">4</span>
+      </div>
+      <div class="list">
+        <a class="item" href="#"><span class="item-num">77</span><span class="item-title">Sign-out lands on a blank page</span><span class="item-age">3d</span></a>
+        <a class="item" href="#"><span class="item-num">74</span><span class="item-title">Realm role change needs a restart</span><span class="item-age">1w</span></a>
+        <a class="item" href="#"><span class="item-num">71</span><span class="item-title">Session cookie expires mid-edit</span><span class="item-age">2w</span></a>
+        <a class="item" href="#"><span class="item-num">68</span><span class="item-title">Allowlist import drops the last row</span><span class="item-age">3w</span></a>
+      </div>
+
+      <div class="group later">
+        <span class="group-dot three"></span>
+        <span class="group-name">ops/deploy</span>
+        <span class="group-count dash">&mdash;</span>
+      </div>
+      <div class="said">401 from the host &mdash; the token is not being accepted.</div>
+
+      <button class="open" type="button">Open the Issues tab</button>
+    </div>
+  </div>
+
+  <div class="foot">
+    <div class="foot-row"><span class="foot-key">Reads</span><span class="foot-val">The same GET /api/issues?limit=20 as Option A. Nothing new on the server.</span></div>
+    <div class="foot-row"><span class="foot-key">Costs</span><span class="foot-val">A second renderer for the same data, so a change to the Issues tab's row does not reach this one.</span></div>
+    <div class="foot-row"><span class="foot-key">Trade</span><span class="foot-val">Eleven issues where Option A shows three, and the truncated title is all you get &mdash; the rest is one click away on the host.</span></div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

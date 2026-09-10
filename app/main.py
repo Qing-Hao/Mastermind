@@ -3548,24 +3548,15 @@ def read_issues_config():
 
 @app.get("/api/issues")
 def read_issues(state: str = "open", limit: int = issues.DEFAULT_LIMIT):
-    """Open issues across every configured repository, read live and stored nowhere."""
-    issues_on_or_404()
-    return issues.fetch_all(stored_repos(), state=state, limit=limit)
+    """Issues across every configured repository, read live and stored nowhere.
 
-
-@app.get("/api/issues/counts")
-def read_issue_counts(state: str = "open", limit: int = issues.DEFAULT_LIMIT):
-    """Per-repository open counts. What the Sprint tab's panel draws.
-
-    The same read as `/api/issues` with the issues dropped: one page of each
-    repository is what the count is derived from, so a repository with more open
-    issues than `limit` reports the page rather than the total. That is the
-    honest number for a panel whose job is "is there anything here", and paging
-    every repository to total them would be a request per hundred issues.
+    Answers with the per-repository counts and the failures beside the issues,
+    so one request serves both readouts: the Issues tab's list and the Sprint
+    tab's panel. A count is derived from the one page each repository was asked
+    for, so a repository with more open issues than `limit` reports the page.
     """
     issues_on_or_404()
-    found = issues.fetch_all(stored_repos(), state=state, limit=limit)
-    return {"counts": found["counts"], "errors": found["errors"]}
+    return issues.fetch_all(stored_repos(), state=state, limit=limit)
 
 
 @app.get("/api/issues/totals")

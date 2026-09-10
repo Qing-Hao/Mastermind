@@ -4241,7 +4241,10 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 .issue-change-repo { font-weight: 600; }
 
 /* --- the sprint tab's issue panel --- */
-/* The third readout in that column, and the same card as the other two. */
+/* The third readout in that column, and the same card as the other two. It is
+   the Issues tab at rail width: a way out, a filter, the repository chips and a
+   pager. The column widens to 380px on this tab -- see `.sprint-layout.side-wide`
+   -- because a search box, three chips and a pager do not fit 260px. */
 .sprint-issues {
   position: sticky;
   top: calc(var(--topbar-h) + 12px);
@@ -4252,18 +4255,131 @@ body.resizing-column { cursor: col-resize; user-select: none; }
   border: 1px solid var(--line);
   border-radius: var(--radius-card);
   background: var(--surface);
+  /* The panel scrolls rather than running off the bottom of the window: five
+     issue cards plus the chrome pass the fold on a laptop. */
+  max-height: calc(100vh - var(--topbar-h) - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 /* The rule above sets `display`, and `renderSprintSide` folds this away with the
    `hidden` attribute whenever another tab in that column is showing. Same trap
    as `.sprint-scope[hidden]` and `.sprint-ref[hidden]` beside it. */
 .sprint-issues[hidden] { display: none; }
 
-.sprint-issue-row { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; }
-.sprint-issue-name { flex: 1 1 auto; }
+/* The way out, promoted to the top of the panel and wearing `.btn-settings`'
+   skin -- accent edge, accent-soft ground, a tally. Deliberately not
+   `.btn-primary`: the app's one indigo fill means a write, and this navigates.
+   As a `btn-ghost` at the foot it was grey text nobody found. */
+.sprint-issue-open {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
+}
+.sprint-issue-open:hover { background: var(--accent); color: #fff; }
+.sprint-issue-open svg { flex: none; }
+.sprint-issue-open-label { flex: 1 1 auto; }
+.sprint-issue-open-tally {
+  min-width: 17px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--accent-hover);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.sprint-issue-rule { height: 1px; background: var(--line-soft); margin: 8px 0 4px; }
+
+/* The tab's own toolbar, minus the Show switch. */
+.sprint-issue-bar { display: flex; align-items: center; gap: 6px; }
+.sprint-issue-filter {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: 12.5px;
+}
+.sprint-issue-refresh { flex: none; padding: 5px 9px; font-size: 12.5px; line-height: 1.2; }
+/* Said out loud, because the panel offers no way to ask anything else: the one
+   control the tab has and this does not is the state switch. */
+.sprint-issue-only { font-size: 11.5px; color: var(--faint); padding: 2px 0 0; }
+
+/* The count line and the repository filter as one control: the number you just
+   read is the thing you then switch off. `.issues-total`'s pill at rail size. */
+.sprint-issue-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
+.sprint-issue-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 11.5px;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+.sprint-issue-chip:hover { background: var(--hover); }
+.sprint-issue-chip.is-on { border-color: var(--accent); color: var(--accent-hover); }
+.sprint-issue-chip.is-off { color: var(--faint); }
+/* The hue is chrome, as it is on the tab: it says "this repository is that
+   repository" and nothing about the plan. Switched off, it goes grey with the
+   rest of the chip. */
+.sprint-issue-chip-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: hsl(var(--issue-hue, 210) 60% 55%);
+}
+.sprint-issue-chip.is-off .sprint-issue-chip-dot { background: var(--field); }
+.sprint-issue-chip-n { font-variant-numeric: tabular-nums; font-weight: 600; }
 /* An em dash where a count should be means the host could not be reached, which
    is a different answer from nought and has to look like one. */
-.sprint-issue-count { font-variant-numeric: tabular-nums; font-weight: 600; }
-.sprint-issue-open { margin-top: 8px; font-size: 11.5px; }
+.sprint-issue-chip-n.is-dash { color: var(--faint); font-weight: 500; }
+.sprint-issue-said { margin: 2px 0 0; font-size: 11.5px; color: var(--faint); }
+
+.sprint-issue-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.sprint-issue-list .hint { margin: 4px 0 0; }
+
+/* `.issues-pager`'s shape without its two size selects. */
+.sprint-issue-pager {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.sprint-issue-pager:empty { display: none; }
+.sprint-issue-pager:not(:empty) { border-top: 1px solid var(--line-soft); }
+.sprint-issue-page {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11.5px;
+  padding: 4px 10px;
+}
+.sprint-issue-page:hover { background: var(--hover); color: var(--ink); }
+.sprint-issue-page:disabled { opacity: 0.4; }
+.sprint-issue-page:disabled:hover { background: transparent; color: var(--muted); }
+.sprint-issue-page-label {
+  flex: 1 1 auto;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
 
 /* --- map view --- */
 /* Positions are computed in app.js; everything here is colour and type only,
