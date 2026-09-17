@@ -10908,6 +10908,7 @@ function bindEvents() {
   // rather than a path of its own, so unsaved work in the file being left is
   // flushed first and a write that will not land still refuses to move.
   $("sprint-template").onclick = () => switchSprintFile(TEMPLATE_KEY);
+  $("sprint-history").onclick = () => toggleSprintHistory();
   $("sprint-new").onclick = createSprintFile;
   $("sprint-view-doc").onclick = () => setSprintView("doc");
   $("sprint-view-raw").onclick = () => setSprintView("raw");
@@ -11895,6 +11896,93 @@ function blameWhen(at) {
   const days = daysBetween(when, new Date());
   if (days <= 0) return "today";
   return `${agoText(days)} ago`;
+}
+
+// --- a sprint file's older selves -------------------------------------------
+//
+// **About the open file, and never a list across files** -- that would be the
+// activity feed Non-goals refuses. PROMPT.md amendment 9 carries the argument,
+// including why there is no per-block blame here: a block is addressed by its
+// index, and the index moves when anybody inserts above it.
+//
+// The template has no history. It is tracked by git, which is a better one.
+
+async function toggleSprintHistory() {
+  const panel = $("sprint-history-panel");
+  if (!panel) return;
+  if (!panel.hidden) {
+    panel.hidden = true;
+    return;
+  }
+  panel.textContent = "";
+  panel.hidden = false;
+  if (isTemplate(state.sprint.number)) {
+    panel.appendChild(element("span", "history-title", "The template"));
+    panel.appendChild(element("span", "history-empty",
+      "Tracked by git, which already keeps its history."));
+    return;
+  }
+  panel.appendChild(element("span", "history-title",
+    `${state.sprint.name || "This file"} — every save`));
+
+  let edits = [];
+  try {
+    edits = (await api(`/api/sprints/${state.sprint.number}/history`)).edits || [];
+  } catch (_) {
+    panel.appendChild(element("span", "history-empty", "Could not read the history."));
+    return;
+  }
+  if (!edits.length) {
+    panel.appendChild(element("span", "history-empty",
+      "No save recorded yet. The next one starts it."));
+    return;
+  }
+  for (const edit of edits) panel.appendChild(sprintHistoryRow(edit));
+}
+
+function sprintHistoryRow(edit) {
+  const row = element("div", "history-row");
+  row.appendChild(element("span", "history-change", edit.summary || "saved"));
+  row.appendChild(element("span", "history-who",
+    `${edit.author || "Somebody"} · ${blameWhen(edit.at)}`));
+  // A row whose copy the cap has dropped still says who saved and when. What it
+  // no longer offers is the document, because there is no longer one to offer.
+  if (!edit.snapshot) {
+    row.appendChild(element("span", "history-empty", "This copy has been pruned."));
+    return row;
+  }
+  const actions = element("div", "history-actions");
+  const restore = element("button", "history-restore", "Restore this");
+  restore.type = "button";
+  restore.title = "Put the file back to how it was before this save.";
+  restore.onclick = () => restoreSprint(edit);
+  actions.appendChild(restore);
+  row.appendChild(actions);
+  return row;
+}
+
+// **Confirmed, because it overwrites a file somebody may be typing in.** The
+// restore is a save like any other -- it snapshots what it replaces first, so
+// this is undoable, which is what the message says rather than implying.
+async function restoreSprint(edit) {
+  const answer = confirm(
+    `Put ${state.sprint.name} back to how it was before ${edit.author || "that save"}`
+    + ` saved it ${blameWhen(edit.at)}?\n\n`
+    + "What is in the file now is kept as another version, so this can be undone.");
+  if (!answer) return;
+  try {
+    await api(`/api/sprints/${state.sprint.number}/restore`, {
+      method: "POST",
+      body: JSON.stringify({ name: edit.snapshot }),
+    });
+  } catch (failure) {
+    showToast(failure.message || "The restore did not land.");
+    return;
+  }
+  $("sprint-history-panel").hidden = true;
+  await loadSprintFile(state.sprint.number);
+  renderSprintView();
+  showToast("Restored. The version you replaced is kept in the history.");
 }
 
 // --- one field's history ----------------------------------------------------

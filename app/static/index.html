@@ -696,6 +696,14 @@
           <button id="sprint-template" type="button"
             data-tip="Edit templates/sprint.md"
             data-tip-body="What the next New sprint copies. No file already on disk changes.">Edit template</button>
+          <!-- This file's older selves, and who saved each one. About this file
+               only: a list of everything that changed today would be the
+               activity feed Non-goals refuses. -->
+          <button id="sprint-history" type="button"
+            data-tip="This file's earlier versions"
+            data-tip-body="Who saved it and when, and the file as it stood before each save. Open one to read it, or put it back."
+            >History</button>
+          <div id="sprint-history-panel" class="menu-panel history-panel" hidden></div>
           <span class="spacer"></span>
           <span id="sprint-view-switch" class="mode-switch"
                 title="The document, or the whole file as text (Esc returns)">
