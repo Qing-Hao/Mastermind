@@ -11853,9 +11853,37 @@ function drawBlame() {
     const mine = node.dataset.blame === "1";
     if (!mine && (node.title || node.getAttribute("data-tip"))) continue;
     node.dataset.blame = "1";
-    node.removeAttribute("data-tip");
-    node.title = `${row.author || "Somebody"} — ${blameWhen(row.at)}`;
+    node.removeAttribute("title");
+    // The panel skin rather than the pill, because there are three things to
+    // say and a run-on line would say none of them: who, what moved, and how
+    // much history is behind it. `adoptTip` is bypassed deliberately -- a
+    // `title` here would be hoisted over the body on the next hover.
+    node.setAttribute("data-tip", blameHead(row));
+    node.setAttribute("data-tip-body", blameChange(row));
+    node.setAttribute("data-tip-meta", blameMeta(row));
   }
+}
+
+function blameHead(row) {
+  const who = row.author || "Somebody";
+  return row.field ? `${who} changed this` : `${who} made this`;
+}
+
+// What actually moved. A creation has no old value to show, so it names what
+// the row was called instead of drawing an arrow from nothing.
+function blameChange(row) {
+  if (!row.field) return row.new_value ? `Created as “${row.new_value}”` : "Created";
+  const was = row.old_value === "" ? "(empty)" : row.old_value;
+  const now = row.new_value === "" ? "(empty)" : row.new_value;
+  return `${was} → ${now}`;
+}
+
+function blameMeta(row) {
+  const earlier = Math.max(0, (row.changes || 1) - 1);
+  const behind = earlier === 0
+    ? "no earlier change"
+    : `${earlier} earlier change${earlier === 1 ? "" : "s"}`;
+  return `${blameWhen(row.at)} · ${behind} · Alt+click for the history`;
 }
 
 // Whole days, in `agoText`'s words, so the history speaks the same way the
@@ -11867,6 +11895,120 @@ function blameWhen(at) {
   const days = daysBetween(when, new Date());
   if (days <= 0) return "today";
   return `${agoText(days)} ago`;
+}
+
+// --- one field's history ----------------------------------------------------
+//
+// **Per field, opened against the field.** Deliberately not a list of what
+// changed across the plan today: that is the activity feed non-negotiable 7
+// refuses, and the difference is whether you have to be looking at the thing to
+// be told about it.
+//
+// Alt+click rather than a control drawn in the cell, because the ask on
+// 2026-09-09 was explicit that this must not add furniture to a plan full of
+// boxes -- the hint says the gesture, and nothing is drawn until it is used.
+
+async function openHistory(node) {
+  const parts = blameParts(node);
+  const panel = $("history-panel");
+  if (!parts || !panel) return;
+  panel.textContent = "";
+  panel.appendChild(element("span", "history-title",
+    parts.field ? `${labelOfField(parts.field)} — every change` : "This row"));
+  panel.hidden = false;
+  placeHistory(panel, node);
+
+  let rows = [];
+  try {
+    const payload = await api(
+      `/api/versions/${parts.entity}/${parts.id}?field=${encodeURIComponent(parts.field)}`);
+    rows = payload.rows || [];
+  } catch (_) {
+    // Same bargain the tips make: nobody asked for this beyond the press, so a
+    // failed read says so in the panel rather than throwing a toast over the plan.
+  }
+  if (!rows.length) {
+    panel.appendChild(element("span", "history-empty", "Nothing recorded yet."));
+    placeHistory(panel, node);
+    return;
+  }
+  for (const row of rows) {
+    const line = element("div", "history-row");
+    line.appendChild(historyChange(row));
+    line.appendChild(element("span", "history-who",
+      `${row.author || "Somebody"} · ${blameWhen(row.at)}`));
+    panel.appendChild(line);
+  }
+  placeHistory(panel, node);
+}
+
+// Built from spans rather than one string so the replaced value can be struck
+// through -- two values of similar length in one colour read as one sentence.
+function historyChange(row) {
+  const change = element("span", "history-change");
+  if (!row.field) {
+    change.textContent = row.new_value ? `Created as “${row.new_value}”` : "Created";
+    return change;
+  }
+  change.appendChild(element("span", "history-was",
+    row.old_value === "" ? "(empty)" : row.old_value));
+  change.appendChild(element("span", null, " → "));
+  change.appendChild(element("span", "history-now",
+    row.new_value === "" ? "(empty)" : row.new_value));
+  return change;
+}
+
+// Under the field, pulled back inside the viewport. Measured after the content
+// lands, which is why every caller runs it again once the rows are in.
+function placeHistory(panel, node) {
+  const box = node.getBoundingClientRect();
+  const own = panel.getBoundingClientRect();
+  const left = Math.max(TIP_EDGE,
+    Math.min(box.left, window.innerWidth - own.width - TIP_EDGE));
+  const below = box.bottom + TIP_GAP;
+  const top = below + own.height > window.innerHeight - TIP_EDGE
+    ? Math.max(TIP_EDGE, box.top - TIP_GAP - own.height)
+    : below;
+  panel.style.left = `${left}px`;
+  panel.style.top = `${top}px`;
+}
+
+function closeHistory() {
+  const panel = $("history-panel");
+  if (panel) panel.hidden = true;
+}
+
+// The column heading a field is drawn under, where there is one to borrow, so
+// the panel names the box in the words already on screen.
+const FIELD_LABELS = {
+  name: "Name", description: "Description", goal: "Goal",
+  start_date: "Start date", target_date: "Target date",
+  duration_weeks: "Weeks", effort_points: "Points", status: "Status",
+  stage: "Stage", track: "Track", tier: "Tier", kind: "Kind",
+  velocity_override: "Velocity", done: "Done", achieved: "Achieved",
+};
+
+function labelOfField(field) {
+  return FIELD_LABELS[field] || field.replace(/_/g, " ");
+}
+
+// One delegated pair, so a field drawn by any render gets this for free.
+function watchHistory() {
+  document.addEventListener("click", (event) => {
+    const node = event.target && typeof event.target.closest === "function"
+      ? event.target.closest("[data-presence]")
+      : null;
+    if (event.altKey && node && blameParts(node)) {
+      // Alt+click would otherwise put the caret in the box behind the panel.
+      event.preventDefault();
+      openHistory(node);
+      return;
+    }
+    if (!event.target || !event.target.closest("#history-panel")) closeHistory();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeHistory();
+  });
 }
 
 // The Sprint tab's own line, which is the high-value one: it is the highest
@@ -12047,6 +12189,9 @@ async function loadRuleSummary() {
 
 bindEvents();
 watchPresence();
+// Alt+click on any field with history. Delegated for `watchPresence`'s reason:
+// every render rebuilds the boxes, and a listener per box would go with them.
+watchHistory();
 // The other half of presence: what a block or a cell somebody else is in
 // refuses. Capture-phase and delegated on the document, so it is armed before
 // the Sprint tab has drawn anything.

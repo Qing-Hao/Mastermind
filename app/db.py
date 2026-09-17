@@ -991,14 +991,22 @@ def list_versions(entity, entity_id, field="", limit=VERSION_LOG_LIMIT):
 def blame(entity, entity_ids):
     """Who last touched each field of these rows: {entity_id: {field: row}}.
 
-    One query for the whole subtree rather than one per box on screen -- the
-    project view draws a plan's worth of fields and wants every tip at once.
+    One pair of queries for the whole subtree rather than one per box on screen --
+    the project view draws a plan's worth of fields and wants every tip at once.
+    Each row carries `changes`, the number of times that field has moved, so the
+    hint can say how much history sits behind the line it is showing.
     """
     ids = [int(one) for one in entity_ids]
     if entity not in VERSIONED or not ids:
         return {}
     holes = ",".join("?" for _ in ids)
     with connect() as connection:
+        tally = connection.execute(
+            "SELECT entity_id, field, COUNT(*) AS changes FROM item_version "
+            f"WHERE entity = ? AND entity_id IN ({holes}) "
+            "GROUP BY entity_id, field",
+            [entity] + ids,
+        ).fetchall()
         rows = connection.execute(
             "SELECT entity_id, field, author, at, old_value, new_value "
             "FROM item_version WHERE id IN ("
@@ -1007,9 +1015,12 @@ def blame(entity, entity_ids):
             "    GROUP BY entity_id, field)",
             [entity] + ids,
         ).fetchall()
+    counted = {(row["entity_id"], row["field"]): row["changes"] for row in tally}
     found = {}
     for row in rows:
-        found.setdefault(row["entity_id"], {})[row["field"]] = dict(row)
+        entry = dict(row)
+        entry["changes"] = counted.get((row["entity_id"], row["field"]), 1)
+        found.setdefault(row["entity_id"], {})[row["field"]] = entry
     return found
 
 

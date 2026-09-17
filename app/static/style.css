@@ -1141,6 +1141,52 @@ td.presence-held:has(.presence-take:not([hidden])) input { padding-right: 78px; 
 .presence-hue-5 { --presence-hue: #6d28d9; }
 .presence-badge[class*="presence-hue-"] { background: var(--presence-hue, var(--faint)); }
 
+/* --- one field's history ---------------------------------------------------
+   Alt+click a field and this opens against it. Positioned from JS like the tip
+   layer, so it is fixed rather than absolute and cannot be clipped by a table
+   that scrolls. Chrome, not data: nothing in here colours by what the value
+   means, which is why it sits above the chart rules. */
+.history-panel {
+  position: fixed;
+  z-index: 60;
+  max-width: 340px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 10px 12px;
+}
+.history-panel[hidden] { display: none; }
+.history-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  display: block;
+  margin-bottom: 8px;
+}
+.history-row {
+  display: grid;
+  gap: 2px;
+  padding: 7px 0;
+  border-top: 1px solid var(--rule, var(--field));
+}
+.history-row:first-of-type { border-top: 0; }
+.history-change {
+  font-size: 12.5px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+/* The value that was replaced, and the one that replaced it. Struck rather than
+   greyed: two values of similar length in two greys read as one sentence. */
+.history-was { color: var(--ink-3); text-decoration: line-through; }
+.history-now { font-weight: 600; }
+.history-who {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.history-empty { font-size: 12.5px; color: var(--ink-3); }
+
 /* A badge on the strip is a button: pressing it lands you on the cell it names.
    The badge drawn *on* a cell stays a span -- it already sits on the thing it
    would jump to, and the rule above takes its pointer events away. The border is

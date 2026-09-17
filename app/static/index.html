@@ -173,6 +173,13 @@
         <div id="task-panel" class="late-panel task-panel alert-pane" hidden></div>
       </div>
     </span>
+    <!-- One field's history, opened by Alt+click on the field itself and
+         positioned against it. Outside every view because it belongs to a box
+         rather than to a tab, and a render that rebuilds the box must not take
+         the panel with it. Per field and per row only: a list of everything
+         that changed today would be the activity feed non-negotiable 7
+         refuses. -->
+    <div id="history-panel" class="menu-panel history-panel" hidden></div>
     <!-- Who else is here, on whichever tab you are on. Outside `topbar-actions`
          for the same reason the offline badge is: that block is hidden when no
          project is open, and presence is not about a project. -->

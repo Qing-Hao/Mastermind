@@ -5859,6 +5859,28 @@ def test_blame_answers_a_whole_subtree_in_one_call(client):
     assert body["blame"][str(second["id"])]["status"]["new_value"] == "in_progress"
 
 
+def test_blame_says_what_moved_and_how_much_is_behind_it(client):
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Build", "2026-01-05", 2, 8)
+    for points in (13, 21, 34):
+        client.put(f"/api/phases/{phase['id']}", json={"effort_points": points})
+
+    row = client.get("/api/blame/phase", params={"ids": phase["id"]}) \
+        .json()["blame"][str(phase["id"])]["effort_points"]
+    # The newest change, and the count of every change behind it -- what the
+    # hint needs to say "21 to 34, and there are two earlier ones".
+    assert (row["old_value"], row["new_value"]) == ("21", "34")
+    assert row["changes"] == 3
+
+
+def test_a_creation_row_counts_but_does_not_pretend_to_be_a_field(client):
+    project = make_project(client)
+    row = client.get("/api/blame/project", params={"ids": project["id"]}) \
+        .json()["blame"][str(project["id"])][""]
+    assert row["old_value"] == "" and row["new_value"] == "Payments"
+    assert row["changes"] == 1
+
+
 def test_with_the_gate_off_the_author_is_empty_and_the_write_still_lands(client):
     project = make_project(client)
     response = client.put(f"/api/projects/{project['id']}", json={"tier": 3})
