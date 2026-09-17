@@ -2449,7 +2449,12 @@ def test_saving_leaves_no_temporary_file_behind(client, sprints):
     write_sprint(sprints)
     payload = read_sprint(client)
     client.put("/api/sprints/3", json={"text": "edited\n", "mtime": payload["mtime"]})
-    assert [path.name for path in sprints.iterdir()] == ["03.md"]
+    left = sorted(path.name for path in sprints.iterdir())
+    # `.history` is the file's older selves and is meant to be there -- see
+    # PROMPT.md amendment 9. The scratch file the atomic write renames from is
+    # not, which is what this has always been guarding.
+    assert left == [".history", "03.md"]
+    assert not any(name.endswith(".tmp") for name in left)
 
 
 def test_saving_a_missing_sprint_is_a_404_and_creates_nothing(client, sprints):
@@ -5956,3 +5961,134 @@ def test_a_typo_in_the_retention_variable_falls_back_instead_of_raising(monkeypa
     assert db.version_keep_days() == 30
     monkeypatch.setenv(db.ENV_VERSION_KEEP_DAYS, "0")
     assert db.version_keep_days() == 0
+
+
+# --- a sprint file's older selves (PROMPT.md amendment 9) ---------------------
+
+
+def sprint_history(client, number=3):
+    return client.get(f"/api/sprints/{number}/history").json()["edits"]
+
+
+def test_a_save_keeps_the_copy_it_replaced(client, sprints):
+    write_sprint(sprints)
+    first = read_sprint(client)
+    client.put("/api/sprints/3", json={"text": "second\n", "mtime": first["mtime"]})
+
+    edits = sprint_history(client)
+    assert len(edits) == 1
+    assert edits[0]["summary"] == "saved the whole file"
+    assert edits[0]["snapshot"].startswith("03-")
+
+    kept = client.get(f"/api/sprints/3/history/{edits[0]['snapshot']}").json()
+    # The copy is what was there *before* the save, which is the whole point.
+    assert kept["text"] == first["text"]
+
+
+def test_snapshots_are_files_beside_the_sprint_and_invisible_to_it(client, sprints):
+    write_sprint(sprints)
+    first = read_sprint(client)
+    client.put("/api/sprints/3", json={"text": "second\n", "mtime": first["mtime"]})
+
+    history = sprints / ".history"
+    assert history.is_dir()
+    assert [path.suffix for path in history.iterdir()] == [".md"]
+    # No sprint content in the database, and the picker cannot see the copies.
+    assert [one["number"] for one in client.get("/api/sprints").json()] == [3]
+
+
+def test_the_editors_autosaves_fold_into_one_copy(client, sprints):
+    write_sprint(sprints)
+    for text in ("one\n", "two\n", "three\n"):
+        client.put("/api/sprints/3",
+                   json={"text": text, "mtime": read_sprint(client)["mtime"]})
+
+    edits = sprint_history(client)
+    # Three saves, three rows -- who saved and when is never coalesced.
+    assert len(edits) == 3
+    # One copy, because they landed inside the window and by the same author.
+    # Forty versions of one afternoon is not a history anybody can read.
+    assert len({edit["snapshot"] for edit in edits}) == 1
+    assert len(list((sprints / ".history").iterdir())) == 1
+
+
+def test_a_restore_puts_the_file_back_and_logs_itself(client, sprints):
+    write_sprint(sprints)
+    first = read_sprint(client)
+    client.put("/api/sprints/3", json={"text": "wrong\n", "mtime": first["mtime"]})
+    name = sprint_history(client)[0]["snapshot"]
+
+    restored = client.post("/api/sprints/3/restore", json={"name": name})
+    assert restored.status_code == 200
+    assert restored.json()["text"] == first["text"]
+    assert read_sprint(client)["text"] == first["text"]
+
+    edits = sprint_history(client)
+    assert edits[0]["summary"] == f"restored the copy from {name}"
+    # A restore is itself undoable: it snapshotted what it replaced, and forced
+    # past the coalescing window rather than folding into the save before it.
+    assert edits[0]["snapshot"] and edits[0]["snapshot"] != name
+    assert client.get(
+        f"/api/sprints/3/history/{edits[0]['snapshot']}").json()["text"] == "wrong\n"
+
+
+def test_a_snapshot_name_from_outside_this_files_history_is_a_404(client, sprints):
+    write_sprint(sprints)
+    first = read_sprint(client)
+    client.put("/api/sprints/3", json={"text": "second\n", "mtime": first["mtime"]})
+
+    # Another file's copy, and a name that is nobody's. Neither is this file's
+    # history, so neither is readable through it.
+    for name in ("04-20260101-000000.md", "nonsense.md"):
+        assert client.get(f"/api/sprints/3/history/{name}").status_code == 404
+        assert client.post("/api/sprints/3/restore",
+                           json={"name": name}).status_code == 404
+
+    # A traversal never reaches the route at all -- the slashes make it a
+    # different path. The restore body has no such protection, which is why the
+    # name is checked against the listing rather than joined onto a directory.
+    assert client.post("/api/sprints/3/restore",
+                       json={"name": "../../data/roadmap.db"}).status_code == 404
+    assert client.post("/api/sprints/3/restore",
+                       json={"name": "../03.md"}).status_code == 404
+
+
+def test_the_cap_drops_the_oldest_and_the_row_stops_claiming_it(client, sprints,
+                                                                monkeypatch):
+    monkeypatch.setenv(main.ENV_SPRINT_KEEP, "2")
+    # No coalescing, so each save is its own copy.
+    monkeypatch.setattr(main, "SPRINT_COALESCE_SECONDS", 0)
+    write_sprint(sprints)
+    for text in ("one\n", "two\n", "three\n", "four\n"):
+        client.put("/api/sprints/3",
+                   json={"text": text, "mtime": read_sprint(client)["mtime"]})
+
+    kept = sorted(path.name for path in (sprints / ".history").iterdir())
+    assert len(kept) == 2, kept
+
+    edits = sprint_history(client)
+    assert len(edits) == 4
+    # The rows for the copies that were dropped keep saying who saved and when,
+    # and stop claiming the document can be read back.
+    still_there = [edit["snapshot"] for edit in edits if edit["snapshot"]]
+    assert sorted(still_there) == kept
+
+
+def test_a_typo_in_the_sprint_cap_falls_back_instead_of_raising(monkeypatch):
+    monkeypatch.setenv(main.ENV_SPRINT_KEEP, "not a number")
+    assert main.sprint_keep() == main.SPRINT_KEEP
+    monkeypatch.setenv(main.ENV_SPRINT_KEEP, "3")
+    assert main.sprint_keep() == 3
+    monkeypatch.setenv(main.ENV_SPRINT_KEEP, "0")
+    assert main.sprint_keep() == 0
+
+
+def test_history_is_asked_of_one_file_and_never_across_them(client, sprints):
+    # There is no route that lists saves across files, and that is deliberate --
+    # a panel of everything that changed today is the activity feed Non-goals
+    # refuses. The only door in is a sprint number.
+    write_sprint(sprints)
+    assert client.get("/api/sprints/9/history").status_code == 404
+    paths = [getattr(route, "path", "") for route in app.routes]
+    assert "/api/sprint-edits" not in paths
+    assert "/api/history" not in paths

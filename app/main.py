@@ -9,11 +9,12 @@ import asyncio
 import json
 import os
 import re
+import shutil
 import sqlite3
 import tempfile
 import time
 from contextlib import asynccontextmanager
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from urllib.parse import quote
 
@@ -1020,6 +1021,12 @@ class SprintText(BaseModel):
     text: str
 
 
+class SprintRestore(BaseModel):
+    # The name of one of this file's own kept copies. Checked against the listing
+    # rather than joined onto a directory -- see `found_snapshot`.
+    name: str
+
+
 class SprintMarks(BaseModel):
     # One deliverable's tick, pushed out to the files that plan it. `skip` names
     # the files the caller is holding unsaved edits for -- the editor's own copy
@@ -1791,6 +1798,146 @@ def found_sprint(number):
 def read_sprint_file(path):
     with open(path, encoding="utf-8", newline="") as handle:
         return handle.read()
+
+
+# --- a sprint file's older selves --------------------------------------------
+#
+# Markdown, never rows: no sprint content enters the database, which is the whole
+# of the sprint design. PROMPT.md amendment 9 carries the argument, and the
+# `sprint_edit` table comment carries the other half.
+
+HISTORY_DIR_NAME = ".history"
+
+# How many older copies of each file to keep. A count rather than days, because a
+# document is bulkier than a field diff and a count is predictable.
+ENV_SPRINT_KEEP = "MASTERMIND_SPRINT_KEEP"
+SPRINT_KEEP = 50
+
+# **The editor autosaves.** One snapshot per write would give forty copies of one
+# afternoon, which FR-25 named as the bad version before any of this was built.
+# Inside this window the same author's saves fold into the copy already taken.
+SPRINT_COALESCE_SECONDS = 600
+
+
+def sprint_keep():
+    """How many snapshots to keep per file. 0 means unlimited. Never raises."""
+    raw = os.environ.get(ENV_SPRINT_KEEP, "").strip()
+    if not raw:
+        return SPRINT_KEEP
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return SPRINT_KEEP
+
+
+def history_dir(directory):
+    return os.path.join(directory, HISTORY_DIR_NAME)
+
+
+def snapshot_name(folder, path, when=None):
+    """`03.md` becomes `03-20260917-163845-001.md`. Name order is age order.
+
+    **Two saves can share a second**, so the name has to be made unique against
+    what is already there. A restore is the case that found it: it snapshots the
+    file it is about to replace, and a colliding name overwrote the very copy
+    being restored from -- destroying it in the act of using it.
+
+    **The counter is always present and zero-padded**, which is the part that is
+    not decoration. A bare `03-...-163845.md` beside a suffixed
+    `03-...-163845-2.md` sorts the *older* one last, because `-` is 0x2D and `.`
+    is 0x2E -- and everything here reads name order as age order, so the prune
+    would drop the newest copies and keep the oldest. One shape for every name
+    is what makes that impossible rather than merely unlikely.
+
+    **And it counts past the highest rather than into the first free slot.** The
+    cap deletes from the front, so probing for a gap hands the next copy a name
+    the prune just freed -- which then sorts as the oldest thing in the folder
+    and is the first to be deleted again, while genuinely old copies survive. A
+    name here is a position in a sequence, so a retired one never comes back.
+    """
+    base, extension = os.path.splitext(os.path.basename(path))
+    extension = extension or ".md"
+    stamp = (when or datetime.now()).strftime("%Y%m%d-%H%M%S")
+    prefix = f"{base}-{stamp}-"
+    highest = 0
+    try:
+        for name in os.listdir(folder):
+            if not name.startswith(prefix) or not name.endswith(extension):
+                continue
+            try:
+                highest = max(highest, int(name[len(prefix):-len(extension)]))
+            except ValueError:
+                continue
+    except OSError:
+        pass
+    return f"{prefix}{highest + 1:03d}{extension}"
+
+
+def snapshots_of(directory, path):
+    """Every kept copy of one file, oldest first. Named by stamp, so name order."""
+    base = os.path.splitext(os.path.basename(path))[0]
+    folder = history_dir(directory)
+    if not os.path.isdir(folder):
+        return []
+    return sorted(name for name in os.listdir(folder)
+                  if name.startswith(f"{base}-") and name.endswith(".md"))
+
+
+def prune_snapshots(directory, path):
+    """Keep the newest `sprint_keep()` copies of one file; delete the rest.
+
+    The rows that pointed at a deleted copy keep saying who saved and when, and
+    stop claiming the document can be read back -- see `db.forget_sprint_snapshots`.
+    """
+    keep = sprint_keep()
+    if not keep:
+        return []
+    existing = snapshots_of(directory, path)
+    dropped = []
+    for name in existing[:-keep]:
+        try:
+            os.remove(os.path.join(history_dir(directory), name))
+            dropped.append(name)
+        except OSError:
+            pass
+    if dropped:
+        db.forget_sprint_snapshots(dropped)
+    return dropped
+
+
+def snapshot_sprint_file(path, author="", force=False):
+    """Copy a sprint file aside before it is overwritten. Returns the name, or ''.
+
+    Never raises and never blocks the save: a history that cannot be written is
+    not a reason to refuse somebody's work. An absent file has no older self to
+    keep, which is the case on create.
+
+    Coalesced -- a save by the same author inside `SPRINT_COALESCE_SECONDS` folds
+    into the copy already taken, so the editor's autosaves do not each become a
+    version. `force` is for a restore, which is a deliberate act and must never
+    fold into the autosave that happened to precede it.
+    """
+    if not os.path.exists(path):
+        return ""
+    directory = os.path.dirname(path)
+    recent = None if force else db.last_sprint_edit(os.path.basename(path))
+    if recent and recent.get("snapshot") and (recent.get("author") or "") == (author or ""):
+        try:
+            taken = datetime.fromisoformat(recent["at"])
+            age = (datetime.now(timezone.utc) - taken).total_seconds()
+            if 0 <= age < SPRINT_COALESCE_SECONDS:
+                return recent["snapshot"]
+        except (ValueError, TypeError):
+            pass
+    folder = history_dir(directory)
+    try:
+        os.makedirs(folder, exist_ok=True)
+        name = snapshot_name(folder, path)
+        shutil.copyfile(path, os.path.join(folder, name))
+    except OSError:
+        return ""
+    prune_snapshots(directory, path)
+    return name
 
 
 def write_sprint_file(path, text):
@@ -2605,7 +2752,7 @@ def read_workload():
 
 
 @app.post("/api/sprints/marks")
-def write_sprint_marks(body: SprintMarks):
+def write_sprint_marks(request: Request, body: SprintMarks):
     """Push one deliverable's tick into the task lines that name it.
 
     **The one place this app writes a document you did not type in**, and it is
@@ -2626,6 +2773,7 @@ def write_sprint_marks(body: SprintMarks):
 
     The reply names what changed, so the caller can say so and offer it back.
     """
+    author = signed_in_name(request)
     changed = []
     for number, name in sprint_files(SPRINTS_DIR):
         if number in body.skip:
@@ -2633,7 +2781,15 @@ def write_sprint_marks(body: SprintMarks):
         path = os.path.join(SPRINTS_DIR, name)
         text, lines = marked_for(read_sprint_file(path), body.deliverable_id, body.done)
         if lines:
+            # Snapshotted like any other save, and the most worth having: this is
+            # the one place the app writes a document nobody typed in, so "why
+            # did this file change when I was not in it" is a real question.
+            snapshot = snapshot_sprint_file(path, author)
             write_sprint_file(path, text)
+            db.log_sprint_edit(
+                name, author,
+                f"pushed the tick for D-{body.deliverable_id} into {lines} line(s)",
+                snapshot)
             announce_sprint(number, os.path.getmtime(path))
             changed.append({"number": number, "name": name, "lines": lines})
     return {"files": changed}
@@ -2707,7 +2863,7 @@ def read_sprint_links(number: int):
 
 
 @app.put("/api/sprints/{number}")
-def save_sprint(number: int, body: SprintSave):
+def save_sprint(request: Request, number: int, body: SprintSave):
     """Overwrite a sprint file, unless it changed on disk since it was read.
 
     A stale `mtime` is a 409 carrying the disk value, never a merge and never an
@@ -2722,7 +2878,10 @@ def save_sprint(number: int, body: SprintSave):
             detail={"error": f"{os.path.basename(path)} changed on disk.", "mtime": current},
         )
 
+    author = signed_in_name(request)
+    snapshot = snapshot_sprint_file(path, author)
     write_sprint_file(path, body.text)
+    db.log_sprint_edit(os.path.basename(path), author, "saved the whole file", snapshot)
     mtime = os.path.getmtime(path)
     announce_sprint(number, mtime)
     return {"mtime": mtime}
@@ -2811,10 +2970,18 @@ def landed_splice(body, result):
 
 
 @app.patch("/api/sprints/{number}/blocks")
-def splice_sprint(number: int, body: BlockSplice):
+def splice_sprint(request: Request, number: int, body: BlockSplice):
     """Replace one run of blocks in a sprint file. The rest of the file is untouched."""
     path = found_sprint(number)
+    author = signed_in_name(request)
+    # Before the write, because the copy has to be of what is about to be
+    # replaced. A refused splice therefore leaves a copy nothing logged -- it is
+    # a duplicate of the current file, the cap bounds how many can pile up, and
+    # the next successful save prunes. Cheaper than not having the old text.
+    snapshot = snapshot_sprint_file(path, author)
     result = apply_splice(path, body)
+    db.log_sprint_edit(os.path.basename(path), author,
+                       f"replaced {len(body.expect)} block(s) from {body.at}", snapshot)
     announce_sprint(number, result["mtime"], landed_splice(body, result))
     return result
 
@@ -2893,10 +3060,14 @@ def landed_cells(body, result):
 
 
 @app.patch("/api/sprints/{number}/cells")
-def write_sprint_cells(number: int, body: CellWrite):
+def write_sprint_cells(request: Request, number: int, body: CellWrite):
     """Write named cells of one table. Every other cell of it is untouched."""
     path = found_sprint(number)
+    author = signed_in_name(request)
+    snapshot = snapshot_sprint_file(path, author)
     result = apply_cells(path, body)
+    db.log_sprint_edit(os.path.basename(path), author,
+                       f"wrote {len(body.cells)} cell(s)", snapshot)
     announce_sprint(number, result["mtime"], landed_cells(body, result))
     return result
 
@@ -3468,6 +3639,61 @@ def remove_quarter_goal(period: str):
     require_period(period)
     db.delete_quarter_goal(period)
     announce_roadmap()
+
+
+# --- a sprint file's older selves --------------------------------------------
+#
+# See PROMPT.md amendment 9. One file at a time, always: a listing across files
+# is the activity feed Non-goals refuses.
+
+
+@app.get("/api/sprints/{number}/history")
+def read_sprint_history(number: int):
+    """Who saved this file, when, and which copy each save displaced."""
+    path = found_sprint(number)
+    return {"number": number, "file": os.path.basename(path),
+            "edits": db.list_sprint_edits(os.path.basename(path))}
+
+
+def found_snapshot(path, name):
+    """The snapshot file `name` belongs to `path`, or a 404.
+
+    The name is checked against the listing rather than joined onto the directory:
+    a caller-supplied path is how `../../etc` gets read, and a name that is not
+    one of this file's own copies is not this file's history either.
+    """
+    if name not in snapshots_of(os.path.dirname(path), path):
+        raise HTTPException(status_code=404, detail="No such copy of that file.")
+    return os.path.join(history_dir(os.path.dirname(path)), name)
+
+
+@app.get("/api/sprints/{number}/history/{name}")
+def read_sprint_snapshot(number: int, name: str):
+    """One older copy of a sprint file, as text."""
+    path = found_sprint(number)
+    return {"number": number, "name": name,
+            "text": read_sprint_file(found_snapshot(path, name))}
+
+
+@app.post("/api/sprints/{number}/restore")
+def restore_sprint(request: Request, number: int, body: SprintRestore):
+    """Put an older copy back, as a save like any other.
+
+    **A restore is a write and logs itself**, which is the whole reason it goes
+    through the same door: one that left no trace would be a hole in the only
+    thing this exists to be. The copy it replaces is snapshotted first, so a
+    restore is itself undoable.
+    """
+    path = found_sprint(number)
+    text = read_sprint_file(found_snapshot(path, body.name))
+    author = signed_in_name(request)
+    snapshot = snapshot_sprint_file(path, author, force=True)
+    write_sprint_file(path, text)
+    db.log_sprint_edit(os.path.basename(path), author,
+                       f"restored the copy from {body.name}", snapshot)
+    mtime = os.path.getmtime(path)
+    announce_sprint(number, mtime)
+    return {"mtime": mtime, "text": text}
 
 
 # --- who changed what -------------------------------------------------------

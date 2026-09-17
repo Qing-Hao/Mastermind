@@ -355,6 +355,33 @@ CREATE TABLE IF NOT EXISTS item_version (
     at        TEXT NOT NULL
 );
 
+-- Who saved a sprint file, when, and what the save replaced. **The other half of
+-- a sprint file's history; the halves are deliberately in different places.**
+-- PROMPT.md amendment 9 carries the argument.
+--
+-- The older copies of the file itself are markdown in `sprints/.history/`, never
+-- rows: no sprint content enters this database, which is the whole of the sprint
+-- design. `snapshot` is the name of one of those files, and is what joins the two
+-- halves -- pick a row, read the document as it stood before that save.
+--
+-- What this cannot say, and it is a limit rather than a gap: **which block
+-- somebody changed.** A block is addressed by its index in the file and the index
+-- shifts when anyone inserts above it, so a record against block 4 would name the
+-- wrong paragraph a week later. `summary` describes the save in the file's own
+-- terms ("replaced 3 blocks from 12") and makes no claim that survives an edit.
+-- FR-26 carries what per-block blame would actually cost.
+--
+-- `file` is the base name, not a path: the directory is a deployment's business
+-- and a stored path would be wrong the first time the mount moved.
+CREATE TABLE IF NOT EXISTS sprint_edit (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    file     TEXT NOT NULL,
+    at       TEXT NOT NULL,
+    author   TEXT NOT NULL DEFAULT '',
+    summary  TEXT NOT NULL DEFAULT '',
+    snapshot TEXT NOT NULL DEFAULT ''
+);
+
 CREATE INDEX IF NOT EXISTS idx_phase_project ON phase(project_id);
 CREATE INDEX IF NOT EXISTS idx_deliverable_phase ON deliverable(phase_id);
 CREATE INDEX IF NOT EXISTS idx_milestone_project ON milestone(project_id);
@@ -1022,6 +1049,71 @@ def blame(entity, entity_ids):
         entry["changes"] = counted.get((row["entity_id"], row["field"]), 1)
         found.setdefault(row["entity_id"], {})[row["field"]] = entry
     return found
+
+
+# --- who saved a sprint file -------------------------------------------------
+#
+# The rows only. The documents are markdown in `sprints/.history/` and belong to
+# `main.write_sprint_file`, which is the one place every sprint write goes
+# through. See the `sprint_edit` table comment and PROMPT.md amendment 9.
+
+# What one read hands back, for `CHANGE_LOG_LIMIT`'s reason.
+SPRINT_LOG_LIMIT = 200
+
+
+def log_sprint_edit(file, author, summary, snapshot=""):
+    """Record one save of a sprint file. `snapshot` names the copy it displaced."""
+    with connect() as connection:
+        cursor = connection.execute(
+            "INSERT INTO sprint_edit (file, at, author, summary, snapshot) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (file, now_iso(), author or "", summary or "", snapshot or ""),
+        )
+    return cursor.lastrowid
+
+
+def list_sprint_edits(file, limit=SPRINT_LOG_LIMIT):
+    """One file's saves, newest first.
+
+    **One file, never all of them.** A listing across files would be the activity
+    feed Non-goals refuses -- you ask a file about itself, the way you ask a field
+    about itself.
+    """
+    with connect() as connection:
+        rows = connection.execute(
+            "SELECT * FROM sprint_edit WHERE file = ? ORDER BY id DESC LIMIT ?",
+            (file, limit),
+        ).fetchall()
+    return rows_to_dicts(rows)
+
+
+def last_sprint_edit(file):
+    """The most recent save of a file, or None. Read by the coalescing rule."""
+    with connect() as connection:
+        row = connection.execute(
+            "SELECT * FROM sprint_edit WHERE file = ? ORDER BY id DESC LIMIT 1",
+            (file,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def forget_sprint_snapshots(names):
+    """Blank the `snapshot` of rows whose file has been pruned off disk.
+
+    The row stays: who saved and when is still true once the copy is gone. What
+    stops being true is that the document can be read back, and a row pointing at
+    a file that is not there would say otherwise.
+    """
+    wanted = [name for name in names or [] if name]
+    if not wanted:
+        return 0
+    holes = ",".join("?" for _ in wanted)
+    with connect() as connection:
+        cursor = connection.execute(
+            f"UPDATE sprint_edit SET snapshot = '' WHERE snapshot IN ({holes})",
+            wanted,
+        )
+    return cursor.rowcount
 
 
 PRUNE_VERSIONS = (
