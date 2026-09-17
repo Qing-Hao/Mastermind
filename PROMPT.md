@@ -442,6 +442,60 @@ the text above, **the amendment wins** — the code follows the amendments.
    the plan can never have a log. Two tables, two arguments, neither generalising
    to the other.
 
+9. **A sprint file keeps its older selves, and a log of who saved it.** *(Added
+   2026-09-17. Widens amendment 8, which said "planning rows only — not sprint
+   files". That line was written the same day and was right about the mechanism
+   and wrong about the want: the question it excluded — "what did this file look
+   like on Tuesday" — was the original half of FR-23 and never went away.)*
+
+   **Why amendment 8's table cannot simply be pointed at these files.**
+   `item_version` is keyed `entity / entity_id / field`, and that works because a
+   phase has a stable id and named columns. A sprint file has neither. Its unit of
+   editing is a **block addressed by its index**, and the index shifts the moment
+   anybody inserts a block above it; table cells are `row:col` and move the same
+   way. Blame against a block index a week later would be confidently wrong rather
+   than politely absent, which is worse than having none. **So there is no
+   per-block blame here, and that is a limit, not an oversight.**
+
+   What is built instead is two halves that answer the question between them:
+
+   - **The file's older selves, anonymously.** `write_sprint_file` copies the
+     current text aside before it overwrites, into `sprints/.history/`. Markdown
+     stays markdown: **no sprint content enters the database**, which is the whole
+     of the sprint design and the reason these are files and not rows. They are
+     readable and restorable by hand with the app stopped, they ride the `sprints/`
+     mount that already exists, and `sprint_files()` scans for `*.md` and never
+     descends, so the app cannot mistake one for a sprint.
+   - **Who saved it, in `sprint_edit`.** File, when, the handle, what the save
+     replaced, and the snapshot it produced. This is the half that names a person,
+     and it names one for amendment 8's reason: "who do I go and ask" is the
+     question, and a save with no name answers half of it.
+
+   **Coalesced on purpose.** The editor autosaves, so one snapshot per write would
+   give forty copies of one afternoon — a history nobody can read through is not a
+   history. One snapshot per file per ten minutes per author, and the most recent
+   is always kept. Capped at `MASTERMIND_SPRINT_KEEP` per file (default 50, `0`
+   for unlimited), environment-only for the reason
+   `MASTERMIND_VERSION_KEEP_DAYS` is.
+
+   The lines this must not cross:
+
+   - **No per-block or per-cell blame**, for the reason above. If it is ever
+     wanted, the work is stable identity inside the markdown — a change to the
+     file format, and a fresh decision here.
+   - **`templates/sprint.md` is not snapshotted.** It is tracked by git, which is
+     already a better history than this one.
+   - **Restoring is a write and logs itself**, through the same path as any other
+     save. A restore that left no trace would be a hole in the only thing this
+     exists to be.
+   - **Nothing is listed across files.** A panel of everything that changed today
+     is the activity feed **Non-goals** still refuses; you ask a file about
+     itself, the way you ask a field about itself.
+   - **Nothing derives from it.** No rule, no date, no warning reads a snapshot or
+     an edit row, and no sprint content is parsed out of one.
+   - **Out of `/api/export`**, like `item_version` and for the same reason — and
+     the snapshots are not in it either, because sprint files never were.
+
 Deliverables inside a phase are treated as **sequential**, so durations sum. Work
 that genuinely runs in parallel belongs in separate phases.
 

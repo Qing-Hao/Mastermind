@@ -281,6 +281,27 @@ and argument are in `PROMPT.md`, `feature_request.md` and `git log`.
    does not fire for years** — it is a mechanism that exists, not a bound that
    currently bites.
 
+   **Narrowed a fifth time 2026-09-17 — a sprint file keeps its older selves.**
+   `write_sprint_file` copies the current text into `sprints/.history/` before it
+   overwrites, and `sprint_edit` records who saved, when, and what the save
+   replaced. PROMPT.md amendment 9 carries the argument; it widens amendment 8,
+   which had excluded sprint files.
+
+   **Snapshots are files, never rows** — no sprint content enters the database,
+   which is the whole of the sprint design. `sprint_files()` scans for `*.md` and
+   never descends, so `.history/` is invisible to the app that made it.
+
+   **There is no per-block blame, and that is a limit rather than a gap.** A block
+   is addressed by its index and the index shifts when anyone inserts above it, so
+   blame against one would be confidently wrong a week later. Per-block identity
+   means changing the markdown format, which is a fresh decision.
+
+   Also: `templates/sprint.md` is not snapshotted (git is its history); a restore
+   is a write and logs itself; nothing is ever listed across files, because that
+   is the activity feed still refused. Capped by `MASTERMIND_SPRINT_KEEP` per file
+   (default 50, `0` unlimited), coalesced to one snapshot per file per ten minutes
+   per author.
+
    **A readout is not a notification, and the difference is memory.** The overdue
    bell (`GET /api/late`) counts what is past its date, derived on read from the
    rows and today. Everyone sees the same list and nothing about it is stored, so

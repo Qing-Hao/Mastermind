@@ -109,15 +109,15 @@ put FR-13 above FR-12, and both are built and gone from this table.
 | FR-4 | Capacity roster — people and their available days | Medium (new table) | Fortnightly | Medium | **P3** — paper until sprint 4 |
 | FR-5 | Velocity learns from delivered history | Medium | Rare | Medium | **P3** — needs 3 baselines |
 | FR-6 | Slippage memory — has this date moved before? | Large | Low | High | **P3** — deferred deliberately |
-| FR-25 | Sprint file history — what did this file look like on Tuesday? | Medium (needs a store) | Low | Medium | **P3** — the half of FR-23 left open |
 | FR-7 | Owners at roadmap level | Small | — | Negative | **Won't build** |
+| FR-26 | Per-block blame inside a sprint file | Large (file format) | — | Medium | **Won't build as asked** — block indices shift |
 | FR-24 | Ask the realm, on every request, whether an account is still valid | Medium | Every request | Low here | **Won't build** — known limitation, decided 2026-09-09 |
 
 **Nothing left in this table is code.** FR-19 and FR-1 are a number and a
 paragraph, and **FR-19 goes first**: FR-1 writes down that SP and `effort_points`
 are one currency, and that is worth stating about numbers that mean something.
 Everything else is P3 — blocked on evidence (FR-3, FR-4, FR-5), deferred on
-purpose (FR-6), or waiting on a store somebody needs first (FR-25).
+purpose (FR-6).
 
 **FR-23's other half is built.** It arrived on 2026-08-24 as one request and was
 split in two, because the two halves are different kinds of question: a gesture
@@ -655,33 +655,29 @@ the thing that changes the dataset. It was **30 of 30 on 2026-08-15** and **40 o
 
 ---
 
-## FR-25 · Sprint file history — what did this file look like on Tuesday? — **P3**
+## FR-26 · Per-block blame inside a sprint file — **Won't build as asked**
 
-*The half of FR-23 that option B did not answer, reopened under its own number
-on 2026-09-17. FR-23 itself is built and deleted — `item_version` records who
-last changed each field of a **roadmap row**, and PROMPT.md amendment 8 carries
-the argument. That table deliberately does not cover sprint files.*
+*Split off from FR-25 on 2026-09-17, when the rest of it was built. FR-25 is
+deleted: snapshots and a save log ship as PROMPT.md amendment 9.*
 
-**Why the files were left out.** A sprint file is markdown the team edits, and
-the markdown *is* the record — there is no sprint table and no sidecar store, by
-design. Versioning a roadmap row means logging a field; versioning a file means
-storing whole documents, which is a different store and a different question.
-`Ctrl+Z` (FR-22) already answers "take that back" inside an open file, so what is
-actually missing is the **older** state: the file as it stood a week ago, and
-getting it back.
+What amendment 9 gives you is the file's older selves and who saved each one.
+What it does not give you is the thing the roadmap has — hover a line and see who
+wrote it.
 
-**Not blocked on the brief.** Amendment 8 settles the argument that was holding
-FR-23 up; this half is plain effort and a storage decision. Anonymous snapshots
-would do — a file has no fields to attribute, and `item_version`'s author column
-does not obviously transfer to "somebody saved the whole document".
+**The blocker is identity, not effort.** A block is addressed by its **index in
+the file**, and the index shifts the moment anybody inserts a block above it;
+table cells are `row:col` and move the same way. A blame record against block 4
+would name the wrong paragraph a week later — confidently wrong, which is worse
+than absent. `item_version` works on the roadmap precisely because a phase has an
+id that outlives every edit.
 
-**The open question is where they live.** Rows in SQLite, or files beside
-`sprints/NN.md`. FR-6 needs a store too and is deferred for the same reason, so
-whichever lands should serve both rather than each growing its own.
+**The version worth building, if it is ever wanted:** stable ids inside the
+markdown, written into the file itself. That is a change to the file format the
+team edits by hand and that `sprint_review.py` reads, so it is a real decision
+with a real cost — not a column. Argue it in `PROMPT.md` first.
 
-**The bad version:** a snapshot on every keystroke-driven autosave. The Sprint
-tab writes often, and a history nobody can read through is not a history.
-Snapshot on a meaningful boundary, or keep the last N and let them be coarse.
+**The bad version:** blame keyed to block index anyway, quietly drifting. It
+would look right on the day it was written and be lying within a week.
 
 ---
 
