@@ -7,7 +7,7 @@ import re
 import sqlite3
 import threading
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from urllib.parse import parse_qsl, urlsplit
 
 import httpx
@@ -5781,3 +5781,156 @@ def test_totals_are_behind_the_flag_like_everything_else(client, monkeypatch):
     assert client.get("/api/issues/totals").status_code == 404
     assert client.post("/api/issues/test", json={"provider": "github", "owner": "c",
                                                  "repo": "m"}).status_code == 404
+
+
+# --- who changed what (PROMPT.md amendment 8) --------------------------------
+
+
+def test_a_create_logs_one_row_naming_whoever_made_it(client):
+    project = make_project(client)
+    rows = client.get(f"/api/versions/project/{project['id']}").json()["rows"]
+    assert len(rows) == 1
+    # The field is empty for a creation, so it can never collide with a column.
+    assert rows[0]["field"] == ""
+    assert rows[0]["new_value"] == "Payments"
+
+
+def test_an_edit_logs_only_the_fields_that_moved(client):
+    project = make_project(client)
+    client.put(f"/api/projects/{project['id']}",
+               json={"name": "Payments", "tier": 2})
+
+    tier = client.get(f"/api/versions/project/{project['id']}",
+                      params={"field": "tier"}).json()["rows"]
+    assert [(row["old_value"], row["new_value"]) for row in tier] == [("0", "2")]
+
+    # Sent unchanged, so nothing is logged for it.
+    name = client.get(f"/api/versions/project/{project['id']}",
+                      params={"field": "name"}).json()["rows"]
+    assert name == []
+
+
+def test_bookkeeping_and_reordering_are_written_but_never_logged(client):
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Build", "2026-01-05", 2, 8)
+    client.put(f"/api/phases/{phase['id']}", json={"sort_order": 4})
+    client.put(f"/api/projects/{project['id']}", json={"goal": "ship it"})
+
+    assert client.get(f"/api/versions/phase/{phase['id']}",
+                      params={"field": "sort_order"}).json()["rows"] == []
+    assert client.get(f"/api/versions/project/{project['id']}",
+                      params={"field": "updated_at"}).json()["rows"] == []
+
+
+def test_history_accumulates_rather_than_overwriting(client):
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Build", "2026-01-05", 2, 8)
+    for points in (13, 21, 34):
+        client.put(f"/api/phases/{phase['id']}", json={"effort_points": points})
+
+    rows = client.get(f"/api/versions/phase/{phase['id']}",
+                      params={"field": "effort_points"}).json()["rows"]
+    assert [row["new_value"] for row in rows] == ["34", "21", "13"]
+
+
+def test_every_row_of_one_edit_shares_a_stamp(client):
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Build", "2026-01-05", 2, 8)
+    client.put(f"/api/phases/{phase['id']}",
+               json={"start_date": "2026-02-02", "effort_points": 13})
+
+    rows = [row for row in
+            client.get(f"/api/versions/phase/{phase['id']}").json()["rows"]
+            if row["field"]]
+    assert len(rows) == 2
+    assert rows[0]["at"] == rows[1]["at"]
+
+
+def test_blame_answers_a_whole_subtree_in_one_call(client):
+    project = make_project(client)
+    first = make_phase(client, project["id"], "Build", "2026-01-05", 2, 8)
+    second = make_phase(client, project["id"], "Ship", "2026-03-02", 1, 3)
+    client.put(f"/api/phases/{first['id']}", json={"effort_points": 21})
+    client.put(f"/api/phases/{second['id']}", json={"status": "in_progress"})
+
+    body = client.get("/api/blame/phase",
+                      params={"ids": f"{first['id']},{second['id']}"}).json()
+    assert body["blame"][str(first["id"])]["effort_points"]["new_value"] == "21"
+    assert body["blame"][str(second["id"])]["status"]["new_value"] == "in_progress"
+
+
+def test_with_the_gate_off_the_author_is_empty_and_the_write_still_lands(client):
+    project = make_project(client)
+    response = client.put(f"/api/projects/{project['id']}", json={"tier": 3})
+    assert response.status_code == 200
+    rows = client.get(f"/api/versions/project/{project['id']}",
+                      params={"field": "tier"}).json()["rows"]
+    assert rows[0]["author"] == ""
+
+
+def test_deleting_a_project_takes_the_whole_plans_history_with_it(client):
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Build", "2026-01-05", 2, 8)
+    deliverable = client.post(f"/api/phases/{phase['id']}/deliverables",
+                              json={"name": "Schema note"}).json()
+    client.put(f"/api/deliverables/{deliverable['id']}", json={"done": True})
+    assert client.get(f"/api/versions/deliverable/{deliverable['id']}").json()["rows"]
+
+    client.delete(f"/api/projects/{project['id']}")
+    with db.connect() as connection:
+        left = connection.execute("SELECT COUNT(*) FROM item_version").fetchone()[0]
+    assert left == 0
+
+
+def test_the_log_is_out_of_the_export_and_cleared_by_an_import(client):
+    project = make_project(client)
+    client.put(f"/api/projects/{project['id']}", json={"goal": "ship it"})
+    payload = client.get("/api/export").json()
+    assert "item_version" not in payload
+    assert "versions" not in payload
+
+    assert client.post("/api/import", json=payload).status_code == 200
+    with db.connect() as connection:
+        left = connection.execute("SELECT COUNT(*) FROM item_version").fetchone()[0]
+    assert left == 0
+
+
+def test_a_table_that_is_not_versioned_is_a_404(client):
+    assert client.get("/api/versions/sprint/1").status_code == 404
+    assert client.get("/api/blame/settings", params={"ids": "1"}).status_code == 404
+
+
+def test_the_prune_keeps_the_newest_row_for_every_field(client, tmp_path):
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Build", "2026-01-05", 2, 8)
+    for points in (13, 21, 34):
+        client.put(f"/api/phases/{phase['id']}", json={"effort_points": points})
+
+    old = (datetime.now(timezone.utc) - timedelta(days=4000)).isoformat(timespec="seconds")
+    with db.connect() as connection:
+        connection.execute("UPDATE item_version SET at = ?", (old,))
+
+    db.prune_versions(days=1825)
+    rows = client.get(f"/api/versions/phase/{phase['id']}",
+                      params={"field": "effort_points"}).json()["rows"]
+    # One survivor, and it is the newest -- a field untouched for years must
+    # still be able to say who set it.
+    assert [row["new_value"] for row in rows] == ["34"]
+
+
+def test_zero_days_switches_the_prune_off(client):
+    project = make_project(client)
+    client.put(f"/api/projects/{project['id']}", json={"tier": 1})
+    with db.connect() as connection:
+        connection.execute("UPDATE item_version SET at = '2001-01-01T00:00:00+00:00'")
+    assert db.prune_versions(days=0) == 0
+    assert client.get(f"/api/versions/project/{project['id']}").json()["rows"]
+
+
+def test_a_typo_in_the_retention_variable_falls_back_instead_of_raising(monkeypatch):
+    monkeypatch.setenv(db.ENV_VERSION_KEEP_DAYS, "not a number")
+    assert db.version_keep_days() == db.VERSION_KEEP_DAYS
+    monkeypatch.setenv(db.ENV_VERSION_KEEP_DAYS, "30")
+    assert db.version_keep_days() == 30
+    monkeypatch.setenv(db.ENV_VERSION_KEEP_DAYS, "0")
+    assert db.version_keep_days() == 0

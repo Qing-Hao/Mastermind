@@ -193,6 +193,11 @@ let state = {
   // keystroke ping, and `tick` is the one-second timer that reveals a Take
   // button, running only while somebody else is holding something.
   presence: { me: null, name: "", users: [], said: null, heard: 0, pinged: 0, tick: null },
+  // Who last touched each field on screen, keyed `entity:id` -- the newest
+  // version row per field and nothing behind it. Re-read on every render for
+  // `late`'s reason: a write by somebody else changes it and no revision here
+  // would know. See `loadBlame`.
+  blame: {},
   // Somebody else's tracker, read live and held only until the next read. It is
   // a way of looking, like `projectFilter`: `state` never persists, and there is
   // no cache here to invalidate -- `refreshView` asks the hosts again on every
@@ -2124,6 +2129,10 @@ async function refreshView() {
   // them. Redraw from the roll this page already holds, and say where this page
   // is now looking -- a tab switch moves you as surely as a click does.
   drawPresence();
+  // The blame tips for the same reason and on the same terms: a render rebuilt
+  // the boxes, so the hints on the old ones went with them. Not awaited -- a
+  // field with no tip yet is a field whose hint arrives a moment later.
+  loadBlame();
   announceHere();
   // Every tab switch and every project opened lands here, so this is the one
   // place that has to remember. The sprint file has its own call in
@@ -11772,6 +11781,85 @@ function describePlace(user) {
   const project = state.projects.find((one) => one.id === user.key);
   if (project) return `${project.name} — project view`;
   return `the ${user.view} view`;
+}
+
+// --- who changed what -------------------------------------------------------
+//
+// **A hint on the field, and nothing drawn.** Asked for that way on 2026-09-09:
+// who moved a date matters when you go looking for it, and a caption on every
+// box would be noise on the ninety-nine nobody is asking about.
+//
+// Read off the same `data-presence` stamps the hold badges use, so a field earns
+// a blame tip for the reason it earns a badge -- every typed box comes through
+// `fieldCell`, and no render site has to remember either. See PROMPT.md
+// amendment 8 for why the server has a person to name at all.
+
+// Sprint files are not versioned -- the markdown is the record there -- and
+// their stamps carry more than three parts, so they fall out of the split below
+// as well as off this list.
+const BLAME_ENTITIES = ["project", "phase", "deliverable", "milestone"];
+
+function blameKey(entity, id) {
+  return `${entity}:${id}`;
+}
+
+// `entity:id:field`, the three parts `presenceKey` writes. Anything longer is a
+// sprint cell, which carries a row and a column too.
+function blameParts(node) {
+  const parts = (node.dataset.presence || "").split(":");
+  if (parts.length !== 3 || !BLAME_ENTITIES.includes(parts[0])) return null;
+  return { entity: parts[0], id: parts[1], field: parts[2] };
+}
+
+async function loadBlame() {
+  const wanted = {};
+  for (const node of document.querySelectorAll("[data-presence]")) {
+    const parts = blameParts(node);
+    if (parts) (wanted[parts.entity] = wanted[parts.entity] || new Set()).add(parts.id);
+  }
+  const found = {};
+  for (const [entity, ids] of Object.entries(wanted)) {
+    try {
+      const payload = await api(`/api/blame/${entity}?ids=${[...ids].join(",")}`);
+      for (const [id, fields] of Object.entries(payload.blame || {})) {
+        found[blameKey(entity, id)] = fields;
+      }
+    } catch (_) {
+      // `refreshLate`'s reason: nobody asked for this read. The tips stay as
+      // they were rather than blanking, and the next render asks again.
+    }
+  }
+  state.blame = found;
+  drawBlame();
+}
+
+function drawBlame() {
+  for (const node of document.querySelectorAll("[data-presence]")) {
+    const parts = blameParts(node);
+    if (!parts) continue;
+    const row = (state.blame[blameKey(parts.entity, parts.id)] || {})[parts.field];
+    if (!row) continue;
+    // **Never written over a hint the field already carries.** Those teach what
+    // the box is for, which outranks who last touched it -- and by the time a
+    // hover has happened the text has moved to `data-tip`, so both are checked.
+    // The flag is what lets this one be replaced on the next render.
+    const mine = node.dataset.blame === "1";
+    if (!mine && (node.title || node.getAttribute("data-tip"))) continue;
+    node.dataset.blame = "1";
+    node.removeAttribute("data-tip");
+    node.title = `${row.author || "Somebody"} — ${blameWhen(row.at)}`;
+  }
+}
+
+// Whole days, in `agoText`'s words, so the history speaks the same way the
+// overdue bell does. Anything inside a day is "today" rather than a count of
+// hours: this answers "who do I go and ask", not "how long ago exactly".
+function blameWhen(at) {
+  const when = new Date(at);
+  if (Number.isNaN(when.getTime())) return "at some point";
+  const days = daysBetween(when, new Date());
+  if (days <= 0) return "today";
+  return `${agoText(days)} ago`;
 }
 
 // The Sprint tab's own line, which is the high-value one: it is the highest

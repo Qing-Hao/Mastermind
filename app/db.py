@@ -7,7 +7,7 @@ dicts, which is exactly what `app.validation` expects.
 
 import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 DEFAULT_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "roadmap.db")
 
@@ -309,9 +309,60 @@ CREATE TABLE IF NOT EXISTS issues_audit (
     new_value TEXT NOT NULL DEFAULT ''
 );
 
+-- Who last changed each field of a planning row. **The audit log the brief
+-- refused until 2026-09-17, and the `created_by` it named** -- built on the
+-- argument in PROMPT.md amendment 8, which is the thing to read before touching
+-- this. The short version: "a repository stopped appearing and nobody knows
+-- when" is answered by a timestamp, which is why `issues_audit` above records no
+-- person; "this phase slipped a fortnight, who moved it" has the person *as* the
+-- answer, so refusing the column there would delete the feature rather than
+-- narrow it.
+--
+-- Deliberately the shape `issues_audit` settled on, plus `author`: one row per
+-- field changed, every row of one write sharing `at`, append-only. Grouping by
+-- (`entity`, `entity_id`, `at`) recovers a whole edit; the newest row for a field
+-- is the hover tip's whole answer. There is **no UNIQUE on
+-- (entity, entity_id, field)** -- that would be a last-writer column, which is a
+-- different feature and the one that was turned down.
+--
+-- `author` is the handle the gate hands over, stored as a **string copy and
+-- never a foreign key**. `person` gains no column, no row and no timestamp; a
+-- handle that leaves the directory leaves a name behind here rather than a
+-- dangling link. It is '' when the gate is off, which reads as unknown -- a write
+-- is never refused for want of somebody to name.
+--
+-- The bounds, each of which is where this becomes the tracker:
+--
+-- * **Nothing derives from it.** No rule, stage, date, warning or chart reads a
+--   version row. Non-negotiable 1 is untouched.
+-- * **Planning rows only** -- project, phase, deliverable, milestone,
+--   quarter_goal. Never a sprint file: the markdown is the record there, and
+--   `Ctrl+Z` answers "take that back". See FR-25 for the half left open.
+-- * **No second person-keyed row rides in on it** -- no per-person filter, no
+--   "changes since you last looked", no notification, no digest.
+-- * **Out of `export_all`** by omission, for the reason `person` is, and
+--   **cleared by `import_all`**: ids are preserved across an import, so a log
+--   carried onto another dataset would attach real names to rows that now mean
+--   something else.
+CREATE TABLE IF NOT EXISTS item_version (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity    TEXT NOT NULL,
+    entity_id INTEGER NOT NULL,
+    field     TEXT NOT NULL,
+    old_value TEXT NOT NULL DEFAULT '',
+    new_value TEXT NOT NULL DEFAULT '',
+    author    TEXT NOT NULL DEFAULT '',
+    at        TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_phase_project ON phase(project_id);
 CREATE INDEX IF NOT EXISTS idx_deliverable_phase ON deliverable(phase_id);
 CREATE INDEX IF NOT EXISTS idx_milestone_project ON milestone(project_id);
+-- The blame read, and the order matters: the tip asks for one field of one row
+-- and wants the newest, so the index ends on `id` and the lookup is a seek to the
+-- end of a range rather than a scan and a sort.
+CREATE INDEX IF NOT EXISTS idx_item_version_field
+    ON item_version(entity, entity_id, field, id);
 """
 
 # What `init_db` runs. Assembled rather than written out so the project table
@@ -511,6 +562,11 @@ def init_db():
         connection.executescript(SCHEMA)
         connection.execute("INSERT OR IGNORE INTO settings (id) VALUES (1)")
         migrate(connection)
+        # Where `prune_backups` runs, and for the same reason: there is no
+        # scheduler here -- one worker, no background jobs -- so start-up is the
+        # only recurring moment the app has. The table is small and the delete is
+        # indexed, so the cost is nothing beside the backup above it.
+        prune_versions(connection=connection)
 
 
 def columns_of(connection, table):
@@ -766,6 +822,226 @@ def list_issue_changes(limit=CHANGE_LOG_LIMIT):
     return rows_to_dicts(rows)
 
 
+# --- who changed what --------------------------------------------------------
+#
+# See the `item_version` table comment for the bounds, and PROMPT.md amendment 8
+# for why a log over planning data names a person where `issues_audit` does not.
+#
+# Every write here happens inside its caller's own transaction, on the connection
+# the row was written on. That is the point: a version row that could exist
+# without its write -- or a write without its row -- would be a log nobody can
+# trust, which is worse than no log.
+
+# The rows a version row may describe. A table not on this list has no history,
+# and adding one is a decision, not a convenience.
+VERSIONED = ("project", "phase", "deliverable", "milestone", "quarter_goal")
+
+# Written like any other column and never logged. `updated_at` is bookkeeping
+# rather than something somebody typed, and `sort_order` is a drag: "who
+# reordered this" is not the question this table exists for, and one drag down a
+# list of ten would bury the date change underneath it.
+UNLOGGED = ("updated_at", "sort_order")
+
+ENV_VERSION_KEEP_DAYS = "MASTERMIND_VERSION_KEEP_DAYS"
+# About five years. Long enough that the prune does not fire for years on a fresh
+# install -- see `.env.example`, which says so out loud rather than implying a
+# bound that bites.
+VERSION_KEEP_DAYS = 1825
+
+# What one read hands back without being asked for more, for `CHANGE_LOG_LIMIT`'s
+# reason: a history that needs paging is one somebody is reading as a report.
+VERSION_LOG_LIMIT = 200
+
+
+def version_keep_days():
+    """Days of field history to keep. 0 means never prune.
+
+    Read here rather than captured at import: `app.config` applies `.env` to the
+    environment when `app.main` is imported, and a module-level constant would
+    miss it depending on import order. `auth.sso_env_off` reads its own the same
+    way. A value that is not a whole number falls back rather than raising -- a
+    typo in `.env` must not stop the app booting.
+    """
+    raw = os.environ.get(ENV_VERSION_KEEP_DAYS, "").strip()
+    if not raw:
+        return VERSION_KEEP_DAYS
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return VERSION_KEEP_DAYS
+
+
+def changed_fields(before, after, columns):
+    """The columns of `after` that differ from `before`, as (field, old, new).
+
+    Compared as text, because that is how they are stored and how they are drawn:
+    a `duration_weeks` that arrives as 2 where 2.0 was written is not a change
+    somebody made and should not read as one. Columns in `UNLOGGED` are skipped.
+    """
+    found = []
+    for column in columns:
+        if column not in after or column in UNLOGGED:
+            continue
+        old = "" if before.get(column) is None else str(before.get(column))
+        new = "" if after.get(column) is None else str(after.get(column))
+        if old != new:
+            found.append((column, old, new))
+    return found
+
+
+def record_version(connection, entity, entity_id, changes, author, stamp=None):
+    """Log field changes on an open connection, inside the caller's transaction.
+
+    `changes` is what `changed_fields` returns. One row per field, all sharing a
+    stamp, so grouping by (entity, entity_id, at) recovers the whole edit.
+    """
+    if not changes or entity not in VERSIONED:
+        return 0
+    stamp = stamp or now_iso()
+    connection.executemany(
+        "INSERT INTO item_version (entity, entity_id, field, old_value, new_value,"
+        "                          author, at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [(entity, entity_id, field, old, new, author or "", stamp)
+         for field, old, new in changes],
+    )
+    return len(changes)
+
+
+def update_versioned(table, entity, row_id, updates, author, touch_updated_at=False):
+    """UPDATE one row and log what actually moved, in a single transaction.
+
+    The before-state is read on the connection the write lands on. That is the
+    whole reason this exists rather than a `get_*` call beside the UPDATE: a
+    version row that could exist without its write, or a write without its row,
+    is a log nobody can trust.
+
+    `updated_at` is written but never logged -- it is bookkeeping, not something
+    somebody typed. The UPDATE runs whether or not a value differs, which is the
+    behaviour these tables already had: a PUT carrying identical values still
+    bumps the stamp, and only the log is quiet about it.
+    """
+    with connect() as connection:
+        before = connection.execute(
+            f"SELECT * FROM {table} WHERE id = ?", (row_id,)
+        ).fetchone()
+        if before is None:
+            return
+        changes = changed_fields(dict(before), updates, list(updates))
+        written = dict(updates)
+        if touch_updated_at:
+            written["updated_at"] = now_iso()
+        assignments = ", ".join(f"{key} = ?" for key in written)
+        connection.execute(
+            f"UPDATE {table} SET {assignments} WHERE id = ?",
+            list(written.values()) + [row_id],
+        )
+        record_version(connection, entity, row_id, changes, author)
+
+
+# The `field` a creation is logged under. Empty, so it can never collide with a
+# real column, and one row rather than one per field: "who made this" is a single
+# fact, and nine rows saying it would bury the edits that came after.
+CREATED_FIELD = ""
+
+
+def record_creation(entity, entity_id, name, author):
+    """Log that a row was made. One row, `field` empty, `new_value` its name."""
+    if entity not in VERSIONED:
+        return 0
+    with connect() as connection:
+        return record_version(connection, entity, entity_id,
+                              [(CREATED_FIELD, "", name or "")], author)
+
+
+def forget_many(connection, entity, entity_ids):
+    """Drop the history of deleted rows, on the connection deleting them.
+
+    A log that describes rows nobody can reach is a log that has to be explained
+    every time somebody reads it. Callers collect the ids **before** the delete,
+    because a cascade leaves nothing behind to look them up from.
+
+    **This is deliberately not a record of who deleted something.** That was not
+    asked for, and a deletion trail is the activity feed the brief still refuses.
+    If it is ever wanted it is a fresh argument in PROMPT.md, not a column added
+    because the table is already here.
+    """
+    ids = [int(one) for one in entity_ids]
+    if entity not in VERSIONED or not ids:
+        return 0
+    holes = ",".join("?" for _ in ids)
+    cursor = connection.execute(
+        f"DELETE FROM item_version WHERE entity = ? AND entity_id IN ({holes})",
+        [entity] + ids,
+    )
+    return cursor.rowcount
+
+
+def list_versions(entity, entity_id, field="", limit=VERSION_LOG_LIMIT):
+    """One row's history, newest first. `field` narrows it to a single column."""
+    query = ("SELECT * FROM item_version WHERE entity = ? AND entity_id = ?"
+             + (" AND field = ?" if field else "")
+             + " ORDER BY id DESC LIMIT ?")
+    arguments = [entity, entity_id] + ([field] if field else []) + [limit]
+    with connect() as connection:
+        rows = connection.execute(query, arguments).fetchall()
+    return rows_to_dicts(rows)
+
+
+def blame(entity, entity_ids):
+    """Who last touched each field of these rows: {entity_id: {field: row}}.
+
+    One query for the whole subtree rather than one per box on screen -- the
+    project view draws a plan's worth of fields and wants every tip at once.
+    """
+    ids = [int(one) for one in entity_ids]
+    if entity not in VERSIONED or not ids:
+        return {}
+    holes = ",".join("?" for _ in ids)
+    with connect() as connection:
+        rows = connection.execute(
+            "SELECT entity_id, field, author, at, old_value, new_value "
+            "FROM item_version WHERE id IN ("
+            "    SELECT MAX(id) FROM item_version "
+            f"    WHERE entity = ? AND entity_id IN ({holes}) "
+            "    GROUP BY entity_id, field)",
+            [entity] + ids,
+        ).fetchall()
+    found = {}
+    for row in rows:
+        found.setdefault(row["entity_id"], {})[row["field"]] = dict(row)
+    return found
+
+
+PRUNE_VERSIONS = (
+    "DELETE FROM item_version WHERE at < ? AND id NOT IN ("
+    "    SELECT MAX(id) FROM item_version GROUP BY entity, entity_id, field)"
+)
+
+
+def prune_versions(days=None, connection=None):
+    """Drop history older than `days`, keeping the newest row for every field.
+
+    **The newest row per field is never pruned**, whatever its age: it is what the
+    hover tip reads, and a field nobody has touched since last January must still
+    be able to say who set it. What expires is the history behind it.
+
+    `MAX(id)` rather than `MAX(at)` picks the survivor, because every row of one
+    write shares a stamp and `at` alone could tie.
+
+    `connection` lets `init_db` run this inside the transaction it already has.
+    """
+    days = version_keep_days() if days is None else days
+    if not days:
+        return 0
+    cutoff = (datetime.now(timezone.utc)
+              - timedelta(days=days)).isoformat(timespec="seconds")
+    if connection is not None:
+        return connection.execute(PRUNE_VERSIONS, (cutoff,)).rowcount
+    with connect() as open_connection:
+        return open_connection.execute(PRUNE_VERSIONS, (cutoff,)).rowcount
+
+
 # --- people -----------------------------------------------------------------
 #
 # A directory, not an account model. See the `person` table's comment for what
@@ -881,7 +1157,7 @@ def get_project(project_id):
 
 
 def create_project(name, start_date, description="", goal="", velocity_override=None,
-                   stage="active", track="", tier=0, kind=""):
+                   stage="active", track="", tier=0, kind="", author=""):
     timestamp = now_iso()
     with connect() as connection:
         cursor = connection.execute(
@@ -893,46 +1169,76 @@ def create_project(name, start_date, description="", goal="", velocity_override=
              tier, kind, timestamp, timestamp),
         )
         project_id = cursor.lastrowid
+    record_creation("project", project_id, name, author)
     return get_project(project_id)
 
 
-def update_project(project_id, fields):
+def update_project(project_id, fields, author=""):
     allowed = {"name", "description", "goal", "start_date", "velocity_override",
                "stage", "track", "tier", "kind"}
     updates = {key: value for key, value in fields.items() if key in allowed}
     if updates:
-        updates["updated_at"] = now_iso()
-        assignments = ", ".join(f"{key} = ?" for key in updates)
-        with connect() as connection:
-            connection.execute(
-                f"UPDATE project SET {assignments} WHERE id = ?",
-                list(updates.values()) + [project_id],
-            )
+        update_versioned("project", "project", project_id, updates, author,
+                         touch_updated_at=True)
     return get_project(project_id)
 
 
-def retrack_projects(changes):
+def retrack_projects(changes, author=""):
     """Rewrite `track` on many projects at once. `changes` is (id, track) pairs.
 
     One statement in one transaction, because a track level is only the strings
     the rows spell: half a rewrite is a level that exists under two names, which
     the map would draw as two rings. Row by row through `update_project` could
     leave exactly that behind.
+
+    Logged for the same reason a single edit is: a project that moved level and
+    nobody knows who is exactly the question amendment 8 exists for, and a bulk
+    path that quietly skipped the log would make the answer depend on which
+    button was pressed.
     """
     pairs = list(changes)
     if not pairs:
         return 0
     timestamp = now_iso()
     with connect() as connection:
+        holes = ",".join("?" for _ in pairs)
+        before = {row["id"]: row["track"] for row in connection.execute(
+            f"SELECT id, track FROM project WHERE id IN ({holes})",
+            [project_id for project_id, _ in pairs]).fetchall()}
         connection.executemany(
             "UPDATE project SET track = ?, updated_at = ? WHERE id = ?",
             [(track, timestamp, project_id) for project_id, track in pairs],
         )
+        for project_id, track in pairs:
+            old = before.get(project_id)
+            if old is not None and str(old) != str(track):
+                record_version(connection, "project", project_id,
+                               [("track", str(old), str(track))], author, timestamp)
     return len(pairs)
 
 
 def delete_project(project_id):
+    """Delete a project, its plan, and the history of everything in it.
+
+    **The cascade is the part to keep in step.** `phase`, `deliverable` and
+    `milestone` all go with the project through `ON DELETE CASCADE`, and their
+    version rows have no foreign key to follow -- `item_version.entity` is
+    polymorphic on purpose. So the ids are collected before the delete and their
+    history is dropped explicitly. Miss this and the log keeps describing rows
+    nobody can reach.
+    """
     with connect() as connection:
+        phase_ids = [row["id"] for row in connection.execute(
+            "SELECT id FROM phase WHERE project_id = ?", (project_id,)).fetchall()]
+        deliverable_ids = [row["id"] for row in connection.execute(
+            "SELECT d.id FROM deliverable d JOIN phase p ON d.phase_id = p.id "
+            "WHERE p.project_id = ?", (project_id,)).fetchall()]
+        milestone_ids = [row["id"] for row in connection.execute(
+            "SELECT id FROM milestone WHERE project_id = ?", (project_id,)).fetchall()]
+        forget_many(connection, "phase", phase_ids)
+        forget_many(connection, "deliverable", deliverable_ids)
+        forget_many(connection, "milestone", milestone_ids)
+        forget_many(connection, "project", [project_id])
         connection.execute("DELETE FROM project WHERE id = ?", (project_id,))
 
 
@@ -955,7 +1261,7 @@ def get_phase(phase_id):
 
 
 def create_phase(project_id, name, start_date, duration_weeks, effort_points,
-                 description="", status="planned"):
+                 description="", status="planned", author=""):
     with connect() as connection:
         next_order = next_plan_sort_order(connection, project_id)
         cursor = connection.execute(
@@ -966,25 +1272,26 @@ def create_phase(project_id, name, start_date, duration_weeks, effort_points,
              effort_points, status, next_order),
         )
         phase_id = cursor.lastrowid
+    record_creation("phase", phase_id, name, author)
     return get_phase(phase_id)
 
 
-def update_phase(phase_id, fields):
+def update_phase(phase_id, fields, author=""):
     allowed = {"name", "description", "start_date", "duration_weeks",
                "effort_points", "status", "sort_order"}
     updates = {key: value for key, value in fields.items() if key in allowed}
     if updates:
-        assignments = ", ".join(f"{key} = ?" for key in updates)
-        with connect() as connection:
-            connection.execute(
-                f"UPDATE phase SET {assignments} WHERE id = ?",
-                list(updates.values()) + [phase_id],
-            )
+        update_versioned("phase", "phase", phase_id, updates, author)
     return get_phase(phase_id)
 
 
 def delete_phase(phase_id):
+    """Delete a phase and its deliverables, history included. See `delete_project`."""
     with connect() as connection:
+        deliverable_ids = [row["id"] for row in connection.execute(
+            "SELECT id FROM deliverable WHERE phase_id = ?", (phase_id,)).fetchall()]
+        forget_many(connection, "deliverable", deliverable_ids)
+        forget_many(connection, "phase", [phase_id])
         connection.execute("DELETE FROM phase WHERE id = ?", (phase_id,))
 
 
@@ -1059,7 +1366,7 @@ def get_deliverable(deliverable_id):
     return dict(row) if row else None
 
 
-def create_deliverable(phase_id, name, description="", done=False):
+def create_deliverable(phase_id, name, description="", done=False, author=""):
     with connect() as connection:
         next_order = connection.execute(
             "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM deliverable WHERE phase_id = ?",
@@ -1071,26 +1378,23 @@ def create_deliverable(phase_id, name, description="", done=False):
             (phase_id, name, description, as_flag(done), next_order),
         )
         deliverable_id = cursor.lastrowid
+    record_creation("deliverable", deliverable_id, name, author)
     return get_deliverable(deliverable_id)
 
 
-def update_deliverable(deliverable_id, fields):
+def update_deliverable(deliverable_id, fields, author=""):
     allowed = {"name", "description", "done", "sort_order"}
     updates = {key: value for key, value in fields.items() if key in allowed}
     if "done" in updates:
         updates["done"] = as_flag(updates["done"])
     if updates:
-        assignments = ", ".join(f"{key} = ?" for key in updates)
-        with connect() as connection:
-            connection.execute(
-                f"UPDATE deliverable SET {assignments} WHERE id = ?",
-                list(updates.values()) + [deliverable_id],
-            )
+        update_versioned("deliverable", "deliverable", deliverable_id, updates, author)
     return get_deliverable(deliverable_id)
 
 
 def delete_deliverable(deliverable_id):
     with connect() as connection:
+        forget_many(connection, "deliverable", [deliverable_id])
         connection.execute("DELETE FROM deliverable WHERE id = ?", (deliverable_id,))
 
 
@@ -1137,7 +1441,7 @@ def get_milestone(milestone_id):
 
 
 def create_milestone(project_id, name, description="", target_date="",
-                     achieved=False):
+                     achieved=False, author=""):
     with connect() as connection:
         next_order = next_plan_sort_order(connection, project_id)
         cursor = connection.execute(
@@ -1148,26 +1452,23 @@ def create_milestone(project_id, name, description="", target_date="",
              next_order),
         )
         milestone_id = cursor.lastrowid
+    record_creation("milestone", milestone_id, name, author)
     return get_milestone(milestone_id)
 
 
-def update_milestone(milestone_id, fields):
+def update_milestone(milestone_id, fields, author=""):
     allowed = {"name", "description", "target_date", "achieved", "sort_order"}
     updates = {key: value for key, value in fields.items() if key in allowed}
     if "achieved" in updates:
         updates["achieved"] = as_flag(updates["achieved"])
     if updates:
-        assignments = ", ".join(f"{key} = ?" for key in updates)
-        with connect() as connection:
-            connection.execute(
-                f"UPDATE milestone SET {assignments} WHERE id = ?",
-                list(updates.values()) + [milestone_id],
-            )
+        update_versioned("milestone", "milestone", milestone_id, updates, author)
     return get_milestone(milestone_id)
 
 
 def delete_milestone(milestone_id):
     with connect() as connection:
+        forget_many(connection, "milestone", [milestone_id])
         connection.execute("DELETE FROM milestone WHERE id = ?", (milestone_id,))
 
 
@@ -1197,7 +1498,7 @@ def get_quarter_goal(period):
     return dict(row) if row else None
 
 
-def set_quarter_goal(period, fields):
+def set_quarter_goal(period, fields, author=""):
     """Write one period's goal, creating the row if it is the first write.
 
     Only the named fields move: a PUT carrying just `achieved` ticks the quarter
@@ -1213,12 +1514,20 @@ def set_quarter_goal(period, fields):
         connection.execute(
             "INSERT OR IGNORE INTO quarter_goal (period) VALUES (?)", (period,)
         )
-        if updates:
+        # Keyed by period, so the row id is looked up rather than handed in --
+        # `item_version.entity_id` is the id for every entity, and a period
+        # string in that column would be the one exception to explain forever.
+        row = connection.execute(
+            "SELECT * FROM quarter_goal WHERE period = ?", (period,)
+        ).fetchone()
+        if updates and row is not None:
+            changes = changed_fields(dict(row), updates, list(updates))
             assignments = ", ".join(f"{key} = ?" for key in updates)
             connection.execute(
                 f"UPDATE quarter_goal SET {assignments} WHERE period = ?",
                 list(updates.values()) + [period],
             )
+            record_version(connection, "quarter_goal", row["id"], changes, author)
     return get_quarter_goal(period)
 
 
@@ -1229,6 +1538,10 @@ def delete_quarter_goal(period):
     instead of two that look the same on screen.
     """
     with connect() as connection:
+        row = connection.execute(
+            "SELECT id FROM quarter_goal WHERE period = ?", (period,)).fetchone()
+        if row is not None:
+            forget_many(connection, "quarter_goal", [row["id"]])
         connection.execute("DELETE FROM quarter_goal WHERE period = ?", (period,))
 
 
@@ -1342,6 +1655,13 @@ def export_all():
         # machine an export is carried to, and an export names people. It
         # rebuilds from the allowlist and the next sign-in. The version does not
         # move here either.
+        #
+        # `item_version` and `issues_audit` are absent on the same footing.
+        # `item_version` names people harder than `person` does -- a handle
+        # against every field somebody moved -- and `import_all` clears it rather
+        # than reading it, because ids are preserved across an import and a log
+        # carried onto another dataset would attach real names to rows that now
+        # mean something else.
         # `issues_audit` is absent for the reason `person` is, and by the same
         # mechanism -- omission from the list of tables above. It records this
         # deployment's connection settings, not the dataset.
@@ -1406,9 +1726,17 @@ def import_all(payload):
     it describes this deployment's realm rather than the dataset, and importing
     somebody's plan must not empty the directory the sprint files are written
     against. It is not in the payload either -- see `export_all`.
+
+    **`item_version` is cleared, and that is the opposite call for a reason.**
+    Ids are preserved here so dependency links survive, which means an incoming
+    dataset reuses the numbers the outgoing one had. A history left in place
+    would go on naming real people against rows that are now somebody else's
+    work. Wrong attribution is worse than none, so the log starts empty and
+    fills from the first edit after the import.
     """
     with connect() as connection:
         connection.execute("PRAGMA foreign_keys = OFF")
+        connection.execute("DELETE FROM item_version")
         connection.execute("DELETE FROM project_dependency")
         connection.execute("DELETE FROM quarter_goal")
         connection.execute("DELETE FROM milestone")

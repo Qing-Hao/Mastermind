@@ -1470,8 +1470,9 @@ def read_projects():
 
 
 @app.post("/api/projects", status_code=201)
-def add_project(body: ProjectIn):
+def add_project(request: Request, body: ProjectIn):
     project = db.create_project(
+        author=signed_in_name(request),
         name=body.name,
         start_date=clean_date(body.start_date),
         description=body.description,
@@ -3120,7 +3121,7 @@ def drawable_checkpoints(by_project):
 # button, the same way a promotion works.
 
 
-def apply_retrack(target, name=None):
+def apply_retrack(target, name=None, author=""):
     """Run one retrack and announce it. Returns the payload both routes send."""
     projects = db.list_projects()
     moves = retrack(projects, target, name)
@@ -3129,14 +3130,14 @@ def apply_retrack(target, name=None):
             status_code=404,
             detail=f"No project sits under “{track_value(target)}”.",
         )
-    db.retrack_projects([(move["id"], move["to"]) for move in moves])
+    db.retrack_projects([(move["id"], move["to"]) for move in moves], author=author)
     # Once for the batch: every listener reloads whole.
     announce_roadmap()
     return {"path": target, "moved": len(moves), "moves": moves}
 
 
 @app.post("/api/tracks/insert")
-def insert_track_level(body: TrackInsert):
+def insert_track_level(request: Request, body: TrackInsert):
     """Put a new level above an existing one, taking its subtree with it.
 
     Insert-*above*, because a level with nothing under it cannot be drawn: the
@@ -3153,11 +3154,11 @@ def insert_track_level(body: TrackInsert):
             status_code=400,
             detail="A level is one name and cannot contain “/”.",
         )
-    return apply_retrack(target, body.name.strip())
+    return apply_retrack(target, body.name.strip(), signed_in_name(request))
 
 
 @app.post("/api/tracks/remove")
-def remove_track_level(body: TrackRemove):
+def remove_track_level(request: Request, body: TrackRemove):
     """Take a level out of the tree; whatever was under it rises one level.
 
     Removes the level, never the projects. A project whose only level this was
@@ -3172,11 +3173,11 @@ def remove_track_level(body: TrackRemove):
             detail="Removing a level rewrites every project under it. "
                    "Send confirm to go ahead.",
         )
-    return apply_retrack(target)
+    return apply_retrack(target, author=signed_in_name(request))
 
 
 @app.post("/api/projects/{project_id}/layout")
-def layout_project(project_id: int):
+def layout_project(request: Request, project_id: int):
     """Place every unscheduled phase back to back from the project start date.
 
     Explicitly user-triggered -- this is not auto-scheduling. Phases that already
@@ -3191,8 +3192,9 @@ def layout_project(project_id: int):
 
     phases = db.list_phases(project_id)
     placements = sequential_layout(phases, project["start_date"])
+    author = signed_in_name(request)
     for phase_id, start_date in placements.items():
-        db.update_phase(phase_id, {"start_date": start_date})
+        db.update_phase(phase_id, {"start_date": start_date}, author=author)
 
     # Once for the batch, not once per phase: every listener reloads whole.
     announce_roadmap()
@@ -3200,7 +3202,7 @@ def layout_project(project_id: int):
 
 
 @app.put("/api/projects/{project_id}")
-def edit_project(project_id: int, body: ProjectPatch):
+def edit_project(request: Request, project_id: int, body: ProjectPatch):
     project = require_project(project_id)
     fields = body.model_dump(exclude_unset=True)
     require_unchanged(project, fields.pop("expect", None), "project")
@@ -3214,7 +3216,7 @@ def edit_project(project_id: int, body: ProjectPatch):
         fields["tier"] = clean_tier(fields["tier"])
     if "kind" in fields:
         fields["kind"] = clean_kind(fields["kind"])
-    updated = db.update_project(project_id, fields)
+    updated = db.update_project(project_id, fields, author=signed_in_name(request))
     announce_roadmap()
     return updated
 
@@ -3230,9 +3232,10 @@ def remove_project(project_id: int):
 
 
 @app.post("/api/projects/{project_id}/phases", status_code=201)
-def add_phase(project_id: int, body: PhaseIn):
+def add_phase(request: Request, project_id: int, body: PhaseIn):
     require_project(project_id)
     phase = db.create_phase(
+        author=signed_in_name(request),
         project_id=project_id,
         name=body.name,
         start_date=clean_date(body.start_date),
@@ -3246,13 +3249,14 @@ def add_phase(project_id: int, body: PhaseIn):
 
 
 @app.put("/api/phases/{phase_id}")
-def edit_phase(phase_id: int, body: PhasePatch):
+def edit_phase(request: Request, phase_id: int, body: PhasePatch):
     phase = require_phase(phase_id)
     fields = body.model_dump(exclude_unset=True)
     require_unchanged(phase, fields.pop("expect", None), "phase")
     if "start_date" in fields:
         fields["start_date"] = clean_date(fields["start_date"])
-    updated = with_end_date(db.update_phase(phase_id, fields))
+    updated = with_end_date(
+        db.update_phase(phase_id, fields, author=signed_in_name(request)))
     announce_roadmap()
     return updated
 
@@ -3314,9 +3318,10 @@ def read_deliverables(phase_id: int):
 
 
 @app.post("/api/phases/{phase_id}/deliverables", status_code=201)
-def add_deliverable(phase_id: int, body: DeliverableIn):
+def add_deliverable(request: Request, phase_id: int, body: DeliverableIn):
     require_phase(phase_id)
     deliverable = db.create_deliverable(
+        author=signed_in_name(request),
         phase_id=phase_id,
         name=body.name,
         description=body.description,
@@ -3327,11 +3332,12 @@ def add_deliverable(phase_id: int, body: DeliverableIn):
 
 
 @app.put("/api/deliverables/{deliverable_id}")
-def edit_deliverable(deliverable_id: int, body: DeliverablePatch):
+def edit_deliverable(request: Request, deliverable_id: int, body: DeliverablePatch):
     deliverable = require_deliverable(deliverable_id)
     fields = body.model_dump(exclude_unset=True)
     require_unchanged(deliverable, fields.pop("expect", None), "deliverable")
-    updated = db.update_deliverable(deliverable_id, fields)
+    updated = db.update_deliverable(deliverable_id, fields,
+                                    author=signed_in_name(request))
     # A tick also rewrites the sprint files that name it -- that is a second
     # write, through `/api/sprints/marks`, and it announces itself.
     announce_roadmap()
@@ -3362,9 +3368,10 @@ def read_milestones(project_id: int):
 
 
 @app.post("/api/projects/{project_id}/milestones", status_code=201)
-def add_milestone(project_id: int, body: MilestoneIn):
+def add_milestone(request: Request, project_id: int, body: MilestoneIn):
     require_project(project_id)
     milestone = db.create_milestone(
+        author=signed_in_name(request),
         project_id=project_id,
         name=body.name,
         description=body.description,
@@ -3376,7 +3383,7 @@ def add_milestone(project_id: int, body: MilestoneIn):
 
 
 @app.put("/api/milestones/{milestone_id}")
-def edit_milestone(milestone_id: int, body: MilestonePatch):
+def edit_milestone(request: Request, milestone_id: int, body: MilestonePatch):
     """Rename, re-date, tick or reorder one checkpoint.
 
     Ticking here is what can finish a project, so this is the one deliverable-
@@ -3388,7 +3395,8 @@ def edit_milestone(milestone_id: int, body: MilestonePatch):
     require_unchanged(milestone, fields.pop("expect", None), "checkpoint")
     if "target_date" in fields:
         fields["target_date"] = clean_date(fields["target_date"])
-    updated = db.update_milestone(milestone_id, fields)
+    updated = db.update_milestone(milestone_id, fields,
+                                  author=signed_in_name(request))
     announce_roadmap()
     return updated
 
@@ -3434,7 +3442,7 @@ def read_quarter_goals():
 
 
 @app.put("/api/quarter-goals/{period}")
-def write_quarter_goal(period: str, body: QuarterGoalPatch):
+def write_quarter_goal(request: Request, period: str, body: QuarterGoalPatch):
     """Write, tick or clear one quarter's goal. Creates the row on first write.
 
     Keyed by period rather than by id, so a column with no goal yet is not a
@@ -3449,7 +3457,7 @@ def write_quarter_goal(period: str, body: QuarterGoalPatch):
     existing = db.get_quarter_goal(period)
     if existing is not None:
         require_unchanged(existing, expected, "quarter goal")
-    written = db.set_quarter_goal(period, fields)
+    written = db.set_quarter_goal(period, fields, author=signed_in_name(request))
     announce_roadmap()
     return written
 
@@ -3460,6 +3468,47 @@ def remove_quarter_goal(period: str):
     require_period(period)
     db.delete_quarter_goal(period)
     announce_roadmap()
+
+
+# --- who changed what -------------------------------------------------------
+#
+# Two reads over `item_version`. **Ungated and identical for everybody**, for the
+# reason the who-has-what dashboard is: a viewer who sees more of the history
+# than another viewer is a permission, and a permission is what amendment 4
+# refused. See PROMPT.md amendment 8 for why this table names a person at all.
+
+
+@app.get("/api/blame/{entity}")
+def read_blame(entity: str, ids: str = ""):
+    """Who last touched each field of these rows. `ids` is comma-separated.
+
+    One call for a whole plan rather than one per box: the project view draws a
+    project, its phases and its deliverables, and wants every tip at once.
+    """
+    if entity not in db.VERSIONED:
+        raise HTTPException(status_code=404, detail="Nothing is versioned there.")
+    wanted = []
+    for part in ids.split(","):
+        part = part.strip()
+        if part:
+            try:
+                wanted.append(int(part))
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Ids must be whole numbers.")
+    return {"entity": entity, "blame": db.blame(entity, wanted)}
+
+
+@app.get("/api/versions/{entity}/{entity_id}")
+def read_versions(entity: str, entity_id: int, field: str = ""):
+    """One row's history, newest first. `field` narrows it to a single column."""
+    if entity not in db.VERSIONED:
+        raise HTTPException(status_code=404, detail="Nothing is versioned there.")
+    return {
+        "entity": entity,
+        "entity_id": entity_id,
+        "field": field,
+        "rows": db.list_versions(entity, entity_id, field),
+    }
 
 
 # --- dependencies -----------------------------------------------------------
