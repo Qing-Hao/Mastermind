@@ -1127,12 +1127,26 @@ td.presence-held:has(.presence-take:not([hidden])) input { padding-right: 78px; 
    button would sit there through the whole countdown. */
 .presence-take[hidden] { display: none; }
 
-.presence-hue-0 { background: #4f46e5; }
-.presence-hue-1 { background: #0f766e; }
-.presence-hue-2 { background: #b45309; }
-.presence-hue-3 { background: #9d174d; }
-.presence-hue-4 { background: #3f6212; }
-.presence-hue-5 { background: #6d28d9; }
+/* The hue as a custom property rather than the background directly -- the same
+   shape `.issue-hue-*` uses further down, and here for a specificity reason. The
+   strip badges are buttons, and the base `button:hover` rule (0,1,1) outranks a
+   bare `.presence-hue-N` (0,1,0): hovering one would wash the hue out to grey at
+   exactly the moment the pointer is on it. The attribute selector below carries
+   enough weight to hold the colour through the hover. */
+.presence-hue-0 { --presence-hue: #4f46e5; }
+.presence-hue-1 { --presence-hue: #0f766e; }
+.presence-hue-2 { --presence-hue: #b45309; }
+.presence-hue-3 { --presence-hue: #9d174d; }
+.presence-hue-4 { --presence-hue: #3f6212; }
+.presence-hue-5 { --presence-hue: #6d28d9; }
+.presence-badge[class*="presence-hue-"] { background: var(--presence-hue, var(--faint)); }
+
+/* A badge on the strip is a button: pressing it lands you on the cell it names.
+   The badge drawn *on* a cell stays a span -- it already sits on the thing it
+   would jump to, and the rule above takes its pointer events away. The border is
+   the base button's and would box the pill. */
+button.presence-badge { border: 0; }
+button.presence-badge:hover { filter: brightness(1.15); }
 
 /* --- the sign-in configuration page ---------------------------------------
    `sso.html` only, and the sidebar link that reaches it. */

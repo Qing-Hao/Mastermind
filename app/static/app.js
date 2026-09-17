@@ -11695,16 +11695,68 @@ function watchTakeable() {
   }, 1000);
 }
 
+// **Go to where somebody else is.** Presence already carries the three values
+// this needs -- the view, the project or file inside it, and the field their
+// caret is in -- so the jump is those same values read back the other way.
+// Nothing is stored and nothing is asked for: the roll on screen is the whole
+// input, and a badge that has gone stale simply lands on the view and stops.
+async function jumpToPresence(user) {
+  if (!user.view) return;
+  if (user.view === "sprint") {
+    // `key` is null for somebody on the Sprint tab with no file open yet.
+    if (user.key === null) {
+      state.view = "sprint";
+      await refreshView();
+    } else {
+      await openSprintFromTask(user.key);
+    }
+  } else if (user.view === "project" && user.key !== null) {
+    await openProject(user.key);
+  } else {
+    state.view = user.view;
+    await refreshView();
+  }
+  revealPresenceField(user.field);
+}
+
+// The cell itself, once the view holding it has rendered. Retried once for the
+// reason `revealSprintReference` is: a sprint file's blocks land after the
+// render that opened it, so the first look can miss a row about to exist.
+//
+// A miss is not an error. They may be in a project this page cannot draw, or
+// have moved on between the roll and the press -- landing on the right view
+// with nothing flashed is the honest answer to both.
+function revealPresenceField(field, retry = true) {
+  if (!field) return;
+  const node = document.querySelector(`[data-presence="${CSS.escape(field)}"]`);
+  if (!node) {
+    if (retry) setTimeout(() => revealPresenceField(field, false), 300);
+    return;
+  }
+  const holder = node.closest("td, th, .sprint-row, .sprint-cell-host") || node;
+  holder.scrollIntoView({ block: "center", behavior: "smooth" });
+  flashArrival(holder);
+}
+
+// Only the strips build these. The badge drawn on a cell stays a span: it sits
+// on the very thing a press would travel to.
+function presenceJumpBadge(user, title) {
+  const badge = element("button", `presence-badge presence-hue-${presenceHue(user.name)}`,
+    presenceInitials(user.name));
+  badge.type = "button";
+  badge.title = title;
+  badge.onclick = () => jumpToPresence(user);
+  return badge;
+}
+
 function drawPresenceStrip(others) {
   const strip = $("presence-strip");
   if (!strip) return;
   strip.textContent = "";
   strip.hidden = others.length === 0;
   for (const user of others) {
-    const badge = element("span", `presence-badge presence-hue-${presenceHue(user.name)}`,
-      presenceInitials(user.name));
-    badge.title = `${user.name} — ${describePlace(user)}`;
-    strip.appendChild(badge);
+    strip.appendChild(
+      presenceJumpBadge(user, `${user.name} — ${describePlace(user)}. Press to go there.`));
   }
 }
 
@@ -11733,10 +11785,11 @@ function drawSprintPresence(others) {
   line.textContent = "";
   line.hidden = here.length === 0;
   for (const user of here) {
-    const badge = element("span", `presence-badge presence-hue-${presenceHue(user.name)}`,
-      presenceInitials(user.name));
-    badge.title = `${user.name} has this file open`;
-    line.appendChild(badge);
+    // Everybody here is already in this file, so the press is worth making only
+    // when they are in a block -- otherwise it would scroll nowhere.
+    line.appendChild(presenceJumpBadge(user, user.field
+      ? `${user.name} has this file open. Press to go to where they are.`
+      : `${user.name} has this file open`));
   }
 }
 
