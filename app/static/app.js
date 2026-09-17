@@ -2129,10 +2129,6 @@ async function refreshView() {
   // them. Redraw from the roll this page already holds, and say where this page
   // is now looking -- a tab switch moves you as surely as a click does.
   drawPresence();
-  // The blame tips for the same reason and on the same terms: a render rebuilt
-  // the boxes, so the hints on the old ones went with them. Not awaited -- a
-  // field with no tip yet is a field whose hint arrives a moment later.
-  loadBlame();
   announceHere();
   // Every tab switch and every project opened lands here, so this is the one
   // place that has to remember. The sprint file has its own call in
@@ -2160,6 +2156,12 @@ async function loadPlan() {
     state.windowFittedTo = state.plan.project.id;
   }
   renderProjectView();
+  // **Here and not in `refreshView`, because every edit lands here.** `savePhase`
+  // and its siblings end with `loadPlan()` and never touch `refreshView`, so a
+  // read hung off the tab switch drew the tips once and then never again -- you
+  // could edit a field and hover it and get nothing, which is exactly what
+  // happened. The write that just landed is the one that changed the answer.
+  loadBlame();
   // Naming a deliverable, setting a date or ticking the last milestone all
   // change the badge on the project you are looking at, and every edit lands
   // here. Re-reading the list is one localhost query, and it keeps the ladder
@@ -2210,6 +2212,11 @@ function renderProjectView() {
   // otherwise a write landing anywhere in the plan quietly unlocks every field
   // somebody else is in, until the next time anyone moves their caret.
   drawPresence();
+  // The blame tips on the same terms and for the same reason -- the hints went
+  // with the boxes they were on. Drawn from what this page already holds rather
+  // than re-read, so panning the window costs nothing: `loadPlan` is what asks
+  // the server again, because a write is what changes the answer.
+  drawBlame();
 }
 
 function renderUnscheduled() {
