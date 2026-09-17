@@ -203,9 +203,12 @@ and argument are in `PROMPT.md`, `feature_request.md` and `git log`.
    spelled from memory. PROMPT.md amendment 6 carries the argument.
 
    Still never built, and each is the line where the gate would become the tracker
-   the brief forbids — **roles, permissions, per-user views**, `created_by`, an
-   **assignee column**, an audit log, per-user preferences, and any *second* row
-   keyed by a person. Four specific traps, because the directory makes each of
+   the brief forbids — **roles, permissions, per-user views**, an **assignee
+   column**, per-user preferences, and any *further* row keyed by a person.
+   *(`created_by` and "an audit log" stood on this list until 2026-09-17 — see the
+   fourth narrowing below. A row recording **who last changed a field** is now
+   built; a row recording **who owns a thing** is still refused, and the two are
+   not the same.)* Four specific traps, because the directory makes each of
    them one column away:
 
    - **`person` gains no timestamp.** No `last_seen`, no `first_seen`. The app
@@ -240,12 +243,43 @@ and argument are in `PROMPT.md`, `feature_request.md` and `git log`.
    derived from an issue by any rule, stage or date.
 
    **`issues_audit` is a real exception, bounded on purpose.** It logs changes to
-   the Issues configuration — `at`, repository, field, old, new — and it is the
-   audit log the line above refuses. It is allowed for external connection
-   settings *only*, never for planning data; it **records no person** (declined
-   deliberately, 2026-09-09 — that is the second person-keyed row amendment 6
-   prevents); it **never records a token value**, only that one changed; and it is
-   out of `/api/export`. Do not generalise it to anything else.
+   the Issues configuration — `at`, repository, field, old, new. It is allowed for
+   external connection settings *only*, never for planning data; it **records no
+   person**, because nothing it answers needs one; it **never records a token
+   value**, only that one changed; and it is out of `/api/export`. Do not
+   generalise it to anything else — `item_version` below is a separate argument,
+   not this table widened.
+
+   **Narrowed a fourth time 2026-09-17 — a roadmap row records who last changed
+   each field.** `item_version` (`entity`, `entity_id`, `field`, `old_value`,
+   `new_value`, `author`, `at`) is append-only, one row per field changed, and the
+   hover tip on a field reads the newest row naming it. This is the audit log the
+   list above refused and the `created_by` it named, **built deliberately**:
+   "who moved this date" is a question the person *is* the answer to, where
+   `issues_audit`'s question was settled by a timestamp alone. PROMPT.md
+   amendment 8 carries the argument and is the thing to read before touching it.
+
+   The bounds, and each is where it would become the tracker:
+
+   - **Nothing derives from a version row.** No rule, stage, date, warning or
+     chart reads one. Non-negotiable 1 is untouched.
+   - **Planning rows only** — project, phase, deliverable, milestone, quarter
+     goal. Not sprint files: the markdown *is* the record there, and `Ctrl+Z`
+     answers "take that back".
+   - **`author` is a string copy of the handle, never a foreign key.** `person`
+     gains no column, no row and no timestamp.
+   - **No second person-keyed row rides in on it.** No per-person filter, no
+     "changes since you last looked", no notification, no digest.
+   - **Out of `/api/export`, cleared by `/api/import`** — an export names people,
+     and import preserves ids, so a carried-over log would attach real names to
+     rows that now mean something else.
+   - **A failed log never fails a write.** Gate off means an empty author.
+
+   Retention is `MASTERMIND_VERSION_KEEP_DAYS`, default 1825 (about five years),
+   `0` to switch it off; the newest row per field is never pruned. Environment-only
+   and not a column, for `MASTERMIND_ISSUES`'s reason. **At that default the prune
+   does not fire for years** — it is a mechanism that exists, not a bound that
+   currently bites.
 
    **A readout is not a notification, and the difference is memory.** The overdue
    bell (`GET /api/late`) counts what is past its date, derived on read from the

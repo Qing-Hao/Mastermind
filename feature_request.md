@@ -109,7 +109,7 @@ put FR-13 above FR-12, and both are built and gone from this table.
 | FR-4 | Capacity roster — people and their available days | Medium (new table) | Fortnightly | Medium | **P3** — paper until sprint 4 |
 | FR-5 | Velocity learns from delivered history | Medium | Rare | Medium | **P3** — needs 3 baselines |
 | FR-6 | Slippage memory — has this date moved before? | Large | Low | High | **P3** — deferred deliberately |
-| FR-23 | Versioning: who changed what, and revert | Large (needs a store) | — | High | **P3** — a brief decision |
+| FR-25 | Sprint file history — what did this file look like on Tuesday? | Medium (needs a store) | Low | Medium | **P3** — the half of FR-23 left open |
 | FR-7 | Owners at roadmap level | Small | — | Negative | **Won't build** |
 | FR-24 | Ask the realm, on every request, whether an account is still valid | Medium | Every request | Low here | **Won't build** — known limitation, decided 2026-09-09 |
 
@@ -117,7 +117,7 @@ put FR-13 above FR-12, and both are built and gone from this table.
 paragraph, and **FR-19 goes first**: FR-1 writes down that SP and `effort_points`
 are one currency, and that is worth stating about numbers that mean something.
 Everything else is P3 — blocked on evidence (FR-3, FR-4, FR-5), deferred on
-purpose (FR-6), or waiting on your answer (FR-23).
+purpose (FR-6), or waiting on a store somebody needs first (FR-25).
 
 **FR-23's other half is built.** It arrived on 2026-08-24 as one request and was
 split in two, because the two halves are different kinds of question: a gesture
@@ -655,39 +655,33 @@ the thing that changes the dataset. It was **30 of 30 on 2026-08-15** and **40 o
 
 ---
 
-## FR-23 · Versioning: who changed what, and revert — **P3, a brief decision, not effort**
+## FR-25 · Sprint file history — what did this file look like on Tuesday? — **P3**
 
-*The second half of the same 2026-08-24 request, split out because it is a
-different kind of question. Asked as: "the versioning where we can see who make
-the changes and revert if needed."*
+*The half of FR-23 that option B did not answer, reopened under its own number
+on 2026-09-17. FR-23 itself is built and deleted — `item_version` records who
+last changed each field of a **roadmap row**, and PROMPT.md amendment 8 carries
+the argument. That table deliberately does not cover sprint files.*
 
-**Not buildable as written**, and the reason is not effort. Non-negotiable 7
-names activity feeds and audit logs as never-build, and a version row carrying an
-author is `created_by` — *a row keyed by a person*, which is the exact shape the
-gate was narrowed to avoid on 2026-08-21. Presence shows a name it was handed; it
-does not record one. Building this makes the tool the tracker `PROMPT.md`
-forbids, on the one axis the brief was most explicit about.
+**Why the files were left out.** A sprint file is markdown the team edits, and
+the markdown *is* the record — there is no sprint table and no sidecar store, by
+design. Versioning a roadmap row means logging a field; versioning a file means
+storing whole documents, which is a different store and a different question.
+`Ctrl+Z` (FR-22) already answers "take that back" inside an open file, so what is
+actually missing is the **older** state: the file as it stood a week ago, and
+getting it back.
 
-The underlying want is real, though, and it is two wants wearing one coat:
+**Not blocked on the brief.** Amendment 8 settles the argument that was holding
+FR-23 up; this half is plain effort and a storage decision. Anonymous snapshots
+would do — a file has no fields to attribute, and `item_version`'s author column
+does not obviously transfer to "somebody saved the whole document".
 
-- **"Take that back"** — answered by FR-22, entirely, with nothing stored.
-- **"What did this file look like on Tuesday, and can I have it back"** — a
-  history question, and the only half that needs a store.
+**The open question is where they live.** Rows in SQLite, or files beside
+`sprints/NN.md`. FR-6 needs a store too and is deferred for the same reason, so
+whichever lands should serve both rather than each growing its own.
 
-### Two honest ways it could exist
-
-| Option | Pro | Con |
-|---|---|---|
-| **A · Anonymous file snapshots** — keep the last N versions of `sprints/NN.md`, no names, revert to any | no person-keyed row, so the brief survives intact; a sprint file is small and there are ~26 a year | answers *what* changed and never *who* — which is half of what was asked |
-| **B · Amend the brief** — a versions table with an author column | actually answers the question | crosses non-negotiable 7 deliberately; needs the argument written into `PROMPT.md` as an amendment, and it is the door the brief was holding shut |
-
-Both need a store, which is FR-6's problem too — and FR-6 is deferred for
-exactly this reason, so whichever store lands should serve both rather than each
-growing its own.
-
-**This entry is not waiting on a developer.** It is waiting on the requester to
-say A, B, or neither. Until then the argument above *is* the artefact, which is
-why it sits here rather than being deleted — the same reason FR-2 and FR-7 stay.
+**The bad version:** a snapshot on every keystroke-driven autosave. The Sprint
+tab writes often, and a history nobody can read through is not a history.
+Snapshot on a meaningful boundary, or keep the last N and let them be coarse.
 
 ---
 

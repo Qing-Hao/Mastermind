@@ -376,6 +376,72 @@ the text above, **the amendment wins** — the code follows the amendments.
    knows when". If it is ever asked to answer "who changed this", that is a fresh
    decision argued here — not a column added because the table already exists.
 
+8. **A roadmap row records who last changed each of its fields.** *(Added
+   2026-09-17. This is the fresh decision the last line of amendment 7 asked for,
+   and it **overturns two sentences written eight days earlier**: "an audit log
+   over the plan is still refused outright", and the declining of a person on
+   `issues_audit`. Both stood on the reasoning below being absent. It does not
+   reopen roles, permissions, per-user views or an assignee column, each of which
+   amendment 6 still refuses.)*
+
+   The request, in the requester's words on 2026-08-24 and again on 2026-09-09:
+   *"versioning history, so that I know who did the last changes for the items,
+   it is easier for me to follow up."* Not an activity feed and not an approval
+   trail — the ordinary question of who to go and ask when a date moved.
+
+   **Why the plan gets a person when the connection log did not.** The two look
+   alike and are not. `issues_audit` answers *"a repository stopped appearing and
+   nobody knows when"* — a question about the deployment, which a timestamp alone
+   settles; a handle there would have bought nothing and cost the precedent. The
+   plan's question is *"this phase slipped a fortnight, who moved it"*, and the
+   person **is the answer**. Declining it does not narrow the feature, it deletes
+   it. That is the whole of the difference, and it is why this is argued here
+   rather than added to the table that already exists.
+
+   So `item_version`: `entity`, `entity_id`, `field`, `old_value`, `new_value`,
+   `author`, `at` — deliberately the shape `issues_audit` already settled on, plus
+   the author. One row per field changed, every row of one write sharing a stamp,
+   append-only. `author` is the handle the gate hands over, stored as a **string
+   copy and never a foreign key**: `person` gains no column, no row and no
+   timestamp, and a handle that leaves the directory leaves a name behind in the
+   log rather than a dangling link.
+
+   **Bounded on a knob, and the default is generous.** The newest row for a field
+   is kept permanently — it is what the hover tip reads, and a field untouched
+   since January must still say who set it. The history behind it expires after
+   `MASTERMIND_VERSION_KEEP_DAYS`, default **1825 days, about five years**. Said
+   plainly: **at that default the prune will not fire for years**, so this is a
+   mechanism that exists and is provable rather than a bound that currently bites.
+   `0` switches it off. Environment-only and not a column, for amendment 7's
+   reason: it governs how long rows naming people are kept, and a column would
+   carry one deployment's retention decision into another through `/api/export`.
+
+   The lines this must not cross:
+
+   - **It is read, never derived from.** No rule, stage, date, warning or chart
+     may read a version row. Non-negotiable 1 is untouched: nothing reschedules
+     because of who typed something, and a field's history moves no date.
+   - **Planning rows only** — project, phase, deliverable, milestone, quarter
+     goal. **Not sprint files**, which are markdown the team edits and whose one
+     record is the file; `Ctrl+Z` already answers "take that back" there.
+   - **No second person-keyed row beyond this one.** No per-person filter of the
+     log, no "changes since you last looked", no notification, no digest. Each is
+     the thing amendment 6 refuses, and a log of writes is not a licence for them.
+   - **A revert writes its own row**, naming whoever pressed it. An untraceable
+     revert would be a hole in the one thing this table exists to be.
+   - **Out of `/api/export`, and cleared by `/api/import`**, for the reason
+     `person` is out: an export is a file that gets emailed, and this one names
+     people. Import preserves ids, so a log carried onto another dataset would
+     attach real names to rows that now mean something else — which is worse than
+     no history at all.
+   - **A failed log never fails a write.** With the gate off the author is empty
+     and reads as unknown. The record is a record, not a gate.
+
+   **`issues_audit` keeps its own bounds.** It is still connection settings only
+   and still records no person; what changes is that its comment no longer claims
+   the plan can never have a log. Two tables, two arguments, neither generalising
+   to the other.
+
 Deliverables inside a phase are treated as **sequential**, so durations sum. Work
 that genuinely runs in parallel belongs in separate phases.
 

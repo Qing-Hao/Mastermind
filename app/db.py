@@ -276,14 +276,22 @@ CREATE TABLE IF NOT EXISTS person (
 
 -- The Issues configuration change log, and it is the audit log **Non-goals**
 -- and amendment 4 both refuse. It is allowed on bounds, and the bounds are the
--- whole argument -- PROMPT.md amendment 7 carries it. Do not generalise this
--- table to anything else; an audit log over the plan is still refused outright.
+-- whole argument -- PROMPT.md amendment 7 carries it.
+--
+-- **This table's bounds are unchanged; one sentence it used to carry is not.**
+-- It said an audit log over the plan was refused outright, and PROMPT.md
+-- amendment 8 (2026-09-17) overturned that: `item_version` logs changes to
+-- planning rows and names the person who made them. The argument there is why
+-- the plan's question needs a person and this one does not -- it is not a
+-- licence to widen this table, which stays connection settings only.
 --
 -- Four bounds, each of which is a column this table does not have:
 --
 -- * **No person.** `at`, which repository, which field, and the two values.
---   Recording the handle was offered and declined: it would be the second row
---   keyed by a person that amendment 6 exists to prevent.
+--   Recording the handle was offered and declined: nothing here is answered by
+--   knowing it. "A repository stopped appearing and nobody knows when" is
+--   settled by the timestamp alone. Contrast `item_version`, where the person
+--   *is* the answer -- see amendment 8.
 -- * **No token values.** A changed token is logged as 'set', 'changed' or
 --   'cleared' -- see `issues.audit_diff`. There is no `issues_` prefix
 --   protecting this table, so a value here would be a second copy of a secret
