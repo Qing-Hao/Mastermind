@@ -26,6 +26,8 @@ from pydantic import BaseModel
 from app import auth, config, db, issues
 from app.markdown import (
     SpliceRefused,
+    diff_lines,
+    diff_tally,
     document_blocks,
     find_table,
     serialise_table,
@@ -3669,10 +3671,19 @@ def found_snapshot(path, name):
 
 @app.get("/api/sprints/{number}/history/{name}")
 def read_sprint_snapshot(number: int, name: str):
-    """One older copy of a sprint file, as text."""
+    """One older copy of a sprint file, and how it differs from the file now.
+
+    The comparison rides along rather than living behind a route of its own: the
+    only reason to ask for an old copy is to see what it would change, and two
+    calls to answer one question is two chances for them to disagree about which
+    version of the file "now" was.
+    """
     path = found_sprint(number)
-    return {"number": number, "name": name,
-            "text": read_sprint_file(found_snapshot(path, name))}
+    was = read_sprint_file(found_snapshot(path, name))
+    now = read_sprint_file(path)
+    rows = diff_lines(was, now)
+    return {"number": number, "name": name, "text": was,
+            "diff": rows, "tally": diff_tally(rows)}
 
 
 @app.post("/api/sprints/{number}/restore")

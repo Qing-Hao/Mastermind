@@ -10908,7 +10908,13 @@ function bindEvents() {
   // rather than a path of its own, so unsaved work in the file being left is
   // flushed first and a write that will not land still refuses to move.
   $("sprint-template").onclick = () => switchSprintFile(TEMPLATE_KEY);
-  $("sprint-history").onclick = () => toggleSprintHistory();
+  $("sprint-history").onclick = () => openSprintHistory();
+  $("history-window-close").onclick = closeSprintHistory;
+  // The backdrop and nothing inside it: a click that lands on the window itself
+  // is somebody reading, not somebody leaving.
+  $("history-window").onclick = (event) => {
+    if (event.target === $("history-window")) closeSprintHistory();
+  };
   $("sprint-new").onclick = createSprintFile;
   $("sprint-view-doc").onclick = () => setSprintView("doc");
   $("sprint-view-raw").onclick = () => setSprintView("raw");
@@ -11907,58 +11913,129 @@ function blameWhen(at) {
 //
 // The template has no history. It is tracked by git, which is a better one.
 
-async function toggleSprintHistory() {
-  const panel = $("sprint-history-panel");
-  if (!panel) return;
-  if (!panel.hidden) {
-    panel.hidden = true;
-    return;
-  }
-  panel.textContent = "";
-  panel.hidden = false;
+async function openSprintHistory() {
+  const window_ = $("history-window");
+  const list = $("history-window-list");
+  if (!window_ || !list) return;
+  list.textContent = "";
+  $("history-window-diff").textContent = "";
+  $("history-window-tally").textContent = "";
+  $("history-window-title").textContent =
+    `${state.sprint.name || "This file"} — earlier versions`;
+  window_.hidden = false;
+
   if (isTemplate(state.sprint.number)) {
-    panel.appendChild(element("span", "history-title", "The template"));
-    panel.appendChild(element("span", "history-empty",
-      "Tracked by git, which already keeps its history."));
+    list.appendChild(element("span", "history-empty",
+      "The template is tracked by git, which already keeps its history."));
     return;
   }
-  panel.appendChild(element("span", "history-title",
-    `${state.sprint.name || "This file"} — every save`));
 
   let edits = [];
   try {
     edits = (await api(`/api/sprints/${state.sprint.number}/history`)).edits || [];
   } catch (_) {
-    panel.appendChild(element("span", "history-empty", "Could not read the history."));
+    list.appendChild(element("span", "history-empty", "Could not read the history."));
     return;
   }
   if (!edits.length) {
-    panel.appendChild(element("span", "history-empty",
+    list.appendChild(element("span", "history-empty",
       "No save recorded yet. The next one starts it."));
     return;
   }
-  for (const edit of edits) panel.appendChild(sprintHistoryRow(edit));
+  for (const edit of edits) list.appendChild(sprintHistoryPick(edit));
+  // Open on the newest, because a window that opens empty makes you press twice
+  // to learn anything.
+  const first = edits.find((edit) => edit.snapshot);
+  if (first) showSprintDiff(first);
 }
 
-function sprintHistoryRow(edit) {
-  const row = element("div", "history-row");
-  row.appendChild(element("span", "history-change", edit.summary || "saved"));
-  row.appendChild(element("span", "history-who",
+function closeSprintHistory() {
+  const window_ = $("history-window");
+  if (window_) window_.hidden = true;
+}
+
+function sprintHistoryPick(edit) {
+  const pick = element("button", "history-pick");
+  pick.type = "button";
+  pick.dataset.snapshot = edit.snapshot || "";
+  pick.appendChild(element("span", "history-change", edit.summary || "saved"));
+  pick.appendChild(element("span", "history-who",
     `${edit.author || "Somebody"} · ${blameWhen(edit.at)}`));
   // A row whose copy the cap has dropped still says who saved and when. What it
   // no longer offers is the document, because there is no longer one to offer.
   if (!edit.snapshot) {
-    row.appendChild(element("span", "history-empty", "This copy has been pruned."));
-    return row;
+    pick.appendChild(element("span", "history-empty", "This copy has been pruned."));
+    pick.disabled = true;
+    return pick;
   }
+  pick.onclick = () => showSprintDiff(edit);
+  return pick;
+}
+
+// What putting this version back would change, against the file as it is now.
+// Read in one call with the copy itself, so the two halves cannot disagree about
+// which version of "now" they are describing.
+async function showSprintDiff(edit) {
+  const pane = $("history-window-diff");
+  const tally = $("history-window-tally");
+  if (!pane) return;
+  for (const pick of document.querySelectorAll(".history-pick")) {
+    pick.classList.toggle("active", pick.dataset.snapshot === edit.snapshot);
+  }
+  pane.textContent = "";
+  tally.textContent = "";
+
+  let payload = null;
+  try {
+    payload = await api(
+      `/api/sprints/${state.sprint.number}/history/${encodeURIComponent(edit.snapshot)}`);
+  } catch (_) {
+    pane.appendChild(element("div", "diff-none", "Could not read that version."));
+    return;
+  }
+  const counts = payload.tally || { added: 0, dropped: 0 };
+  tally.textContent = `${counts.dropped} line(s) would come back, `
+    + `${counts.added} would go — against the file as it is now`;
+
+  const rows = payload.diff || [];
+  const changed = rows.filter((row) => row.kind === "add" || row.kind === "drop");
+  if (!changed.length) {
+    pane.appendChild(element("div", "diff-none",
+      "Identical to the file as it stands. Nothing would change."));
+  } else {
+    for (const row of rows) pane.appendChild(diffRow(row));
+  }
+
   const actions = element("div", "history-actions");
-  const restore = element("button", "history-restore", "Restore this");
+  actions.style.padding = "12px";
+  const restore = element("button", "history-restore", "Put this version back");
   restore.type = "button";
-  restore.title = "Put the file back to how it was before this save.";
+  restore.disabled = !changed.length;
+  restore.title = changed.length
+    ? "Overwrites the file with this version. What is there now is kept."
+    : "This version and the file are already the same.";
   restore.onclick = () => restoreSprint(edit);
   actions.appendChild(restore);
-  row.appendChild(actions);
-  return row;
+  pane.appendChild(actions);
+}
+
+function diffRow(row) {
+  const line = element("div", `diff-row diff-${row.kind}`);
+  if (row.kind === "skip") {
+    line.appendChild(element("span", "diff-no", ""));
+    line.appendChild(element("span", "diff-no", ""));
+    line.appendChild(element("span", "diff-text",
+      `${row.hidden} unchanged line(s)`));
+    return line;
+  }
+  line.appendChild(element("span", "diff-no",
+    row.old_line === null ? "" : String(row.old_line)));
+  line.appendChild(element("span", "diff-no",
+    row.new_line === null ? "" : String(row.new_line)));
+  // `textContent`, never `innerHTML`: these are lines out of a file somebody
+  // types markdown and HTML islands into.
+  line.appendChild(element("span", "diff-text", row.text || " "));
+  return line;
 }
 
 // **Confirmed, because it overwrites a file somebody may be typing in.** The
@@ -11979,7 +12056,7 @@ async function restoreSprint(edit) {
     showToast(failure.message || "The restore did not land.");
     return;
   }
-  $("sprint-history-panel").hidden = true;
+  closeSprintHistory();
   await loadSprintFile(state.sprint.number);
   renderSprintView();
   showToast("Restored. The version you replaced is kept in the history.");
@@ -12095,7 +12172,9 @@ function watchHistory() {
     if (!event.target || !event.target.closest("#history-panel")) closeHistory();
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeHistory();
+    if (event.key !== "Escape") return;
+    closeHistory();
+    closeSprintHistory();
   });
 }
 

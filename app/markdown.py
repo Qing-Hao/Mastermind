@@ -51,6 +51,7 @@ It cannot lose or rewrite content, because it never rewrote it in the first
 place.
 """
 
+import difflib
 import re
 from html import escape
 
@@ -672,3 +673,82 @@ def document_blocks(text):
     for block in blocks:
         block["html"] = render_block(block)
     return blocks
+
+
+# --- comparing two versions of a document ------------------------------------
+#
+# Line-based and text-only, like every other function here: it takes two strings
+# and knows nothing about sprints, or about where either string came from. The
+# caller that has an older copy of a file is `main`, and it stays there.
+#
+# Blocks deliberately do not come into it. A block is addressed by its index and
+# the index moves when anything is inserted above it, so a block-level comparison
+# would report the whole document as changed the moment a paragraph was added at
+# the top. Lines survive that, which is the same reason every diff tool works
+# this way.
+
+# How many unchanged lines to keep either side of a change. Three is `diff`'s own
+# default and is enough to recognise where in the document you are.
+DIFF_CONTEXT = 3
+
+
+def diff_lines(old, new, context=DIFF_CONTEXT):
+    """Compare two documents line by line. Returns rows, ready to draw.
+
+    Each row is `{kind, old_line, new_line, text}` where `kind` is `add`, `drop`,
+    `same` or `skip`. A `skip` row stands for the unchanged run between two
+    changes and carries how many lines it hides, so the reader sees "42 unchanged
+    lines" rather than scrolling through them.
+
+    Line numbers are 1-based and are `None` on the side where the line does not
+    exist, which is what lets a caller draw two gutters.
+    """
+    before = old.splitlines()
+    after = new.splitlines()
+    matcher = difflib.SequenceMatcher(None, before, after, autojunk=False)
+
+    rows = []
+    for tag, old_start, old_end, new_start, new_end in matcher.get_opcodes():
+        if tag == "equal":
+            run = old_end - old_start
+            # Keep `context` lines at each end of a long unchanged run and stand
+            # the middle down to one row. A run short enough to be all context is
+            # cheaper to show than to summarise.
+            if run > context * 2 + 1:
+                for offset in range(context):
+                    rows.append(_diff_row("same", old_start + offset,
+                                          new_start + offset, before[old_start + offset]))
+                rows.append({"kind": "skip", "old_line": None, "new_line": None,
+                             "text": "", "hidden": run - context * 2})
+                for offset in range(run - context, run):
+                    rows.append(_diff_row("same", old_start + offset,
+                                          new_start + offset, before[old_start + offset]))
+            else:
+                for offset in range(run):
+                    rows.append(_diff_row("same", old_start + offset,
+                                          new_start + offset, before[old_start + offset]))
+            continue
+        # Removals before additions, so a changed line reads as the old one
+        # struck out above the new one rather than the other way round.
+        for index in range(old_start, old_end):
+            rows.append(_diff_row("drop", index, None, before[index]))
+        for index in range(new_start, new_end):
+            rows.append(_diff_row("add", None, index, after[index]))
+    return rows
+
+
+def _diff_row(kind, old_index, new_index, text):
+    return {
+        "kind": kind,
+        "old_line": None if old_index is None else old_index + 1,
+        "new_line": None if new_index is None else new_index + 1,
+        "text": text,
+    }
+
+
+def diff_tally(rows):
+    """How many lines the comparison added and dropped. What a heading says."""
+    return {
+        "added": sum(1 for row in rows if row["kind"] == "add"),
+        "dropped": sum(1 for row in rows if row["kind"] == "drop"),
+    }

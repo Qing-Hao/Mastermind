@@ -4,6 +4,7 @@ import random
 
 import pytest
 
+from app import markdown
 from app.markdown import (
     MERMAID_CLASS,
     SpliceRefused,
@@ -661,3 +662,62 @@ def test_two_tables_with_one_header_are_refused_rather_than_guessed_at():
 def test_a_written_cell_survives_the_round_trip_to_markdown():
     written = write_cells(capacity(), [cell(1, 2, "", "back Tue")])
     assert parsed(serialise_table(written))["rows"][1] == ["@sam", "8", "back Tue"]
+
+
+# --- comparing two versions of a document ------------------------------------
+
+
+def kinds(rows):
+    return [row["kind"] for row in rows]
+
+
+def test_an_unchanged_document_is_all_context():
+    rows = markdown.diff_lines("one\ntwo\n", "one\ntwo\n")
+    assert kinds(rows) == ["same", "same"]
+    assert markdown.diff_tally(rows) == {"added": 0, "dropped": 0}
+
+
+def test_a_changed_line_reads_as_the_old_one_above_the_new_one():
+    rows = markdown.diff_lines("one\ntwo\n", "one\nTWO\n")
+    assert kinds(rows) == ["same", "drop", "add"]
+    assert rows[1]["text"] == "two"
+    assert rows[2]["text"] == "TWO"
+    assert markdown.diff_tally(rows) == {"added": 1, "dropped": 1}
+
+
+def test_line_numbers_are_absent_on_the_side_a_line_does_not_exist():
+    rows = markdown.diff_lines("keep\n", "keep\nadded\n")
+    added = [row for row in rows if row["kind"] == "add"][0]
+    assert added["old_line"] is None
+    assert added["new_line"] == 2
+
+
+def test_a_long_unchanged_run_is_stood_down_to_one_row():
+    old = "\n".join(["x"] * 40 + ["old"]) + "\n"
+    new = "\n".join(["x"] * 40 + ["new"]) + "\n"
+    rows = markdown.diff_lines(old, new, context=3)
+    skips = [row for row in rows if row["kind"] == "skip"]
+    assert len(skips) == 1
+    # 40 unchanged lines, three kept at each end of the run.
+    assert skips[0]["hidden"] == 40 - 6
+    assert skips[0]["old_line"] is None and skips[0]["new_line"] is None
+
+
+def test_a_short_unchanged_run_is_cheaper_to_show_than_to_summarise():
+    old = "a\nb\nc\nOLD\n"
+    new = "a\nb\nc\nNEW\n"
+    rows = markdown.diff_lines(old, new, context=3)
+    assert not any(row["kind"] == "skip" for row in rows)
+
+
+def test_inserting_at_the_top_does_not_report_the_whole_file_as_changed():
+    # The reason this is line-based and not block-based: a block is addressed by
+    # its index, and everything below an insert would shift.
+    body = "\n".join(f"line {n}" for n in range(30))
+    rows = markdown.diff_lines(body + "\n", "# New heading\n" + body + "\n")
+    assert markdown.diff_tally(rows) == {"added": 1, "dropped": 0}
+
+
+def test_a_file_emptied_reports_every_line_dropped():
+    rows = markdown.diff_lines("one\ntwo\nthree\n", "")
+    assert markdown.diff_tally(rows) == {"added": 0, "dropped": 3}

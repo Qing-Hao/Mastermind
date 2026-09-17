@@ -701,9 +701,8 @@
                activity feed Non-goals refuses. -->
           <button id="sprint-history" type="button"
             data-tip="This file's earlier versions"
-            data-tip-body="Who saved it and when, and the file as it stood before each save. Open one to read it, or put it back."
+            data-tip-body="Who saved it and when, and what each save changed. Compare one against the file now, or put it back."
             >History</button>
-          <div id="sprint-history-panel" class="menu-panel history-panel" hidden></div>
           <span class="spacer"></span>
           <span id="sprint-view-switch" class="mode-switch"
                 title="The document, or the whole file as text (Esc returns)">
@@ -951,6 +950,32 @@
   </main>
   </div>
  </div>
+
+  <!-- One sprint file's earlier versions, and what each would change if it were
+       put back. A window rather than a dropdown because a diff needs the room:
+       the list is useless without it, which is what the dropdown was.
+
+       Last in the body so it layers over everything without a stacking-context
+       argument, and outside every view because it belongs to a file rather than
+       to a tab. Never a list across files -- that would be the activity feed
+       Non-goals refuses. -->
+  <div id="history-window" class="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="history-window-title">
+      <div class="modal-head">
+        <span id="history-window-title" class="modal-title">History</span>
+        <span id="history-window-tally" class="modal-note"></span>
+        <span class="spacer"></span>
+        <button id="history-window-close" type="button" class="quiet">Close</button>
+      </div>
+      <div class="modal-body">
+        <!-- Saves on the left, what the selected one would change on the right.
+             Two panes rather than one list that expands, so picking through
+             versions does not move the thing you are reading. -->
+        <div id="history-window-list" class="history-list"></div>
+        <div id="history-window-diff" class="history-diff"></div>
+      </div>
+    </div>
+  </div>
 
   <!-- editor.js first: it only defines things, and app.js ends by booting the
        page, so loading it after would mean booting before the Sprint tab
