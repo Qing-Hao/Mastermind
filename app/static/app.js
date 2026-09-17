@@ -11930,23 +11930,31 @@ async function openSprintHistory() {
     return;
   }
 
-  let edits = [];
+  let versions = [];
   try {
-    edits = (await api(`/api/sprints/${state.sprint.number}/history`)).edits || [];
+    versions = (await api(`/api/sprints/${state.sprint.number}/history`)).versions || [];
   } catch (_) {
     list.appendChild(element("span", "history-empty", "Could not read the history."));
     return;
   }
-  if (!edits.length) {
+  if (!versions.length) {
     list.appendChild(element("span", "history-empty",
       "No save recorded yet. The next one starts it."));
     return;
   }
-  for (const edit of edits) list.appendChild(sprintHistoryPick(edit));
+  for (const version of versions) list.appendChild(sprintHistoryPick(version));
   // Open on the newest, because a window that opens empty makes you press twice
   // to learn anything.
-  const first = edits.find((edit) => edit.snapshot);
+  const first = versions.find((version) => version.snapshot);
   if (first) showSprintDiff(first);
+}
+
+// Who made a version, in the words the rest of the app uses for an unknown name.
+function versionAuthors(version) {
+  const named = (version.authors || []).map((one) => one || "Somebody");
+  if (named.length <= 1) return named[0] || "Somebody";
+  if (named.length === 2) return `${named[0]} and ${named[1]}`;
+  return `${named[0]} and ${named.length - 1} others`;
 }
 
 function closeSprintHistory() {
@@ -11954,33 +11962,37 @@ function closeSprintHistory() {
   if (window_) window_.hidden = true;
 }
 
-function sprintHistoryPick(edit) {
+function sprintHistoryPick(version) {
   const pick = element("button", "history-pick");
   pick.type = "button";
-  pick.dataset.snapshot = edit.snapshot || "";
-  pick.appendChild(element("span", "history-change", edit.summary || "saved"));
+  pick.dataset.snapshot = version.snapshot || "";
+  // The saves that went into this version, because "1 save" and "9 saves" are
+  // different things to be looking at and the summary of the last one alone
+  // does not say which this is.
+  const saves = version.saves > 1 ? `${version.saves} saves` : version.summary || "saved";
+  pick.appendChild(element("span", "history-change", saves));
   pick.appendChild(element("span", "history-who",
-    `${edit.author || "Somebody"} · ${blameWhen(edit.at)}`));
-  // A row whose copy the cap has dropped still says who saved and when. What it
-  // no longer offers is the document, because there is no longer one to offer.
-  if (!edit.snapshot) {
-    pick.appendChild(element("span", "history-empty", "This copy has been pruned."));
+    `${versionAuthors(version)} · ${blameWhen(version.at)}`));
+  // A version whose copy the cap has dropped still says who saved and when.
+  // What it no longer offers is the document, because there is not one to offer.
+  if (!version.snapshot) {
+    pick.appendChild(element("span", "history-empty", "No longer kept."));
     pick.disabled = true;
     return pick;
   }
-  pick.onclick = () => showSprintDiff(edit);
+  pick.onclick = () => showSprintDiff(version);
   return pick;
 }
 
 // What putting this version back would change, against the file as it is now.
 // Read in one call with the copy itself, so the two halves cannot disagree about
 // which version of "now" they are describing.
-async function showSprintDiff(edit) {
+async function showSprintDiff(version) {
   const pane = $("history-window-diff");
   const tally = $("history-window-tally");
   if (!pane) return;
   for (const pick of document.querySelectorAll(".history-pick")) {
-    pick.classList.toggle("active", pick.dataset.snapshot === edit.snapshot);
+    pick.classList.toggle("active", pick.dataset.snapshot === version.snapshot);
   }
   pane.textContent = "";
   tally.textContent = "";
@@ -11988,7 +12000,7 @@ async function showSprintDiff(edit) {
   let payload = null;
   try {
     payload = await api(
-      `/api/sprints/${state.sprint.number}/history/${encodeURIComponent(edit.snapshot)}`);
+      `/api/sprints/${state.sprint.number}/history/${encodeURIComponent(version.snapshot)}`);
   } catch (_) {
     pane.appendChild(element("div", "diff-none", "Could not read that version."));
     return;
@@ -12014,7 +12026,7 @@ async function showSprintDiff(edit) {
   restore.title = changed.length
     ? "Overwrites the file with this version. What is there now is kept."
     : "This version and the file are already the same.";
-  restore.onclick = () => restoreSprint(edit);
+  restore.onclick = () => restoreSprint(version);
   actions.appendChild(restore);
   pane.appendChild(actions);
 }
@@ -12041,16 +12053,16 @@ function diffRow(row) {
 // **Confirmed, because it overwrites a file somebody may be typing in.** The
 // restore is a save like any other -- it snapshots what it replaces first, so
 // this is undoable, which is what the message says rather than implying.
-async function restoreSprint(edit) {
+async function restoreSprint(version) {
   const answer = confirm(
-    `Put ${state.sprint.name} back to how it was before ${edit.author || "that save"}`
-    + ` saved it ${blameWhen(edit.at)}?\n\n`
+    `Put ${state.sprint.name} back to the version from ${blameWhen(version.at)}`
+    + `, saved by ${versionAuthors(version)}?\n\n`
     + "What is in the file now is kept as another version, so this can be undone.");
   if (!answer) return;
   try {
     await api(`/api/sprints/${state.sprint.number}/restore`, {
       method: "POST",
-      body: JSON.stringify({ name: edit.snapshot }),
+      body: JSON.stringify({ name: version.snapshot }),
     });
   } catch (failure) {
     showToast(failure.message || "The restore did not land.");

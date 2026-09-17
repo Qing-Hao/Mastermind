@@ -5967,7 +5967,7 @@ def test_a_typo_in_the_retention_variable_falls_back_instead_of_raising(monkeypa
 
 
 def sprint_history(client, number=3):
-    return client.get(f"/api/sprints/{number}/history").json()["edits"]
+    return client.get(f"/api/sprints/{number}/history").json()["versions"]
 
 
 def test_a_save_keeps_the_copy_it_replaced(client, sprints):
@@ -5997,19 +5997,45 @@ def test_snapshots_are_files_beside_the_sprint_and_invisible_to_it(client, sprin
     assert [one["number"] for one in client.get("/api/sprints").json()] == [3]
 
 
-def test_the_editors_autosaves_fold_into_one_copy(client, sprints):
+def test_the_editors_autosaves_fold_into_one_version(client, sprints):
     write_sprint(sprints)
     for text in ("one\n", "two\n", "three\n"):
         client.put("/api/sprints/3",
                    json={"text": text, "mtime": read_sprint(client)["mtime"]})
 
-    edits = sprint_history(client)
-    # Three saves, three rows -- who saved and when is never coalesced.
-    assert len(edits) == 3
     # One copy, because they landed inside the window and by the same author.
     # Forty versions of one afternoon is not a history anybody can read.
-    assert len({edit["snapshot"] for edit in edits}) == 1
     assert len(list((sprints / ".history").iterdir())) == 1
+    # And **one entry**, not three that would all compare identically -- the log
+    # records saves, the list shows versions.
+    versions = sprint_history(client)
+    assert len(versions) == 1
+    assert versions[0]["saves"] == 3
+    # Every save is still recorded underneath; only the reading is folded.
+    assert len(db.list_sprint_edits("03.md")) == 3
+
+
+def test_the_window_is_aged_from_the_copy_not_from_the_last_save(client, sprints,
+                                                                 monkeypatch):
+    # Saving steadily must not hold one version open forever. Measured from the
+    # previous save, an hour of editing produced a single version and the feature
+    # read as broken.
+    write_sprint(sprints)
+    monkeypatch.setattr(main, "SPRINT_COALESCE_SECONDS", 3600)
+    client.put("/api/sprints/3",
+               json={"text": "one\n", "mtime": read_sprint(client)["mtime"]})
+    assert len(sprint_history(client)) == 1
+
+    # Age the copy past the window, leaving the log row's own time alone.
+    copy = next((sprints / ".history").iterdir())
+    old = time.time() - 4000
+    os.utime(copy, (old, old))
+
+    client.put("/api/sprints/3",
+               json={"text": "two\n", "mtime": read_sprint(client)["mtime"]})
+    versions = sprint_history(client)
+    assert len(versions) == 2, versions
+    assert len(list((sprints / ".history").iterdir())) == 2
 
 
 def test_a_restore_puts_the_file_back_and_logs_itself(client, sprints):
@@ -6066,12 +6092,13 @@ def test_the_cap_drops_the_oldest_and_the_row_stops_claiming_it(client, sprints,
     kept = sorted(path.name for path in (sprints / ".history").iterdir())
     assert len(kept) == 2, kept
 
-    edits = sprint_history(client)
-    assert len(edits) == 4
-    # The rows for the copies that were dropped keep saying who saved and when,
-    # and stop claiming the document can be read back.
-    still_there = [edit["snapshot"] for edit in edits if edit["snapshot"]]
-    assert sorted(still_there) == kept
+    versions = sprint_history(client)
+    # Two versions that can still be read, plus one entry standing for the saves
+    # whose copies have gone.
+    still_there = sorted(one["snapshot"] for one in versions if one["snapshot"])
+    assert still_there == kept
+    dropped = [one for one in versions if not one["snapshot"]]
+    assert len(dropped) == 1 and dropped[0]["saves"] == 2
 
 
 def test_a_typo_in_the_sprint_cap_falls_back_instead_of_raising(monkeypatch):

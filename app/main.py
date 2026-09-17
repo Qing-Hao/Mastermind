@@ -1924,12 +1924,17 @@ def snapshot_sprint_file(path, author="", force=False):
     directory = os.path.dirname(path)
     recent = None if force else db.last_sprint_edit(os.path.basename(path))
     if recent and recent.get("snapshot") and (recent.get("author") or "") == (author or ""):
+        # **Aged from the copy, not from the last save.** Measuring the window
+        # from the previous row meant every save reset the clock, so somebody
+        # editing steadily for an hour never got a second version -- which reads,
+        # correctly, as the feature not working. The copy's own mtime is when it
+        # was taken and is the only thing the window is about. A copy the cap has
+        # since dropped is no copy, so that falls through and a new one is taken.
+        existing = os.path.join(history_dir(directory), recent["snapshot"])
         try:
-            taken = datetime.fromisoformat(recent["at"])
-            age = (datetime.now(timezone.utc) - taken).total_seconds()
-            if 0 <= age < SPRINT_COALESCE_SECONDS:
+            if time.time() - os.path.getmtime(existing) < SPRINT_COALESCE_SECONDS:
                 return recent["snapshot"]
-        except (ValueError, TypeError):
+        except OSError:
             pass
     folder = history_dir(directory)
     try:
@@ -3649,12 +3654,43 @@ def remove_quarter_goal(period: str):
 # is the activity feed Non-goals refuses.
 
 
+def grouped_saves(rows):
+    """Fold a file's saves into the versions they produced. Newest first.
+
+    **The log records saves; what somebody wants to read is versions.** Saves
+    inside one coalescing window share a copy, so listing them raw showed five
+    entries that all compared identically -- which reads as the feature being
+    broken rather than as five saves against one version.
+
+    One entry per snapshot, carrying how many saves went into it, who made them
+    and when the last one landed. Saves whose copy the cap has dropped fold into
+    one entry that offers no document, because there is no longer one to offer.
+    """
+    versions = {}
+    for row in rows:
+        key = row["snapshot"] or ""
+        found = versions.get(key)
+        if found is None:
+            found = {"snapshot": key, "at": row["at"], "first_at": row["at"],
+                     "summary": row["summary"], "authors": [], "saves": 0}
+            versions[key] = found
+        # Rows arrive newest first, so the first one seen is the latest save and
+        # the last one seen is where the version began.
+        found["first_at"] = row["at"]
+        found["saves"] += 1
+        who = row["author"] or ""
+        if who not in found["authors"]:
+            found["authors"].append(who)
+    return list(versions.values())
+
+
 @app.get("/api/sprints/{number}/history")
 def read_sprint_history(number: int):
-    """Who saved this file, when, and which copy each save displaced."""
+    """This file's earlier versions, newest first, with who made each and when."""
     path = found_sprint(number)
+    rows = db.list_sprint_edits(os.path.basename(path))
     return {"number": number, "file": os.path.basename(path),
-            "edits": db.list_sprint_edits(os.path.basename(path))}
+            "versions": grouped_saves(rows)}
 
 
 def found_snapshot(path, name):
