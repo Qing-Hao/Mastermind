@@ -1432,7 +1432,13 @@ function renderProjectList() {
     const row = element("button", "project-row");
     row.type = "button";
     row.dataset.id = project.id;
-    if (project.id === state.currentProjectId) row.classList.add("selected");
+    // Marked only while the Project tab is the one looking at it. `currentProjectId`
+    // outlives the tab switch on purpose -- it is what coming back reopens -- but
+    // drawn on Portfolio, Map or Sprint it claims a project is open that no visible
+    // view is showing. `refreshView` re-renders the list so the mark follows the tab.
+    if (state.view === "project" && project.id === state.currentProjectId) {
+      row.classList.add("selected");
+    }
     // An idea is not committed work, so its name sits back from the rest -- the
     // list's version of the dashed rim the map draws round it.
     if (project.derived_stage === "idea") row.classList.add("is-idea");
@@ -2114,6 +2120,10 @@ async function refreshView() {
   } else {
     await loadGraph();
   }
+  // The sidebar's mark is about which tab is open as much as which project, so a
+  // tab switch has to redraw it -- nothing else on this path does when the load
+  // was not `loadProjectList`.
+  renderProjectList();
   // After the load, not before: on the Project tab the bar reads `state.plan`,
   // which is what the load fetches. `renderProjectView` calls it too, so an edit
   // retags the bar without a tab switch.
@@ -2315,17 +2325,23 @@ function milestoneRow(milestone) {
   tickCell.appendChild(tick);
   line.appendChild(tickCell);
 
-  const nameCell = fieldCell(milestone, "name", "text", saveMilestone,
+  // A textarea for the phase row's reason: the name is the wide column and a
+  // single line hid the end of a long one behind a sideways scroll.
+  const nameCell = fieldCell(milestone, "name", "textarea", saveMilestone,
     {}, "milestone");
   nameCell.classList.add("checkpoint-name");
   const mark = element("span", "checkpoint-mark", "◆");
   mark.title = "Checkpoint";
   nameCell.insertBefore(mark, nameCell.firstChild);
-  const nameInput = nameCell.querySelector("input");
+  const nameInput = nameCell.querySelector("textarea");
   nameInput.onkeydown = (event) => {
     if (event.key !== "Enter") return;
+    // Newline suppressed -- a name is one line. With nothing edited there is no
+    // `change` coming, so render now; otherwise the blur is what saves.
+    event.preventDefault();
     state.focusMilestoneAdder = true;
     if (nameInput.value === milestone.name) renderPhases();
+    else nameInput.blur();
   };
   line.appendChild(nameCell);
 
@@ -3123,7 +3139,19 @@ function phaseRow(phase, warned) {
   }
   row.appendChild(toggleCell);
 
-  row.appendChild(fieldCell(phase, "name", "text", savePhase, {}, "phase"));
+  // A textarea rather than an input, the answer the deliverable list reached
+  // first: a phase name is often a phrase, and a single line hid its end behind a
+  // sideways scroll in the widest column on the page. It wraps and grows instead.
+  const nameCell = fieldCell(phase, "name", "textarea", savePhase, {}, "phase");
+  const nameInput = nameCell.querySelector("textarea");
+  nameInput.onkeydown = (event) => {
+    if (event.key !== "Enter") return;
+    // A textarea would take this as a newline, and a name is one line. Blur
+    // instead: a textarea fires `change` on blur, and that is what saves.
+    event.preventDefault();
+    nameInput.blur();
+  };
+  row.appendChild(nameCell);
   row.appendChild(fieldCell(phase, "start_date", "date", savePhase, {}, "phase"));
   row.appendChild(fieldCell(phase, "duration_weeks", "number", savePhase,
     { step: "0.5", min: "0" }, "phase"));
