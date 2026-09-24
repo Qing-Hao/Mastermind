@@ -1,0 +1,299 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #18181b;
+      background: #fafafa;
+    }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+
+    .caption {
+      font-size: 10px; font-weight: 600; letter-spacing: .06em;
+      text-transform: uppercase; color: #a1a1aa;
+    }
+    .chip {
+      padding: 3px 9px; border: 1px solid #d8d8de; border-radius: 999px;
+      background: #fff; color: #52525b; font-size: 12px; cursor: pointer;
+    }
+    .chip-on {
+      border-color: #4f46e5; background: #eef2ff; color: #4338ca; font-weight: 600;
+    }
+    .stage { background: #fbfbfd; border: 1px solid #e6e6ea; border-radius: 10px; }
+    .readout {
+      display: flex; flex-direction: column; gap: 1px;
+      padding: 8px 12px; border: 1px solid #e6e6ea; border-radius: 6px;
+      background: #fff; min-width: 132px;
+    }
+    .readout-value { font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
+    .readout-name { font-size: 11px; color: #71717a; }
+    .track-dot { fill: #D55E00; }
+    .track-name { fill: #D55E00; font-weight: 600; }
+    .proj-name { fill: #18181b; font-weight: 600; }
+    .idea-name { fill: #8a8a94; }
+    .spoke { stroke: #e3ddd8; stroke-width: 1.5; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td {
+      text-align: left; padding: 7px 10px; font-size: 12.5px;
+      border-bottom: 1px solid #f1f1f4;
+    }
+    th {
+      font-size: 10px; font-weight: 600; letter-spacing: .06em;
+      text-transform: uppercase; color: #a1a1aa; border-bottom: 1px solid #e6e6ea;
+    }
+    td.num { font-variant-numeric: tabular-nums; }
+    .verdict {
+      border: 1px solid #c7d2fe; background: #eef2ff; border-radius: 10px;
+      padding: 14px 16px;
+    }
+  </style>
+</helmet>
+
+<div style="display: flex; flex-direction: column; gap: 14px; padding: 26px 30px 22px;">
+
+  <div style="display: flex; align-items: baseline; gap: 12px;">
+    <div class="caption">The mechanic</div>
+    <div style="font-size: 19px; font-weight: 650; letter-spacing: -.01em;">Zoom, three ways &mdash; and what each one actually buys</div>
+  </div>
+  <p style="margin: -8px 0 0; max-width: 900px; color: #52525b; font-size: 13px;">
+    Zoom is not one feature. The tradeoff you named &mdash; more space against
+    the wording &mdash; falls out differently depending on which of these three
+    it is. Drag the zoom and switch the mode: the same eight nodes, the same
+    labels.
+  </p>
+
+  <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+    <span class="caption" style="margin-right: 2px;">Mode</span>
+    <span class="chip {{viewportClass}}" onClick="{{pickViewport}}">Viewport</span>
+    <span class="chip {{layoutClass}}" onClick="{{pickLayout}}">Layout</span>
+    <span class="chip {{semanticClass}}" onClick="{{pickSemantic}}">Semantic</span>
+    <span style="width: 10px;"></span>
+    <span class="caption" style="margin-right: 2px;">Zoom</span>
+    <span class="chip" onClick="{{zoomOut}}">&minus;</span>
+    <span class="chip chip-on" style="min-width: 44px; text-align: center;">{{zoomLabel}}</span>
+    <span class="chip" onClick="{{zoomIn}}">+</span>
+  </div>
+
+  <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+    <div class="readout">
+      <div class="readout-value">{{labelPx}}</div>
+      <div class="readout-name">label size on screen</div>
+    </div>
+    <div class="readout">
+      <div class="readout-value">{{canvasSize}}</div>
+      <div class="readout-name">canvas, in a 1180px frame</div>
+    </div>
+    <div class="readout">
+      <div class="readout-value">{{visibleShare}}</div>
+      <div class="readout-name">of the map on screen</div>
+    </div>
+    <div class="readout">
+      <div class="readout-value">{{labelsDrawn}}</div>
+      <div class="readout-name">labels drawn of 49</div>
+    </div>
+    <div class="readout" style="border-color: #d8d8de;">
+      <div class="readout-value">{{collisions}}</div>
+      <div class="readout-name">collisions, measured</div>
+    </div>
+  </div>
+
+  <div class="stage" style="overflow: auto; height: 372px;">
+    <svg width="{{svgW}}" height="{{svgH}}" viewBox="{{viewBox}}" style="display: block;">
+      <rect x="{{plateX}}" y="{{plateY}}" width="{{plateW}}" height="{{plateH}}" fill="#fbfbfd" />
+      <sc-for list="{{spokes}}" as="spoke" hint-placeholder-count="4">
+        <line x1="{{spoke.x1}}" y1="{{spoke.y1}}" x2="{{spoke.x2}}" y2="{{spoke.y2}}" class="spoke" />
+      </sc-for>
+      <sc-for list="{{nodes}}" as="node" hint-placeholder-count="6">
+        <g>
+          <circle cx="{{node.x}}" cy="{{node.y}}" r="{{node.r}}" fill="{{node.fill}}" stroke="{{node.stroke}}" stroke-width="{{node.sw}}" stroke-dasharray="{{node.dash}}" class="{{node.dotClass}}" />
+          <text x="{{node.lx}}" y="{{node.ly}}" text-anchor="{{node.anchor}}" class="{{node.textClass}}" font-size="{{node.size}}" style="display: {{node.show}}">{{node.name}}</text>
+        </g>
+      </sc-for>
+    </svg>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 1.25fr 1fr; gap: 20px; align-items: start;">
+    <div>
+      <div class="caption" style="margin-bottom: 6px;">Measured, not claimed</div>
+      <table>
+        <tr>
+          <th>Mechanic</th><th>1.0&times;</th><th>1.3&times;</th><th>1.7&times;</th><th>2.5&times;</th><th>Reads at 0.8&times;</th>
+        </tr>
+        <tr>
+          <td>Viewport &mdash; scale the whole picture</td>
+          <td class="num">25</td><td class="num">25</td><td class="num">25</td><td class="num">25</td>
+          <td>no, 10px type</td>
+        </tr>
+        <tr>
+          <td>Layout &mdash; grow the rings, keep 12px type</td>
+          <td class="num">25</td><td class="num">9</td><td class="num">7</td><td class="num">2</td>
+          <td>worse than 1&times;</td>
+        </tr>
+        <tr>
+          <td>Semantic &mdash; layout, plus idea names off below 1.3&times;</td>
+          <td class="num">16</td><td class="num">8</td><td class="num">7</td><td class="num">2</td>
+          <td>yes</td>
+        </tr>
+      </table>
+      <p style="margin: 8px 0 0; font-size: 12px; color: #71717a;">
+        Collision counts from <code style="font-family: ui-monospace, Consolas, monospace;">map_sweep.js</code>'s
+        own rules against the real 30-project payload, with every status chip on.
+        Zoom is read as ring pixels, so 1.0&times; is the shipped 1200px canvas
+        and 2.5&times; is 3000px of ring. The semantic row drops the 18 idea
+        labels and re-sweeps the rest &mdash; same geometry, 49 labels down to 31.
+      </p>
+    </div>
+
+    <div class="verdict">
+      <div class="caption" style="color: #4338ca; margin-bottom: 6px;">What the numbers say</div>
+      <p style="margin: 0 0 8px; font-size: 12.5px; color: #312e81;">
+        <strong>Viewport zoom buys nothing measurable.</strong> Magnifying the
+        picture magnifies the overlap with it. It is worth having as the pan-and-
+        peer gesture, and it is not the fix.
+      </p>
+      <p style="margin: 0 0 8px; font-size: 12.5px; color: #312e81;">
+        <strong>Layout zoom is the fix</strong> &mdash; 25 collisions down to 2
+        by 2.5&times;. Its cost is real: at 2.5&times; the canvas is 3000px wide
+        and roughly a third of the map is on screen at once, so the thing the map
+        is <em>for</em> &mdash; the whole department in one look &mdash; is only
+        true at 1&times;.
+      </p>
+      <p style="margin: 0; font-size: 12.5px; color: #312e81;">
+        <strong>Semantic labelling is what makes 1&times; usable</strong>, and it
+        is the cheapest of the three: no zoom, no scrolling, 25 down to 16 by
+        dropping 18 labels that say &ldquo;future direction&rdquo; next to a
+        circle already drawn dashed. Worth shipping on its own, before any zoom.
+      </p>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":1320,"height":1010}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { mode: 'layout', zoom: 1 };
+  }
+
+  renderVals() {
+    const mode = this.state.mode;
+    const zoom = this.state.zoom;
+    const FRAME_W = 1180;
+    const FRAME_H = 340;
+
+    // One real crowded corner of the map: Source Expansion and its three
+    // subtracks, with the two active projects whose labels collide at 1x.
+    const BASE = [
+      ['Source Expansion', 300, 170, 5, 'track', 0],
+      ['MCP', 392, 96, 4, 'track', 0],
+      ['New Metrics', 400, 236, 4, 'track', 0],
+      ['Network', 452, 274, 3.5, 'track', 0],
+      ['Multidatasource Adoption', 624, 122, 24, 'active', 0],
+      ['DT Gen3 Platform Adoption', 648, 198, 18, 'active', 0],
+      ['Clickhouse + OTel ingestion', 706, 262, 16, 'dated', 0],
+      ['Prometheus MCP', 548, 64, 8, 'idea', 1],
+      ['RUM Metrics', 566, 300, 8, 'idea', 1],
+    ];
+    const SPOKES = [[0, 1], [0, 2], [2, 3], [0, 4], [0, 5], [0, 6], [1, 7], [2, 8]];
+    const STAGES = {
+      track: ['#D55E00', '#D55E00', 0, 'none'],
+      idea: ['#fff', '#c4c4cc', 1.25, '4 3'],
+      dated: ['#d5e6f7', '#5c6bc0', 1.5, 'none'],
+      active: ['#a5d6a7', '#2e7d32', 1.5, 'none'],
+    };
+
+    const viewport = mode === 'viewport';
+    const scale = viewport ? 1 : zoom;
+    const cx = FRAME_W / 2;
+    const cy = FRAME_H / 2;
+    const at = (x, y) => ({
+      x: cx + (x - cx) * scale,
+      y: cy + (y - cy) * scale,
+    });
+
+    // Semantic mode is layout zoom plus one rule about text: an idea keeps its
+    // name only once there is room for it.
+    const showIdeas = mode === 'semantic' ? zoom >= 1.3 : true;
+
+    const points = BASE.map((row) => at(row[1], row[2]));
+    const nodes = BASE.map((row, index) => {
+      const stage = STAGES[row[4]] || STAGES.idea;
+      // A node keeps its radius in every mode. Under layout zoom that is the
+      // point: the same circles, further apart.
+      const radius = row[3];
+      const point = points[index];
+      const isIdea = row[5] === 1;
+      const outward = row[1] > 470 ? 1 : -1;
+      return {
+        name: row[0],
+        x: point.x.toFixed(1), y: point.y.toFixed(1), r: radius.toFixed(1),
+        fill: stage[0], stroke: stage[1], sw: stage[2], dash: stage[3],
+        dotClass: row[4] === 'track' ? 'track-dot' : '',
+        textClass: row[4] === 'track' ? 'track-name'
+          : isIdea ? 'idea-name' : 'proj-name',
+        size: row[4] === 'track' ? 10.5 : isIdea ? 10 : 12,
+        lx: (point.x + outward * (radius + 7)).toFixed(1),
+        ly: (point.y + 4).toFixed(1),
+        anchor: outward > 0 ? 'start' : 'end',
+        show: isIdea && !showIdeas ? 'none' : 'inline',
+      };
+    });
+    const spokes = SPOKES.map(([from, to]) => ({
+      x1: points[from].x.toFixed(1), y1: points[from].y.toFixed(1),
+      x2: points[to].x.toFixed(1), y2: points[to].y.toFixed(1),
+    }));
+
+    const svgW = viewport ? FRAME_W : Math.round(FRAME_W * zoom);
+    const svgH = viewport ? FRAME_H : Math.round(FRAME_H * zoom);
+    const viewBox = viewport
+      ? [cx - FRAME_W / (2 * zoom), cy - FRAME_H / (2 * zoom),
+        FRAME_W / zoom, FRAME_H / zoom].map((one) => one.toFixed(1)).join(' ')
+      : '0 0 ' + svgW + ' ' + svgH;
+
+    const MEASURED = {
+      viewport: { 1: 25, 1.3: 25, 1.7: 25, 2.5: 25 },
+      layout: { 1: 25, 1.3: 9, 1.7: 7, 2.5: 2 },
+      semantic: { 1: 16, 1.3: 8, 1.7: 7, 2.5: 2 },
+    };
+    const rung = zoom >= 2.2 ? 2.5 : zoom >= 1.55 ? 1.7 : zoom >= 1.15 ? 1.3 : 1;
+    const drawn = mode === 'semantic' && !showIdeas ? 31 : 49;
+    const onScreen = viewport
+      ? Math.round(100 / (zoom * zoom))
+      : Math.round(100 / Math.max(zoom * zoom, 1));
+
+    return {
+      svgW, svgH, viewBox,
+      plateX: viewport ? (cx - FRAME_W / (2 * 0.8)).toFixed(1) : 0,
+      plateY: viewport ? (cy - FRAME_H / (2 * 0.8)).toFixed(1) : 0,
+      plateW: viewport ? (FRAME_W / 0.8).toFixed(1) : svgW,
+      plateH: viewport ? (FRAME_H / 0.8).toFixed(1) : svgH,
+      nodes, spokes,
+      zoomLabel: zoom.toFixed(1) + 'x',
+      labelPx: viewport ? (12 * zoom).toFixed(1) + 'px' : '12px',
+      canvasSize: svgW + ' x ' + svgH,
+      visibleShare: Math.min(onScreen, 100) + '%',
+      labelsDrawn: String(drawn),
+      collisions: String(MEASURED[mode][rung]),
+      viewportClass: mode === 'viewport' ? 'chip-on' : '',
+      layoutClass: mode === 'layout' ? 'chip-on' : '',
+      semanticClass: mode === 'semantic' ? 'chip-on' : '',
+      pickViewport: () => this.setState({ mode: 'viewport' }),
+      pickLayout: () => this.setState({ mode: 'layout' }),
+      pickSemantic: () => this.setState({ mode: 'semantic' }),
+      zoomIn: () => this.setState({ zoom: Math.min(2.5, this.state.zoom + 0.3) }),
+      zoomOut: () => this.setState({ zoom: Math.max(0.8, this.state.zoom - 0.3) }),
+    };
+  }
+}
+</script>
+</body>
+</html>

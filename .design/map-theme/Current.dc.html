@@ -1,0 +1,719 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #18181b;
+      background: #fafafa;
+    }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+
+    /* Lifted from app/static/style.css so the picture paints as the app paints
+       it. Positions come from renderMap; these are colour and type only. */
+    .map { display: block; width: 100%; }
+    .map-edge { stroke: var(--track-edge, #d5d5d5); stroke-width: 1.5; }
+    .map-edge-idea { stroke-dasharray: 4 4; stroke: #ddd; }
+    .map-hub circle { fill: #1a1a1a; }
+    .map-hub text { fill: #fff; font-size: 12px; font-weight: 600; }
+    .map-group circle { fill: var(--track-dot, #9e9e9e); }
+    .map-group text { fill: var(--track-text, #555); font-weight: 600; }
+    .map-group.level-1 text { font-size: 11px; }
+    .map-group.level-2 text { font-size: 10px; }
+    .map-group.level-3 text { font-size: 10px; }
+    .map-group.level-4 text { font-size: 10px; }
+    .map-group.folded circle {
+      stroke: var(--track-text, #555);
+      stroke-width: 1;
+      stroke-dasharray: 2 2;
+      fill-opacity: .6;
+    }
+    .map-node circle:not(.map-pip) {
+      fill: #a5d6a7; stroke: #2e7d32; stroke-width: 1.5;
+    }
+    .map-node.stage-done circle:not(.map-pip) { fill: #cfd8dc; stroke: #90a4ae; }
+    .map-node.delivered circle:not(.map-pip) { fill: #2e7d32; stroke: #1b5e20; }
+    .map-node.stage-idea circle:not(.map-pip) {
+      fill: #fff; stroke: #bbb; stroke-dasharray: 5 4;
+    }
+    .map-node.stage-planning circle:not(.map-pip),
+    .map-node.stage-planned circle:not(.map-pip) {
+      fill: #fff; stroke: #5c6bc0; stroke-width: 2;
+    }
+    .map-node.stage-planning circle:not(.map-pip) { stroke: #9fa8da; }
+    .map-node.stage-dated circle:not(.map-pip) { fill: #d5e6f7; stroke: #5c6bc0; }
+    .map-node.stage-overdue circle:not(.map-pip) {
+      fill: #ffccbc; stroke: #d84315; stroke-width: 2.5;
+    }
+    .map-node .map-pip { fill: #3949ab; stroke: #fff; stroke-width: 1.5; }
+    .map-node .map-pip-text { fill: #fff; font-size: 10px; font-weight: 700; }
+    .map-fill { fill: #3949ab; fill-opacity: .28; }
+    .map-percent {
+      fill: #1a1a1a; font-weight: 700; dominant-baseline: central;
+      paint-order: stroke; stroke: #fff; stroke-width: 2.5px;
+      stroke-linejoin: round;
+    }
+    .map-label { pointer-events: none; }
+    .map-name { fill: #1a1a1a; font-size: 12px; font-weight: 600; }
+    .map-meta { fill: #888; font-size: 10px; }
+
+    /* The only thing added to the app's own drawing: what the sweep found. */
+    .mark-box {
+      fill: rgba(216, 67, 21, .1);
+      stroke: #d84315;
+      stroke-width: 1;
+      stroke-dasharray: 3 2;
+    }
+    .mark-ring { fill: none; stroke: #d84315; stroke-width: 1.25; }
+  </style>
+</helmet>
+
+<div style="display: flex; flex-direction: column; gap: 14px; padding: 26px 30px 22px;">
+
+  <div style="display: flex; align-items: baseline; gap: 12px;">
+    <div style="font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa;">Today</div>
+    <div style="font-size: 19px; font-weight: 650; letter-spacing: -.01em;">Team map, 1200px, every status chip on</div>
+  </div>
+  <p style="margin: -8px 0 0; max-width: 860px; color: #52525b; font-size: 13px;">
+    Not a redrawing. This is <code style="font-family: ui-monospace, Consolas, monospace; font-size: 12px;">renderMap()</code>
+    run against the real payload behind a stub DOM and serialised, so every
+    position, radius and hue below is the one the app paints. The dashed red
+    boxes are <code style="font-family: ui-monospace, Consolas, monospace; font-size: 12px;">map_sweep.js</code>'s
+    own collision rules applied to that output.
+  </p>
+
+  <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
+    <span style="padding: 3px 10px; border: 1px solid #d84315; border-radius: 999px; background: #fff5f2; color: #b23c0f; font-size: 12px; font-weight: 600;">25 collisions</span>
+    <span style="padding: 3px 9px; border: 1px solid #d8d8de; border-radius: 999px; background: #fff; color: #52525b; font-size: 12px;">label on label 11</span>
+    <span style="padding: 3px 9px; border: 1px solid #d8d8de; border-radius: 999px; background: #fff; color: #52525b; font-size: 12px;">label on circle 11</span>
+    <span style="padding: 3px 9px; border: 1px solid #d8d8de; border-radius: 999px; background: #fff; color: #52525b; font-size: 12px;">circle on circle 3</span>
+    <span style="padding: 3px 9px; border: 1px solid #d8d8de; border-radius: 999px; background: #fff; color: #71717a; font-size: 12px;">30 projects, 18 of them ideas</span>
+    <span style="padding: 3px 9px; border: 1px solid #d8d8de; border-radius: 999px; background: #fff; color: #71717a; font-size: 12px;">canvas 1200 &times; 680, height caps at 860</span>
+  </div>
+
+  <div style="border: 1px solid #e6e6ea; border-radius: 10px; background: #fff; overflow: hidden;">
+      <svg class="map" width="1200" height="680" viewBox="0 0 1200 680">
+        <defs>
+          <marker id="map-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" />
+          </marker>
+        </defs>
+        <g class="map-edges">
+          <line class="map-edge" data-track="AI Agent" x1="600" y1="340" x2="689.0612341503918" y2="266.97603971232104" style="--track-edge:#CC79A7" />
+          <line class="map-edge" data-track="AI Agent/AI Reporting" x1="689.0612341503918" y1="266.97603971232104" x2="670.2791113083019" y2="236.5535445469617" style="--track-edge:#CC79A7" />
+          <line class="map-edge" data-track="AI Agent/Agent Memory" x1="689.0612341503918" y1="266.97603971232104" x2="723.7808916022545" y2="254.86728227739297" style="--track-edge:#CC79A7" />
+          <line class="map-edge" data-track="AI Agent/Alerting" x1="689.0612341503918" y1="266.97603971232104" x2="759.4991771294823" y2="277.69512320769917" style="--track-edge:#CC79A7" />
+          <line class="map-edge" data-track="AI Agent/Expansion" x1="689.0612341503918" y1="266.97603971232104" x2="778.6678275007082" y2="298.4584930407106" style="--track-edge:#CC79A7" />
+          <line class="map-edge map-edge-idea" data-track="AI Agent" x1="689.0612341503918" y1="266.97603971232104" x2="663.1727941826387" y2="94.69096191404802" />
+          <line class="map-edge" data-track="AI Agent/AI Reporting" x1="670.2791113083019" y1="236.5535445469617" x2="693.1442540060119" y2="164.51863838037005" />
+          <line class="map-edge map-edge-idea" data-track="AI Agent/AI Reporting" x1="670.2791113083019" y1="236.5535445469617" x2="787.5338048477687" y2="116.82826371562368" />
+          <line class="map-edge" data-track="AI Agent/Agent Memory" x1="723.7808916022545" y1="254.86728227739297" x2="783.0703146424719" y2="189.89519274199324" />
+          <line class="map-edge map-edge-idea" data-track="AI Agent/Agent Memory" x1="723.7808916022545" y1="254.86728227739297" x2="904.2487264302108" y2="164.74879117348775" />
+          <line class="map-edge map-edge-idea" data-track="AI Agent/Alerting" x1="759.4991771294823" y1="277.69512320769917" x2="956.0249489497372" y2="200.92661430289996" />
+          <line class="map-edge" data-track="AI Agent/Expansion" x1="778.6678275007082" y1="298.4584930407106" x2="895.120965068134" y2="271.38233225474517" />
+          <line class="map-edge" data-track="CURADE" x1="600" y1="340" x2="548.295928169981" y2="424.15274587820676" style="--track-edge:#D55E00" />
+          <line class="map-edge" data-track="CURADE/Deployment Script App" x1="548.295928169981" y1="424.15274587820676" x2="785.9326839148072" y2="369.06245172496307" style="--track-edge:#D55E00" />
+          <line class="map-edge" data-track="CURADE/Expansion of Communication Channel" x1="548.295928169981" y1="424.15274587820676" x2="744.3520664958224" y2="413.5719680644153" style="--track-edge:#D55E00" />
+          <line class="map-edge" data-track="CURADE/Observability" x1="548.295928169981" y1="424.15274587820676" x2="702.9165589789509" y2="433.9196545663673" style="--track-edge:#D55E00" />
+          <line class="map-edge" data-track="CURADE/Observability/Poller" x1="702.9165589789509" y1="433.9196545663673" x2="723.362036097537" y2="452.57780022798937" style="--track-edge:#D55E00" />
+          <line class="map-edge" data-track="CURADE/Reporting" x1="548.295928169981" y1="424.15274587820676" x2="643.0556123594324" y2="448.29342967902085" style="--track-edge:#D55E00" />
+          <line class="map-edge" data-track="CURADE/Reporting/Enhancement" x1="643.0556123594324" y1="448.29342967902085" x2="614.7841109920532" y2="472.9027584918583" style="--track-edge:#D55E00" />
+          <line class="map-edge" data-track="CURADE/Source Expansion" x1="548.295928169981" y1="424.15274587820676" x2="450.54770088508894" y2="410.102727677674" style="--track-edge:#D55E00" />
+          <line class="map-edge" data-track="CURADE/Source Expansion/MCP" x1="450.54770088508894" y1="410.102727677674" x2="406.3737908424167" y2="412.5605599534292" style="--track-edge:#D55E00" />
+          <line class="map-edge" data-track="CURADE/Source Expansion/New Metrics" x1="450.54770088508894" y1="410.102727677674" x2="373.63249541857874" y2="313.7142488064563" style="--track-edge:#D55E00" />
+          <line class="map-edge" data-track="CURADE/Source Expansion/New Metrics/Network" x1="373.63249541857874" y1="313.7142488064563" x2="358.11171476040863" y2="272.45288909389876" style="--track-edge:#D55E00" />
+          <line class="map-edge" data-track="CURADE/UIUX" x1="548.295928169981" y1="424.15274587820676" x2="462.1980233476306" y2="262.362466973178" style="--track-edge:#D55E00" />
+          <line class="map-edge" data-track="CURADE/Deployment Script App" x1="785.9326839148072" y1="369.06245172496307" x2="915.4690357531439" y2="363.99233271594244" />
+          <line class="map-edge map-edge-idea" data-track="CURADE/Deployment Script App" x1="785.9326839148072" y1="369.06245172496307" x2="997.5708066796626" y2="434.4830445382259" />
+          <line class="map-edge map-edge-idea" data-track="CURADE/Expansion of Communication Channel" x1="744.3520664958224" y1="413.5719680644153" x2="950.0637162644726" y2="484.0191492194697" />
+          <line class="map-edge map-edge-idea" data-track="CURADE/Expansion of Communication Channel" x1="744.3520664958224" y1="413.5719680644153" x2="892.5929761238694" y2="521.7333196511128" />
+          <line class="map-edge map-edge-idea" data-track="CURADE/Observability/Poller" x1="723.362036097537" y1="452.57780022798937" x2="829.7244620065867" y2="549.6420860856413" />
+          <line class="map-edge map-edge-idea" data-track="CURADE/Reporting" x1="643.0556123594324" y1="448.29342967902085" x2="763.7891076133355" y2="569.3043265926109" />
+          <line class="map-edge map-edge-idea" data-track="CURADE/Reporting" x1="643.0556123594324" y1="448.29342967902085" x2="696.1062775880188" y2="581.7264055335287" />
+          <line class="map-edge" data-track="CURADE/Reporting/Enhancement" x1="614.7841109920532" y1="472.9027584918583" x2="620.3728903801106" y2="523.143466078166" />
+          <line class="map-edge" data-track="CURADE/Source Expansion" x1="450.54770088508894" y1="410.102727677674" x2="569.4495580249643" y2="522.6722020662895" />
+          <line class="map-edge" data-track="CURADE/Source Expansion" x1="450.54770088508894" y1="410.102727677674" x2="518.7940370316611" y2="517.4431370827461" />
+          <line class="map-edge" data-track="CURADE/Source Expansion" x1="450.54770088508894" y1="410.102727677674" x2="468.90944804142293" y2="507.22250583509344" />
+          <line class="map-edge map-edge-idea" data-track="CURADE/Source Expansion" x1="450.54770088508894" y1="410.102727677674" x2="357.40166359303765" y2="544.76128228262" />
+          <line class="map-edge map-edge-idea" data-track="CURADE/Source Expansion/MCP" x1="406.3737908424167" y1="412.5605599534292" x2="295.3782030529026" y2="515.0355045952733" />
+          <line class="map-edge map-edge-idea" data-track="CURADE/Source Expansion/MCP" x1="406.3737908424167" y1="412.5605599534292" x2="239.42977810505977" y2="475.12208557435656" />
+          <line class="map-edge map-edge-idea" data-track="CURADE/Source Expansion/MCP" x1="406.3737908424167" y1="412.5605599534292" x2="194.80878232842656" y2="423.0192697662395" />
+          <line class="map-edge map-edge-idea" data-track="CURADE/Source Expansion/New Metrics" x1="373.63249541857874" y1="313.7142488064563" x2="171.24744152338144" y2="358.87675526804696" />
+          <line class="map-edge map-edge-idea" data-track="CURADE/Source Expansion/New Metrics" x1="373.63249541857874" y1="313.7142488064563" x2="178.45902312584496" y2="291.0507426563432" />
+          <line class="map-edge" data-track="CURADE/Source Expansion/New Metrics/Network" x1="358.11171476040863" y1="272.45288909389876" x2="313.6042702763238" y2="260.0242206871761" />
+          <line class="map-edge" data-track="CURADE/UIUX" x1="462.1980233476306" y1="262.362466973178" x2="351.06703561706104" y2="225.68875054463092" />
+          <line class="map-edge" data-track="CURADE/UIUX" x1="462.1980233476306" y1="262.362466973178" x2="394.8235672495484" y2="199.72676533326347" />
+          <line class="map-edge" data-track="External Project" x1="600" y1="340" x2="535.6270493545293" y2="258.8056363468849" style="--track-edge:#882255" />
+          <line class="map-edge map-edge-idea" data-track="External Project" x1="535.6270493545293" y1="258.8056363468849" x2="421.18624820702564" y2="114.46010096356918" />
+          <line class="map-edge" data-track="Mobile" x1="600" y1="340" x2="574.0185641838701" y2="251.98648454600493" style="--track-edge:#EE6677" />
+          <line class="map-edge" data-track="Mobile" x1="574.0185641838701" y1="251.98648454600493" x2="528.8813545848657" y2="161.12245990518883" />
+          <line class="map-edge map-edge-idea" data-track="Mobile" x1="574.0185641838701" y1="251.98648454600493" x2="551.843745242624" y2="93.56012129880423" />
+        </g>
+        <g class="map-focus-edges"></g>
+        <g class="map-nodes">
+          <g class="map-node stage-idea tier-0" tabindex="0" role="button" data-project-id="18" data-track="AI Agent" data-tip="Orchestration Layer of AI Agents — idea
+      untiered · 0 pts" aria-label="Orchestration Layer of AI Agents — idea. untiered, 0 pts">
+            <circle cx="663.1727941826387" cy="94.69096191404802" r="16" />
+            <text x="663.1727941826387" y="70.69096191404802" text-anchor="middle" class="map-label">
+              <tspan x="663.1727941826387" dy="-16" class="map-name">Orchestration Layer…</tspan>
+              <tspan x="663.1727941826387" dy="13" class="map-meta">T? · future direction</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-planning tier-3" tabindex="0" role="button" data-project-id="4" data-track="AI Agent/AI Reporting" data-tip="Automated Incident Report — planning" data-tip-body="0% complete — each phase an equal share, filled by the deliverables under it.
+      Provide quick response and save up the time for engineers to write up incident report." data-tip-meta="tier 3 · 12 pts · 0/4 phases done · 0/11 deliverables ticked" aria-label="Automated Incident Report — planning. tier 3, 12 pts, 0/4 phases done, 0/11 deliverables ticked">
+            <circle cx="693.1442540060119" cy="164.51863838037005" r="28.88188096292064" />
+            <circle class="map-pip" cx="713.5637438467968" cy="144.09914853958514" r="8" />
+            <text class="map-pip-text" x="713.5637438467968" y="147.49914853958515" text-anchor="middle">3</text>
+            <clipPath id="map-fill-4">
+              <circle cx="693.1442540060119" cy="164.51863838037005" r="28.13188096292064" />
+            </clipPath>
+            <rect class="map-fill" clip-path="url(#map-fill-4)" x="664.2623730430913" y="193.40051934329068" width="57.76376192584128" height="0" />
+            <text class="map-percent" x="693.1442540060119" y="164.51863838037005" text-anchor="middle" font-size="12.996846433314289">0%</text>
+            <text x="693.1442540060119" y="127.63675741744942" text-anchor="middle" class="map-label">
+              <tspan x="693.1442540060119" dy="-16" class="map-name">Automated Incident …</tspan>
+              <tspan x="693.1442540060119" dy="13" class="map-meta">T3 · 0/4 phases</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-idea tier-0" tabindex="0" role="button" data-project-id="8" data-track="AI Agent/AI Reporting" data-tip="Automated Monthly Performance Report — idea
+      untiered · 0 pts" aria-label="Automated Monthly Performance Report — idea. untiered, 0 pts">
+            <circle cx="787.5338048477687" cy="116.82826371562368" r="16" />
+            <text x="787.5338048477687" y="92.82826371562368" text-anchor="middle" class="map-label">
+              <tspan x="787.5338048477687" dy="-16" class="map-name">Automated Monthly P…</tspan>
+              <tspan x="787.5338048477687" dy="13" class="map-meta">T? · future direction</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-planning tier-2" tabindex="0" role="button" data-project-id="10" data-track="AI Agent/Agent Memory" data-tip="Graphiti GraphRAG Memory — planning" data-tip-body="0% complete — each phase an equal share, filled by the deliverables under it.
+      In order to make AI to learn the environment, AI need context from the environment. The conclusion made is that AI agent need memory to do better. But the problem comes to how to build it, how should we store the context, what should be stored and what should be retrieve." data-tip-meta="tier 2 · 35 pts · 0/5 phases done · 0/2 deliverables ticked" aria-label="Graphiti GraphRAG Memory — planning. tier 2, 35 pts, 0/5 phases done, 0/2 deliverables ticked">
+            <circle cx="783.0703146424719" cy="189.89519274199324" r="38" />
+            <circle class="map-pip" cx="809.9363146424719" cy="163.02919274199326" r="8" />
+            <text class="map-pip-text" x="809.9363146424719" y="166.42919274199326" text-anchor="middle">2</text>
+            <clipPath id="map-fill-10">
+              <circle cx="783.0703146424719" cy="189.89519274199324" r="37.25" />
+            </clipPath>
+            <rect class="map-fill" clip-path="url(#map-fill-10)" x="745.0703146424719" y="227.89519274199324" width="76" height="0" />
+            <text class="map-percent" x="783.0703146424719" y="189.89519274199324" text-anchor="middle" font-size="13">0%</text>
+            <text x="829.0703146424719" y="189.89519274199324" text-anchor="start" class="map-label">
+              <tspan x="829.0703146424719" dy="-2.5" class="map-name">Graphiti GraphRAG M…</tspan>
+              <tspan x="829.0703146424719" dy="13" class="map-meta">T2 · 0/5 phases</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-idea tier-3" tabindex="0" role="button" data-project-id="24" data-track="AI Agent/Agent Memory" data-tip="Internal RAG — idea
+      tier 3 · 0 pts" aria-label="Internal RAG — idea. tier 3, 0 pts">
+            <circle cx="904.2487264302108" cy="164.74879117348775" r="16" />
+            <circle class="map-pip" cx="915.5607264302108" cy="153.43679117348773" r="8" />
+            <text class="map-pip-text" x="915.5607264302108" y="156.83679117348774" text-anchor="middle">3</text>
+            <text x="928.2487264302108" y="164.74879117348775" text-anchor="start" class="map-label">
+              <tspan x="928.2487264302108" dy="-2.5" class="map-name">Internal RAG</tspan>
+              <tspan x="928.2487264302108" dy="13" class="map-meta">T3 · future direction</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-idea tier-0" tabindex="0" role="button" data-project-id="25" data-track="AI Agent/Alerting" data-tip="Alerting Agent — idea" data-tip-body="0% complete — each phase an equal share, filled by the deliverables under it." data-tip-meta="untiered · 13 pts · 0/2 phases done · 0/6 deliverables ticked" aria-label="Alerting Agent — idea. untiered, 13 pts, 0/2 phases done, 0/6 deliverables ticked">
+            <circle cx="956.0249489497372" cy="200.92661430289996" r="29.40788680484097" />
+            <clipPath id="map-fill-25">
+              <circle cx="956.0249489497372" cy="200.92661430289996" r="28.65788680484097" />
+            </clipPath>
+            <rect class="map-fill" clip-path="url(#map-fill-25)" x="926.6170621448963" y="230.33450110774095" width="58.81577360968194" height="0" />
+            <text class="map-percent" x="956.0249489497372" y="200.92661430289996" text-anchor="middle" font-size="13">0%</text>
+            <text x="993.4328357545782" y="200.92661430289996" text-anchor="start" class="map-label">
+              <tspan x="993.4328357545782" dy="-2.5" class="map-name">Alerting Agent</tspan>
+              <tspan x="993.4328357545782" dy="13" class="map-meta">T? · future direction</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-planning tier-2" tabindex="0" role="button" data-project-id="9" data-track="AI Agent/Expansion" data-tip="Mobile App Sentiment Report — planning" data-tip-body="0% complete — each phase an equal share, filled by the deliverables under it.
+      Build on Tai Yu's work on helping PNB doing mobile app sentiment report. Collecting data from huawei store, google app store and iOS App Store to create a dashboard. But this project will be doing for reporting as well
+      " data-tip-meta="tier 2 · 15 pts · 0/4 phases done · 0/7 deliverables ticked" aria-label="Mobile App Sentiment Report — planning. tier 2, 15 pts, 0/4 phases done, 0/7 deliverables ticked">
+            <circle cx="895.120965068134" cy="271.38233225474517" r="30.402380755575496" />
+            <circle class="map-pip" cx="916.6154482623258" cy="249.8878490605533" r="8" />
+            <text class="map-pip-text" x="916.6154482623258" y="253.2878490605533" text-anchor="middle">2</text>
+            <clipPath id="map-fill-9">
+              <circle cx="895.120965068134" cy="271.38233225474517" r="29.652380755575496" />
+            </clipPath>
+            <rect class="map-fill" clip-path="url(#map-fill-9)" x="864.7185843125585" y="301.7847130103207" width="60.80476151115099" height="0" />
+            <text class="map-percent" x="895.120965068134" y="271.38233225474517" text-anchor="middle" font-size="13">0%</text>
+            <text x="933.5233458237094" y="271.38233225474517" text-anchor="start" class="map-label">
+              <tspan x="933.5233458237094" dy="-2.5" class="map-name">Mobile App Sentimen…</tspan>
+              <tspan x="933.5233458237094" dy="13" class="map-meta">T2 · 0/4 phases</tspan>
+            </text>
+          </g>
+          <g class="map-group level-2" data-track="AI Agent/Expansion" data-tip="AI Agent / Expansion
+      1 project" aria-label="AI Agent / Expansion, 1 project" style="--track-dot:rgb(227, 181, 207);--track-text:#CC79A7">
+            <circle cx="778.6678275007082" cy="298.4584930407106" r="4" />
+            <text x="778.6678275007082" y="310.4584930407106" text-anchor="middle">
+              <tspan x="778.6678275007082" dy="9">Expansion</tspan>
+            </text>
+          </g>
+          <g class="map-group level-2" data-track="AI Agent/Alerting" data-tip="AI Agent / Alerting
+      1 project" aria-label="AI Agent / Alerting, 1 project" style="--track-dot:rgb(227, 181, 207);--track-text:#CC79A7">
+            <circle cx="759.4991771294823" cy="277.69512320769917" r="4" />
+            <text x="771.4991771294823" y="277.69512320769917" text-anchor="start">
+              <tspan x="771.4991771294823" dy="4">Alerting</tspan>
+            </text>
+          </g>
+          <g class="map-group level-2" data-track="AI Agent/Agent Memory" data-tip="AI Agent / Agent Memory
+      2 projects" aria-label="AI Agent / Agent Memory, 2 projects" style="--track-dot:rgb(227, 181, 207);--track-text:#CC79A7">
+            <circle cx="723.7808916022545" cy="254.86728227739297" r="4" />
+            <text x="735.7808916022545" y="254.86728227739297" text-anchor="start">
+              <tspan x="735.7808916022545" dy="4">Agent Memory</tspan>
+            </text>
+          </g>
+          <g class="map-group level-2" data-track="AI Agent/AI Reporting" data-tip="AI Agent / AI Reporting
+      2 projects" aria-label="AI Agent / AI Reporting, 2 projects" style="--track-dot:rgb(227, 181, 207);--track-text:#CC79A7">
+            <circle cx="670.2791113083019" cy="236.5535445469617" r="4" />
+            <text x="682.2791113083019" y="236.5535445469617" text-anchor="start">
+              <tspan x="682.2791113083019" dy="4">AI Reporting</tspan>
+            </text>
+          </g>
+          <g class="map-group level-1" data-track="AI Agent" data-tip="AI Agent
+      7 projects" aria-label="AI Agent, 7 projects" style="--track-dot:rgb(204, 121, 167);--track-text:#CC79A7">
+            <circle cx="689.0612341503918" cy="266.97603971232104" r="6" />
+            <text x="703.0612341503918" y="266.97603971232104" text-anchor="start">
+              <tspan x="703.0612341503918" dy="4">AI Agent</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-done tier-2 delivered" tabindex="0" role="button" data-project-id="23" data-track="CURADE/Deployment Script App" data-tip="Script Enhancement — done, delivered" data-tip-body="100% complete — each phase an equal share, filled by the deliverables under it.
+      Deployment Script not updated. Where currently update deployment will prompt issue:
+      1. Deployment script error handler
+      2. Updated deployment new service wont deploy
+      3. Environment service checking handler(firewall)" data-tip-meta="tier 2 · 6 pts · 2/2 phases done · 4/4 deliverables ticked · 1/1 milestones reached" aria-label="Script Enhancement — done, delivered. tier 2, 6 pts, 2/2 phases done, 4/4 deliverables ticked, 1/1 milestones reached">
+            <circle cx="915.4690357531439" cy="363.99233271594244" r="25.108865383319078" />
+            <circle class="map-pip" cx="933.2210035791504" cy="346.24036488993585" r="8" />
+            <text class="map-pip-text" x="933.2210035791504" y="349.6403648899358" text-anchor="middle">2</text>
+            <clipPath id="map-fill-23">
+              <circle cx="915.4690357531439" cy="363.99233271594244" r="24.358865383319078" />
+            </clipPath>
+            <rect class="map-fill" clip-path="url(#map-fill-23)" x="890.3601703698248" y="338.88346733262335" width="50.217730766638155" height="50.217730766638155" />
+            <text class="map-percent" x="915.4690357531439" y="363.99233271594244" text-anchor="middle" font-size="11.298989422493586">100%</text>
+            <text x="948.577901136463" y="363.99233271594244" text-anchor="start" class="map-label">
+              <tspan x="948.577901136463" dy="-2.5" class="map-name">Script Enhancement</tspan>
+              <tspan x="948.577901136463" dy="13" class="map-meta">T2 · 2/2 phases</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-idea tier-0" tabindex="0" role="button" data-project-id="32" data-track="CURADE/Deployment Script App" data-tip="Deployment Script Migration if change project name — idea
+      untiered · 0 pts" aria-label="Deployment Script Migration if change project name — idea. untiered, 0 pts">
+            <circle cx="997.5708066796626" cy="434.4830445382259" r="16" />
+            <text x="1021.5708066796626" y="434.4830445382259" text-anchor="start" class="map-label">
+              <tspan x="1021.5708066796626" dy="-2.5" class="map-name">Deployment Script M…</tspan>
+              <tspan x="1021.5708066796626" dy="13" class="map-meta">T? · future direction</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-idea tier-0" tabindex="0" role="button" data-project-id="13" data-track="CURADE/Expansion of Communication Channel" data-tip="Whatapps — idea
+      untiered · 0 pts" aria-label="Whatapps — idea. untiered, 0 pts">
+            <circle cx="950.0637162644726" cy="484.0191492194697" r="16" />
+            <text x="974.0637162644726" y="484.0191492194697" text-anchor="start" class="map-label">
+              <tspan x="974.0637162644726" dy="-2.5" class="map-name">Whatapps</tspan>
+              <tspan x="974.0637162644726" dy="13" class="map-meta">T? · future direction</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-idea tier-0" tabindex="0" role="button" data-project-id="14" data-track="CURADE/Expansion of Communication Channel" data-tip="Proactive Alerting — idea
+      untiered · 0 pts" aria-label="Proactive Alerting — idea. untiered, 0 pts">
+            <circle cx="892.5929761238694" cy="521.7333196511128" r="16" />
+            <text x="916.5929761238694" y="521.7333196511128" text-anchor="start" class="map-label">
+              <tspan x="916.5929761238694" dy="-2.5" class="map-name">Proactive Alerting</tspan>
+              <tspan x="916.5929761238694" dy="13" class="map-meta">T? · future direction</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-idea tier-2" tabindex="0" role="button" data-project-id="27" data-track="CURADE/Observability/Poller" data-tip="Poller Observability Enhancement — idea" data-tip-body="UI for observability to show stability of poller. Helping team to pinpoint problems easily" data-tip-meta="tier 2 · 0 pts" aria-label="Poller Observability Enhancement — idea. tier 2, 0 pts">
+            <circle cx="829.7244620065867" cy="549.6420860856413" r="16" />
+            <circle class="map-pip" cx="841.0364620065867" cy="538.3300860856413" r="8" />
+            <text class="map-pip-text" x="841.0364620065867" y="541.7300860856412" text-anchor="middle">2</text>
+            <text x="853.7244620065867" y="549.6420860856413" text-anchor="start" class="map-label">
+              <tspan x="853.7244620065867" dy="-2.5" class="map-name">Poller Observabilit…</tspan>
+              <tspan x="853.7244620065867" dy="13" class="map-meta">T2 · future direction</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-idea tier-0" tabindex="0" role="button" data-project-id="11" data-track="CURADE/Reporting" data-tip="RMiT Report — idea
+      untiered · 0 pts" aria-label="RMiT Report — idea. untiered, 0 pts">
+            <circle cx="763.7891076133355" cy="569.3043265926109" r="16" />
+            <text x="763.7891076133355" y="593.3043265926109" text-anchor="middle" class="map-label">
+              <tspan x="763.7891076133355" dy="9" class="map-name">RMiT Report</tspan>
+              <tspan x="763.7891076133355" dy="13" class="map-meta">T? · future direction</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-idea tier-0" tabindex="0" role="button" data-project-id="22" data-track="CURADE/Reporting" data-tip="Custom Report — idea
+      untiered · 0 pts" aria-label="Custom Report — idea. untiered, 0 pts">
+            <circle cx="696.1062775880188" cy="581.7264055335287" r="16" />
+            <text x="696.1062775880188" y="605.7264055335287" text-anchor="middle" class="map-label">
+              <tspan x="696.1062775880188" dy="9" class="map-name">Custom Report</tspan>
+              <tspan x="696.1062775880188" dy="13" class="map-meta">T? · future direction</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-active tier-2" tabindex="0" role="button" data-project-id="30" data-track="CURADE/Reporting/Enhancement" data-tip="FR: Aggregate Same Transaction Name — active" data-tip-body="67% complete — each phase an equal share, filled by the deliverables under it.
+      Users are allowed to set same transaction name, same transaction name will be aggregated together. " data-tip-meta="tier 2 · 9 pts · 1/3 phases done · 3/3 deliverables ticked · 1/2 milestones reached · next 2026-08-26" aria-label="FR: Aggregate Same Transaction Name — active. tier 2, 9 pts, 1/3 phases done, 3/3 deliverables ticked, 1/2 milestones reached, next 2026-08-26">
+            <circle cx="620.3728903801106" cy="523.143466078166" r="27.15603616241642" />
+            <circle class="map-pip" cx="639.572207946939" cy="503.94414851133763" r="8" />
+            <text class="map-pip-text" x="639.572207946939" y="507.3441485113376" text-anchor="middle">2</text>
+            <clipPath id="map-fill-30">
+              <circle cx="620.3728903801106" cy="523.143466078166" r="26.40603616241642" />
+            </clipPath>
+            <rect class="map-fill" clip-path="url(#map-fill-30)" x="593.2168542176942" y="514.0914540240273" width="54.31207232483284" height="36.20804821655523" />
+            <text class="map-percent" x="620.3728903801106" y="523.143466078166" text-anchor="middle" font-size="12.22021627308739">67%</text>
+            <text x="620.3728903801106" y="558.2995022405825" text-anchor="middle" class="map-label">
+              <tspan x="620.3728903801106" dy="9" class="map-name">FR: Aggregate Same …</tspan>
+              <tspan x="620.3728903801106" dy="13" class="map-meta">T2 · 1/3 phases</tspan>
+              <tspan x="620.3728903801106" dy="13" class="map-meta">next 2026-08-26</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-active tier-1" tabindex="0" role="button" data-project-id="1" data-track="CURADE/Source Expansion" data-tip="DT Gen3 Platform Adoption — active" data-tip-body="100% complete — each phase an equal share, filled by the deliverables under it.
+      Dynatrace Customers are moving to Gen3 SaaS where most of the API v2 are gone. Examples, metrics and entities. " data-tip-meta="tier 1 · 11 pts · 2/3 phases done · 6/6 deliverables ticked · 1/2 milestones reached · next 2026-08-31" aria-label="DT Gen3 Platform Adoption — active. tier 1, 11 pts, 2/3 phases done, 6/6 deliverables ticked, 1/2 milestones reached, next 2026-08-31">
+            <circle cx="569.4495580249643" cy="522.6722020662895" r="28.333462032790536" />
+            <circle class="map-pip" cx="589.4813156821472" cy="502.64044440910664" r="8" />
+            <text class="map-pip-text" x="589.4813156821472" y="506.0404444091066" text-anchor="middle">1</text>
+            <clipPath id="map-fill-1">
+              <circle cx="569.4495580249643" cy="522.6722020662895" r="27.583462032790536" />
+            </clipPath>
+            <rect class="map-fill" clip-path="url(#map-fill-1)" x="541.1160959921738" y="494.338740033499" width="56.66692406558107" height="56.66692406558107" />
+            <text class="map-percent" x="569.4495580249643" y="522.6722020662895" text-anchor="middle" font-size="12.750057914755741">100%</text>
+            <text x="569.4495580249643" y="559.00566409908" text-anchor="middle" class="map-label">
+              <tspan x="569.4495580249643" dy="9" class="map-name">DT Gen3 Platform Ad…</tspan>
+              <tspan x="569.4495580249643" dy="13" class="map-meta">T1 · 2/3 phases</tspan>
+              <tspan x="569.4495580249643" dy="13" class="map-meta">next 2026-08-31</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-active tier-1" tabindex="0" role="button" data-project-id="3" data-track="CURADE/Source Expansion" data-tip="Multidatasource Adoption — active" data-tip-body="50% complete — each phase an equal share, filled by the deliverables under it.
+      the original goal of CURADE is a multidatasource platform to adopt where able to consolidate all data into one platform with no specific restriction for any vendors. 
+      " data-tip-meta="tier 1 · 26 pts · 2/4 phases done · 4/4 deliverables ticked · 0/2 milestones reached · next 2026-09-02" aria-label="Multidatasource Adoption — active. tier 1, 26 pts, 2/4 phases done, 4/4 deliverables ticked, 0/2 milestones reached, next 2026-09-02">
+            <circle cx="518.7940370316611" cy="517.4431370827461" r="34.96161536216936" />
+            <circle class="map-pip" cx="543.5118990927149" cy="492.7252750216924" r="8" />
+            <text class="map-pip-text" x="543.5118990927149" y="496.1252750216924" text-anchor="middle">1</text>
+            <clipPath id="map-fill-3">
+              <circle cx="518.7940370316611" cy="517.4431370827461" r="34.21161536216936" />
+            </clipPath>
+            <rect class="map-fill" clip-path="url(#map-fill-3)" x="483.83242166949174" y="517.4431370827461" width="69.92323072433872" height="34.96161536216936" />
+            <text class="map-percent" x="518.7940370316611" y="517.4431370827461" text-anchor="middle" font-size="13">50%</text>
+            <text x="518.7940370316611" y="560.4047524449155" text-anchor="middle" class="map-label">
+              <tspan x="518.7940370316611" dy="9" class="map-name">Multidatasource Ado…</tspan>
+              <tspan x="518.7940370316611" dy="13" class="map-meta">T1 · 2/4 phases</tspan>
+              <tspan x="518.7940370316611" dy="13" class="map-meta">next 2026-09-02</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-dated tier-1" tabindex="0" role="button" data-project-id="5" data-track="CURADE/Source Expansion" data-tip="Clickhouse Setup and OTel ingestion framework — dated" data-tip-body="0% complete — each phase an equal share, filled by the deliverables under it.
+      Timescaledb not that suitable to store metrics, logs, traces for long term. Clickhouse is a columnar database specialty in timeseries data. Incoming store new data source. Starting point for Sentiment Report." data-tip-meta="tier 1 · 5 pts · 0/3 phases done · 0/7 deliverables ticked · next 2026-09-16" aria-label="Clickhouse Setup and OTel ingestion framework — dated. tier 1, 5 pts, 0/3 phases done, 0/7 deliverables ticked, next 2026-09-16">
+            <circle cx="468.90944804142293" cy="507.22250583509344" r="24.315218406202998" />
+            <circle class="map-pip" cx="486.10030745460847" cy="490.0316464219079" r="8" />
+            <text class="map-pip-text" x="486.10030745460847" y="493.4316464219079" text-anchor="middle">1</text>
+            <clipPath id="map-fill-5">
+              <circle cx="468.90944804142293" cy="507.22250583509344" r="23.565218406202998" />
+            </clipPath>
+            <rect class="map-fill" clip-path="url(#map-fill-5)" x="444.59422963521996" y="531.5377242412965" width="48.630436812405996" height="0" />
+            <text class="map-percent" x="468.90944804142293" y="507.22250583509344" text-anchor="middle" font-size="10.94184828279135">0%</text>
+            <text x="468.90944804142293" y="539.5377242412965" text-anchor="middle" class="map-label">
+              <tspan x="468.90944804142293" dy="9" class="map-name">Clickhouse Setup an…</tspan>
+              <tspan x="468.90944804142293" dy="13" class="map-meta">T1 · 0/3 phases</tspan>
+              <tspan x="468.90944804142293" dy="13" class="map-meta">next 2026-09-16</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-idea tier-2" tabindex="0" role="button" data-project-id="7" data-track="CURADE/Source Expansion" data-tip="Prometheus Data Integration — idea" data-tip-body="First Data Integration for multidatasource" data-tip-meta="tier 2 · 0 pts" aria-label="Prometheus Data Integration — idea. tier 2, 0 pts">
+            <circle cx="357.40166359303765" cy="544.76128228262" r="16" />
+            <circle class="map-pip" cx="368.71366359303767" cy="533.44928228262" r="8" />
+            <text class="map-pip-text" x="368.71366359303767" y="536.8492822826199" text-anchor="middle">2</text>
+            <text x="333.40166359303765" y="544.76128228262" text-anchor="end" class="map-label">
+              <tspan x="333.40166359303765" dy="-2.5" class="map-name">Prometheus Data Int…</tspan>
+              <tspan x="333.40166359303765" dy="13" class="map-meta">T2 · future direction</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-idea tier-0" tabindex="0" role="button" data-project-id="15" data-track="CURADE/Source Expansion/MCP" data-tip="ClickHouse MCP — idea
+      untiered · 0 pts" aria-label="ClickHouse MCP — idea. untiered, 0 pts">
+            <circle cx="295.3782030529026" cy="515.0355045952733" r="16" />
+            <text x="271.3782030529026" y="515.0355045952733" text-anchor="end" class="map-label">
+              <tspan x="271.3782030529026" dy="-2.5" class="map-name">ClickHouse MCP</tspan>
+              <tspan x="271.3782030529026" dy="13" class="map-meta">T? · future direction</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-idea tier-0" tabindex="0" role="button" data-project-id="16" data-track="CURADE/Source Expansion/MCP" data-tip="Orchestration Layer for MCP — idea
+      untiered · 0 pts" aria-label="Orchestration Layer for MCP — idea. untiered, 0 pts">
+            <circle cx="239.42977810505977" cy="475.12208557435656" r="16" />
+            <text x="215.42977810505977" y="475.12208557435656" text-anchor="end" class="map-label">
+              <tspan x="215.42977810505977" dy="-2.5" class="map-name">Orchestration Layer…</tspan>
+              <tspan x="215.42977810505977" dy="13" class="map-meta">T? · future direction</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-idea tier-0" tabindex="0" role="button" data-project-id="17" data-track="CURADE/Source Expansion/MCP" data-tip="Prometheus MCP — idea
+      untiered · 0 pts" aria-label="Prometheus MCP — idea. untiered, 0 pts">
+            <circle cx="194.80878232842656" cy="423.0192697662395" r="16" />
+            <text x="170.80878232842656" y="423.0192697662395" text-anchor="end" class="map-label">
+              <tspan x="170.80878232842656" dy="-2.5" class="map-name">Prometheus MCP</tspan>
+              <tspan x="170.80878232842656" dy="13" class="map-meta">T? · future direction</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-idea tier-0" tabindex="0" role="button" data-project-id="12" data-track="CURADE/Source Expansion/New Metrics" data-tip="Other sources for Sentiment — idea
+      untiered · 0 pts" aria-label="Other sources for Sentiment — idea. untiered, 0 pts">
+            <circle cx="171.24744152338144" cy="358.87675526804696" r="16" />
+            <text x="147.24744152338144" y="358.87675526804696" text-anchor="end" class="map-label">
+              <tspan x="147.24744152338144" dy="-2.5" class="map-name">Other sources for S…</tspan>
+              <tspan x="147.24744152338144" dy="13" class="map-meta">T? · future direction</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-idea tier-0" tabindex="0" role="button" data-project-id="21" data-track="CURADE/Source Expansion/New Metrics" data-tip="RUM Metrics — idea
+      untiered · 0 pts" aria-label="RUM Metrics — idea. untiered, 0 pts">
+            <circle cx="178.45902312584496" cy="291.0507426563432" r="16" />
+            <text x="154.45902312584496" y="291.0507426563432" text-anchor="end" class="map-label">
+              <tspan x="154.45902312584496" dy="-2.5" class="map-name">RUM Metrics</tspan>
+              <tspan x="154.45902312584496" dy="13" class="map-meta">T? · future direction</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-overdue tier-3" tabindex="0" role="button" data-project-id="20" data-track="CURADE/Source Expansion/New Metrics/Network" data-tip="Gigamon  — overdue" data-tip-body="100% complete — each phase an equal share, filled by the deliverables under it.
+      App &amp; Network on a single platform with Curade. Additional Datasource to be ingested.
+      " data-tip-meta="tier 3 · 2 pts · 1/1 phases done · 3/3 deliverables ticked · 0/1 milestones reached" aria-label="Gigamon  — overdue. tier 3, 2 pts, 1/1 phases done, 3/3 deliverables ticked, 0/1 milestones reached">
+            <circle cx="313.6042702763238" cy="260.0242206871761" r="21.25900588107133" />
+            <circle class="map-pip" cx="328.63438743424126" cy="244.9941035292587" r="8" />
+            <text class="map-pip-text" x="328.63438743424126" y="248.3941035292587" text-anchor="middle">3</text>
+            <clipPath id="map-fill-20">
+              <circle cx="313.6042702763238" cy="260.0242206871761" r="20.50900588107133" />
+            </clipPath>
+            <rect class="map-fill" clip-path="url(#map-fill-20)" x="292.34526439525246" y="238.7652148061048" width="42.51801176214266" height="42.51801176214266" />
+            <text class="map-percent" x="313.6042702763238" y="260.0242206871761" text-anchor="middle" font-size="9.5665526464821">100%</text>
+            <text x="284.34526439525246" y="260.0242206871761" text-anchor="end" class="map-label">
+              <tspan x="284.34526439525246" dy="-2.5" class="map-name">Gigamon </tspan>
+              <tspan x="284.34526439525246" dy="13" class="map-meta">T3 · 1/1 phases</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-done tier-3 delivered" tabindex="0" role="button" data-project-id="19" data-track="CURADE/UIUX" data-tip="SideBar Revamp — done, delivered" data-tip-body="100% complete — each phase an equal share, filled by the deliverables under it.
+      Revamp sidebar to better user experience, allow user to directly access even with collapsed sidebar, easier of usage the sidebar." data-tip-meta="tier 3 · 2 pts · 2/2 phases done · 3/3 deliverables ticked · 1/1 milestones reached" aria-label="SideBar Revamp — done, delivered. tier 3, 2 pts, 2/2 phases done, 3/3 deliverables ticked, 1/1 milestones reached">
+            <circle cx="351.06703561706104" cy="225.68875054463092" r="21.25900588107133" />
+            <circle class="map-pip" cx="366.09715277497844" cy="210.6586333867135" r="8" />
+            <text class="map-pip-text" x="366.09715277497844" y="214.0586333867135" text-anchor="middle">3</text>
+            <clipPath id="map-fill-19">
+              <circle cx="351.06703561706104" cy="225.68875054463092" r="20.50900588107133" />
+            </clipPath>
+            <rect class="map-fill" clip-path="url(#map-fill-19)" x="329.8080297359897" y="204.4297446635596" width="42.51801176214266" height="42.51801176214266" />
+            <text class="map-percent" x="351.06703561706104" y="225.68875054463092" text-anchor="middle" font-size="9.5665526464821">100%</text>
+            <text x="321.8080297359897" y="225.68875054463092" text-anchor="end" class="map-label">
+              <tspan x="321.8080297359897" dy="-2.5" class="map-name">SideBar Revamp</tspan>
+              <tspan x="321.8080297359897" dy="13" class="map-meta">T3 · 2/2 phases</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-overdue tier-3" tabindex="0" role="button" data-project-id="29" data-track="CURADE/UIUX" data-tip="Transaction Graph Fix — overdue" data-tip-body="67% complete — each phase an equal share, filled by the deliverables under it.
+      AG raised problem where transaction graph too wide and overlap to other days." data-tip-meta="tier 3 · 3 pts · 2/3 phases done · 2/2 deliverables ticked · 0/2 milestones reached" aria-label="Transaction Graph Fix — overdue. tier 3, 3 pts, 2/3 phases done, 2/2 deliverables ticked, 0/2 milestones reached">
+            <circle cx="394.8235672495484" cy="199.72676533326347" r="22.44094048146032" />
+            <circle class="map-pip" cx="410.6893121699408" cy="183.86102041287103" r="8" />
+            <text class="map-pip-text" x="410.6893121699408" y="187.26102041287103" text-anchor="middle">3</text>
+            <clipPath id="map-fill-29">
+              <circle cx="394.8235672495484" cy="199.72676533326347" r="21.69094048146032" />
+            </clipPath>
+            <rect class="map-fill" clip-path="url(#map-fill-29)" x="372.3826267680881" y="192.24645183944338" width="44.88188096292064" height="29.921253975280425" />
+            <text class="map-percent" x="394.8235672495484" y="199.72676533326347" text-anchor="middle" font-size="10.098423216657144">67%</text>
+            <text x="364.3826267680881" y="199.72676533326347" text-anchor="end" class="map-label">
+              <tspan x="364.3826267680881" dy="-2.5" class="map-name">Transaction Graph F…</tspan>
+              <tspan x="364.3826267680881" dy="13" class="map-meta">T3 · 2/3 phases</tspan>
+            </text>
+          </g>
+          <g class="map-group level-2" data-track="CURADE/UIUX" data-tip="CURADE / UIUX
+      2 projects" aria-label="CURADE / UIUX, 2 projects" style="--track-dot:rgb(232, 166, 115);--track-text:#D55E00">
+            <circle cx="462.1980233476306" cy="262.362466973178" r="4" />
+            <text x="474.1980233476306" y="262.362466973178" text-anchor="start">
+              <tspan x="474.1980233476306" dy="4">UIUX</tspan>
+            </text>
+          </g>
+          <g class="map-group level-4" data-track="CURADE/Source Expansion/New Metrics/Network" data-tip="CURADE / Source Expansion / New Metrics / Network
+      1 project" aria-label="CURADE / Source Expansion / New Metrics / Network, 1 project" style="--track-dot:rgb(243, 210, 184);--track-text:#D55E00">
+            <circle cx="358.11171476040863" cy="272.45288909389876" r="3" />
+            <text x="358.11171476040863" y="261.45288909389876" text-anchor="middle">
+              <tspan x="358.11171476040863" dy="-3">Network</tspan>
+            </text>
+          </g>
+          <g class="map-group level-3" data-track="CURADE/Source Expansion/New Metrics" data-tip="CURADE / Source Expansion / New Metrics
+      3 projects" aria-label="CURADE / Source Expansion / New Metrics, 3 projects" style="--track-dot:rgb(239, 194, 158);--track-text:#D55E00">
+            <circle cx="373.63249541857874" cy="313.7142488064563" r="3.5" />
+            <text x="373.63249541857874" y="302.2142488064563" text-anchor="middle">
+              <tspan x="373.63249541857874" dy="-3">New Metrics</tspan>
+            </text>
+          </g>
+          <g class="map-group level-3" data-track="CURADE/Source Expansion/MCP" data-tip="CURADE / Source Expansion / MCP
+      3 projects" aria-label="CURADE / Source Expansion / MCP, 3 projects" style="--track-dot:rgb(239, 194, 158);--track-text:#D55E00">
+            <circle cx="406.3737908424167" cy="412.5605599534292" r="3.5" />
+            <text x="394.8737908424167" y="412.5605599534292" text-anchor="end">
+              <tspan x="394.8737908424167" dy="4">MCP</tspan>
+            </text>
+          </g>
+          <g class="map-group level-2" data-track="CURADE/Source Expansion" data-tip="CURADE / Source Expansion
+      10 projects" aria-label="CURADE / Source Expansion, 10 projects" style="--track-dot:rgb(232, 166, 115);--track-text:#D55E00">
+            <circle cx="450.54770088508894" cy="410.102727677674" r="4" />
+            <text x="438.54770088508894" y="410.102727677674" text-anchor="end">
+              <tspan x="438.54770088508894" dy="4">Source Expansion</tspan>
+            </text>
+          </g>
+          <g class="map-group level-3" data-track="CURADE/Reporting/Enhancement" data-tip="CURADE / Reporting / Enhancement
+      1 project" aria-label="CURADE / Reporting / Enhancement, 1 project" style="--track-dot:rgb(239, 194, 158);--track-text:#D55E00">
+            <circle cx="614.7841109920532" cy="472.9027584918583" r="3.5" />
+            <text x="603.2841109920532" y="472.9027584918583" text-anchor="end">
+              <tspan x="603.2841109920532" dy="4">Enhancement</tspan>
+            </text>
+          </g>
+          <g class="map-group level-2" data-track="CURADE/Reporting" data-tip="CURADE / Reporting
+      3 projects" aria-label="CURADE / Reporting, 3 projects" style="--track-dot:rgb(232, 166, 115);--track-text:#D55E00">
+            <circle cx="643.0556123594324" cy="448.29342967902085" r="4" />
+            <text x="631.0556123594324" y="448.29342967902085" text-anchor="end">
+              <tspan x="631.0556123594324" dy="4">Reporting</tspan>
+            </text>
+          </g>
+          <g class="map-group level-3" data-track="CURADE/Observability/Poller" data-tip="CURADE / Observability / Poller
+      1 project" aria-label="CURADE / Observability / Poller, 1 project" style="--track-dot:rgb(239, 194, 158);--track-text:#D55E00">
+            <circle cx="723.362036097537" cy="452.57780022798937" r="3.5" />
+            <text x="711.862036097537" y="452.57780022798937" text-anchor="end">
+              <tspan x="711.862036097537" dy="4">Poller</tspan>
+            </text>
+          </g>
+          <g class="map-group level-2" data-track="CURADE/Observability" data-tip="CURADE / Observability
+      1 project" aria-label="CURADE / Observability, 1 project" style="--track-dot:rgb(232, 166, 115);--track-text:#D55E00">
+            <circle cx="702.9165589789509" cy="433.9196545663673" r="4" />
+            <text x="690.9165589789509" y="433.9196545663673" text-anchor="end">
+              <tspan x="690.9165589789509" dy="4">Observability</tspan>
+            </text>
+          </g>
+          <g class="map-group level-2" data-track="CURADE/Expansion of Communication Channel" data-tip="CURADE / Expansion of Communication Channel
+      2 projects" aria-label="CURADE / Expansion of Communication Channel, 2 projects" style="--track-dot:rgb(232, 166, 115);--track-text:#D55E00">
+            <circle cx="744.3520664958224" cy="413.5719680644153" r="4" />
+            <text x="732.3520664958224" y="413.5719680644153" text-anchor="end">
+              <tspan x="732.3520664958224" dy="4">Expansion of Comm…</tspan>
+            </text>
+          </g>
+          <g class="map-group level-2" data-track="CURADE/Deployment Script App" data-tip="CURADE / Deployment Script App
+      2 projects" aria-label="CURADE / Deployment Script App, 2 projects" style="--track-dot:rgb(232, 166, 115);--track-text:#D55E00">
+            <circle cx="785.9326839148072" cy="369.06245172496307" r="4" />
+            <text x="785.9326839148072" y="381.06245172496307" text-anchor="middle">
+              <tspan x="785.9326839148072" dy="9">Deployment Script…</tspan>
+            </text>
+          </g>
+          <g class="map-group level-1" data-track="CURADE" data-tip="CURADE
+      20 projects" aria-label="CURADE, 20 projects" style="--track-dot:rgb(213, 94, 0);--track-text:#D55E00">
+            <circle cx="548.295928169981" cy="424.15274587820676" r="6" />
+            <text x="534.295928169981" y="424.15274587820676" text-anchor="end">
+              <tspan x="534.295928169981" dy="4">CURADE</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-idea tier-0" tabindex="0" role="button" data-project-id="26" data-track="External Project" data-tip="CRM Tool — idea
+      untiered · 0 pts" aria-label="CRM Tool — idea. untiered, 0 pts">
+            <circle cx="421.18624820702564" cy="114.46010096356918" r="16" />
+            <text x="421.18624820702564" y="90.46010096356918" text-anchor="middle" class="map-label">
+              <tspan x="421.18624820702564" dy="-16" class="map-name">CRM Tool</tspan>
+              <tspan x="421.18624820702564" dy="13" class="map-meta">T? · future direction</tspan>
+            </text>
+          </g>
+          <g class="map-group level-1" data-track="External Project" data-tip="External Project
+      1 project" aria-label="External Project, 1 project" style="--track-dot:rgb(136, 34, 85);--track-text:#882255">
+            <circle cx="535.6270493545293" cy="258.8056363468849" r="6" />
+            <text x="549.6270493545293" y="258.8056363468849" text-anchor="start">
+              <tspan x="549.6270493545293" dy="4">External Project</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-active tier-1" tabindex="0" role="button" data-project-id="6" data-track="Mobile" data-tip="CURADE mini Deployment — active" data-tip-body="67% complete — each phase an equal share, filled by the deliverables under it.
+      Deploy mobile version of CURADE, aimed to provide easy access for users from mobile. This project is aimed to preparation for deployment into iOS App Store and Google App Store." data-tip-meta="tier 1 · 7 pts · 2/3 phases done · 3/3 deliverables ticked · next 2026-08-26" aria-label="CURADE mini Deployment — active. tier 1, 7 pts, 2/3 phases done, 3/3 deliverables ticked, next 2026-08-26">
+            <circle cx="528.8813545848657" cy="161.12245990518883" r="25.838699100999072" />
+            <circle class="map-pip" cx="547.1493148492721" cy="142.85449964078248" r="8" />
+            <text class="map-pip-text" x="547.1493148492721" y="146.25449964078248" text-anchor="middle">1</text>
+            <clipPath id="map-fill-6">
+              <circle cx="528.8813545848657" cy="161.12245990518883" r="25.088699100999072" />
+            </clipPath>
+            <rect class="map-fill" clip-path="url(#map-fill-6)" x="503.0426554838666" y="152.5095602048558" width="51.677398201998145" height="34.451598801332096" />
+            <text class="map-percent" x="528.8813545848657" y="161.12245990518883" text-anchor="middle" font-size="11.627414595449583">67%</text>
+            <text x="528.8813545848657" y="127.28376080418977" text-anchor="middle" class="map-label">
+              <tspan x="528.8813545848657" dy="-29" class="map-name">CURADE mini Deploym…</tspan>
+              <tspan x="528.8813545848657" dy="13" class="map-meta">T1 · 2/3 phases</tspan>
+              <tspan x="528.8813545848657" dy="13" class="map-meta">next 2026-08-26</tspan>
+            </text>
+          </g>
+          <g class="map-node stage-idea tier-0" tabindex="0" role="button" data-project-id="31" data-track="Mobile" data-tip="Backend Migration to CURADE Backend API — idea
+      untiered · 0 pts" aria-label="Backend Migration to CURADE Backend API — idea. untiered, 0 pts">
+            <circle cx="551.843745242624" cy="93.56012129880423" r="16" />
+            <text x="551.843745242624" y="69.56012129880423" text-anchor="middle" class="map-label">
+              <tspan x="551.843745242624" dy="-16" class="map-name">Backend Migration t…</tspan>
+              <tspan x="551.843745242624" dy="13" class="map-meta">T? · future direction</tspan>
+            </text>
+          </g>
+          <g class="map-group level-1" data-track="Mobile" data-tip="Mobile
+      2 projects" aria-label="Mobile, 2 projects" style="--track-dot:rgb(238, 102, 119);--track-text:#EE6677">
+            <circle cx="574.0185641838701" cy="251.98648454600493" r="6" />
+            <text x="588.0185641838701" y="251.98648454600493" text-anchor="start">
+              <tspan x="588.0185641838701" dy="4">Mobile</tspan>
+            </text>
+          </g>
+          <g class="map-hub">
+            <circle cx="600" cy="340" r="54" />
+            <text x="600" y="340" text-anchor="middle">
+              <tspan x="600" dy="4">Platform Engineer…</tspan>
+            </text>
+          </g>
+        </g>
+      <g class="marks" style="display: {{markDisplay}}">
+        <rect x="597.2" y="45.9" width="132.0" height="24.0" rx="2" class="mark-box" />
+        <rect x="721.5" y="68.0" width="132.0" height="24.0" rx="2" class="mark-box" />
+        <rect x="485.8" y="44.8" width="132.0" height="24.0" rx="2" class="mark-box" />
+        <rect x="706.0" y="593.5" width="115.5" height="24.0" rx="2" class="mark-box" />
+        <rect x="638.4" y="605.9" width="115.5" height="24.0" rx="2" class="mark-box" />
+        <rect x="554.4" y="558.5" width="132.0" height="37.0" rx="2" class="mark-box" />
+        <rect x="503.4" y="559.2" width="132.0" height="37.0" rx="2" class="mark-box" />
+        <rect x="452.8" y="560.6" width="132.0" height="37.0" rx="2" class="mark-box" />
+        <rect x="402.9" y="539.7" width="132.0" height="37.0" rx="2" class="mark-box" />
+        <rect x="378.4" y="408.6" width="16.5" height="10.0" rx="2" class="mark-box" />
+        <rect x="350.5" y="406.1" width="88.0" height="10.0" rx="2" class="mark-box" />
+        <rect x="363.4" y="65.7" width="115.5" height="24.0" rx="2" class="mark-box" />
+        <rect x="462.9" y="89.5" width="132.0" height="37.0" rx="2" class="mark-box" />
+        <rect x="549.6" y="254.0" width="96.8" height="11.0" rx="2" class="mark-box" />
+        <rect x="588.0" y="247.2" width="36.3" height="11.0" rx="2" class="mark-box" />
+        <rect x="627.1" y="102.8" width="132.0" height="24.0" rx="2" class="mark-box" />
+        <rect x="829.1" y="178.6" width="132.0" height="24.0" rx="2" class="mark-box" />
+        <rect x="928.2" y="153.4" width="115.5" height="24.0" rx="2" class="mark-box" />
+        <rect x="232.4" y="188.4" width="132.0" height="24.0" rx="2" class="mark-box" />
+        <circle cx="663.2" cy="94.7" r="19.0" class="mark-ring" />
+        <circle cx="904.2" cy="164.7" r="19.0" class="mark-ring" />
+        <circle cx="956.0" cy="200.9" r="32.4" class="mark-ring" />
+        <circle cx="696.1" cy="581.7" r="19.0" class="mark-ring" />
+        <circle cx="518.8" cy="517.4" r="38.0" class="mark-ring" />
+        <circle cx="351.1" cy="225.7" r="24.3" class="mark-ring" />
+        <circle cx="406.4" cy="412.6" r="6.5" class="mark-ring" />
+        <circle cx="574.0" cy="252.0" r="9.0" class="mark-ring" />
+        <circle cx="551.8" cy="93.6" r="19.0" class="mark-ring" />
+        <circle cx="620.4" cy="523.1" r="30.2" class="mark-ring" />
+        <circle cx="569.4" cy="522.7" r="31.3" class="mark-ring" />
+        <circle cx="468.9" cy="507.2" r="27.3" class="mark-ring" />
+      </g>
+      </svg>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; padding-top: 6px; border-top: 1px solid #e6e6ea;">
+    <div>
+      <div style="font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa; margin-bottom: 4px;">Where the crowding comes from</div>
+      <p style="margin: 0; font-size: 12.5px; color: #3f3f46;">
+        18 of the 30 projects are ideas, and every idea sits on one ellipse at
+        radius 1.0 &mdash; the outermost, longest-labelled, least-differentiated
+        ring on the map. Half the label ink is spent on the row that carries the
+        least information.
+      </p>
+    </div>
+    <div>
+      <div style="font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa; margin-bottom: 4px;">Why more pixels are not the answer alone</div>
+      <p style="margin: 0; font-size: 12.5px; color: #3f3f46;">
+        The canvas grows to 860px tall and stops, so past about 1550px of width
+        the rings stretch flatter rather than rounder. Width buys arc; height
+        does not follow it.
+      </p>
+    </div>
+    <div>
+      <div style="font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #a1a1aa; margin-bottom: 4px;">Label width is never an input</div>
+      <p style="margin: 0; font-size: 12.5px; color: #3f3f46;">
+        A wedge is sized by project count. A one-project track with a long name
+        gets the same slice as a one-project track called Mobile, at the radius
+        where the arc is shortest.
+      </p>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"marks":{"editor":"boolean","default":true},"$preview":{"width":1320,"height":1010}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const on = this.props.marks ?? true;
+    return { markDisplay: on ? 'inline' : 'none' };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,558 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <style>
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #18181b;
+      background: #fafafa;
+    }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+
+    /* The plate's own two faces. The app itself ships no webfont and does not
+       need one for this -- see the note under the picture. */
+    .instrument {
+      font-family: "IBM Plex Sans Condensed", "Segoe UI Semibold", system-ui, sans-serif;
+    }
+    .figures {
+      font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .eyebrow {
+      font-family: "IBM Plex Sans Condensed", system-ui, sans-serif;
+      font-size: 11px; font-weight: 600; letter-spacing: .18em;
+      text-transform: uppercase; color: #4f46e5;
+    }
+    .title {
+      font-family: "IBM Plex Sans Condensed", system-ui, sans-serif;
+      font-size: 27px; font-weight: 600; letter-spacing: -.005em; line-height: 1.15;
+    }
+    .caption {
+      font-family: "IBM Plex Sans Condensed", system-ui, sans-serif;
+      font-size: 10.5px; font-weight: 600; letter-spacing: .12em;
+      text-transform: uppercase; color: #a1a1aa;
+    }
+
+    .plate { fill: #fafafc; }
+    .graticule { stroke: #e6e7ee; stroke-width: 1; fill: none; }
+    .graticule-spoke { stroke: #edeef3; stroke-width: 1; }
+    .arm-band { fill: none; stroke-width: 8; stroke-opacity: .1; stroke-linecap: butt; }
+
+    /* The signature: a graduated bezel on the commitment line. Inside it the
+       work is committed to; outside it is a future direction. */
+    .bezel { fill: none; stroke-width: 2.25; stroke-linecap: butt; }
+    .bezel-shadow { fill: none; stroke: #fff; stroke-width: 5; stroke-opacity: .9; }
+    .tick-in { stroke-width: 1.5; stroke-linecap: round; }
+    .tick-out { stroke: #b9b9c4; stroke-width: 1.25; stroke-linecap: round; }
+    .bezel-count {
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
+      font-size: 10px; font-weight: 500;
+    }
+    .belt-hatch { fill: url(#hatch); stroke: none; }
+
+    .arm-name {
+      font-family: "IBM Plex Sans Condensed", system-ui, sans-serif;
+      font-size: 12px; font-weight: 600; letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    .arm-rule { stroke-width: 1; stroke-opacity: .55; }
+    .sub-name {
+      font-family: "IBM Plex Sans Condensed", system-ui, sans-serif;
+      font-size: 10.5px; font-weight: 500; letter-spacing: .03em;
+    }
+    .proj-name { fill: #18181b; font-size: 12px; font-weight: 600; }
+    .idea-name { fill: #8a8a94; font-size: 10px; }
+    .spoke { stroke-width: 1.25; stroke-opacity: .45; }
+    .core-name {
+      fill: #fff; font-family: "IBM Plex Sans Condensed", system-ui, sans-serif;
+      font-size: 11.5px; font-weight: 600; letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .pip-text {
+      fill: #fff; font-family: "IBM Plex Mono", monospace;
+      font-size: 10px; font-weight: 500;
+    }
+    .legend-line { font-size: 10.5px; fill: #71717a; letter-spacing: .04em; }
+
+    .chip {
+      padding: 3px 10px; border: 1px solid #d8d8de; border-radius: 999px;
+      background: #fff; color: #52525b; font-size: 12px;
+    }
+    .chip-on {
+      border-color: #4f46e5; background: #eef2ff; color: #4338ca; font-weight: 600;
+    }
+    .dial {
+      display: inline-flex; align-items: stretch; border: 1px solid #d8d8de;
+      border-radius: 999px; background: #fff; overflow: hidden;
+    }
+    .dial-key {
+      width: 30px; display: flex; align-items: center; justify-content: center;
+      color: #3f3f46; font-size: 14px; border-right: 1px solid #edeef3;
+    }
+    .dial-key:last-child { border-right: 0; border-left: 1px solid #edeef3; }
+    .dial-read {
+      min-width: 58px; display: flex; align-items: center; justify-content: center;
+      font-family: "IBM Plex Mono", monospace; font-size: 12px; font-weight: 500;
+      color: #18181b;
+    }
+    .scroller {
+      overflow: auto; border: 1px solid #e6e6ea; border-radius: 12px;
+      background: #fafafc;
+    }
+
+    /* One orchestrated arrival: the bezel is engraved, then the arms come up
+       from the core outward. Nothing loops, nothing hovers on its own. */
+    @keyframes engrave { from { stroke-dashoffset: var(--len); } to { stroke-dashoffset: 0; } }
+    @keyframes rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+    .bezel { animation: engrave 1.15s cubic-bezier(.22,.61,.36,1) both; }
+    .arm-layer { animation: rise .5s ease-out both; }
+    @media (prefers-reduced-motion: reduce) {
+      .bezel, .arm-layer { animation: none; stroke-dashoffset: 0; opacity: 1; }
+    }
+  </style>
+</helmet>
+
+<div style="display: flex; flex-direction: column; gap: 16px; padding: 28px 32px 24px;">
+
+  <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap;">
+    <div style="max-width: 720px;">
+      <div class="eyebrow">Direction A &middot; Galaxy</div>
+      <div class="title" style="margin-top: 4px;">The commitment line, drawn as a bezel</div>
+      <p style="margin: 8px 0 0; color: #52525b; font-size: 13px;">
+        Same hub, same eight track hues, same seven stage colours. The plate now
+        carries a graduated arc where commitment stops: a tick turns
+        <strong>inward</strong> for every project that is committed to and
+        <strong>outward</strong> for every idea, so the census reads off the rim
+        before you read a single label. Names run outward along their arm, where
+        length costs radius instead of the arc there is none of.
+      </p>
+    </div>
+    <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+      <div class="dial">
+        <div class="dial-key">&minus;</div>
+        <div class="dial-read">{{zoomLabel}}</div>
+        <div class="dial-key">+</div>
+      </div>
+      <span class="chip chip-on">{{labelMode}}</span>
+    </div>
+  </div>
+
+  <div class="scroller" style="height: 700px;">
+    <svg width="{{svgW}}" height="{{svgH}}" viewBox="{{viewBox}}" style="display: block;">
+      <defs>
+        <pattern id="hatch" width="6" height="6" patternTransform="rotate(35)" patternUnits="userSpaceOnUse">
+          <line x1="0" y1="0" x2="0" y2="6" stroke="#e9e9f0" stroke-width="1.5" />
+        </pattern>
+        <radialGradient id="core-glow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#4f46e5" stop-opacity=".07" />
+          <stop offset="100%" stop-color="#4f46e5" stop-opacity="0" />
+        </radialGradient>
+      </defs>
+
+      <rect x="0" y="0" width="{{svgW}}" height="{{svgH}}" class="plate" />
+      <ellipse cx="{{cx}}" cy="{{cy}}" rx="{{glowX}}" ry="{{glowY}}" fill="url(#core-glow)" />
+
+      <!-- The belt of unmapped bodies. Hatched, because an idea is a region of
+           the plate rather than a rung on a ladder. -->
+      <path d="{{beltPath}}" class="belt-hatch" />
+
+      <sc-for list="{{orbits}}" as="orbit" hint-placeholder-count="3">
+        <ellipse cx="{{cx}}" cy="{{cy}}" rx="{{orbit.rx}}" ry="{{orbit.ry}}" class="graticule" />
+      </sc-for>
+
+      <!-- Wedge boundaries: an arm owns this arc and the line says where it
+           stops. Structural, not decorative. -->
+      <sc-for list="{{bounds}}" as="bound" hint-placeholder-count="4">
+        <line x1="{{bound.x1}}" y1="{{bound.y1}}" x2="{{bound.x2}}" y2="{{bound.y2}}" class="graticule-spoke" />
+      </sc-for>
+
+      <g class="arm-layer">
+        <sc-for list="{{arms}}" as="arm" hint-placeholder-count="4">
+          <path d="{{arm.d}}" class="arm-band" stroke="{{arm.hue}}" />
+        </sc-for>
+        <sc-for list="{{spokes}}" as="spoke" hint-placeholder-count="6">
+          <line x1="{{spoke.x1}}" y1="{{spoke.y1}}" x2="{{spoke.x2}}" y2="{{spoke.y2}}" class="spoke" stroke="{{spoke.hue}}" />
+        </sc-for>
+      </g>
+
+      <!-- Ideas, out past the line. -->
+      <sc-for list="{{ideas}}" as="idea" hint-placeholder-count="6">
+        <g>
+          <circle cx="{{idea.x}}" cy="{{idea.y}}" r="{{idea.r}}" fill="#fff" stroke="#c4c4cc" stroke-width="1.25" stroke-dasharray="4 3" />
+          <text x="{{idea.lx}}" y="{{idea.ly}}" text-anchor="{{idea.anchor}}" class="idea-name" style="display: {{ideaLabelDisplay}}">{{idea.name}}</text>
+        </g>
+      </sc-for>
+
+      <!-- The bezel, its graduations, and each arm's count on the rim. -->
+      <sc-for list="{{bezels}}" as="seg" hint-placeholder-count="4">
+        <g>
+          <path d="{{seg.d}}" class="bezel-shadow" />
+          <path d="{{seg.d}}" class="bezel" stroke="{{seg.hue}}" style="--len: {{seg.len}}; stroke-dasharray: {{seg.len}}; animation-delay: {{seg.delay}}s;" />
+          <text x="{{seg.countX}}" y="{{seg.countY}}" text-anchor="{{seg.countAnchor}}" class="bezel-count" fill="{{seg.hue}}">{{seg.count}}</text>
+        </g>
+      </sc-for>
+      <sc-for list="{{ticks}}" as="tick" hint-placeholder-count="8">
+        <line x1="{{tick.x1}}" y1="{{tick.y1}}" x2="{{tick.x2}}" y2="{{tick.y2}}" class="{{tick.cls}}" stroke="{{tick.hue}}" />
+      </sc-for>
+
+      <sc-for list="{{subs}}" as="sub" hint-placeholder-count="6">
+        <g>
+          <circle cx="{{sub.x}}" cy="{{sub.y}}" r="{{sub.r}}" fill="{{sub.dot}}" />
+          <text x="{{sub.lx}}" y="{{sub.ly}}" text-anchor="{{sub.anchor}}" class="sub-name" fill="{{sub.hue}}">{{sub.name}}</text>
+        </g>
+      </sc-for>
+
+      <sc-for list="{{projects}}" as="node" hint-placeholder-count="6">
+        <g>
+          <circle cx="{{node.x}}" cy="{{node.y}}" r="{{node.r}}" fill="{{node.fill}}" stroke="{{node.stroke}}" stroke-width="{{node.sw}}" />
+          <circle cx="{{node.pipX}}" cy="{{node.pipY}}" r="8" fill="#3949ab" stroke="#fff" stroke-width="1.5" style="display: {{node.pipDisplay}}" />
+          <text x="{{node.pipX}}" y="{{node.pipY}}" text-anchor="middle" dominant-baseline="central" class="pip-text" style="display: {{node.pipDisplay}}">{{node.tier}}</text>
+          <text x="{{node.lx}}" y="{{node.ly}}" text-anchor="{{node.anchor}}" class="proj-name">{{node.name}}</text>
+        </g>
+      </sc-for>
+
+      <!-- Arm names, set outward with a hairline rule under them: rotated text
+           reads faster when it has a baseline to sit on. -->
+      <sc-for list="{{armLabels}}" as="label" hint-placeholder-count="4">
+        <g transform="{{label.rotate}}">
+          <text x="{{label.x}}" y="{{label.y}}" text-anchor="{{label.anchor}}" class="arm-name" fill="{{label.hue}}">{{label.name}}</text>
+          <line x1="{{label.ruleX1}}" y1="{{label.ruleY}}" x2="{{label.ruleX2}}" y2="{{label.ruleY}}" class="arm-rule" stroke="{{label.hue}}" />
+        </g>
+      </sc-for>
+
+      <g>
+        <circle cx="{{cx}}" cy="{{cy}}" r="{{coreOuter}}" fill="none" stroke="#4f46e5" stroke-opacity=".3" />
+        <circle cx="{{cx}}" cy="{{cy}}" r="{{coreR}}" fill="#18181b" />
+        <text x="{{cx}}" y="{{coreTop}}" text-anchor="middle" class="core-name">Platform</text>
+        <text x="{{cx}}" y="{{coreBottom}}" text-anchor="middle" class="core-name">Engineering</text>
+      </g>
+
+      <!-- The bezel needs one line of key, because a tick direction is a new
+           thing to learn. Everything else on the plate is already in the app's
+           own legend. -->
+      <g>
+        <line x1="{{keyX}}" y1="{{keyTickY}}" x2="{{keyX}}" y2="{{keyTickTop}}" class="tick-in" stroke="#3f3f46" />
+        <text x="{{keyTextX}}" y="{{keyTickY}}" class="legend-line">tick inward &mdash; committed, {{committedCount}} of 30</text>
+        <line x1="{{keyX}}" y1="{{keyTickY2}}" x2="{{keyX}}" y2="{{keyTickBottom}}" class="tick-out" />
+        <text x="{{keyTextX}}" y="{{keyTickY2}}" class="legend-line">tick outward &mdash; a future direction, {{ideaCount}} of 30</text>
+      </g>
+    </svg>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; padding-top: 10px; border-top: 1px solid #e6e6ea;">
+    <div>
+      <div class="caption" style="margin-bottom: 5px;">What the bezel is for</div>
+      <p style="margin: 0; font-size: 12.5px; color: #3f3f46;">
+        It answers the map's own question &mdash; where is the team pointed now
+        &mdash; without reading a word. 12 ticks in, 18 out, and which arms they
+        belong to. Today that count exists nowhere on the page.
+      </p>
+    </div>
+    <div>
+      <div class="caption" style="margin-bottom: 5px;">What it costs</div>
+      <p style="margin: 0; font-size: 12.5px; color: #3f3f46;">
+        Tick direction is one new thing to learn, so it takes a line of key.
+        Rotated arm names read slower than level ones, and radius now means depth
+        plus a lane rather than depth alone.
+      </p>
+    </div>
+    <div>
+      <div class="caption" style="margin-bottom: 5px;">Two things to decide</div>
+      <p style="margin: 0; font-size: 12.5px; color: #3f3f46;">
+        The plate is set in IBM Plex Sans Condensed and Plex Mono. The app ships
+        no webfont and has no build step, so this is optional &mdash; the same
+        design holds in system-ui, a little wider and a little less instrument.
+        And a dark plate still means re-picking eight hues: the palette's 3:1
+        floor was measured on white.
+      </p>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"zoom":{"editor":"range","default":1,"min":0.8,"max":2.2,"step":0.1},"ideaLabels":{"editor":"boolean","default":false},"$preview":{"width":1360,"height":1120}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const zoom = this.props.zoom ?? 1;
+    // Layout zoom: the plate grows, the type does not. The frame is fixed and
+    // the canvas scrolls inside it -- the whole tradeoff on one dial.
+    const baseW = 1276;
+    const baseH = 700;
+    const svgW = Math.round(baseW * zoom);
+    const svgH = Math.round(baseH * zoom);
+    const cx = svgW / 2;
+    const cy = svgH / 2;
+    const rx = (baseW / 2 - 172) * zoom;
+    const ry = (baseH / 2 - 96) * zoom;
+
+    const PROJECTS = [
+      ['Orchestration Layer of AI Agents', 'AI Agent', 'idea', 0, 0],
+      ['Alerting Agent', 'AI Agent/Alerting', 'idea', 0, 13],
+      ['Internal RAG', 'AI Agent/Agent Memory', 'idea', 3, 0],
+      ['Graphiti GraphRAG Memory', 'AI Agent/Agent Memory', 'planning', 2, 35],
+      ['Automated Monthly Performance Report', 'AI Agent/AI Reporting', 'idea', 0, 0],
+      ['Automated Incident Report', 'AI Agent/AI Reporting', 'planning', 3, 12],
+      ['Mobile App Sentiment Report', 'AI Agent/Expansion', 'planning', 2, 15],
+      ['Script Enhancement', 'CURADE/Deployment Script App', 'done', 2, 6],
+      ['Deployment Script Migration', 'CURADE/Deployment Script App', 'idea', 0, 0],
+      ['Whatapps', 'CURADE/Comms Channels', 'idea', 0, 0],
+      ['Proactive Alerting', 'CURADE/Comms Channels', 'idea', 0, 0],
+      ['Poller Observability', 'CURADE/Observability/Poller', 'idea', 2, 0],
+      ['RMiT Report', 'CURADE/Reporting', 'idea', 0, 0],
+      ['Custom Report', 'CURADE/Reporting', 'idea', 0, 0],
+      ['FR: Aggregate Same Transaction', 'CURADE/Reporting/Enhancement', 'active', 2, 9],
+      ['DT Gen3 Platform Adoption', 'CURADE/Source Expansion', 'active', 1, 11],
+      ['Multidatasource Adoption', 'CURADE/Source Expansion', 'active', 1, 26],
+      ['Prometheus Data Integration', 'CURADE/Source Expansion', 'idea', 2, 0],
+      ['Clickhouse + OTel ingestion', 'CURADE/Source Expansion', 'dated', 1, 5],
+      ['ClickHouse MCP', 'CURADE/Source Expansion/MCP', 'idea', 0, 0],
+      ['Orchestration Layer for MCP', 'CURADE/Source Expansion/MCP', 'idea', 0, 0],
+      ['Prometheus MCP', 'CURADE/Source Expansion/MCP', 'idea', 0, 0],
+      ['Other sources for Sentiment', 'CURADE/Source Expansion/New Metrics', 'idea', 0, 0],
+      ['RUM Metrics', 'CURADE/Source Expansion/New Metrics', 'idea', 0, 0],
+      ['Gigamon', 'CURADE/Source Expansion/New Metrics/Network', 'overdue', 3, 2],
+      ['Transaction Graph Fix', 'CURADE/UIUX', 'overdue', 3, 3],
+      ['SideBar Revamp', 'CURADE/UIUX', 'done', 3, 2],
+      ['CRM Tool', 'External Project', 'idea', 0, 0],
+      ['Backend Migration to CURADE API', 'Mobile', 'idea', 0, 0],
+      ['CURADE mini Deployment', 'Mobile', 'active', 1, 7],
+    ];
+    const HUES = { 'AI Agent': '#CC79A7', 'CURADE': '#D55E00',
+      'External Project': '#882255', 'Mobile': '#EE6677' };
+    const STAGES = {
+      idea: ['#fff', '#bbb', 1.5],
+      planning: ['#fff', '#9fa8da', 2],
+      planned: ['#fff', '#5c6bc0', 2],
+      dated: ['#d5e6f7', '#5c6bc0', 1.5],
+      active: ['#a5d6a7', '#2e7d32', 1.5],
+      overdue: ['#ffccbc', '#d84315', 2.5],
+      done: ['#cfd8dc', '#90a4ae', 1.5],
+    };
+    // The app's LEVEL_TONES. Only the dot lightens with depth; a label keeps the
+    // full hue, because the palette's contrast floor lives in the text.
+    const TONES = [0, 0.45, 0.62, 0.72];
+    const toneOf = (hex, mix) => {
+      const pair = (value) => value.toString(16).padStart(2, '0');
+      const channel = (start) => {
+        const value = parseInt(hex.slice(start, start + 2), 16);
+        return Math.round(value + (255 - value) * mix);
+      };
+      return '#' + pair(channel(1)) + pair(channel(3)) + pair(channel(5));
+    };
+
+    const BEZEL = 0.88;
+    const polar = (fraction, angle) => ({
+      x: cx + rx * fraction * Math.cos(angle),
+      y: cy + ry * fraction * Math.sin(angle),
+    });
+    const fix = (value) => value.toFixed(1);
+    const degrees = (angle) => (angle * 180) / Math.PI;
+
+    const roots = [];
+    for (const row of PROJECTS) {
+      const name = row[1].split('/')[0];
+      let root = roots.find((one) => one.name === name);
+      if (!root) { roots.push(root = { name, items: [] }); }
+      root.items.push(row);
+    }
+    roots.sort((a, b) => a.name.localeCompare(b.name));
+    const total = PROJECTS.length;
+
+    const arms = [];
+    const armLabels = [];
+    const bezels = [];
+    const ticks = [];
+    const bounds = [];
+    const spokes = [];
+    const subs = [];
+    const projects = [];
+    const ideas = [];
+
+    let from = -Math.PI / 2;
+    roots.forEach((root, armIndex) => {
+      const hue = HUES[root.name] || '#40607A';
+      const span = (root.items.length / total) * Math.PI * 2;
+      const mid = from + span / 2;
+      const to = from + span;
+      const foot = polar(0.17, mid);
+
+      // The wedge boundary, drawn from the core out past the belt.
+      const edge = polar(1.24, from);
+      bounds.push({ x1: fix(cx), y1: fix(cy), x2: fix(edge.x), y2: fix(edge.y) });
+
+      // The arm: one soft band, bowed so four arms read as a turn rather than a
+      // cross.
+      const bow = mid + span * 0.14;
+      const bend = polar(0.52, bow);
+      const tip = polar(0.86, bow + span * 0.08);
+      arms.push({ hue, d: 'M ' + fix(foot.x) + ' ' + fix(foot.y)
+        + ' Q ' + fix(bend.x) + ' ' + fix(bend.y) + ' ' + fix(tip.x) + ' ' + fix(tip.y) });
+
+      // The bezel segment for this arm, plus its count on the rim.
+      const start = polar(BEZEL, from + 0.012);
+      const end = polar(BEZEL, to - 0.012);
+      const wide = span > Math.PI ? 1 : 0;
+      const segRx = rx * BEZEL;
+      const segRy = ry * BEZEL;
+      // Ramanujan's perimeter, times this arm's share of the ellipse.
+      const perimeter = Math.PI * (3 * (segRx + segRy)
+        - Math.sqrt((3 * segRx + segRy) * (segRx + 3 * segRy)));
+      const countAt = polar(BEZEL + 0.055, mid);
+      bezels.push({
+        hue, count: String(root.items.length),
+        d: 'M ' + fix(start.x) + ' ' + fix(start.y)
+          + ' A ' + fix(segRx) + ' ' + fix(segRy) + ' 0 ' + wide + ' 1 '
+          + fix(end.x) + ' ' + fix(end.y),
+        len: Math.round(perimeter * (span / (Math.PI * 2))),
+        delay: (armIndex * 0.09).toFixed(2),
+        countX: fix(countAt.x), countY: fix(countAt.y + 3),
+        countAnchor: 'middle',
+      });
+
+      // Track name, set outward along the arm over a hairline rule.
+      const nameAt = polar(0.30, bow - span * 0.035);
+      const flip = Math.cos(bow) < 0;
+      const turn = flip ? degrees(bow) + 180 : degrees(bow);
+      const runs = flip ? -1 : 1;
+      const wide9 = root.name.length * 8.4;
+      armLabels.push({
+        name: root.name, hue,
+        x: fix(nameAt.x), y: fix(nameAt.y),
+        anchor: flip ? 'end' : 'start',
+        rotate: 'rotate(' + turn.toFixed(1) + ' ' + fix(nameAt.x) + ' ' + fix(nameAt.y) + ')',
+        ruleX1: fix(nameAt.x), ruleX2: fix(nameAt.x + runs * wide9),
+        ruleY: fix(nameAt.y + 5),
+      });
+
+      // Subtracks, staggered in radius so two neighbours never share a lane.
+      const seen = [];
+      for (const row of root.items) {
+        const parts = row[1].split('/').slice(1);
+        if (!parts.length) continue;
+        const label = parts[parts.length - 1];
+        if (!seen.some((one) => one.label === label)) {
+          seen.push({ label, depth: parts.length });
+        }
+      }
+      const subStep = span / (seen.length + 1);
+      seen.forEach((sub, index) => {
+        const angle = from + subStep * (index + 1);
+        const lane = 0.40 + 0.05 * (sub.depth - 1) + 0.043 * (index % 3);
+        const at = polar(lane, angle);
+        const outward = Math.cos(angle) >= 0 ? 1 : -1;
+        subs.push({
+          name: sub.label, hue,
+          dot: toneOf(hue, TONES[Math.min(sub.depth, 3)]),
+          x: fix(at.x), y: fix(at.y),
+          r: (sub.depth === 1 ? 5 : sub.depth === 2 ? 4 : 3.5).toFixed(1),
+          lx: fix(at.x + outward * 9), ly: fix(at.y + 3.5),
+          anchor: outward > 0 ? 'start' : 'end',
+        });
+        spokes.push({ hue, x1: fix(foot.x), y1: fix(foot.y),
+          x2: fix(at.x), y2: fix(at.y) });
+      });
+
+      // Committed work inside the line, ideas outside it. Every project also
+      // graduates the bezel at its own angle.
+      const costed = root.items.filter((row) => row[2] !== 'idea');
+      const dreamt = root.items.filter((row) => row[2] === 'idea');
+
+      const costedStep = span / (costed.length + 1);
+      costed.forEach((row, index) => {
+        const angle = from + costedStep * (index + 1);
+        const lane = 0.66 + 0.058 * (index % 3);
+        const at = polar(lane, angle);
+        const stage = STAGES[row[2]] || STAGES.idea;
+        const radius = 15 + 21 * Math.sqrt(Math.max(row[4], 0) / 35);
+        const across = Math.cos(angle);
+        const down = Math.sin(angle);
+        const sideways = Math.abs(across) < 0.35;
+        projects.push({
+          name: row[0], tier: row[3],
+          x: fix(at.x), y: fix(at.y), r: fix(radius),
+          fill: stage[0], stroke: stage[1], sw: stage[2],
+          pipDisplay: row[3] > 0 ? 'inline' : 'none',
+          pipX: fix(at.x + radius * 0.72), pipY: fix(at.y - radius * 0.72),
+          lx: fix(at.x + (sideways ? 0 : across > 0 ? radius + 7 : -radius - 7)),
+          ly: fix(at.y + (sideways ? (down > 0 ? radius + 15 : -radius - 8) : 4)),
+          anchor: sideways ? 'middle' : across > 0 ? 'start' : 'end',
+        });
+        spokes.push({ hue, x1: fix(foot.x), y1: fix(foot.y),
+          x2: fix(at.x), y2: fix(at.y) });
+        const outer = polar(BEZEL, angle);
+        const inner = polar(BEZEL - 0.035, angle);
+        ticks.push({ cls: 'tick-in', hue,
+          x1: fix(outer.x), y1: fix(outer.y), x2: fix(inner.x), y2: fix(inner.y) });
+      });
+
+      const ideaStep = span / (dreamt.length + 1);
+      dreamt.forEach((row, index) => {
+        const angle = from + ideaStep * (index + 1);
+        const lane = 1.0 + 0.072 * (index % 3);
+        const at = polar(lane, angle);
+        const outward = Math.cos(angle) >= 0 ? 1 : -1;
+        ideas.push({
+          name: row[0], r: 7,
+          x: fix(at.x), y: fix(at.y),
+          lx: fix(at.x + outward * 11), ly: fix(at.y + 3.5),
+          anchor: outward > 0 ? 'start' : 'end',
+        });
+        const inner = polar(BEZEL, angle);
+        const outer = polar(BEZEL + 0.032, angle);
+        ticks.push({ cls: 'tick-out', hue: '',
+          x1: fix(inner.x), y1: fix(inner.y), x2: fix(outer.x), y2: fix(outer.y) });
+      });
+
+      from = to;
+    });
+
+    // The belt, as an annulus: one path, outer ring clockwise and inner ring
+    // back, so the hatch fills the band and not the middle.
+    const ring = (fraction, sweep) => {
+      const right = polar(fraction, 0);
+      const left = polar(fraction, Math.PI);
+      return 'M ' + fix(right.x) + ' ' + fix(right.y)
+        + ' A ' + fix(rx * fraction) + ' ' + fix(ry * fraction) + ' 0 1 ' + sweep
+        + ' ' + fix(left.x) + ' ' + fix(left.y)
+        + ' A ' + fix(rx * fraction) + ' ' + fix(ry * fraction) + ' 0 1 ' + sweep
+        + ' ' + fix(right.x) + ' ' + fix(right.y) + ' Z';
+    };
+
+    const named = (this.props.ideaLabels ?? false) || zoom >= 1.3;
+    const ideaCount = PROJECTS.filter((row) => row[2] === 'idea').length;
+
+    return {
+      svgW, svgH, viewBox: '0 0 ' + svgW + ' ' + svgH,
+      cx: fix(cx), cy: fix(cy),
+      glowX: fix(rx * 0.62), glowY: fix(ry * 0.62),
+      beltPath: ring(1.16, 1) + ' ' + ring(0.94, 0),
+      orbits: [0.40, 0.55, 0.70].map((fraction) => ({
+        rx: fix(rx * fraction), ry: fix(ry * fraction),
+      })),
+      arms, armLabels, bezels, ticks, bounds, spokes, subs, projects, ideas,
+      coreR: fix(50 * Math.min(zoom, 1.2)),
+      coreOuter: fix(59 * Math.min(zoom, 1.2)),
+      coreTop: fix(cy - 3), coreBottom: fix(cy + 13),
+      ideaLabelDisplay: named ? 'inline' : 'none',
+      zoomLabel: zoom.toFixed(1) + 'x',
+      labelMode: named ? 'idea names on' : 'idea names on from 1.3x',
+      committedCount: String(PROJECTS.length - ideaCount),
+      ideaCount: String(ideaCount),
+      keyX: fix(26 * zoom), keyTextX: fix(38 * zoom),
+      keyTickY: fix(svgH - 40), keyTickTop: fix(svgH - 50),
+      keyTickY2: fix(svgH - 22), keyTickBottom: fix(svgH - 12),
+    };
+  }
+}
+</script>
+</body>
+</html>

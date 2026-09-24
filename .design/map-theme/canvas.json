@@ -1,0 +1,39 @@
+{
+  "artboards": [
+    { "file": "Current.dc.html", "x": 0, "y": 0, "w": 1320, "h": 1060, "title": "Map today - 25 collisions marked" },
+    { "file": "Main.dc.html", "x": 1480, "y": 0, "w": 1380, "h": 1130, "title": "Direction A - Galaxy, the commitment bezel (recommended)" },
+    { "file": "Brain.dc.html", "x": 0, "y": 1280, "w": 1320, "h": 1070, "title": "Direction B - Brain" },
+    { "file": "Zoom.dc.html", "x": 1480, "y": 1280, "w": 1320, "h": 1000, "title": "Zoom - three mechanics, measured" }
+  ],
+  "annotations": [
+    {
+      "id": "note-measured",
+      "x": 0,
+      "y": -470,
+      "w": 560,
+      "text": "WHAT IS ACTUALLY WRONG - MEASURED\n\nThe artboard on the right is not a redrawing. It is renderMap() run against the real 30-project payload behind map_sweep's stub DOM and serialised to SVG, so every position, radius, hue and dash below is the app's own.\n\nAt 1200px with every status chip on: 25 collisions - 11 label-on-label, 11 label-on-circle, 3 circle-on-circle. 49 labels, 50 circles, canvas 1200x680.\n\nOn the shipped default (active only, 6 projects drawn) it is 3 across six widths. So the crowding you are seeing is what happens when the status chips go on - which is exactly when you are using the map to look at everything.\n\nTHE STRUCTURAL CAUSE, in one line: 18 of the 30 projects are ideas, and every idea sits on one ellipse at radius 1.0. Half the label ink on the map is spent on the ring that carries the least information, and label width is never an input to the layout.\n\nThis follows the earlier map canvas (.design/charts, MapToday / MapLegible), which fixed the track-name half by moving names to the rim. What is left is the ideas ring and the zoom question."
+    },
+    {
+      "id": "note-direction",
+      "x": 1480,
+      "y": -470,
+      "w": 560,
+      "text": "GALAXY, REDESIGNED - AN INSTRUMENT PLATE\n\nGalaxy over Brain, and not because it looks better. The map's geometry is already a hub with concentric orbits where distance from the centre means distance from being committed to. Galaxy is the metaphor that structure already has, so it asks for no new vocabulary: the eight track hues, seven stage colours and tier pips keep meaning exactly what they mean today.\n\nThe redesign spends its one bold move on the COMMITMENT BEZEL - a graduated arc at r=0.88, on the line where commitment stops. Every project graduates it at its own angle: the tick turns INWARD if the work is committed to and OUTWARD if it is a future direction, and each arm's segment carries its count on the rim. 12 in, 18 out, read off the edge of the plate before a single label. That number exists nowhere on the page today.\n\nIt earns its place by being true rather than decorative - which is also why there is no 01/02/03 anywhere on it. A count is real; a sequence would be invented.\n\nTHE REST STAYS QUIET, deliberately. Wedge boundaries as hairlines, so an arm visibly owns its arc. Track names set outward along the arm over a hairline rule - length then costs radius, which the plate has, instead of arc, which it has none of at r=0.36. Ideas out in a hatched belt of three lanes at 7px, because an idea has no points to size it by. One page-load engraving of the bezel, and nothing else moves; prefers-reduced-motion turns it off.\n\nHONEST COSTS: tick direction is one new thing to learn, so it takes a line of key. Rotated names read slower than level ones. Radius now means depth plus a lane.\n\nTWO OPEN CALLS. The plate is set in IBM Plex Sans Condensed and Plex Mono - the app ships no webfont and has no build step, so that is optional and the design holds in system-ui. And a dark starfield plate still means re-picking eight hues: the palette's 3:1 floor was measured on white, where #332288 and #882255 already sit closest to it."
+    },
+    {
+      "id": "note-brain",
+      "x": 2960,
+      "y": 1280,
+      "w": 500,
+      "text": "WHY BRAIN IS THE RUNNER-UP\n\nIt is the stronger LAYOUT and the weaker MAP.\n\nWHAT IT WINS: phyllotaxis packing inside a lobe means circles cannot collide by construction - no sweep, no dodging. A one-project track stops costing a wedge of the whole circle. And the 11 dependencies can be drawn all the time as synapses instead of hiding behind a hover, which is a genuine gain the radial layout cannot have without turning into spaghetti.\n\nWHAT IT LOSES is the thing the map is for. Take away the centre and you take away the one statement the picture makes without a legend: how far from committed this work is. A lobe says which track. Nothing says how far along.\n\nAnd it does not actually fix the labels - inside a 20-cell CURADE lobe the names are tighter than on the ring. Packing solves circles, not text.\n\nWorth keeping on the table for one thing only: if dependencies ever become the question the map is asked, this is the shape that answers it."
+    },
+    {
+      "id": "note-next",
+      "x": 2960,
+      "y": 0,
+      "w": 500,
+      "text": "IF YOU PICK GALAXY, THE ORDER TO BUILD IT\n\n1. SEMANTIC LABELS FIRST, no zoom at all. Drop the idea meta line - \"T? . future direction\" restates a circle already drawn dashed - and 25 collisions become 16 at the shipped 1200px. Roughly a day, and it is reversible.\n\n2. THE IDEAS BELT. Three lanes instead of one ring, 7px dots. Pure layout maths in renderMap, no schema, no route.\n\n3. TRACK NAMES ALONG THE ARM. This is the one that needs the collision sweep re-baselined - map_sweep measures a horizontal box per label, so a rotated label needs the sweep taught about rotation before its number means anything.\n\n4. LAYOUT ZOOM LAST, once the picture is already legible at 1x. A zoom that exists to make an unreadable map readable is a workaround; a zoom on a readable map is a feature.\n\nWHAT NONE OF THIS TOUCHES, deliberately: no new stored field, no per-person state, nothing derived from the done tick, no auto-rescheduling. Every change here is where a circle is drawn, not what the roadmap says.\n\nOPEN QUESTION FOR YOU: at 2.5x the canvas is 3000px and about a third of the map is on screen. Is a map you have to scroll still doing the job you open it for - or does the answer stay 1x, made legible, and zoom is only ever for peering at one arm?"
+    }
+  ],
+  "launch": { "view": "canvas" }
+}
