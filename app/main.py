@@ -2458,6 +2458,9 @@ def resolved_links(text):
 # anything.
 PERSON_COLUMNS = ("pic", "reviewer", "owner", "assignee")
 STATUS_COLUMN = "status"
+# Shown on the task card as written. Never summed: that is non-negotiable 8.
+POINTS_COLUMNS = ("sp", "points", "story points")
+PRIORITY_COLUMNS = ("priority", "commitment")
 
 # One cell may hand a row to two people: `@QingHao, @Bernard` and `QingHao / Bernard`
 # are both written.
@@ -2535,6 +2538,9 @@ def row_people(row, head, person_columns, status_at, section, handles):
     status = row[status_at].strip() if 0 <= status_at < len(row) else ""
     state = task_state(status)
 
+    points = row_cell(row, head, POINTS_COLUMNS)
+    priority = row_cell(row, head, PRIORITY_COLUMNS)
+
     seen = {}
     for index, cell in enumerate(row):
         if index in person_columns:
@@ -2545,9 +2551,18 @@ def row_people(row, head, person_columns, status_at, section, handles):
                 seen.setdefault(handle, "")
     return [
         {"handle": handle, "role": role, "task": task, "section": section,
-         "status": status, "state": state}
+         "status": status, "state": state, "points": points, "priority": priority,
+         "others": [{"handle": other, "role": other_role}
+                    for other, other_role in seen.items()
+                    if other != handle and other_role]}
         for handle, role in seen.items()
     ]
+
+
+def row_cell(row, head, names):
+    """The row's cell under the first header in `names`, stripped, or ''."""
+    at = next((index for index, name in enumerate(head) if name in names), -1)
+    return row[at].strip() if 0 <= at < len(row) else ""
 
 
 def sprint_task_people(text, handles):
@@ -2606,7 +2621,8 @@ def sprint_task_people(text, handles):
             for handle in named:
                 found.append({"handle": handle, "role": "", "task": label,
                               "section": section, "status": status,
-                              "state": task_state(status)})
+                              "state": task_state(status), "points": "",
+                              "priority": "", "others": []})
     return found
 
 

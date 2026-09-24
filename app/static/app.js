@@ -2039,23 +2039,113 @@ function taskOrder(rows) {
     || two.sprint - one.sprint);
 }
 
+// How many subtask lines a card lists before folding the rest into a count.
+const TASK_CARD_LINES = 5;
+const TASK_LINE_TODO = /^\s*(?:[-*+]\s+\[([ xX])\]|([☐☑]))\s*(.*)$/u;
+const TASK_LINE_BULLET = /^\s*[-*+]\s+(.*)$/;
+
+// A Task cell split for the card: first line is the title, the rest its lines.
+// A table cell spells its line breaks `<br>`; a list line has none.
+function taskCellParts(text) {
+  const lines = String(text || "").split(/<br\s*\/?>|\n/i)
+    .filter((line) => line.trim());
+  const title = (lines.shift() || "").trim().replace(/^\*\*(.+)\*\*$/, "$1");
+  const items = lines.map((line) => {
+    const todo = TASK_LINE_TODO.exec(line);
+    if (todo) {
+      return { kind: "todo", done: todo[2] ? todo[2] === "☑" : todo[1] !== " ",
+        text: todo[3] };
+    }
+    const bullet = TASK_LINE_BULLET.exec(line);
+    return { kind: bullet ? "group" : "note", text: bullet ? bullet[1] : line.trim() };
+  });
+  return { title, items };
+}
+
+// One line of card text, through the cell's own inline renderer so bold, code,
+// links and deliverable chips draw as they do in the sprint file.
+function taskCardText(className, text) {
+  const node = element("span", className);
+  renderCellInline(node, text);
+  return node;
+}
+
 // A row is a way into the sprint file it came from -- the same move a late row
 // makes into a project. It reads; nothing here writes, and the Status cell stays
-// the file's to change.
+// the file's to change. A `<div>` rather than a button, because a deliverable
+// chip or link drawn inside it is interactive in its own right.
 function taskRow(row) {
-  const item = element("button", `late-row task-row is-${row.state}`);
-  item.type = "button";
-  item.appendChild(element("span", `pill task-pill task-${row.state}`, row.state));
-  item.appendChild(element("span", "late-message", row.task || "(unnamed)"));
-  const where = [row.role ? row.role.toUpperCase() : "", `Sprint ${row.sprint}`]
-    .filter(Boolean).join(" · ");
-  item.appendChild(element("span", "late-days", where));
-  item.title = `Open ${row.file}${row.section ? ` — ${row.section}` : ""}.`;
-  item.onclick = async () => {
+  const card = element("div", `task-card is-${row.state}`);
+  card.tabIndex = 0;
+  card.setAttribute("role", "button");
+  card.title = `Open ${row.file}${row.section ? ` — ${row.section}` : ""}.`;
+  const open = async () => {
     closeTask();
     await openSprintFromTask(row.sprint);
   };
-  return item;
+  card.onclick = (event) => {
+    if (event.target.closest("a, button")) return;
+    open();
+  };
+  card.onkeydown = (event) => {
+    if (event.target !== card || (event.key !== "Enter" && event.key !== " ")) return;
+    event.preventDefault();
+    open();
+  };
+
+  const head = element("div", "task-card-head");
+  head.appendChild(element("span", `pill task-pill task-${row.state}`, row.state));
+  if (row.role) head.appendChild(element("span", "task-card-role", row.role.toUpperCase()));
+  head.appendChild(element("span", "spacer"));
+  head.appendChild(element("span", "task-card-where", `Sprint ${row.sprint}`));
+  card.appendChild(head);
+
+  const { title, items } = taskCellParts(row.task);
+  card.appendChild(taskCardText("task-card-title", title || "(unnamed)"));
+
+  const todos = items.filter((item) => item.kind === "todo");
+  if (todos.length) {
+    const done = todos.filter((item) => item.done).length;
+    const progress = element("div", "task-card-progress");
+    const bar = element("span", "task-card-bar");
+    const fill = element("span", "task-card-fill");
+    fill.style.width = `${Math.round((done / todos.length) * 100)}%`;
+    bar.appendChild(fill);
+    progress.append(bar, element("span", "task-card-count",
+      `${done}/${todos.length} subtask${todos.length === 1 ? "" : "s"}`));
+    card.appendChild(progress);
+  }
+
+  if (items.length) {
+    const list = element("div", "task-card-lines");
+    for (const item of items.slice(0, TASK_CARD_LINES)) {
+      const line = element("div", `task-card-line is-${item.kind}`);
+      if (item.kind === "todo") {
+        line.classList.toggle("is-done", item.done);
+        line.appendChild(element("span", "task-card-box", item.done ? "☑" : "☐"));
+      }
+      line.appendChild(taskCardText("task-card-line-text", item.text));
+      list.appendChild(line);
+    }
+    if (items.length > TASK_CARD_LINES) {
+      list.appendChild(element("div", "task-card-more",
+        `+${items.length - TASK_CARD_LINES} more`));
+    }
+    card.appendChild(list);
+  }
+
+  const meta = element("div", "task-card-meta");
+  if (row.priority) meta.appendChild(element("span", "task-card-chip", row.priority));
+  if (row.points) meta.appendChild(element("span", "task-card-chip", `${row.points} SP`));
+  for (const other of row.others || []) {
+    const chip = element("span", "task-card-chip task-card-person");
+    chip.append(element("span", "task-card-person-role", other.role), ` @${other.handle}`);
+    meta.appendChild(chip);
+  }
+  if (meta.childNodes.length) card.appendChild(meta);
+
+  if (row.status) card.appendChild(element("div", "task-card-status", row.status));
+  return card;
 }
 
 // The Sprint tab, on the file the row came from. A tab switch rather than a

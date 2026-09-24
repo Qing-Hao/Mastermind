@@ -5392,6 +5392,22 @@ def test_mine_reads_the_pic_and_reviewer_columns(client, realm, sprints):
     assert ("Map legend", "") in tasks
 
 
+def test_mine_carries_the_rows_points_priority_and_partners(client, realm, sprints):
+    """What the task card draws. Read off the row as written; nothing is summed."""
+    client.put("/api/sso", json={"issuer": STUB_ISSUER, "client_id": "mastermind",
+                                 "identity_claim": "preferred_username",
+                                 "allowlist": "qinghao, bernard", "mode": "allowlist"})
+    write_sprint(sprints, "01.md", WORK_TABLE)
+
+    rows = {row["task"]: row for row in
+            client.get("/api/mine?handle=qinghao").json()["rows"]}
+    auth = rows["Auth API"]
+    assert (auth["points"], auth["priority"]) == ("5", "HIGH")
+    assert auth["others"] == [{"handle": "bernard", "role": "reviewer"}]
+    # Named only in Remarks: bernard is the PIC there, and still listed as such.
+    assert rows["Map legend"]["others"] == [{"handle": "bernard", "role": "pic"}]
+
+
 def test_the_capacity_and_carry_over_tables_are_not_read_as_work(client, realm, sprints):
     """Neither has a PIC column, and that is exactly the test -- both name
     people and neither assigns anything."""

@@ -673,13 +673,87 @@
    Status cell as written, read through `validation.task_state` -- three words,
    because the file's own vocabulary is the team's and only "is it finished"
    needs to be agreed on. */
-.task-row { background: #f7f7fe; }
-.task-row:hover { background: #eeeffc; border-color: #cfd4f5; }
-.task-row .late-days { color: var(--muted); font-weight: 600; }
+/* One assigned row as a card: the Task cell drawn rather than spelled, so its
+   `**title**<br>- [ ] step` reads as a title and a checklist. */
+.task-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding: 10px 12px;
+  border: 1px solid #e3e6f8;
+  border-left: 3px solid #a5b4fc;
+  border-radius: var(--radius);
+  background: #f7f7fe;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.task-card:hover { background: #eeeffc; border-color: #cfd4f5; border-left-color: #6366f1; }
+.task-card:focus-visible { outline: 2px solid #6366f1; outline-offset: 1px; }
+.task-card.is-blocked { border-left-color: #f87171; }
+.task-card.is-done { border-left-color: #86efac; }
+
+.task-card-head { display: flex; align-items: center; gap: 6px; }
+.task-card-role,
+.task-card-where {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.task-card-title { font-size: 13px; font-weight: 700; color: var(--ink); line-height: 1.35; }
+
+.task-card-progress { display: flex; align-items: center; gap: 8px; }
+.task-card-bar {
+  flex: 1;
+  height: 5px;
+  border-radius: 999px;
+  background: #e0e7ff;
+  overflow: hidden;
+}
+.task-card-fill { display: block; height: 100%; border-radius: inherit; background: #6366f1; }
+.task-card.is-done .task-card-fill { background: #22c55e; }
+.task-card-count { font-size: 11px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+
+.task-card-lines { display: flex; flex-direction: column; gap: 2px; }
+.task-card-line { display: flex; align-items: baseline; gap: 6px; line-height: 1.4; }
+.task-card-line.is-group {
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--ink-3);
+}
+.task-card-line.is-todo { padding-left: 4px; }
+.task-card-line.is-done .task-card-line-text { color: var(--muted); text-decoration: line-through; }
+.task-card-box { flex: 0 0 auto; color: #6366f1; }
+.task-card-line.is-done .task-card-box { color: #16a34a; }
+.task-card-more { padding-left: 4px; font-size: 11px; color: var(--muted); }
+
+.task-card-meta { display: flex; flex-wrap: wrap; gap: 4px; }
+.task-card-chip {
+  padding: 1px 7px;
+  border: 1px solid #e3e6f8;
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.task-card-person-role { color: var(--muted); font-weight: 500; text-transform: capitalize; }
+.task-card-status {
+  padding-top: 6px;
+  border-top: 1px dashed #e3e6f8;
+  font-size: 11.5px;
+  font-style: italic;
+  color: var(--muted);
+}
 
 .task-pill {
   flex: 0 0 auto;
-  margin-right: 8px;
   text-transform: capitalize;
 }
 /* Written as `.pill.task-*` for the reason `.menu-panel.late-panel` is: `.pill`
@@ -691,7 +765,7 @@
 .pill.task-done { background: #dcfce7; color: #166534; }
 /* Finished work is still listed -- it is what the fortnight did -- but it is not
    what the panel is for, so it recedes. */
-.task-row.is-done { opacity: 0.62; }
+.task-card.is-done { opacity: 0.62; }
 
 /* --- the ⋯ menu ----------------------------------------------------------
    Rename, the global settings and Delete: everything about the open project you
