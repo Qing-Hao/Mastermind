@@ -68,11 +68,11 @@ Everything built on top of it derives on read and remembers nothing:
 
 If a general user model is ever wanted, that is a fresh decision to make and
 record — not extra columns added to `person` because the table happens to exist.
-The reasoning in full is [PROMPT.md](PROMPT.md) amendment 6.
+The reasoning in full is [PROMPT.md](docs/planning/PROMPT.md) amendment 6.
 
 Sprint generation from a project's date range, allocating deliverables into
 sprints against velocity, and a delivery forecast are **not built** (they are
-Phase 2 in [PROMPT.md](PROMPT.md)).
+Phase 2 in [PROMPT.md](docs/planning/PROMPT.md)).
 
 ## Quick start
 
@@ -170,5 +170,5 @@ start also copies the database to `data/backups/`, keeping the last ten.
 | [docs/rules.md](docs/rules.md) | The validation rules V1–V8, and what refuses a write |
 | [docs/views.md](docs/views.md) | Map, Project, Portfolio and Sprint, screen by screen |
 | [docs/admin.md](docs/admin.md) | Docker, the Keycloak gate, backup, export/import, recovery |
-| [PROMPT.md](PROMPT.md) | The original brief and its amendments — what was asked for |
+| [docs/planning/PROMPT.md](docs/planning/PROMPT.md) | The original brief and its amendments — what was asked for |
 | [CLAUDE.md](CLAUDE.md) | Where code goes and how to work in this repo |

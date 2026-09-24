@@ -16,10 +16,13 @@ it here would drift. For the detail:
 
 | Question | Read |
 |---|---|
-| What was asked for | `PROMPT.md` (the brief; its **Amendments** override its body) |
+| What was asked for | `docs/planning/PROMPT.md` (the brief; its **Amendments** override its body) |
 | What was decided and why | `git log`, then `STATUS.md` (gitignored, personal) |
-| What is still open | `feature_request.md` (open + won't-build only; FR numbers never reused) |
-| What the requester said | `comments.md` |
+| What is still open | `docs/planning/feature_request.md` (open + won't-build only; FR numbers never reused) |
+| What the requester said | `docs/planning/comments.md` |
+
+Elsewhere, "PROMPT.md" and "feature_request.md" name those files in
+`docs/planning/` — code comments cite them by name, not path.
 | How a feature actually behaves | the code — it is small and there is no framework in the way |
 
 **What belongs in here:** working style, and the folder map that routes a change
@@ -137,7 +140,8 @@ Type checking is pyright, `basic` mode, config in `pyrightconfig.json`.
 | `scripts/lock_check.js` | Two people in one sprint file: which node a hold names, what a locked one refuses, what a save owes as cells rather than blocks, a remote cell write merging into a grid being typed in, and which edits `Ctrl+Z` can take back without writing over somebody else's. Loads both frontend files in one scope behind a stub DOM. Node, no deps. |
 | `Dockerfile`, `compose.yaml`, `.env.example` | How it is served to the team. One worker — the connection registry is process memory. Three mounts: `data/`, `sprints/`, `templates/`, each irreplaceable for its own reason — all three are directories, because a save renames over its target and `rename` onto a single-file bind mount is `EBUSY`. |
 | `.design/*.dc.html` | The UI as artboards, plus `canvas.json`. Source only; the published canvas beside them is gitignored. |
-| `data/roadmap.db` | The dataset. Gitignored. `.bak` is an **old** backup, not a scratch slot. |
+| `data/roadmap.db` | The dataset. Gitignored. Backups — `init_db`'s and hand-made ones — go in `data/backups/`, never beside the live file. |
+| `docs/` | Team-facing product docs. `docs/planning/` holds the brief, the backlog and the requester's comments. |
 
 **Keep this shape.** Extend an existing module rather than adding a file; propose
 a structure change before adding anything top-level. Test files mirror the module

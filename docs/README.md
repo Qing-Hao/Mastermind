@@ -11,10 +11,16 @@ to start it, see the [project README](../README.md).
 | [rules.md](rules.md) | V1–V8, the gaps at V3 and V5, and the two write-time refusals |
 | [admin.md](admin.md) | Docker, the Keycloak gate, backups, export/import, and getting back in |
 
-Two documents sit outside this folder and answer different questions:
+The planning record lives in [planning/](planning/), and answers different questions:
 
-- [PROMPT.md](../PROMPT.md) — the original brief and its amendments. What was
+- [PROMPT.md](planning/PROMPT.md) — the original brief and its amendments. What was
   asked for, and what was deliberately ruled out.
+- [feature_request.md](planning/feature_request.md) — what is still open, and what
+  will not be built.
+- [comments.md](planning/comments.md) — the requester's own feedback.
+
+And one outside this folder:
+
 - [CLAUDE.md](../CLAUDE.md) — how to work in the repo: where code goes, what must
   not be built, and the traps worth knowing before editing.
 

@@ -74,7 +74,7 @@ that `@QingHao` in a sprint file's **PIC** column can be picked from a list
 rather than spelled from memory, and so the task bell has a name to match rows
 against. There is **no timestamp on it** — the app does not record when it last
 saw you — and no role, no permissions and no preferences. The argument in full is
-[PROMPT.md](../PROMPT.md) amendment 6.
+[PROMPT.md](planning/PROMPT.md) amendment 6.
 
 Rows arrive by themselves, two ways, and there is no screen to manage them:
 
