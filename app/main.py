@@ -67,6 +67,7 @@ from app.validation import (
     roadmap_quarters,
     retrack,
     sequential_layout,
+    stage_next_steps,
     stale_expectations,
     task_state,
     task_tally,
@@ -1541,6 +1542,8 @@ def read_project_plan(project_id: int):
     project["derived_stage"] = project_stage(
         project, phases, flat_deliverables, milestones, today,
     )
+    project["next_steps"] = stage_next_steps(
+        project, phases, flat_deliverables, milestones)
     with_project_span(
         [project], {project_id: phases}, {project_id: flat_deliverables})
 

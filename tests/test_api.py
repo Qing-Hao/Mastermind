@@ -764,6 +764,16 @@ def test_a_swimlane_carries_the_derived_stage_too(client):
     assert lane["stage"] == "active"
 
 
+def test_the_project_view_carries_the_steps_left_to_active(client):
+    project = make_project(client, "Payments", "")
+    make_phase(client, project["id"], "Build", "", 6, 55)
+
+    plan = client.get(f"/api/projects/{project['id']}").json()["project"]
+    assert plan["derived_stage"] == "planning"
+    assert [step["key"] for step in plan["next_steps"] if not step["met"]] \
+        == ["deliverable", "checkpoint", "dates"]
+
+
 def test_portfolio_carries_dated_milestones_for_the_chart(client):
     """The diamonds the swimlanes draw: dated checkpoints, flat, project-tagged."""
     first = make_project(client, "Payments", "2026-01-05")

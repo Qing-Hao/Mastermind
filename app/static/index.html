@@ -254,6 +254,16 @@
         <ul id="warning-list" class="warnings"></ul>
       </div>
 
+      <!-- Guidance, not a warning: an unfinished draft is not a fault in the plan.
+           Drawn by `renderRoad` from `project.next_steps`; hidden past `dated`. -->
+      <div id="road-panel" class="road-panel" hidden>
+        <div class="road-head">
+          <strong id="road-title"></strong>
+          <span class="road-note">Worked out from the plan. Nothing is set for you.</span>
+        </div>
+        <ul id="road-steps" class="road-steps"></ul>
+      </div>
+
       <!-- Side by side: both are short, and stacked they pushed the timeline off
            the first screen. -->
       <div class="project-top">

@@ -2301,6 +2301,7 @@ function renderProjectView() {
   renderProjectFields();
   renderSettingsFields();
   renderWarnings();
+  renderRoad();
   renderUnscheduled();
   renderTimeline();
   // Checkpoints are rows in the phase table now, so `renderPhases` draws both
@@ -2666,6 +2667,106 @@ function renderWarnings() {
     const item = element("li");
     item.appendChild(ruleChip(warning.rule));
     item.appendChild(document.createTextNode(` ${warning.message}`));
+    list.appendChild(item);
+  }
+}
+
+// Opens an adder row the way the topbar's `Add phase` does: open only, never a
+// toggle, scrolled into view because the table may be a screen down.
+function openAdder(rowId, fieldId) {
+  const row = $(rowId);
+  row.hidden = false;
+  row.scrollIntoView({ block: "center" });
+  $(fieldId).focus();
+}
+
+function focusField(id) {
+  const field = $(id);
+  field.scrollIntoView({ block: "center" });
+  field.focus();
+}
+
+// Each step's words, and the existing control its button opens. Only `dates`
+// gates `active`; the other three move `planning` to `planned`.
+const ROAD_STEPS = {
+  phase: {
+    label: "Name a phase",
+    why: () => "The work the plan is made of.",
+    button: "+ Phase",
+    act: () => openAdder("phase-adder", "new-phase-name"),
+  },
+  deliverable: {
+    label: "Name a deliverable under a phase",
+    why: () => "Expand a phase below and name what it produces.",
+  },
+  checkpoint: {
+    label: "Add a checkpoint",
+    why: () => "Something the plan is aiming at. The date can wait.",
+    button: "+ Checkpoint",
+    act: () => openAdder("milestone-adder", "new-milestone-name"),
+  },
+  dates: {
+    label: "Date the project start and every phase",
+    why: (step) => {
+      const parts = [];
+      if (!step.project_start) parts.push("The project has no start date.");
+      if (step.undated_phases) {
+        parts.push(`${step.undated_phases} phase${step.undated_phases === 1 ? " has" : "s have"} no start.`);
+      }
+      parts.push("\"Lay out sequentially\" fills phases from the project start.");
+      return parts.join(" ");
+    },
+    button: "Set dates",
+    act: (step) => focusField(step.project_start ? "layout-phases" : "project-start"),
+  },
+};
+
+// Guidance under the warnings banner. Draws `next_steps` from the server and
+// derives nothing: which steps are met is `validation.stage_next_steps`'s call.
+function renderRoad() {
+  const panel = $("road-panel");
+  const list = $("road-steps");
+  const project = state.plan.project;
+  const stage = project.derived_stage;
+  list.innerHTML = "";
+
+  if (stage === "dated") {
+    panel.hidden = false;
+    $("road-title").textContent = `Goes active on ${project.span_start}.`;
+    return;
+  }
+  if (stage !== "planning" && stage !== "planned") {
+    panel.hidden = true;
+    return;
+  }
+
+  const steps = project.next_steps || [];
+  const left = steps.filter((step) => !step.met).length;
+  panel.hidden = false;
+  $("road-title").textContent = `${left} step${left === 1 ? "" : "s"} to go active`;
+
+  let nextMarked = false;
+  for (const step of steps) {
+    const copy = ROAD_STEPS[step.key];
+    if (!copy) continue;
+    const item = element("li", "road-step");
+    item.classList.toggle("is-met", step.met);
+    if (!step.met && !nextMarked) {
+      item.classList.add("is-next");
+      nextMarked = true;
+    }
+    item.appendChild(element("span", "road-tick", step.met ? "✓" : ""));
+    const label = element("span", "road-label", copy.label);
+    if (!step.met) label.appendChild(element("span", "road-why", copy.why(step)));
+    item.appendChild(label);
+    if (!step.met && copy.act) {
+      const button = element("button", null, copy.button);
+      button.type = "button";
+      button.onclick = () => copy.act(step);
+      item.appendChild(button);
+    } else {
+      item.appendChild(element("span"));
+    }
     list.appendChild(item);
   }
 }

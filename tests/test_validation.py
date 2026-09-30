@@ -40,6 +40,7 @@ from app.validation import (
     shift_quarter,
     same_stored_value,
     sequential_layout,
+    stage_next_steps,
     stale_expectations,
     task_rings,
     task_state,
@@ -816,6 +817,69 @@ def test_an_idea_stays_an_idea_whatever_its_plan_says():
     phases = [make_phase(1, "Design")]
     assert project_stage(idea, phases, [deliverable(1, 1)], REACHED,
                          DURING) == "idea"
+
+
+# --- the steps left to active -----------------------------------------------
+
+
+def unmet(project, phases, deliverables, milestones):
+    steps = stage_next_steps(project, phases, deliverables, milestones)
+    return [step["key"] for step in steps if not step["met"]]
+
+
+def test_an_empty_project_has_every_step_left():
+    assert unmet(UNDATED, [], [], []) == [
+        "phase", "deliverable", "checkpoint", "dates"]
+
+
+def test_a_shaped_plan_with_no_checkpoint_needs_one_and_its_dates():
+    """The case that asked for this: stuck at planning with no checkpoint."""
+    phases = [make_phase(1, "Design", start="")]
+    assert unmet(UNDATED, phases, [deliverable(1, 1)], []) == [
+        "checkpoint", "dates"]
+
+
+def test_dates_need_the_project_start_as_well_as_every_phase():
+    phases = [make_phase(1, "Design")]
+    dates = stage_next_steps(UNDATED, phases, [], [])[3]
+    assert dates == {"key": "dates", "met": False,
+                     "project_start": False, "undated_phases": 0}
+
+
+def test_undated_phases_are_counted():
+    phases = [make_phase(1, "Design"), make_phase(2, "Build", start=""),
+              make_phase(3, "Ship", start="")]
+    dates = stage_next_steps(COMMITTED, phases, [], [])[3]
+    assert dates["met"] is False
+    assert dates["undated_phases"] == 2
+
+
+def test_the_steps_read_presence_and_never_a_tick():
+    phases = [make_phase(1, "Design", start="")]
+    ticked = [{**deliverable(1, 1), "done": 1}]
+    assert (unmet(UNDATED, phases, ticked, REACHED)
+            == unmet(UNDATED, phases, [deliverable(1, 1)], OPEN)
+            == ["dates"])
+
+
+@pytest.mark.parametrize("project, phases, deliverables, milestones", [
+    (UNDATED, [], [], []),
+    (UNDATED, [make_phase(1, start="")], [], OPEN),
+    (UNDATED, [make_phase(1, start="")], [deliverable(1, 1)], []),
+    (UNDATED, [make_phase(1, start="")], [deliverable(1, 1)], OPEN),
+    (COMMITTED, [make_phase(1), make_phase(2, start="")], [deliverable(1, 1)], OPEN),
+    (COMMITTED, [make_phase(1)], [], []),
+    (COMMITTED, [make_phase(1)], [deliverable(1, 1)], OPEN),
+])
+def test_the_steps_agree_with_the_ladder(project, phases, deliverables, milestones):
+    """Dates met is exactly when the ladder leaves planning and planned."""
+    steps = stage_next_steps(project, phases, deliverables, milestones)
+    stage = project_stage(project, phases, deliverables, milestones, DURING)
+    assert steps[3]["met"] == (stage not in ("planning", "planned"))
+    if not steps[3]["met"]:
+        # Before dates, the first three steps are what decides the rung.
+        drafted = all(step["met"] for step in steps[:3])
+        assert stage == ("planned" if drafted else "planning")
 
 
 # --- V6 / V7 ----------------------------------------------------------------

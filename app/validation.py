@@ -878,6 +878,29 @@ def project_stage(project, phases, deliverables, milestones, today):
     return STAGE_PLANNED
 
 
+def stage_next_steps(project, phases, deliverables, milestones):
+    """The four steps from `planning` to `active`, each marked met or not.
+
+    Guidance for the project view, not a rule: no V number, no `PlanWarning`.
+    The steps follow the intended path -- phase, deliverable, checkpoint, dates
+    -- but only the dates gate `active`; `project_stage` lets a fully dated plan
+    skip the other three, which is why `dates` is listed rather than implied.
+    Presence only, like `project_stage`: no tick and no `achieved` is read.
+    """
+    covered = {deliverable["phase_id"] for deliverable in deliverables}
+    undated = sum(1 for phase in phases if not is_scheduled(phase))
+    return [
+        {"key": "phase", "met": bool(phases)},
+        {"key": "deliverable",
+         "met": any(phase["id"] in covered for phase in phases)},
+        {"key": "checkpoint", "met": bool(milestones)},
+        {"key": "dates",
+         "met": bool(phases) and is_scheduled(project) and undated == 0,
+         "project_start": is_scheduled(project),
+         "undated_phases": undated},
+    ]
+
+
 def next_phase_boundary(phases, today):
     """The next phase boundary falling on or after `today`, or None.
 
