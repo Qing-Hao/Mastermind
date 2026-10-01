@@ -1679,10 +1679,6 @@ function openAlerts(open, tab) {
   $("alert-panel").hidden = !open;
   $("late-alert").setAttribute("aria-expanded", String(open));
   if (!open) return;
-  // Looking at the list is the thing the ring was asking for, so it stops while
-  // the panel is up -- and starts again on the next refresh if the rows are
-  // still open. Nothing is stored about having looked.
-  keepRinging(false);
   renderAlertPanel();
 }
 
@@ -1862,14 +1858,6 @@ function watchTheClock() {
 // `roadmapRevision`, and a sprint save does not touch the roadmap, so the two
 // cannot share a trigger without one of them being wrong.
 
-// The ring is a nudge, not an alarm: a short shake, then a long wait. Twenty
-// seconds is often enough to catch the eye of somebody looking elsewhere on the
-// page and rare enough not to be the thing they end up looking at.
-const RING_EVERY_MS = 20000;
-const RING_FOR_MS = 900;
-
-let ringTimer = null;
-
 async function refreshMine() {
   try {
     const payload = await api("/api/mine");
@@ -1915,34 +1903,8 @@ function drawMine() {
   count.hidden = ringing === 0;
   count.textContent = String(ringing);
 
-  keepRinging(ringing > 0);
   syncAlertBell();
   if (!$("alert-panel").hidden) renderAlertPanel();
-}
-
-// The animation is added and taken off again rather than left running: a bell
-// that shakes forever is a bell people stop seeing. Nothing is stored about
-// whether you have watched it -- the interval restarts with the page.
-//
-// The class sets `animation` and never `display`, which is the trap `css_check`
-// exists for: a class setting `display` on an element toggled with the `hidden`
-// attribute outranks the UA sheet and the element never hides.
-function keepRinging(on) {
-  if (ringTimer) {
-    clearInterval(ringTimer);
-    ringTimer = null;
-  }
-  const bell = $("late-alert");
-  if (!on) {
-    bell.classList.remove("is-ringing");
-    return;
-  }
-  const shake = () => {
-    bell.classList.add("is-ringing");
-    setTimeout(() => bell.classList.remove("is-ringing"), RING_FOR_MS);
-  };
-  shake();
-  ringTimer = setInterval(shake, RING_EVERY_MS);
 }
 
 function renderTaskPanel() {

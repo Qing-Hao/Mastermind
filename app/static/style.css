@@ -599,40 +599,9 @@
   color: var(--muted);
 }
 
-/* The second bell: what the sprint files hand out. Indigo rather than the amber
-   one beside it, because it is a different question -- amber is "the plan
-   slipped", this is "somebody's name is on this". Neither colour means anything
-   about the data, so both are chrome and both sit above the chart line. */
-.task-bell {
-  border-color: #cfd4f5;
-  background: #f3f4fd;
-  color: #3730a3;
-}
-.task-bell:hover { background: #e5e7fb; color: #312e81; }
+/* Indigo rather than the amber late count beside it: amber is "the plan
+   slipped", this is "somebody's name is on this". Chrome, not data. */
 .task-count { background: #4f46e5; }
-
-/* Rings while a row naming you is not Done, and it is deliberately a nudge
-   rather than an alarm: `keepRinging` adds this class for under a second at a
-   time and takes it off again. A bell that shakes without stopping is a bell
-   people learn to ignore.
-
-   **`animation` only, never `display`.** The bell is folded away with the
-   `hidden` attribute, and a class here setting `display` would outrank the UA
-   sheet's `[hidden]` and pin it open -- the trap `css_check.js` exists for. */
-@keyframes task-ring {
-  0%, 100% { transform: rotate(0); }
-  15%      { transform: rotate(-11deg); }
-  30%      { transform: rotate(9deg); }
-  45%      { transform: rotate(-7deg); }
-  60%      { transform: rotate(5deg); }
-  75%      { transform: rotate(-3deg); }
-}
-.task-bell.is-ringing svg { animation: task-ring 0.9s ease-in-out; }
-/* Somebody who has asked for less motion is asking for less of exactly this.
-   The count still says how many; only the shake goes. */
-@media (prefers-reduced-motion: reduce) {
-  .task-bell.is-ringing svg { animation: none; }
-}
 
 /* Mine and Everyone. Two halves of one scan rather than two panels: the
    Everyone half is ungated and there is no root user, so it is a tab and not a
