@@ -1382,11 +1382,6 @@ def with_project_span(projects, phases_by_project, deliverables_by_project):
 # --- settings ---------------------------------------------------------------
 
 
-@app.get("/api/settings")
-def read_settings():
-    return db.get_settings()
-
-
 @app.put("/api/settings")
 def write_settings(body: SettingsIn):
     settings = db.update_settings(body.model_dump(exclude_unset=True, exclude_none=True))
@@ -3506,12 +3501,6 @@ def list_all_deliverables():
         }
         for row in sorted(deliverable_index().values(), key=lambda one: one["id"])
     ]
-
-
-@app.get("/api/phases/{phase_id}/deliverables")
-def read_deliverables(phase_id: int):
-    require_phase(phase_id)
-    return db.list_deliverables(phase_id)
 
 
 @app.post("/api/phases/{phase_id}/deliverables", status_code=201)

@@ -9,7 +9,7 @@ list, a table, a fence, a quote, a rule, or an HTML island -- carrying its own
 raw source:
 
     index: position in the document, from 0
-    type:  one of BLOCK_TYPES
+    type:  heading, paragraph, list, table, code, quote, rule or html
     raw:   the block's markdown, with no trailing line ending
     gap:   the exact text between this block and the next (its own line ending
            plus any blank lines), so the document can be rebuilt byte for byte
@@ -58,17 +58,6 @@ from html import escape
 from markdown_it import MarkdownIt
 from markdown_it.renderer import RendererHTML
 from mdit_py_plugins.tasklists import tasklists_plugin
-
-BLOCK_TYPES = (
-    "heading",
-    "paragraph",
-    "list",
-    "table",
-    "code",
-    "quote",
-    "rule",
-    "html",
-)
 
 # What separates two blocks when a caller builds a block list itself -- the
 # frontend inserting a new block has no gap to preserve. Blocks that came from

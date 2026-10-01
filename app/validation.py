@@ -710,13 +710,6 @@ STAGE_ACTIVE = "active"
 STAGE_OVERDUE = "overdue"
 STAGE_DONE = "done"
 
-# The order the ladder climbs, for anything that wants to sort or compare.
-STAGE_LADDER = (
-    STAGE_IDEA, STAGE_PLANNING, STAGE_PLANNED, STAGE_DATED,
-    STAGE_ACTIVE, STAGE_OVERDUE, STAGE_DONE,
-)
-
-
 def milestones_all_achieved(milestones):
     """True when a project has checkpoints and every one of them is ticked.
 
@@ -1579,6 +1572,6 @@ def task_tally(rows):
         state = row.get("state") or TASK_OPEN
         if state in tally:
             tally[state] += 1
-    tally["ringing"] = tally[TASK_OPEN] + tally[TASK_BLOCKED]
+    tally["ringing"] = sum(count for state, count in tally.items() if task_rings(state))
     tally["total"] = sum(tally[state] for state in (TASK_OPEN, TASK_BLOCKED, TASK_DONE))
     return tally

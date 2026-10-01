@@ -334,8 +334,6 @@ def without_token(repo):
 TOKEN_SET = "set"
 TOKEN_CLEARED = "cleared"
 TOKEN_CHANGED = "changed"
-ADDED = "added"
-REMOVED = "removed"
 
 
 def _token_state(before, after):

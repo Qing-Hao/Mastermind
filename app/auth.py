@@ -102,14 +102,6 @@ class AuthError(Exception):
 # Everything non-secret lives in the settings row, so it survives a restart and
 # is editable from the Sign-in page. `sso_enabled` is never written directly by
 # the page: only a real round trip flips it. See `main.arm_sso`.
-CONFIG_FIELDS = (
-    "sso_issuer",
-    "sso_client_id",
-    "sso_identity_claim",
-    "sso_allowlist",
-    "sso_mode",
-    "sso_enabled",
-)
 
 MODE_ALLOWLIST = "allowlist"
 MODE_ANY = "any"

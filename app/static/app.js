@@ -1836,11 +1836,7 @@ function agoText(days) {
 }
 
 // Kept as names of their own because the rows inside both panes call them to get
-// out of the way after a jump. Both now open the one panel on their own tab.
-function openLate(open) {
-  openAlerts(open, "late");
-}
-
+// out of the way after a jump.
 function closeLate() {
   closeAlerts();
 }
@@ -2155,12 +2151,6 @@ async function openSprintFromTask(number) {
   state.view = "sprint";
   await refreshView();
   if (state.sprint && state.sprint.number !== number) await loadSprintFile(number);
-}
-
-// The same panel as `openLate`, on the other tab. Opening it is not "marking it
-// read" -- there is nothing to mark; see `openAlerts`.
-function openTask(open) {
-  openAlerts(open, "task");
 }
 
 function closeTask() {

@@ -2825,8 +2825,6 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   font-size: 12px;
 }
 
-.drawer-result { color: #2e7d32; }
-
 /* Only shown when the file's start is not the Monday the strip is framed on --
    the one case where the heading and the picture above it differ. */
 .drawer-from { font-size: 12px; color: #3949ab; font-weight: 600; }
