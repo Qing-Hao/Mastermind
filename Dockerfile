@@ -18,12 +18,12 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Ahead of the source, so an edit to a route does not reinstall the six
-# dependencies. Two files are deliberately **not** installed: `requirements-ai.txt`,
+# dependencies. Two files are deliberately **not** installed: `requirements/ai.txt`,
 # because the sprint review is a CLI script whose dependency is heavy and whose
 # provider key belongs in an environment rather than a running server; and
-# `requirements-dev.txt`, because a test runner in a served image is weight
+# `requirements/dev.txt`, because a test runner in a served image is weight
 # nobody runs.
-COPY requirements.txt ./
+COPY requirements/base.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app/ ./app/

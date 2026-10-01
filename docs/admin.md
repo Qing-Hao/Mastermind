@@ -164,7 +164,7 @@ Get-CimInstance Win32_Process -Filter "Name like '%python%'" |
 ## Optional: the sprint review script
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements-ai.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements\ai.txt
 .\.venv\Scripts\python.exe scripts\sprint_review.py --history 3
 ```
 

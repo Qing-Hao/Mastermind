@@ -78,18 +78,18 @@ Phase 2 in [PROMPT.md](docs/planning/PROMPT.md)).
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements\base.txt
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000
 ```
 
 Open <http://127.0.0.1:8000>. The database is created on first start at
 `data/roadmap.db`.
 
-Tests (`requirements-dev.txt` adds pytest on top of the runtime install above —
+Tests (`requirements/dev.txt` adds pytest on top of the runtime install above —
 the served image carries only the runtime file):
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements\dev.txt
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 

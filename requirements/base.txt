@@ -1,4 +1,4 @@
-# Runtime only. Test-only dependencies live in `requirements-dev.txt`, which
+# Runtime only. Test-only dependencies live in `dev.txt`, which
 # installs this file first -- the image never carries them.
 #
 # Pinned exactly, and deliberately: this file is installed into an image that may
@@ -11,7 +11,7 @@ uvicorn[standard]==0.52.1
 # is a runtime dependency that the tests happen to share -- not a test dependency.
 httpx==0.28.1
 # The sprint editor renders markdown blocks server-side. Not optional, unlike
-# requirements-ai.txt: the Sprint tab cannot draw a file without them.
+# ai.txt: the Sprint tab cannot draw a file without them.
 markdown-it-py==4.2.0
 mdit-py-plugins==0.6.1
 # Reads `.env` on a developer machine -- see `app/config.py`. Already installed

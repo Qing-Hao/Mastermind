@@ -9,7 +9,7 @@ Python 3.12 is what the container runs; anything from 3.11 up works locally.
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements\base.txt
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000
 ```
 
@@ -20,11 +20,11 @@ There is nothing else to configure. The database is created at
 `.env` is needed to run on your own machine. The `.env` file only matters when
 you serve the tool to other people — see [admin.md](admin.md).
 
-Confirm the install with the test suite. `requirements-dev.txt` pulls in the
+Confirm the install with the test suite. `requirements/dev.txt` pulls in the
 runtime file and adds pytest, which the served image deliberately does not carry:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements\dev.txt
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 

@@ -13,7 +13,7 @@ is a pattern, and a pattern is the only thing worth automating. The default
 window is three sprints because that is also the window the template's baseline
 row averages over.
 
-Needs ``requirements-ai.txt`` installed and the provider's key in the
+Needs ``requirements/ai.txt`` installed and the provider's key in the
 environment (``OPENAI_API_KEY`` for the default model). The key is read from the
 environment and nowhere else — never the database, which ``/api/export`` writes
 wholesale to a JSON file that would carry it straight back out.
@@ -232,7 +232,7 @@ def build_agent(model: Any):
     except ImportError as exc:  # pragma: no cover - depends on the environment
         raise SystemExit(
             "pydantic-ai is not installed. It is an optional dependency:\n"
-            "  .\\.venv\\Scripts\\python.exe -m pip install -r requirements-ai.txt"
+            "  .\\.venv\\Scripts\\python.exe -m pip install -r requirements\\ai.txt"
         ) from exc
 
     try:

@@ -36,7 +36,7 @@ FastAPI + SQLite (stdlib `sqlite3`) + vanilla JS. No build step, no ORM, no
 migration framework. Sign-in is one OIDC redirect and a signed cookie — no auth
 framework and no session store, and `MASTERMIND_SSO=off` removes it entirely.
 
-- `requirements.txt` — one runtime parsing dependency: `markdown-it-py` (4.2.0) +
+- `requirements/base.txt` — one runtime parsing dependency: `markdown-it-py` (4.2.0) +
   `mdit-py-plugins` (0.6.1), for the sprint editor. Not optional, not lazily
   imported. Pure Python, so still no build step. linkify stays **off** (it needs a
   third package and raises at render time without it). Also `python-dotenv`,
@@ -45,11 +45,11 @@ framework and no session store, and `MASTERMIND_SSO=off` removes it entirely.
   **Pinned exactly (`==`), because the Dockerfile installs this file** and a
   rebuild months later must be the application that was tested. Bump a line on
   purpose, then run the suite.
-- `requirements-dev.txt` — `-r requirements.txt` plus `pytest`. Runtime and test
+- `requirements/dev.txt` — `-r base.txt` plus `pytest`. Runtime and test
   are split so the image carries no test runner; `httpx` stays on the runtime
   side, because `app/auth.py` imports it for the OIDC code exchange and
   `TestClient` only happens to share it.
-- `requirements-ai.txt` — `pydantic-ai`, for `scripts/sprint_review.py` only.
+- `requirements/ai.txt` — `pydantic-ai`, for `scripts/sprint_review.py` only.
   Lazily imported; the app installs, serves and passes its tests without it. The
   model key is read from the environment and **never** the database.
 - `app/static/vendor/mermaid.min.js` — the one vendored frontend file, pinned
@@ -57,7 +57,7 @@ framework and no session store, and `MASTERMIND_SSO=off` removes it entirely.
   offline; a test enforces that no frontend file names an external origin.
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt   # runtime + pytest
+.\.venv\Scripts\python.exe -m pip install -r requirements\dev.txt   # runtime + pytest
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000   # http://127.0.0.1:8000
 .\.venv\Scripts\python.exe -m pytest -q
 
@@ -70,7 +70,7 @@ node scripts\wire_check.js           # frontend: ids the JS asks for, index.html
 node scripts\css_check.js            # frontend: the [hidden] trap, dead tokens, dead ids
 node scripts\lock_check.js           # frontend: holds, locked nodes, cell writes, undo
 
-.\.venv\Scripts\python.exe -m pip install -r requirements-ai.txt          # optional, sprint review only
+.\.venv\Scripts\python.exe -m pip install -r requirements\ai.txt          # optional, sprint review only
 .\.venv\Scripts\python.exe scripts\sprint_review.py --history 3
 
 docker compose up -d --build        # serve it to the team; http://127.0.0.1:8000

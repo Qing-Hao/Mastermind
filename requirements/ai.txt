@@ -1,11 +1,11 @@
 # Optional — only for scripts/sprint_review.py.
 #
-# Deliberately not in requirements.txt: the app itself is FastAPI + stdlib
+# Deliberately not in base.txt: the app itself is FastAPI + stdlib
 # sqlite3 and must keep installing and running without any of this. The script
 # imports pydantic-ai lazily, so a machine without these still serves the
 # planner and still passes the test suite.
 #
-#   .\.venv\Scripts\python.exe -m pip install -r requirements-ai.txt
+#   .\.venv\Scripts\python.exe -m pip install -r requirements\ai.txt
 #
 # Then put the provider key in the environment, never in the database:
 #
