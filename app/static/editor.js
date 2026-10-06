@@ -850,9 +850,20 @@ function inlineHalves(host) {
   after.setStart(caret.endContainer, caret.endOffset);
   after.setEnd(host, host.childNodes.length);
   return {
-    before: inlineMarkdown(before.cloneContents()),
-    after: inlineMarkdown(after.cloneContents()),
+    before: inlineMarkdown(pruneEmptyInline(before.cloneContents())),
+    after: inlineMarkdown(pruneEmptyInline(after.cloneContents())),
   };
+}
+
+// A caret at the edge of a run leaves that run's element on the far side with no
+// text in it, which would write back as `****`. A widget and a `<br>` hold no text
+// either and are kept.
+function pruneEmptyInline(fragment) {
+  for (const node of fragment.querySelectorAll("*")) {
+    if (node.dataset.md !== undefined || node.querySelector("br, [data-md]")) continue;
+    if (node.tagName !== "BR" && !inlineText(node.textContent)) node.remove();
+  }
+  return fragment;
 }
 
 // --- a surface as markdown, with a place in it -------------------------------
@@ -3575,12 +3586,14 @@ function sprintCell(block, index, r, column) {
     // the browser split the surface: left alone, Chrome wraps what it splits in a
     // `<div>` of its own, and a marker widget inside one is a line the renderer no
     // longer owns. The surface is `pre-wrap`, so the character is the break.
+    // Split by `inlineHalves`, not a string slice: the cell draws line by line, so
+    // a bold run the newline cut open would show its `**` on both lines.
     if (event.key === "Enter") {
       event.preventDefault();
-      const { text, at } = inlineSurface(cell);
-      const mine = `${text.slice(0, at)}\n${text.slice(at)}`;
+      const { before, after } = inlineHalves(cell);
+      const mine = `${before}\n${after}`;
       writeCell(block.table, r, column, mine);
-      writeInlineSurface(cell, mine, at + 1);
+      writeInlineSurface(cell, mine, before.length + 1);
       tableEdited(block);
       return;
     }
@@ -3693,7 +3706,7 @@ function cellLineMarker(line) {
 // `Enter` on a list line. Returns whether it handled the key -- on an ordinary
 // line it does not, and the surface takes the newline itself as before.
 function continueCellList(cell, block, r, column) {
-  const { start, line, text, at } = caretLine(cell);
+  const { start, line, text } = caretLine(cell);
   const marker = cellLineMarker(line);
   if (!marker) return false;
 
@@ -3702,8 +3715,9 @@ function continueCellList(cell, block, r, column) {
 
   if (line.slice(marker.length).trim()) {
     const carry = `\n${marker.indent}${marker.write}`;
-    mine = text.slice(0, at) + carry + text.slice(at);
-    caret = at + carry.length;
+    const { before, after } = inlineHalves(cell);
+    mine = before + carry + after;
+    caret = before.length + carry.length;
   } else {
     // An empty item ends the list rather than laying out another empty one. The
     // indent goes with the marker: what is left is a blank line, not a stray two
