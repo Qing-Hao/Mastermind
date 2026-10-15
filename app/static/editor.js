@@ -808,7 +808,8 @@ function setInlineCaret(host, at) {
 
   for (let node = walk.nextNode(); node; node = walk.nextNode()) {
     if (node.nodeType === 1) {
-      if (ended && !node.textContent) marker = true;
+      // The `<br>` after a trailing newline is not a marker: the caret goes before it.
+      if (ended && !node.textContent && node.tagName !== "BR") marker = true;
       continue;
     }
     if (seen === at && ended && !marker) {
@@ -2438,6 +2439,13 @@ function renderCellSurface(parent, text) {
     if (marker) parent.appendChild(cellMarkerNode(marker[0], !!todo));
     renderCellInline(parent, marker ? line.slice(marker[0].length) : line);
   });
+  // A trailing newline draws no line of its own, so `Enter` at the end of a cell
+  // seemed to do nothing. A `<br>` worth no markdown gives that line a box.
+  if (String(text ?? "").endsWith("\n")) {
+    const filler = element("br");
+    filler.dataset.md = "";
+    parent.appendChild(filler);
+  }
 }
 
 // One marker, drawn. The glyph is a CSS `content` rather than a text node for the
