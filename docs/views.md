@@ -133,6 +133,12 @@ in a cell and start typing the deliverable's name to pick one. A linked row draw
 that deliverable's tick and an arrow to it, and ticking either place is the same
 tick. One link per row; rows without a reference are ordinary tasks.
 
+A checkpoint links the same way: `[#M-3]` is milestone 3, and the line's box draws
+whether it is reached. The **🔗 Sync** picker lists each project's checkpoints
+under its deliverables. Only the bracketed spelling counts — a bare `M-3` is text.
+Ticking a checkpoint can move its project's stage, exactly as it does on the
+Project tab.
+
 **Naming somebody on a row.** Type `@` in a cell to pick a name from the
 directory — it writes `@handle`, which is the convention the team already used in
 the **PIC** and **Reviewer** columns. Picking is only a spelling aid: a name typed

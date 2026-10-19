@@ -21,7 +21,7 @@ from urllib.parse import quote
 from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from app import auth, config, db, issues
 from app.markdown import (
@@ -1031,12 +1031,26 @@ class SprintRestore(BaseModel):
 
 
 class SprintMarks(BaseModel):
-    # One deliverable's tick, pushed out to the files that plan it. `skip` names
-    # the files the caller is holding unsaved edits for -- the editor's own copy
-    # is newer than the disk's, so writing under it would throw typing away.
-    deliverable_id: int
+    # One deliverable's or checkpoint's tick, pushed out to the files that plan
+    # it -- exactly one of the two ids. `skip` names the files the caller is
+    # holding unsaved edits for -- the editor's own copy is newer than the disk's,
+    # so writing under it would throw typing away.
+    deliverable_id: int | None = None
+    milestone_id: int | None = None
     done: bool
     skip: list[int] = []
+
+    @model_validator(mode="after")
+    def names_one(self):
+        if (self.deliverable_id is None) == (self.milestone_id is None):
+            raise ValueError("Name exactly one of deliverable_id and milestone_id.")
+        return self
+
+    def key(self):
+        """The `(kind, id)` this tick is for."""
+        if self.deliverable_id is not None:
+            return "D", self.deliverable_id
+        return "M", self.milestone_id
 
 
 class SprintTable(BaseModel):
@@ -2195,7 +2209,10 @@ def add_sprint(body: SprintIn):
 # a reader can see. `D-42` is what every sprint file on disk already says, and
 # rewriting those to catch up would be the app editing documents it does not own.
 # The editor makes the same bargain with `- [ ]` and `☐`.
-DELIVERABLE_REF = re.compile(r"\[#D-(\d+)\]|\bD-(\d+)\b")
+#
+# `[#M-3]` is checkpoint 3, linked the same way. Bracketed only: no file predates
+# it, and a bare `M-3` is a part number as often as it is a reference.
+DELIVERABLE_REF = re.compile(r"\[#([DM])-(\d+)\]|\bD-(\d+)\b")
 
 # A bulleted, numbered or task line, and the body after its marker. Quoted lines
 # are lines too -- `> - [ ] Ship` is a task inside a quote, which is what the
@@ -2204,9 +2221,11 @@ _LIST_LINE = re.compile(r"^[ \t]*(?:>[ \t]*)*(?:[-*+]|\d+[.)])[ \t]+(.*)$")
 _TASK_MARK = re.compile(r"^\[[ xX]\][ \t]+")
 
 
-def _ref_id(found):
-    """The id out of whichever of the two spellings matched."""
-    return int(found.group(1) or found.group(2))
+def _ref_key(found):
+    """The `(kind, id)` a reference names: `("D", 42)` or `("M", 3)`."""
+    if found.group(1):
+        return found.group(1), int(found.group(2))
+    return "D", int(found.group(3))
 
 
 # A cell keeps its line breaks as `CELL_BREAK` in the file, and a line inside one
@@ -2218,7 +2237,7 @@ _CELL_ITEM = re.compile(r"^[ \t]*(?:[☐☑][ \t]*|(?:[-*+]|\d+[.)])[ \t]+(?:\[[
 
 
 def row_references(cells):
-    """Every deliverable a table row names, as `(id, label)` in reading order.
+    """Every reference a table row makes, as `((kind, id), label)` in reading order.
 
     **The line is the unit, not the row.** A cell holding a checklist plans one
     thing per line, and the editor puts a sync press on each of them -- so a row
@@ -2243,12 +2262,12 @@ def row_references(cells):
                 continue
             item = _CELL_ITEM.match(line)
             body = DELIVERABLE_REF.sub("", line[item.end():]) if item else ""
-            found.append((_ref_id(match), " ".join(body.split()) or row_label))
+            found.append((_ref_key(match), " ".join(body.split()) or row_label))
     return found
 
 
 def line_reference(line):
-    """The deliverable a list line names as `(id, label)`, or None.
+    """The reference a list line makes as `((kind, id), label)`, or None.
 
     A line rather than a row, and the two are the same unit to everything
     downstream: one link, at most, from the first reference on it. The label is
@@ -2262,7 +2281,7 @@ def line_reference(line):
     found = DELIVERABLE_REF.search(body)
     if not found:
         return None
-    return _ref_id(found), " ".join(DELIVERABLE_REF.sub("", body).split())
+    return _ref_key(found), " ".join(DELIVERABLE_REF.sub("", body).split())
 
 
 # A task line's own marker, with the box as its own group so only the box is
@@ -2295,14 +2314,14 @@ def _tick_cell_marker(marker, done):
     return re.sub(r"\[[ xX]\]", "[x]" if done else "[ ]", marker)
 
 
-def _marked_cell_line(line, deliverable_id, done):
-    """One line of a cell ticked for this deliverable, as `(line, changed)`."""
+def _marked_cell_line(line, key, done):
+    """One line of a cell ticked for this `(kind, id)`, as `(line, changed)`."""
     found = _CELL_MARKER.match(line)
     if not found:
         return line, False
     body = line[found.end():]
     reference = DELIVERABLE_REF.search(body)
-    if not reference or _ref_id(reference) != deliverable_id:
+    if not reference or _ref_key(reference) != key:
         return line, False
     marked = _tick_cell_marker(found.group(2), done)
     if marked == found.group(2):
@@ -2310,8 +2329,8 @@ def _marked_cell_line(line, deliverable_id, done):
     return f"{found.group(1)}{marked}{body}", True
 
 
-def _marked_row(line, deliverable_id, done):
-    """One table row with this deliverable's cell lines ticked, as `(line, count)`.
+def _marked_row(line, key, done):
+    """One table row with this reference's cell lines ticked, as `(line, count)`.
 
     **Every flip is the same length as what it replaces** -- `☐`/`☑` are one
     character each and `[ ]`/`[x]` are three -- so the row's padding still lines
@@ -2324,14 +2343,14 @@ def _marked_row(line, deliverable_id, done):
     for position, cell in enumerate(parts):
         pieces = _KEPT_BREAK.split(cell)
         for step in range(0, len(pieces), 2):
-            pieces[step], flipped = _marked_cell_line(pieces[step], deliverable_id, done)
+            pieces[step], flipped = _marked_cell_line(pieces[step], key, done)
             changed += flipped
         parts[position] = "".join(pieces)
     return "|".join(parts), changed
 
 
-def marked_for(text, deliverable_id, done):
-    """The document with this deliverable's boxes ticked, as `(text, lines)`.
+def marked_for(text, key, done):
+    """The document with the boxes of one `(kind, id)` ticked, as `(text, lines)`.
 
     **Lines with a box, wherever they are**: a task line of a list, and a checkbox
     line inside a table cell. Both draw the deliverable's own tick on screen, so
@@ -2355,7 +2374,7 @@ def marked_for(text, deliverable_id, done):
 
         found = _TASK_MARKER.match(line)
         reference = line_reference(line) if found else None
-        if found and reference and reference[0] == deliverable_id:
+        if found and reference and reference[0] == key:
             if (found.group(2).lower() == "x") != done:
                 lines.append(f"{found.group(1)}[{'x' if done else ' '}]{line[found.end():]}")
                 changed += 1
@@ -2363,7 +2382,7 @@ def marked_for(text, deliverable_id, done):
         # A pipe inside a fence is code. Everywhere else a line starting with one
         # is a table row, and the delimiter row carries no marker to flip.
         if not fenced and not found and line.lstrip().startswith("|"):
-            marked, count = _marked_row(line, deliverable_id, done)
+            marked, count = _marked_row(line, key, done)
             lines.append(marked)
             changed += count
             continue
@@ -2372,7 +2391,7 @@ def marked_for(text, deliverable_id, done):
 
 
 def sprint_task_refs(text):
-    """Every deliverable a document names, in file order, repeats kept.
+    """Every deliverable and checkpoint a document names, in file order, repeats kept.
 
     One entry per reference-carrying *line*, inside a table cell or out of one.
     A deliverable named twice -- carried over within one file, or planned in one
@@ -2388,20 +2407,21 @@ def sprint_task_refs(text):
         table = block.get("table")
         if table:
             for row in table["rows"]:
-                for reference in row_references(row):
-                    found.append({"deliverable_id": reference[0], "label": reference[1]})
+                for (kind, one_id), label in row_references(row):
+                    found.append({"kind": kind, "id": one_id, "label": label})
             continue
         if block["type"] not in ("list", "quote"):
             continue
         for line in block["raw"].splitlines():
             reference = line_reference(line)
             if reference:
-                found.append({"deliverable_id": reference[0], "label": reference[1]})
+                (kind, one_id), label = reference
+                found.append({"kind": kind, "id": one_id, "label": label})
     return found
 
 
 def resolved_links(text):
-    """A document's references joined to the deliverables they name.
+    """A document's references joined to the deliverables and checkpoints they name.
 
     A reference to nothing is reported as `missing` rather than dropped: a dead
     reference is a typo worth seeing, not a row that quietly stops being linked.
@@ -2409,30 +2429,43 @@ def resolved_links(text):
     cell's checklist -- so the page can say a deliverable is in the file twice
     instead of drawing one chip and losing the other. The name predates the line
     being the unit and is kept: it is the shape the frontend reads.
+
+    `done` is the tick the line draws: a deliverable's `done`, a checkpoint's
+    `achieved`. A deliverable link also keeps `deliverable_id` for older readers.
     """
-    index = deliverable_index()
+    index = {
+        "D": deliverable_index(),
+        "M": {row["id"]: row
+              for rows in db.milestones_by_project().values() for row in rows},
+    }
     names = {project["id"]: project["name"] for project in db.list_projects()}
 
     links = {}
     order = []
     for reference in sprint_task_refs(text):
-        deliverable_id = reference["deliverable_id"]
-        if deliverable_id in links:
-            links[deliverable_id]["rows"] += 1
+        key = (reference["kind"], reference["id"])
+        if key in links:
+            links[key]["rows"] += 1
             continue
-        found = index.get(deliverable_id)
-        links[deliverable_id] = {
-            "deliverable_id": deliverable_id,
+        found = index[key[0]].get(key[1])
+        link = {
+            "kind": key[0],
+            "id": key[1],
             "label": reference["label"],
             "rows": 1,
             "missing": found is None,
             "name": found["name"] if found else "",
-            "done": bool(found["done"]) if found else False,
-            "phase_id": found["phase_id"] if found else None,
+            "phase_id": found.get("phase_id") if found else None,
             "project_id": found["project_id"] if found else None,
             "project_name": names.get(found["project_id"], "") if found else "",
         }
-        order.append(deliverable_id)
+        if key[0] == "D":
+            link["deliverable_id"] = key[1]
+            link["done"] = bool(found["done"]) if found else False
+        else:
+            link["done"] = bool(found["achieved"]) if found else False
+        links[key] = link
+        order.append(key)
     return [links[one] for one in order]
 
 
@@ -2678,7 +2711,9 @@ def list_sprint_links():
     for number, name in sprint_files(SPRINTS_DIR):
         path = os.path.join(SPRINTS_DIR, name)
         for reference in sprint_task_refs(read_sprint_file(path)):
-            entry = found.setdefault(reference["deliverable_id"], [])
+            if reference["kind"] != "D":
+                continue
+            entry = found.setdefault(reference["id"], [])
             if not any(one["number"] == number for one in entry):
                 entry.append({"number": number, "name": name})
     return [
@@ -2774,7 +2809,7 @@ def read_workload():
 
 @app.post("/api/sprints/marks")
 def write_sprint_marks(request: Request, body: SprintMarks):
-    """Push one deliverable's tick into the task lines that name it.
+    """Push one deliverable's or checkpoint's tick into the task lines that name it.
 
     **The one place this app writes a document you did not type in**, and it is
     deliberate: a task line's box draws the deliverable's tick, so leaving the
@@ -2795,12 +2830,13 @@ def write_sprint_marks(request: Request, body: SprintMarks):
     The reply names what changed, so the caller can say so and offer it back.
     """
     author = signed_in_name(request)
+    key = body.key()
     changed = []
     for number, name in sprint_files(SPRINTS_DIR):
         if number in body.skip:
             continue
         path = os.path.join(SPRINTS_DIR, name)
-        text, lines = marked_for(read_sprint_file(path), body.deliverable_id, body.done)
+        text, lines = marked_for(read_sprint_file(path), key, body.done)
         if lines:
             # Snapshotted like any other save, and the most worth having: this is
             # the one place the app writes a document nobody typed in, so "why
@@ -2809,7 +2845,7 @@ def write_sprint_marks(request: Request, body: SprintMarks):
             write_sprint_file(path, text)
             db.log_sprint_edit(
                 name, author,
-                f"pushed the tick for D-{body.deliverable_id} into {lines} line(s)",
+                f"pushed the tick for {key[0]}-{key[1]} into {lines} line(s)",
                 snapshot)
             announce_sprint(number, os.path.getmtime(path))
             changed.append({"number": number, "name": name, "lines": lines})
@@ -3545,6 +3581,27 @@ def require_milestone(milestone_id):
     if not milestone:
         raise HTTPException(status_code=404, detail="Milestone not found")
     return milestone
+
+
+@app.get("/api/milestones")
+def list_all_milestones():
+    """Every checkpoint in the roadmap, flat and by id, for the sprint picker.
+
+    `done` is `achieved` under the name the picker already reads off a deliverable.
+    """
+    names = {project["id"]: project["name"] for project in db.list_projects()}
+    rows = [row for rows in db.milestones_by_project().values() for row in rows]
+    return [
+        {
+            "id": row["id"],
+            "name": row["name"],
+            "done": bool(row["achieved"]),
+            "target_date": row["target_date"],
+            "project_id": row["project_id"],
+            "project_name": names.get(row["project_id"], ""),
+        }
+        for row in sorted(rows, key=lambda one: one["id"])
+    ]
 
 
 @app.get("/api/projects/{project_id}/milestones")

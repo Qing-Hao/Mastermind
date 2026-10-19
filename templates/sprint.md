@@ -44,7 +44,8 @@ at the start or after a space, and start typing the deliverable's name to pick
 one. A linked row draws that deliverable's tick and an arrow to it, and ticking
 either place is the same tick. One link per row: picking again moves the reference
 the row already has rather than adding a second. Rows without a reference are
-ordinary tasks; not every task is a deliverable.
+ordinary tasks; not every task is a deliverable. `[#M-3]` links a checkpoint the
+same way, and its tick is whether the checkpoint is reached.
 
 | Task | PIC | Reviewer | SP  | Priority            | Status      | Dependency / Remarks | Actual |
 | ---- | --- | -------- | --- | ------------------- | ----------- | -------------------- | ------ |

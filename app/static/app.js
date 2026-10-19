@@ -437,13 +437,15 @@ let state = {
   // reach the chip. `deliverableSprints` is the other way round -- which files
   // name each deliverable -- and is **not** keyed at all, because a sprint save
   // does not touch the roadmap and so cannot move its edition. It is re-read with
-  // the plan instead.
-  sprintLinks: { asked: null, byId: new Map(), error: "" },
+  // the plan instead. `byKey` is keyed `D-42` or `M-3`, since a checkpoint links too.
+  sprintLinks: { asked: null, byKey: new Map(), error: "" },
   deliverableSprints: { byId: new Map() },
   // Every deliverable in the roadmap, for the cell picker. Read once per plan
   // load for the same reason: the picker offers across projects, and the open
   // project is not the whole roadmap.
   allDeliverables: [],
+  // Every checkpoint in the roadmap, for the same picker. `done` is `achieved`.
+  allMilestones: [],
   // What wants attention, as `/api/late` last answered it: `groups` is past its
   // date, `ready` is finished but still open. `asOf` is the date that answer was
   // computed for, which is the only thing that goes stale without a write to
@@ -2402,7 +2404,7 @@ function milestoneRow(milestone) {
   tick.type = "checkbox";
   tick.checked = Boolean(milestone.achieved);
   tick.title = milestone.achieved ? "Reached" : "Not reached yet";
-  tick.onchange = () => saveMilestone(milestone.id, { achieved: tick.checked });
+  tick.onchange = () => saveMilestoneTick(milestone.id, tick.checked);
   tickCell.appendChild(tick);
   line.appendChild(tickCell);
 
@@ -3723,7 +3725,7 @@ async function saveDeliverable(deliverableId, fields) {
 
 // The tick has a second half the other fields do not: a task line in a sprint
 // file draws this deliverable, so the marker on that line goes with it. See
-// `pushDeliverableMarks`.
+// `pushMarks`.
 //
 // **No `expect` on a tick, deliberately**, here or on a checkpoint's. A box is
 // one click and holds nothing typed: two people ticking the same thing agree,
@@ -3731,10 +3733,18 @@ async function saveDeliverable(deliverableId, fields) {
 // What the guard is for is a write that overwrites something someone wrote.
 async function saveDeliverableTick(deliverableId, done) {
   await saveDeliverable(deliverableId, { done });
-  const marks = await pushDeliverableMarks(deliverableId, done);
-  announceTick(deliverableId, done, marks,
+  const marks = await pushMarks("D", deliverableId, done);
+  announceTick(deliverableName(deliverableId), done, marks,
     () => saveDeliverableTick(deliverableId, !done),
     phaseJustFinished(deliverableId));
+}
+
+// A checkpoint's tick has the same second half: lines naming `[#M-3]` follow it.
+async function saveMilestoneTick(milestoneId, achieved) {
+  await saveMilestone(milestoneId, { achieved });
+  const marks = await pushMarks("M", milestoneId, achieved);
+  announceTick(milestoneName(milestoneId), achieved, marks,
+    () => saveMilestoneTick(milestoneId, !achieved), null);
 }
 
 // Both directions are listed together: what this project waits on, and what
@@ -6098,11 +6108,30 @@ function liveSprintRefChanged(key) {
 // a row is linked at all. This one only decides where the chip is drawn.
 //
 // Two spellings, one written: `[#D-42]` is what the picker writes, `D-42` is what
-// the files already on disk say. See the argument in `main.py`.
-const DELIVERABLE_REF = /\[#D-(\d+)\]|\bD-(\d+)\b/;
+// the files already on disk say. See the argument in `main.py`. `[#M-3]` is a
+// checkpoint, bracketed only.
+const DELIVERABLE_REF = /\[#([DM])-(\d+)\]|\bD-(\d+)\b/;
 
-// The id out of whichever spelling matched.
-const referencedId = (match) => Number(match[1] || match[2]);
+// `{kind, id}` out of whichever spelling matched.
+const referencedKey = (match) => (match[1]
+  ? { kind: match[1], id: Number(match[2]) }
+  : { kind: "D", id: Number(match[3]) });
+
+// A link's key, `D-42` or `M-3`, and the way back.
+const refKey = (kind, id) => `${kind}-${id}`;
+const parseRefKey = (key) => ({ kind: key[0], id: Number(key.slice(2)) });
+
+// Whether a matched reference names this `kind` and `id`.
+const namesRef = (match, kind, id) => {
+  const found = referencedKey(match);
+  return found.kind === kind && found.id === id;
+};
+
+// The roadmap's own list for one kind.
+const linkableRows = (kind) => (kind === "M" ? state.allMilestones : state.allDeliverables);
+
+// The word for one kind, for tooltips and the dead-reference note.
+const refNoun = (kind) => (kind === "M" ? "checkpoint" : "deliverable");
 
 // The deliverable a chip draws: the file's read links when they are in hand, the
 // roadmap's own list when they are not.
@@ -6120,22 +6149,23 @@ const referencedId = (match) => Number(match[1] || match[2]);
 // open, the template (it plans no fortnight, so a live tick in it would link real
 // data to a document about nothing), or the roadmap not read yet -- calling a
 // reference dead before reading the roadmap would accuse it of being a typo.
-function sprintLink(id) {
-  const found = state.sprintLinks.byId.get(id);
+function sprintLink(kind, id) {
+  const found = state.sprintLinks.byKey.get(refKey(kind, id));
   if (found) return found;
   if (state.sprint.number === null || isTemplate(state.sprint.number)) return null;
-  if (!state.allDeliverables.length) return null;
+  if (!state.allDeliverables.length && !state.allMilestones.length) return null;
 
-  const one = state.allDeliverables.find((row) => row.id === id);
-  if (!one) return { deliverable_id: id, label: "", rows: 1, missing: true };
+  const one = linkableRows(kind).find((row) => row.id === id);
+  if (!one) return { kind, id, label: "", rows: 1, missing: true };
   return {
-    deliverable_id: id,
+    kind,
+    id,
     label: "",
     rows: 1,
     missing: false,
     name: one.name,
     done: one.done,
-    phase_id: one.phase_id,
+    phase_id: one.phase_id ?? null,
     project_id: one.project_id,
     project_name: one.project_name,
   };
@@ -6154,8 +6184,8 @@ function sprintLink(id) {
 // A table cell says nothing, so the chip carries its own box there: a row has no
 // box of its own to hand it to.
 function deliverableChip(match, where) {
-  const id = referencedId(match);
-  const link = sprintLink(id);
+  const { kind, id } = referencedKey(match);
+  const link = sprintLink(kind, id);
   if (!link) return null;
 
   const chip = element("span", link.missing ? "cell-ref cell-ref-dead" : "cell-ref");
@@ -6163,7 +6193,7 @@ function deliverableChip(match, where) {
     // The characters you typed, in the spelling you typed them: a dead reference
     // is a typo to find in the file, so the file's own text is what to show.
     chip.textContent = match[0];
-    chip.title = `No deliverable ${id} in the roadmap — check the reference.`;
+    chip.title = `No ${refNoun(kind)} ${id} in the roadmap — check the reference.`;
     return chip;
   }
 
@@ -6175,17 +6205,19 @@ function deliverableChip(match, where) {
     box = element("input", "cell-ref-tick");
     box.type = "checkbox";
     box.checked = link.done;
-    box.title = link.done ? "Done — untick to reopen" : "Still ongoing — tick to finish";
+    box.title = kind === "M"
+      ? (link.done ? "Reached — untick to reopen" : "Not reached — tick when it is")
+      : (link.done ? "Done — untick to reopen" : "Still ongoing — tick to finish");
     box.onclick = (event) => {
       event.stopPropagation();
-      toggleLinkedDeliverable(id, box.checked);
+      toggleLinked(kind, id, box.checked);
     };
   }
 
   // The reference stays on screen as written. The deliverable's name is the
   // tooltip rather than the label: the row already carries a task name you typed,
   // and drawing the name again would say the same thing twice in one cell.
-  const label = element("span", "cell-ref-id", `D-${id}`);
+  const label = element("span", "cell-ref-id", refKey(kind, id));
 
   // An `<a>` on purpose -- `sprintCellHost` lets a click through a link rather
   // than opening the editor under it, which is the behaviour a jump wants.
@@ -6195,7 +6227,8 @@ function deliverableChip(match, where) {
   jump.onclick = (event) => {
     event.preventDefault();
     event.stopPropagation();
-    jumpToDeliverable(id);
+    if (kind === "M") jumpToMilestone(link.project_id, id);
+    else jumpToDeliverable(id);
   };
 
   chip.title = link.rows > 1
@@ -6219,12 +6252,22 @@ function deliverableChip(match, where) {
 // reference.
 function deliverableMenuEntries(filter) {
   if (!filter.trim()) return [];
-  return state.allDeliverables.map((one) => ({
-    key: `d${one.id}`,
-    label: one.name,
-    markdown: `[#D-${one.id}] `,
-    lineUnique: DELIVERABLE_REF,
-  }));
+  return [
+    ...state.allDeliverables.map((one) => ({
+      key: `d${one.id}`,
+      label: one.name,
+      markdown: `[#D-${one.id}] `,
+      lineUnique: DELIVERABLE_REF,
+    })),
+    // The diamond is the timeline's checkpoint mark, and tells a checkpoint from
+    // a deliverable of the same name.
+    ...state.allMilestones.map((one) => ({
+      key: `m${one.id}`,
+      label: `◆ ${one.name}`,
+      markdown: `[#M-${one.id}] `,
+      lineUnique: DELIVERABLE_REF,
+    })),
+  ];
 }
 
 registerCellInline({ mark: DELIVERABLE_REF, render: deliverableChip });
@@ -6292,22 +6335,27 @@ registerCellMention(personMenuEntries);
 function lineDeliverable(text) {
   const found = DELIVERABLE_REF.exec(text);
   if (!found) return null;
-  const id = referencedId(found);
-  const link = sprintLink(id);
+  const { kind, id } = referencedKey(found);
+  const link = sprintLink(kind, id);
   if (!link || link.missing) return null;
-  return { id, link };
+  return { kind, id, link };
 }
 
 function deliverableLineOwner(text) {
   const owned = lineDeliverable(text);
   if (!owned) return null;
-  const { id, link } = owned;
+  const { kind, id, link } = owned;
+  const title = kind === "M"
+    ? (link.done
+      ? `${link.name} is reached. Untick to reopen the checkpoint on the roadmap.`
+      : `${link.name} is not reached yet. Tick to mark the checkpoint reached.`)
+    : (link.done
+      ? `${link.name} is done. Untick to reopen it on the roadmap.`
+      : `${link.name} is still ongoing. Tick to finish it on the roadmap.`);
   return {
     done: Boolean(link.done),
-    title: link.done
-      ? `${link.name} is done. Untick to reopen it on the roadmap.`
-      : `${link.name} is still ongoing. Tick to finish it on the roadmap.`,
-    toggle: (done) => toggleLinkedDeliverable(id, done),
+    title,
+    toggle: (done) => toggleLinked(kind, id, done),
   };
 }
 
@@ -6330,9 +6378,10 @@ function deliverableLineAction(text) {
     label: owned ? `${SYNC_ICON} Linked` : `${SYNC_ICON} Sync`,
     title: owned
       ? `Synced to ${owned.link.name} — press to sync it elsewhere, or pick it again to unlink`
-      : "Sync this line to a deliverable",
-    run: (press, current, write, where) => openSyncPicker(press, owned ? owned.id : null,
-      (id) => linkTickedLine(press, id, current, write, where),
+      : "Sync this line to a deliverable or checkpoint",
+    run: (press, current, write, where) => openSyncPicker(press,
+      owned ? refKey(owned.kind, owned.id) : null,
+      (key) => linkTickedLine(press, key, current, write, where),
       owned ? () => write(withoutReference(current)) : null),
   };
 }
@@ -6352,18 +6401,7 @@ registerLineAction(deliverableLineAction);
 // of them. The provider, the picker and the write are the list line's; all that
 // differs is which surface drew the press.
 function deliverableCellLineAction(text) {
-  const number = state.sprint.number;
-  if (number === null || isTemplate(number)) return null;
-  const owned = lineDeliverable(text);
-  return {
-    label: owned ? `${SYNC_ICON} Linked` : `${SYNC_ICON} Sync`,
-    title: owned
-      ? `Synced to ${owned.link.name} — press to sync it elsewhere, or pick it again to unlink`
-      : "Sync this line to a deliverable",
-    run: (press, current, write, where) => openSyncPicker(press, owned ? owned.id : null,
-      (id) => linkTickedLine(press, id, current, write, where),
-      owned ? () => write(withoutReference(current)) : null),
-  };
+  return deliverableLineAction(text);
 }
 
 // The same owner a task line outside the table has. A checkbox line in a cell is
@@ -6376,8 +6414,8 @@ registerCellLineAction(deliverableCellLineAction);
 // One reference per line, so a line that has one has it **moved** rather than
 // joined by a second. Same rule as a table row's, and the same reason:
 // `line_reference` in `main.py` takes the first and stops.
-function withReference(text, id) {
-  const mark = `[#D-${id}]`;
+function withReference(text, key) {
+  const mark = `[#${key}]`;
   const found = DELIVERABLE_REF.exec(text);
   if (found) {
     return text.slice(0, found.index) + mark + text.slice(found.index + found[0].length);
@@ -6447,8 +6485,9 @@ registerBlockMenu(roadmapMenuEntries);
 // alternative is this file reaching in to undo a commit the editor owns.
 function openRoadmapTasks(index, area) {
   const number = state.sprint.number;
-  openSyncPicker(area, null, (ids) => insertRoadmapTasks(number, index, ids),
-    null, { many: true });
+  openSyncPicker(area, null,
+    (keys) => insertRoadmapTasks(number, index, keys.map((key) => parseRefKey(key).id)),
+    null, { many: true, kinds: ["D"] });
 }
 
 // One task line per deliverable, in the order they were marked.
@@ -6458,9 +6497,9 @@ function openRoadmapTasks(index, area) {
 // so a fresh line showing `[ ]` for something already finished would be a
 // disagreement nobody typed. Nothing on the roadmap is written from here.
 function roadmapTaskLine(one) {
-  const link = sprintLink(one.id);
+  const link = sprintLink("D", one.id);
   const done = Boolean(link && !link.missing ? link.done : one.done);
-  return `- [${done ? "x" : " "}] ${withReference(one.name, one.id)}`;
+  return `- [${done ? "x" : " "}] ${withReference(one.name, refKey("D", one.id))}`;
 }
 
 async function insertRoadmapTasks(number, index, ids) {
@@ -6576,22 +6615,41 @@ function closeSyncPicker() {
   syncPicker.dismiss = null;
 }
 
-// The ids the open fortnight has in scope, or null while the slice has not been
-// read. Null rather than an empty set, because "nothing in scope" and "not read
-// yet" want different words on screen.
-function scopedDeliverableIds() {
+// The keys the open fortnight has in scope -- its deliverables and its
+// checkpoints -- or null while the slice has not been read. Null rather than an
+// empty set, because "nothing in scope" and "not read yet" want different words.
+function scopedRefKeys() {
   const slice = state.sprintScope.slice;
   if (!slice) return null;
-  const ids = new Set();
+  const keys = new Set();
   for (const lane of slice.lanes) {
-    for (const one of lane.deliverables) ids.add(one.id);
+    for (const one of lane.deliverables) keys.add(refKey("D", one.id));
   }
-  return ids;
+  for (const one of slice.milestones || []) keys.add(refKey("M", one.id));
+  return keys;
 }
 
-// Deliverables in list order, grouped project by project and phase by phase. The
-// order inside a group is `/api/deliverables`' own -- by id -- so a name edited
-// elsewhere does not reshuffle the list under the cursor.
+// The picker's rows: deliverables, then checkpoints, each carrying its `key`.
+// Checkpoints take the phase heading slot, since they belong to no phase.
+function pickerItems(kinds) {
+  const items = [];
+  if (kinds.includes("D")) {
+    for (const one of state.allDeliverables) {
+      items.push({ ...one, kind: "D", key: refKey("D", one.id) });
+    }
+  }
+  if (kinds.includes("M")) {
+    for (const one of state.allMilestones) {
+      items.push({ ...one, kind: "M", key: refKey("M", one.id),
+        phase_id: "M", phase_name: "◆ Checkpoints" });
+    }
+  }
+  return items;
+}
+
+// Rows in list order, grouped project by project and phase by phase, with a
+// project's checkpoints after its phases. The order inside a group is the API's
+// own -- by id -- so a name edited elsewhere does not reshuffle the list.
 function pickerGroups(rows) {
   const groups = [];
   const at = new Map();
@@ -6611,12 +6669,16 @@ function pickerGroups(rows) {
     }
     group.rows.push(one);
   }
-  return groups;
+  const first = new Map();
+  groups.forEach((group, index) => {
+    if (!first.has(group.project_id)) first.set(group.project_id, index);
+  });
+  return groups.sort((a, b) => first.get(a.project_id) - first.get(b.project_id));
 }
 
 function pickerMatches(one, filter) {
   if (!filter) return true;
-  const hay = `${one.name} ${one.project_name} ${one.phase_name} d-${one.id}`;
+  const hay = `${one.name} ${one.project_name} ${one.phase_name} ${one.key}`;
   return hay.toLowerCase().includes(filter);
 }
 
@@ -6635,14 +6697,21 @@ function pickerMatches(one, filter) {
 // draws one for the deliverable's own tick, and a box beside it that meant
 // "chosen" is exactly the two-box confusion a linked line had before the chip
 // handed its tick over.
-function openSyncPicker(anchor, currentId, choose, unlink = null, options = {}) {
+//
+// Rows and `currentKey` are keys -- `D-42`, `M-3` -- and so is what `choose` is
+// handed. `options.kinds` narrows the list; the default offers both.
+function openSyncPicker(anchor, currentKey, choose, unlink = null, options = {}) {
   closeSyncPicker();
 
+  const kinds = options.kinds || ["D", "M"];
+  const items = pickerItems(kinds);
   const panel = element("div", "sync-picker");
   const head = element("div", "sync-picker-head");
   const search = element("input", "sync-picker-search");
   search.type = "text";
-  search.placeholder = "Search deliverables";
+  search.placeholder = kinds.includes("M")
+    ? "Search deliverables and checkpoints"
+    : "Search deliverables";
   const tally = element("span", "sync-picker-tally");
   head.append(search, tally);
 
@@ -6664,31 +6733,34 @@ function openSyncPicker(anchor, currentId, choose, unlink = null, options = {}) 
   }
   panel.append(head, list, foot);
 
-  const scoped = scopedDeliverableIds();
+  const allScoped = scopedRefKeys();
+  // Only the kinds on offer: a deliverables-only picker must not count the
+  // fortnight's checkpoints as in scope.
+  const scoped = allScoped && new Set([...allScoped].filter((key) => kinds.includes(key[0])));
   // The roadmap outright when there is no fortnight to narrow to: an empty list
   // with a toggle to press is a worse answer than the list you can use.
   let wide = scoped === null || scoped.size === 0;
   let selected = 0;
   let shown = [];
 
-  // The ids marked so far, in the order they were marked -- which is the order
+  // The keys marked so far, in the order they were marked -- which is the order
   // they are written in. Many-pick only; empty everywhere else.
   const taken = [];
 
   // One place, so the keyboard and the mouse cannot disagree about what picking
   // the row you are already on means. In many-pick mode a press marks and
   // unmarks, and nothing is written until the press at the foot.
-  const pick = (id) => {
+  const pick = (key) => {
     if (many) {
-      const at = taken.indexOf(id);
-      if (at === -1) taken.push(id);
+      const at = taken.indexOf(key);
+      if (at === -1) taken.push(key);
       else taken.splice(at, 1);
       draw();
       return;
     }
     closeSyncPicker();
-    if (id === currentId && unlink) unlink();
-    else choose(id);
+    if (key === currentKey && unlink) unlink();
+    else choose(key);
   };
 
   const commit = () => {
@@ -6701,14 +6773,14 @@ function openSyncPicker(anchor, currentId, choose, unlink = null, options = {}) 
   const draw = () => {
     const filter = search.value.trim().toLowerCase();
     const pool = wide || !scoped
-      ? state.allDeliverables
-      : state.allDeliverables.filter((one) => scoped.has(one.id));
+      ? items
+      : items.filter((one) => scoped.has(one.key));
     shown = pool.filter((one) => pickerMatches(one, filter));
     if (selected >= shown.length) selected = Math.max(0, shown.length - 1);
 
     tally.textContent = `${shown.length} of ${pool.length}`;
     scopeOnly.textContent = `In scope (${scoped ? scoped.size : 0})`;
-    everything.textContent = `Whole roadmap (${state.allDeliverables.length})`;
+    everything.textContent = `Whole roadmap (${items.length})`;
     scopeOnly.disabled = !scoped || scoped.size === 0;
     scopeOnly.classList.toggle("on", !wide);
     everything.classList.toggle("on", wide);
@@ -6746,17 +6818,17 @@ function openSyncPicker(anchor, currentId, choose, unlink = null, options = {}) 
 
       for (const one of group.rows) {
         const row = element("div", "sync-picker-row");
-        if (shown[selected] && shown[selected].id === one.id) {
+        if (shown[selected] && shown[selected].key === one.key) {
           row.setAttribute("aria-selected", "true");
         }
-        const here = one.id === currentId;
+        const here = one.key === currentKey;
         if (here) row.classList.add("here");
         // Marked for writing, and -- separately -- already named somewhere in the
         // open file. The second is a note and never a refusal: a deliverable
         // carried over into the next fortnight is named twice on purpose, and
         // `sprint_task_refs` keeps repeats for that reason.
-        if (many && taken.includes(one.id)) row.classList.add("picked");
-        const named = many && state.sprintLinks.byId.has(one.id);
+        if (many && taken.includes(one.key)) row.classList.add("picked");
+        const named = many && state.sprintLinks.byKey.has(one.key);
         if (named) row.classList.add("named");
         const tick = element("input", null);
         tick.type = "checkbox";
@@ -6764,18 +6836,19 @@ function openSyncPicker(anchor, currentId, choose, unlink = null, options = {}) 
         tick.disabled = true;
         const name = element("span", one.done ? "sync-picker-name done" : "sync-picker-name",
           one.name);
-        row.append(tick, name, element("span", "sync-picker-ref", `D-${one.id}`));
+        row.append(tick, name, element("span", "sync-picker-ref", one.key));
         // The row you are already linked to says what pressing it does, because
         // what it does there is the opposite of what it does everywhere else.
         if (here && unlink) row.title = "Linked to this line — press again to unlink";
         else if (here) row.title = "Linked to this line";
         else if (named) row.title = "Already named in this file — pick it to name it again";
+        else if (one.kind === "M") row.title = one.done ? "Already reached" : "Not reached yet";
         else row.title = one.done ? "Already done" : "Not done yet";
         // `mousedown` rather than `click`: the press must not blur the search field
         // first, which is what closes the picker.
         row.onmousedown = (event) => {
           event.preventDefault();
-          pick(one.id);
+          pick(one.key);
         };
         list.appendChild(row);
       }
@@ -6798,7 +6871,7 @@ function openSyncPicker(anchor, currentId, choose, unlink = null, options = {}) 
       // `Ctrl`/`Cmd`+`Enter` is the write, so `Enter` stays the mark and a
       // many-pick run never needs the mouse: mark, mark, mark, write.
       if (many && (event.ctrlKey || event.metaKey)) commit();
-      else if (shown[selected]) pick(shown[selected].id);
+      else if (shown[selected]) pick(shown[selected].key);
       return;
     }
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -6883,9 +6956,10 @@ function placeSyncPicker(panel, anchor) {
 // Nothing is repaired here and nothing is inferred: cancelling writes neither the
 // reference nor either tick, which is the same stance as the rest of the app --
 // every rule reports, and the user's press is what changes something.
-function linkTickedLine(anchor, id, current, write, where) {
-  const text = withReference(current, id);
-  const link = sprintLink(id);
+function linkTickedLine(anchor, key, current, write, where) {
+  const { kind, id } = parseRefKey(key);
+  const text = withReference(current, key);
+  const link = sprintLink(kind, id);
   const lineDone = Boolean(where && where.done);
   // A reference to nothing has no state to disagree with, and neither has a
   // roadmap that has not been read yet.
@@ -6897,10 +6971,10 @@ function linkTickedLine(anchor, id, current, write, where) {
   openTickConflict(anchor, link, lineDone, (winner) => {
     if (winner === "line") {
       // The file's answer wins: the line keeps the box it has and the roadmap is
-      // told. `toggleLinkedDeliverable` is the same write the box itself makes,
+      // told. `toggleLinked` is the same write the box itself makes,
       // so this reaches every other file naming it, exactly as a press would.
       write(text);
-      toggleLinkedDeliverable(id, lineDone);
+      toggleLinked(kind, id, lineDone);
       return;
     }
     // The roadmap's answer wins: the reference and the marker are written
@@ -6950,7 +7024,7 @@ function openTickConflict(anchor, link, lineDone, choose) {
   const file = element("button", "tick-conflict-pick",
     `Take this line's — mark ${link.name} ${lineDone ? "done" : "not done"}`);
   file.type = "button";
-  file.title = "The deliverable is written on the roadmap, and every other file naming it follows.";
+  file.title = "The roadmap is written to match, and every other file naming it follows.";
   file.onclick = () => answer("line");
 
   panel.append(roadmap, file);
@@ -6990,7 +7064,7 @@ async function loadSprintLinks() {
   // tick in it would be a link to real data from a document about nothing.
   if (number === null || isTemplate(number)) {
     links.asked = null;
-    links.byId = new Map();
+    links.byKey = new Map();
     links.error = "";
     return;
   }
@@ -6999,15 +7073,17 @@ async function loadSprintLinks() {
   if (links.asked === key) return;
   links.asked = key;
   try {
-    const [found, all] = await Promise.all([
+    const [found, all, checkpoints] = await Promise.all([
       api(`/api/sprints/${number}/links`),
       api("/api/deliverables"),
+      api("/api/milestones"),
     ]);
-    links.byId = new Map(found.map((one) => [one.deliverable_id, one]));
+    links.byKey = new Map(found.map((one) => [refKey(one.kind, one.id), one]));
     state.allDeliverables = all;
+    state.allMilestones = checkpoints;
     links.error = "";
   } catch (failure) {
-    links.byId = new Map();
+    links.byKey = new Map();
     links.error = failure.message;
   }
   // Only if the page is still asking the same question -- switching file
@@ -7019,8 +7095,12 @@ async function loadSprintLinks() {
 // the box does not flick back while the request is in the air; the PUT moves
 // `roadmapRevision`, so the render behind it re-reads the links and the server's
 // answer is what survives.
+function toggleLinked(kind, id, done) {
+  return kind === "M" ? toggleLinkedMilestone(id, done) : toggleLinkedDeliverable(id, done);
+}
+
 async function toggleLinkedDeliverable(id, done) {
-  const link = state.sprintLinks.byId.get(id);
+  const link = state.sprintLinks.byKey.get(refKey("D", id));
   if (link) link.done = done;
   // The roadmap copy too, because a chip drawn from the fallback above is built
   // fresh from this row on every render -- setting it only on a link object that
@@ -7031,12 +7111,30 @@ async function toggleLinkedDeliverable(id, done) {
     method: "PUT",
     body: JSON.stringify({ done }),
   });
-  const marks = await pushDeliverableMarks(id, done);
+  const marks = await pushMarks("D", id, done);
   renderSprintView();
   // No ready-to-close offer here: a Sprint-tab tick reaches deliverables the
   // open plan does not hold, so there is no phase to name. The bell counts them
   // all -- see `phaseJustFinished`.
-  announceTick(id, done, marks, () => toggleLinkedDeliverable(id, !done), null);
+  announceTick(deliverableName(id), done, marks,
+    () => toggleLinkedDeliverable(id, !done), null);
+}
+
+// The checkpoint's twin of the above. Ticking one can move its project's stage,
+// which the PUT's roadmap announcement redraws everywhere.
+async function toggleLinkedMilestone(id, done) {
+  const link = state.sprintLinks.byKey.get(refKey("M", id));
+  if (link) link.done = done;
+  const one = state.allMilestones.find((row) => row.id === id);
+  if (one) one.done = done;
+  await api(`/api/milestones/${id}`, {
+    method: "PUT",
+    body: JSON.stringify({ achieved: done }),
+  });
+  const marks = await pushMarks("M", id, done);
+  renderSprintView();
+  announceTick(milestoneName(id), done, marks,
+    () => toggleLinkedMilestone(id, !done), null);
 }
 
 // --- the tick, going out to the files ----------------------------------------
@@ -7054,20 +7152,20 @@ async function toggleLinkedDeliverable(id, done) {
 // copy is already behind what is on screen, and a server write under it is how a
 // half-typed line goes missing -- so it is named in `skip` and flipped in memory
 // instead, riding out on the next autosave.
-async function pushDeliverableMarks(id, done) {
+async function pushMarks(kind, id, done) {
   const open = state.sprint.number;
   const holding = open !== null && !isTemplate(open) && sprintHasUnsavedWork();
   const answer = await api("/api/sprints/marks", {
     method: "POST",
     body: JSON.stringify({
-      deliverable_id: id,
+      [kind === "M" ? "milestone_id" : "deliverable_id"]: id,
       done,
       skip: holding ? [open] : [],
     }),
   });
 
   const changed = answer.files || [];
-  const mine = holding ? markOpenSprint(id, done) : 0;
+  const mine = holding ? markOpenSprint(kind, id, done) : 0;
 
   // A file the server wrote that is also the one on screen. It had no unsaved
   // work -- that is why it was not skipped -- but its mtime has moved, and the
@@ -7093,11 +7191,11 @@ const CELL_MARKER = /^([ \t]*)(☐|☑|(?:[-*+]|\d{1,9}[.)])[ \t]+\[[ xX]\])/;
 // text in `sprint.draft`, and the draft is written back over `raw` when the edit
 // lands. So a flip that arrives while you are editing that very line loses to
 // what you type, which is the right way round for it to lose.
-function markOpenSprint(id, done) {
+function markOpenSprint(kind, id, done) {
   let changed = 0;
   for (const block of state.sprint.blocks) {
     if (block.table) {
-      changed += markOpenSprintTable(block, id, done);
+      changed += markOpenSprintTable(block, kind, id, done);
       continue;
     }
     if (block.type !== "list" && block.type !== "quote") continue;
@@ -7106,7 +7204,7 @@ function markOpenSprint(id, done) {
       if (!found) return line;
       const rest = line.slice(found[0].length);
       const reference = DELIVERABLE_REF.exec(rest);
-      if (!reference || referencedId(reference) !== id) return line;
+      if (!reference || !namesRef(reference, kind, id)) return line;
       if ((found[2].toLowerCase() === "x") === done) return line;
       changed += 1;
       return `${found[1]}[${done ? "x" : " "}]${rest}`;
@@ -7120,7 +7218,7 @@ function markOpenSprint(id, done) {
 // copy of the table -- `serialiseEditedTables` turns it back into markdown at save
 // time -- so the write is to the cell value and the block is flagged, exactly as a
 // press on the box in that cell would leave it.
-function markOpenSprintTable(block, id, done) {
+function markOpenSprintTable(block, kind, id, done) {
   let changed = 0;
   for (const row of block.table.rows) {
     row.forEach((cell, column) => {
@@ -7131,7 +7229,7 @@ function markOpenSprintTable(block, id, done) {
         if (!found) return line;
         const rest = line.slice(found[0].length);
         const reference = DELIVERABLE_REF.exec(rest);
-        if (!reference || referencedId(reference) !== id) return line;
+        if (!reference || !namesRef(reference, kind, id)) return line;
         const marker = found[2] === "☑" || /\[[xX]\]/.test(found[2]);
         if (marker === done) return line;
         touched += 1;
@@ -7163,13 +7261,13 @@ function cellMarkerFor(marker, done) {
 // **`ready` is an offer, never a write.** The tool has noticed; the status still
 // moves only when you press the button, which is the line rule 4 draws and the
 // reason nothing here sets `phase.status` itself.
-function announceTick(id, done, marks, undo, ready) {
+function announceTick(label, done, marks, undo, ready) {
   const names = marks.changed.map((one) => one.name);
   if (marks.mine) names.push(state.sprint.name || "the open file");
 
   const parts = [];
   if (names.length) {
-    parts.push(`${deliverableName(id)} ${done ? "ticked" : "unticked"} — `
+    parts.push(`${label} ${done ? "ticked" : "unticked"} — `
       + `${names.join(" and ")} updated.`);
   }
   if (ready) {
@@ -7224,11 +7322,19 @@ function deliverableName(id) {
   return `Deliverable ${id}`;
 }
 
+// The same lookup for a checkpoint.
+function milestoneName(id) {
+  const known = state.allMilestones.find((row) => row.id === id);
+  if (known) return known.name;
+  const one = (state.plan ? state.plan.milestones || [] : []).find((row) => row.id === id);
+  return one ? one.name : `Checkpoint ${id}`;
+}
+
 // The arrow. `openProject` clears the open phases, so the one being jumped to is
 // expanded after it rather than before -- otherwise the tab arrives with the
 // deliverable's phase shut and nothing on screen saying where it went.
 async function jumpToDeliverable(id) {
-  const link = sprintLink(id);
+  const link = sprintLink("D", id);
   if (!link || link.missing || link.project_id === null) return;
   await openProject(link.project_id);
   if (link.phase_id !== null) {

@@ -4810,6 +4810,155 @@ def test_the_picker_offers_every_deliverable_in_the_roadmap(client):
     assert listed[0]["phase_name"] == "Build"
 
 
+# --- checkpoint links ---------------------------------------------------------
+
+# `[#M-3]` is checkpoint 3, linked exactly as a deliverable is: the reference is
+# text in the file and the tick drawn beside it is `milestone.achieved`. Only the
+# bracketed spelling is read -- no file on disk predates it.
+
+
+def make_milestone(client, project_id, name):
+    response = client.post(f"/api/projects/{project_id}/milestones", json={"name": name})
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_a_checkpoint_reference_is_a_link_carrying_its_achieved_tick(client, sprints):
+    project, _, _, _ = linked_plan(client)
+    gate = make_milestone(client, project["id"], "Go-live")
+    stage_sprint(sprints, 1, (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        f"- [ ] Go-live sign-off [#M-{gate['id']}]\n"
+    ))
+
+    link = client.get("/api/sprints/1/links").json()[0]
+    assert (link["kind"], link["id"]) == ("M", gate["id"])
+    assert link["name"] == "Go-live"
+    assert link["label"] == "Go-live sign-off"
+    assert link["project_id"] == project["id"]
+    assert link["done"] is False
+
+    client.put(f"/api/milestones/{gate['id']}", json={"achieved": True})
+    assert client.get("/api/sprints/1/links").json()[0]["done"] is True
+
+
+def test_a_checkpoint_and_a_deliverable_sharing_a_number_are_two_links(client, sprints):
+    project, _, first, _ = linked_plan(client)
+    gate = make_milestone(client, project["id"], "Go-live")
+    assert gate["id"] == first["id"]
+    stage_sprint(sprints, 1, (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        f"- [ ] Ship [#D-{first['id']}]\n"
+        f"- [ ] Sign off [#M-{gate['id']}]\n"
+    ))
+
+    links = client.get("/api/sprints/1/links").json()
+    assert [(one["kind"], one["id"]) for one in links] == [
+        ("D", first["id"]), ("M", gate["id"])]
+    assert [one["rows"] for one in links] == [1, 1]
+
+
+def test_a_bare_checkpoint_number_is_not_a_reference(client, sprints):
+    project, _, _, _ = linked_plan(client)
+    gate = make_milestone(client, project["id"], "Go-live")
+    stage_sprint(sprints, 1, (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        f"- [ ] Order the M-{gate['id']} bolts\n"
+    ))
+
+    # `D-42` is read bare only because older files say it. Nothing says `M-3`
+    # yet, and a part number in a task name must not quietly become a link.
+    assert client.get("/api/sprints/1/links").json() == []
+
+
+def test_a_checkpoint_tick_reaches_its_lines_and_no_deliverables(client, sprints):
+    project, _, first, _ = linked_plan(client)
+    gate = make_milestone(client, project["id"], "Go-live")
+    path = stage_sprint(sprints, 1, (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        f"- [ ] Go-live sign-off [#M-{gate['id']}]\n"
+        f"- [ ] Ship [#D-{first['id']}]\n"
+    ))
+
+    answer = client.post("/api/sprints/marks", json={
+        "milestone_id": gate["id"], "done": True,
+    })
+    assert answer.status_code == 200
+    assert [one["lines"] for one in answer.json()["files"]] == [1]
+    written = path.read_text(encoding="utf-8")
+    assert f"- [x] Go-live sign-off [#M-{gate['id']}]" in written
+    # Same number, other kind: the deliverable's line is left as it was.
+    assert f"- [ ] Ship [#D-{first['id']}]" in written
+
+
+def test_a_checkpoint_tick_inside_a_cell_keeps_the_table_aligned(client, sprints):
+    project, _, _, _ = linked_plan(client)
+    gate = make_milestone(client, project["id"], "Go-live")
+    text = (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        "| Task                        | PIC  |\n"
+        "| --------------------------- | ---- |\n"
+        f"| ☐ Sign off [#M-{gate['id']}]            | @me  |\n"
+    )
+    path = stage_sprint(sprints, 1, text)
+
+    client.post("/api/sprints/marks", json={"milestone_id": gate["id"], "done": True})
+    written = path.read_text(encoding="utf-8")
+    assert written == text.replace("☐ Sign off", "☑ Sign off")
+
+
+def test_a_deliverable_tick_never_reaches_a_checkpoint_line(client, sprints):
+    project, _, first, _ = linked_plan(client)
+    gate = make_milestone(client, project["id"], "Go-live")
+    text = (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        f"- [ ] Sign off [#M-{gate['id']}]\n"
+    )
+    path = stage_sprint(sprints, 1, text)
+
+    answer = client.post("/api/sprints/marks", json={
+        "deliverable_id": first["id"], "done": True,
+    })
+    assert answer.json()["files"] == []
+    assert path.read_text(encoding="utf-8") == text
+
+
+def test_marks_names_exactly_one_thing_to_tick(client, sprints):
+    sprints.mkdir(parents=True, exist_ok=True)
+    assert client.post("/api/sprints/marks", json={"done": True}).status_code == 422
+    assert client.post("/api/sprints/marks", json={
+        "deliverable_id": 1, "milestone_id": 1, "done": True,
+    }).status_code == 422
+
+
+def test_the_reverse_index_lists_deliverables_only(client, sprints):
+    project, _, first, _ = linked_plan(client)
+    gate = make_milestone(client, project["id"], "Go-live")
+    stage_sprint(sprints, 1, (
+        "# Sprint 1 · 2026-01-05 → 2026-01-19\n\n"
+        f"- [ ] Ship [#D-{first['id']}]\n"
+        f"- [ ] Sign off [#M-{gate['id']}]\n"
+    ))
+
+    # The Project tab's "named in sprint N" jump is a deliverable feature, and a
+    # checkpoint with the same number must not be counted as that deliverable.
+    found = client.get("/api/sprints/links").json()
+    assert [(one["deliverable_id"], len(one["sprints"])) for one in found] == [
+        (first["id"], 1)]
+
+
+def test_the_picker_offers_every_checkpoint_in_the_roadmap(client):
+    project, _, _, _ = linked_plan(client)
+    other = make_project(client, name="Billing", start="2026-02-02")
+    gate = make_milestone(client, project["id"], "Go-live")
+    later = make_milestone(client, other["id"], "Invoices out")
+
+    listed = client.get("/api/milestones").json()
+    assert [one["id"] for one in listed] == [gate["id"], later["id"]]
+    assert listed[1]["project_name"] == "Billing"
+    assert listed[0]["done"] is False
+
+
 # --- the sign-in gate ---------------------------------------------------------
 
 # A whole OIDC round trip, offline. `auth.http_client` is the one seam both
