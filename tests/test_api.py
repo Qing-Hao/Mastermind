@@ -1227,7 +1227,7 @@ def test_kind_survives_a_round_trip(client):
     })
 
     exported = client.get("/api/export").json()
-    assert exported["version"] == 12
+    assert exported["version"] == 13
     for existing in client.get("/api/projects").json():
         client.delete(f"/api/projects/{existing['id']}")
     assert client.post("/api/import", json=exported).status_code == 200
@@ -1235,6 +1235,150 @@ def test_kind_survives_a_round_trip(client):
     assert {project["name"]: project["kind"]
             for project in client.get("/api/projects").json()} \
         == {"Payments": "enhancement", "Caching": "new", "Ledger": ""}
+
+
+# --- owner and challenge (PROMPT.md amendment 10) ---------------------------
+
+
+def test_an_owner_is_stored_trimmed(client):
+    project = client.post("/api/projects", json={
+        "name": "Payments", "start_date": "2026-01-05", "owner": "  Aisha Rahman ",
+    }).json()
+    assert project["owner"] == "Aisha Rahman"
+
+    updated = client.put(f"/api/projects/{project['id']}",
+                         json={"owner": " Daniel Ong\n"}).json()
+    assert updated["owner"] == "Daniel Ong"
+    assert make_project(client, "Ledger")["owner"] == ""
+
+
+def test_an_owner_past_the_limit_is_refused_rather_than_stored(client):
+    project = make_project(client)
+    response = client.put(f"/api/projects/{project['id']}",
+                          json={"owner": "x" * (main.OWNER_MAX + 1)})
+    assert response.status_code == 422
+    assert client.get(f"/api/projects/{project['id']}").json()["project"]["owner"] == ""
+    assert client.put(f"/api/projects/{project['id']}",
+                      json={"owner": "x" * main.OWNER_MAX}).status_code == 200
+
+
+def test_a_challenge_is_stored_on_the_phase(client):
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Build", "2026-01-05", 2, 8)
+    assert phase["challenge"] == ""
+
+    text = "Vendor keys late.\nBlocks the nightly load from 2 Oct."
+    updated = client.put(f"/api/phases/{phase['id']}", json={"challenge": text}).json()
+    assert updated["challenge"] == text
+
+
+def test_a_whitespace_challenge_reads_as_none(client):
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Build", "2026-01-05", 2, 8)
+    updated = client.put(f"/api/phases/{phase['id']}",
+                         json={"challenge": "   \n\t "}).json()
+    assert updated["challenge"] == ""
+
+
+def test_owner_and_challenge_change_nothing_a_rule_reads(client):
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Design", "2026-01-05", 6, 55)
+    before = client.get(f"/api/projects/{project['id']}").json()
+    stage_before = client.get("/api/projects").json()[0]["derived_stage"]
+
+    client.put(f"/api/projects/{project['id']}", json={"owner": "Aisha Rahman"})
+    client.put(f"/api/phases/{phase['id']}", json={"challenge": "Keys late"})
+    after = client.get(f"/api/projects/{project['id']}").json()
+
+    assert after["warnings"] == before["warnings"]
+    assert [one["start_date"] for one in after["phases"]] \
+        == [one["start_date"] for one in before["phases"]]
+    assert [one["status"] for one in after["phases"]] \
+        == [one["status"] for one in before["phases"]]
+    assert client.get("/api/projects").json()[0]["derived_stage"] == stage_before
+
+
+def test_owner_and_challenge_are_versioned(client):
+    project = make_project(client)
+    phase = make_phase(client, project["id"], "Build", "2026-01-05", 2, 8)
+    client.put(f"/api/projects/{project['id']}", json={"owner": "Aisha Rahman"})
+    client.put(f"/api/phases/{phase['id']}", json={"challenge": "Keys late"})
+
+    owner = client.get("/api/blame/project", params={"ids": project["id"]}) \
+        .json()["blame"][str(project["id"])]["owner"]
+    assert (owner["old_value"], owner["new_value"]) == ("", "Aisha Rahman")
+    challenge = client.get("/api/blame/phase", params={"ids": phase["id"]}) \
+        .json()["blame"][str(phase["id"])]["challenge"]
+    assert challenge["new_value"] == "Keys late"
+
+
+def test_a_stale_owner_write_names_the_field(client):
+    project = make_project(client)
+    client.put(f"/api/projects/{project['id']}", json={"owner": "Aisha Rahman"})
+    response = client.put(f"/api/projects/{project['id']}", json={
+        "owner": "Daniel Ong", "expect": {"owner": ""},
+    })
+    assert response.status_code == 409
+    assert response.json()["detail"]["error"].startswith("Owner changed")
+
+
+def test_owner_and_challenge_survive_a_round_trip(client):
+    project = client.post("/api/projects", json={
+        "name": "Payments", "start_date": "2026-01-05", "owner": "Aisha Rahman",
+    }).json()
+    phase = make_phase(client, project["id"], "Build", "2026-01-05", 2, 8)
+    client.put(f"/api/phases/{phase['id']}", json={"challenge": "Keys late"})
+
+    exported = client.get("/api/export").json()
+    assert exported["version"] == 13
+    assert exported["projects"][0]["owner"] == "Aisha Rahman"
+    assert exported["phases"][0]["challenge"] == "Keys late"
+
+    client.delete(f"/api/projects/{project['id']}")
+    assert client.post("/api/import", json=exported).status_code == 200
+    assert client.get("/api/projects").json()[0]["owner"] == "Aisha Rahman"
+    assert client.get(f"/api/projects/{project['id']}").json()["phases"][0]["challenge"] \
+        == "Keys late"
+
+
+def test_a_pre_owner_export_imports_with_no_owner_or_challenge(client):
+    """A version-12 file was written by a tool that could record neither."""
+    legacy = {
+        "version": 12,
+        "settings": {"default_velocity_points_per_sprint": 20,
+                     "sprint_length_days": 14, "v1_tolerance_pct": 5.0,
+                     "department_name": "Platform Engineering"},
+        "projects": [{"id": 1, "name": "Payments", "description": "", "goal": "",
+                      "start_date": "2026-01-05", "velocity_override": None,
+                      "stage": "active", "track": "", "tier": 1, "kind": "fix",
+                      "created_at": "2026-01-01T00:00:00+00:00",
+                      "updated_at": "2026-01-01T00:00:00+00:00"}],
+        "phases": [{"id": 1, "project_id": 1, "name": "Build", "description": "",
+                    "start_date": "2026-01-05", "duration_weeks": 2,
+                    "effort_points": 8, "status": "planned", "sort_order": 0}],
+        "deliverables": [], "dependencies": [],
+    }
+    assert client.post("/api/import", json=legacy).status_code == 200
+    assert client.get("/api/projects").json()[0]["owner"] == ""
+    assert client.get("/api/projects/1").json()["phases"][0]["challenge"] == ""
+
+
+def test_migrate_adds_owner_and_challenge_to_an_older_file(tmp_path):
+    try:
+        db.set_db_path(str(tmp_path / "old.db"))
+        db.init_db()
+        project = db.create_project("Payments", "2026-01-05")
+        with db.connect() as connection:
+            connection.execute("ALTER TABLE project DROP COLUMN owner")
+            connection.execute("ALTER TABLE phase DROP COLUMN challenge")
+
+        db.init_db()   # migrate runs on every open
+
+        assert db.get_project(project["id"])["owner"] == ""
+        phase = db.create_phase(project["id"], "Build", "2026-01-05", 2, 8)
+        assert phase["challenge"] == ""
+    finally:
+        db.set_db_path(db.DEFAULT_DB_PATH)
 
 
 # --- the planned stage ------------------------------------------------------
@@ -1569,7 +1713,7 @@ def test_quarter_goals_survive_the_export_round_trip(client):
         "goal": "One platform.", "target": "Released.", "achieved": True,
     })
     export = client.get("/api/export").json()
-    assert export["version"] == 12
+    assert export["version"] == 13
     assert export["quarter_goals"][0]["period"] == "2026-Q3"
 
     assert client.post("/api/import", json=export).status_code == 200
@@ -1639,7 +1783,7 @@ def test_stage_track_and_department_survive_a_round_trip(client):
     make_direction(client, "Build caching", track="Developer experience")
 
     exported = client.get("/api/export").json()
-    assert exported["version"] == 12
+    assert exported["version"] == 13
 
     for existing in client.get("/api/projects").json():
         client.delete(f"/api/projects/{existing['id']}")
@@ -1689,7 +1833,7 @@ def test_a_version_9_export_imports_and_drops_its_drafting_flag(client):
     assert client.post("/api/import", json=legacy).status_code == 200
 
     exported = client.get("/api/export").json()
-    assert exported["version"] == 12
+    assert exported["version"] == 13
     assert "draft_complete" not in exported["projects"][0]
     assert exported["milestones"] == []
     # A plan that was flagged drafted arrives with nothing to aim at, so the
@@ -1772,7 +1916,7 @@ def test_a_version_4_export_imports_with_every_deliverable_ongoing(client):
     assert client.post("/api/import", json=legacy).status_code == 200
 
     exported = client.get("/api/export").json()
-    assert exported["version"] == 12
+    assert exported["version"] == 13
     # Even under a phase marked done -- the tick is the user's to set, and a
     # phase status is not evidence about any particular deliverable.
     assert exported["deliverables"][0]["done"] == 0

@@ -496,6 +496,100 @@ the text above, **the amendment wins** — the code follows the amendments.
    - **Out of `/api/export`**, like `item_version` and for the same reason — and
      the snapshots are not in it either, because sprint files never were.
 
+10. **A project names who answers for it, and a phase can raise a challenge.**
+    *(Added 2026-10-27. Overturns FR-7's won't-build verdict **for projects
+    only** — it still stands for phases — and narrows amendment 6's "the
+    directory describes people, never their work" by one string column that is
+    not in the directory at all.)*
+
+    The request, in the requester's words: owner and challenge on the project,
+    *"in order for the portfolio and map has a better presentation for the upper
+    management."* Asked what management needs the owner for: *"a name to call,
+    just accountability. For the carries, it should come from the sprint planning
+    part."* And of the challenge: *"it just raising that there is something
+    potential block, need discussion or what. but instead directly deciding it as
+    blocked."*
+
+    **Why an owner is not the assignee every earlier amendment refused.** FR-7
+    argued that a name on a phase is a guess made months out that then looks
+    authoritative, and that it turns the roster into assignment. Both hold at the
+    phase, which is why the phase still gets no owner. At the project they
+    weaken: the question is *who answers for this when management asks*, which is
+    settled when the project is committed and rarely moves, not *who does this
+    work*, which is the fortnight's question and stays in the sprint file's `PIC`
+    column. The capacity question — who carries how much — is the requester's own
+    line, and it stays on the sprint side.
+
+    So `project.owner`: free text, `''` for nobody named yet. The Details form
+    offers the `person` directory as suggestions so a name is spelled the way
+    everyone else spells it, and accepts a name that is not in it — a sponsor
+    outside the app is a legitimate answer. **It is a string copy, never a
+    foreign key**, for `item_version.author`'s reason: `person` gains no column,
+    no row and no timestamp, and someone who leaves the directory leaves a name
+    behind rather than a dangling link. A suggestion fills in the **display
+    name** — falling back to the handle where the directory has none — because
+    the reader is management, and "Aisha Rahman" is a name to call where
+    `aisha` is a login. It carries no `@`, so nothing that scans for handles can
+    mistake an owner for a PIC.
+
+    **Why a challenge is not the status field amendment 2 refused.** A challenge
+    is a note that asks for a discussion, not a claim about where the work
+    stands. "Blocked" was considered and rejected by the requester for exactly
+    that reason: it declares a state, and a declared state is one rung below a
+    red/amber/green column. Whether a challenge actually blocks anything is said
+    in its text — *"vendor keys late; blocks the nightly load from 2 Oct"* — and
+    nowhere else.
+
+    So `phase.challenge`: free text, `''` for none. On the phase rather than the
+    project because delivery happens phase by phase and that is where something
+    stalls; on the phase rather than the deliverable because the deliverable is
+    the task-sized unit, and a challenge per task is the tracker.
+
+    **Where they show.** The owner under the lane name on the Portfolio and as a
+    line of the node's label on the Map — readable in a screenshot, which is how
+    a roadmap reaches the people it is presented to. A challenge as a tag on the
+    phase's Portfolio bar and a count on its project's Map node, the text on the
+    hover. The bar keeps its status colour and gains no outline: an outline on a
+    bar is a rule's warning, and a challenge is not a rule. Both in the indigo the
+    map already uses for things somebody decided, tier and kind.
+
+    An empty owner reads *no owner yet* in the Portfolio gutter, where only
+    committed work is drawn and a gap is worth seeing. On the Map it draws
+    nothing, for the reason an unclassified kind draws nothing: a dataset that
+    has not started using the field would otherwise print the same three words
+    under every node. A challenge on a finished phase **still shows** — hiding it
+    by status would be the phase's status deciding what is drawn about something
+    else, and clearing it is the person's job, not the tool's.
+
+    The lines these must not cross, each of which is where a label becomes the
+    tracker **Non-goals** forbids:
+
+    - **Nothing derives from either.** No rule, stage, warning, date or headline
+      count reads them. The Map's challenge count is drawn from the rows on read,
+      the `/api/late` genus, and moves nothing. Non-goal 1 is untouched.
+    - **No owner on a phase, no challenge on a deliverable.** FR-7 still stands
+      for the one, amendment 2 for the other.
+    - **Nothing per owner.** No filter by owner, no "my projects", no grouping or
+      total by owner, and `/api/mine` does not read it. Each is a person-keyed
+      view, which amendment 6 still refuses.
+    - **No severity, no "resolved" tick, no history list on a challenge.** Each is
+      a status with extra steps. A challenge that is over is cleared, and
+      `item_version` already remembers that it was there.
+    - **No chart reads who raised it.** Amendment 8 says no chart reads a version
+      row, and that holds: the Portfolio and Map hovers carry the text only. Who
+      raised it and when is on the field's own tip in the Project tab, where every
+      other field's is.
+
+    **Both travel in `/api/export`** (version 13), unlike `person` and
+    `item_version`. This was asked and answered: an owner is planning text the
+    team typed, like a goal, and the export is the plan. The cost, accepted
+    knowingly, is that an export now names the people who answer for each
+    project. A pre-13 file arrives with no owners and no challenges, which is the
+    honest reading — it was written by a tool that could not record either.
+
+    Both are logged in `item_version` with no extra work, because `project` and
+    `phase` are versioned entities already.
+
 Deliverables inside a phase are treated as **sequential**, so durations sum. Work
 that genuinely runs in parallel belongs in separate phases.
 

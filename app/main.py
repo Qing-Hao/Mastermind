@@ -903,6 +903,8 @@ class ProjectIn(BaseModel):
     # '' is unclassified, and stays the default for the same reason: what sort of
     # work this is is the caller's to say, not ours to assume.
     kind: str = ""
+    # '' is nobody named yet. A name to call, never an assignee -- amendment 10.
+    owner: str = ""
 
 
 class ProjectPatch(BaseModel):
@@ -915,6 +917,7 @@ class ProjectPatch(BaseModel):
     track: str | None = None
     tier: int | None = None
     kind: str | None = None
+    owner: str | None = None
     expect: Expectation = None
 
 
@@ -941,6 +944,7 @@ class PhaseIn(BaseModel):
     effort_points: int = 0
     description: str = ""
     status: str = "planned"
+    challenge: str = ""
 
 
 class PhasePatch(BaseModel):
@@ -951,6 +955,7 @@ class PhasePatch(BaseModel):
     description: str | None = None
     status: str | None = None
     sort_order: int | None = None
+    challenge: str | None = None
     expect: Expectation = None
 
 
@@ -1179,6 +1184,27 @@ def clean_kind(value):
     return value
 
 
+# Long enough for any name and a role after it; short enough that a paste of a
+# paragraph is refused rather than drawn under a map node.
+OWNER_MAX = 120
+
+
+def clean_owner(value):
+    """Trim who answers for a project, and refuse a paste that is no name."""
+    owner = (value or "").strip()
+    if len(owner) > OWNER_MAX:
+        raise HTTPException(
+            status_code=422,
+            detail=f"An owner is a name to call — keep it under {OWNER_MAX} characters.",
+        )
+    return owner
+
+
+def clean_challenge(value):
+    """Trim a phase's challenge; whitespace alone is no challenge at all."""
+    return (value or "").strip()
+
+
 def require_project(project_id):
     project = db.get_project(project_id)
     if not project:
@@ -1210,6 +1236,8 @@ FIELD_LABELS = {
     "target": "Target",
     "target_date": "Target date",
     "kind": "Kind",
+    "owner": "Owner",
+    "challenge": "Challenge",
     "tier": "Tier",
     "track": "Track",
     "velocity_override": "Velocity",
@@ -1501,6 +1529,7 @@ def add_project(request: Request, body: ProjectIn):
         track=body.track,
         tier=clean_tier(body.tier),
         kind=clean_kind(body.kind),
+        owner=clean_owner(body.owner),
     )
     announce_roadmap()
     return project
@@ -3444,6 +3473,8 @@ def edit_project(request: Request, project_id: int, body: ProjectPatch):
         fields["tier"] = clean_tier(fields["tier"])
     if "kind" in fields:
         fields["kind"] = clean_kind(fields["kind"])
+    if "owner" in fields:
+        fields["owner"] = clean_owner(fields["owner"])
     updated = db.update_project(project_id, fields, author=signed_in_name(request))
     announce_roadmap()
     return updated
@@ -3471,6 +3502,7 @@ def add_phase(request: Request, project_id: int, body: PhaseIn):
         effort_points=body.effort_points,
         description=body.description,
         status=body.status,
+        challenge=clean_challenge(body.challenge),
     )
     announce_roadmap()
     return with_end_date(phase)
@@ -3483,6 +3515,8 @@ def edit_phase(request: Request, phase_id: int, body: PhasePatch):
     require_unchanged(phase, fields.pop("expect", None), "phase")
     if "start_date" in fields:
         fields["start_date"] = clean_date(fields["start_date"])
+    if "challenge" in fields:
+        fields["challenge"] = clean_challenge(fields["challenge"])
     updated = with_end_date(
         db.update_phase(phase_id, fields, author=signed_in_name(request)))
     announce_roadmap()

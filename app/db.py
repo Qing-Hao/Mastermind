@@ -128,12 +128,23 @@ CREATE TABLE IF NOT EXISTS {name} (
     -- day after the field shipped, and it cost one tuple and no migration at
     -- all.
     kind              TEXT NOT NULL DEFAULT '',
+    -- Who answers for this project when management asks: a name to call, not
+    -- an assignee. Free text and never a foreign key -- `person` gains nothing
+    -- from it. '' is nobody named yet. Nothing derives from it, and nothing
+    -- filters, groups or totals by it. PROMPT.md amendment 10.
+    owner             TEXT NOT NULL DEFAULT '',
     created_at        TEXT NOT NULL,
     updated_at        TEXT NOT NULL
 );
 """
 
 REST_OF_SCHEMA = """
+-- `challenge` is something that needs discussion, raised against this phase. A
+-- note, not a status: whether it blocks anything is said in the text and nowhere
+-- else. '' is none. Drawn on the charts, never derived from. PROMPT.md
+-- amendment 10. The comment sits up here rather than beside the column because
+-- the column is last: SQLite's DROP COLUMN cuts the definition out of this text,
+-- and a comment left between it and the closing parenthesis breaks the rewrite.
 CREATE TABLE IF NOT EXISTS phase (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id     INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
@@ -144,7 +155,8 @@ CREATE TABLE IF NOT EXISTS phase (
     effort_points  INTEGER NOT NULL DEFAULT 0,
     status         TEXT NOT NULL DEFAULT 'planned'
                    CHECK (status IN ('planned', 'in_progress', 'done')),
-    sort_order     INTEGER NOT NULL DEFAULT 0
+    sort_order     INTEGER NOT NULL DEFAULT 0,
+    challenge      TEXT NOT NULL DEFAULT ''
 );
 
 -- Dependencies link projects, not phases: the useful question across a roadmap
@@ -401,7 +413,7 @@ SCHEMA = SETTINGS_TABLE + PROJECT_TABLE.format(name="project") + REST_OF_SCHEMA
 # retired in some earlier release is left behind rather than failing the copy.
 PROJECT_COLUMNS = (
     "id", "name", "description", "goal", "start_date", "velocity_override",
-    "stage", "track", "tier", "kind", "created_at", "updated_at",
+    "stage", "track", "tier", "kind", "owner", "created_at", "updated_at",
 )
 
 # Phase-level dependency rows, translated up to the projects they belonged to.
@@ -467,6 +479,11 @@ ADDED_COLUMNS = [
     # configured, which with `MASTERMIND_ISSUES` unset is the feature switched
     # off twice over -- exactly how a file that has never seen it should read.
     ("settings", "issues_repos", "TEXT NOT NULL DEFAULT ''"),
+    # Existing projects arrive with nobody named and existing phases with nothing
+    # raised: a file written before either field cannot say who answered for
+    # anything, and naming somebody on its behalf would be inventing it.
+    ("project", "owner", "TEXT NOT NULL DEFAULT ''"),
+    ("phase", "challenge", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 # Columns retired after the first release. Deliverables stopped carrying their
@@ -1260,16 +1277,16 @@ def get_project(project_id):
 
 
 def create_project(name, start_date, description="", goal="", velocity_override=None,
-                   stage="active", track="", tier=0, kind="", author=""):
+                   stage="active", track="", tier=0, kind="", owner="", author=""):
     timestamp = now_iso()
     with connect() as connection:
         cursor = connection.execute(
             """INSERT INTO project (name, description, goal, start_date,
                                     velocity_override, stage, track, tier, kind,
-                                    created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                    owner, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (name, description, goal, start_date, velocity_override, stage, track,
-             tier, kind, timestamp, timestamp),
+             tier, kind, owner, timestamp, timestamp),
         )
         project_id = cursor.lastrowid
     record_creation("project", project_id, name, author)
@@ -1278,7 +1295,7 @@ def create_project(name, start_date, description="", goal="", velocity_override=
 
 def update_project(project_id, fields, author=""):
     allowed = {"name", "description", "goal", "start_date", "velocity_override",
-               "stage", "track", "tier", "kind"}
+               "stage", "track", "tier", "kind", "owner"}
     updates = {key: value for key, value in fields.items() if key in allowed}
     if updates:
         update_versioned("project", "project", project_id, updates, author,
@@ -1364,15 +1381,16 @@ def get_phase(phase_id):
 
 
 def create_phase(project_id, name, start_date, duration_weeks, effort_points,
-                 description="", status="planned", author=""):
+                 description="", status="planned", challenge="", author=""):
     with connect() as connection:
         next_order = next_plan_sort_order(connection, project_id)
         cursor = connection.execute(
             """INSERT INTO phase (project_id, name, description, start_date,
-                                  duration_weeks, effort_points, status, sort_order)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                                  duration_weeks, effort_points, status, sort_order,
+                                  challenge)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (project_id, name, description, start_date, duration_weeks,
-             effort_points, status, next_order),
+             effort_points, status, next_order, challenge),
         )
         phase_id = cursor.lastrowid
     record_creation("phase", phase_id, name, author)
@@ -1381,7 +1399,7 @@ def create_phase(project_id, name, start_date, duration_weeks, effort_points,
 
 def update_phase(phase_id, fields, author=""):
     allowed = {"name", "description", "start_date", "duration_weeks",
-               "effort_points", "status", "sort_order"}
+               "effort_points", "status", "sort_order", "challenge"}
     updates = {key: value for key, value in fields.items() if key in allowed}
     if updates:
         update_versioned("phase", "phase", phase_id, updates, author)
@@ -1742,8 +1760,12 @@ def export_all():
         # as a roadmap nobody has written a goal on yet. 12 added project.kind,
         # and a pre-12 file arrives unclassified, which is the honest reading: it
         # was written by a tool that could not say what sort of work a project
-        # was.
-        "version": 12,
+        # was. 13 added project.owner and phase.challenge; a pre-13 file arrives
+        # with nobody named and nothing raised, since it could record neither.
+        # Unlike `person` and `item_version` both travel: an owner is planning
+        # text the team typed, like a goal, and the export is the plan -- so an
+        # export now names who answers for each project. PROMPT.md amendment 10.
+        "version": 13,
         "exported_at": now_iso(),
         # Sign-in configuration is stripped rather than exported. It describes
         # this deployment's gate, not the dataset -- an issuer and an allowlist
@@ -1869,8 +1891,8 @@ def import_all(payload):
             connection.execute(
                 """INSERT INTO project (id, name, description, goal, start_date,
                                         velocity_override, stage, track, tier,
-                                        kind, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                        kind, owner, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     project["id"], project["name"], project.get("description", ""),
                     project.get("goal", ""),
@@ -1886,6 +1908,8 @@ def import_all(payload):
                     # applies: a file that could not say what sort of work this
                     # was arrives unclassified rather than guessed at.
                     project.get("kind") or "",
+                    # Anything before 13 named nobody.
+                    project.get("owner") or "",
                     # A version-9 file carries `draft_complete`. It is read and
                     # discarded rather than translated: the milestone list is
                     # what answers that question now, and inventing a checkpoint
@@ -1899,13 +1923,16 @@ def import_all(payload):
         for phase in payload.get("phases", []):
             connection.execute(
                 """INSERT INTO phase (id, project_id, name, description, start_date,
-                                      duration_weeks, effort_points, status, sort_order)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                      duration_weeks, effort_points, status, sort_order,
+                                      challenge)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     phase["id"], phase["project_id"], phase["name"],
                     phase.get("description", ""), phase["start_date"],
                     phase.get("duration_weeks", 1), phase.get("effort_points", 0),
                     phase.get("status", "planned"), phase.get("sort_order", 0),
+                    # Anything before 13 raised nothing.
+                    phase.get("challenge") or "",
                 ),
             )
 
