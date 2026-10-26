@@ -2910,7 +2910,15 @@ function phaseBar(phase, view, isWarned) {
   placeBar(bar, from, to, view);
   bar.title = `${phase.name}: ${phase.start_date} to ${phase.end_date} `
     + `(${phase.duration_weeks}w, ${phase.effort_points} pts)`;
-  bar.textContent = phase.name;
+  // A raised challenge is a tag inside the bar and its text on the hover. The
+  // bar keeps its status colour and gains no outline -- an outline is a rule's
+  // warning, and a challenge is not a rule (amendment 10).
+  const challenge = phaseChallenge(phase);
+  if (challenge) {
+    bar.appendChild(challengeTag("challenge", "span"));
+    bar.title += `\n\nChallenge: ${challenge}`;
+  }
+  bar.appendChild(document.createTextNode(phase.name));
   return bar;
 }
 
@@ -3482,12 +3490,13 @@ function phaseChallenge(phase) {
   return (phase.challenge || "").trim();
 }
 
-// The outlined flag pill. A `<button>` because every place it sits, pressing it
-// goes somewhere; `label` is the word or count beside the flag, or "" for the
-// flag alone where the row is narrow.
-function challengeTag(label) {
-  const tag = element("button", "challenge-tag");
-  tag.type = "button";
+// The outlined flag pill. A `<button>` where pressing it goes somewhere, a plain
+// `<span>` inside a chart bar, which is itself the thing you press or drag.
+// `label` is the word or count beside the flag, or "" for the flag alone where
+// the row is narrow.
+function challengeTag(label, tagName = "button") {
+  const tag = element(tagName, "challenge-tag");
+  if (tagName === "button") tag.type = "button";
   const flag = svgElement("svg", {
     width: 8, height: 9, viewBox: "0 0 8 9", "aria-hidden": "true",
   });
@@ -3990,7 +3999,25 @@ function laneSummaryBar(project, view) {
 
   bar.title = `${laneSummary(project)}\n${completionNote(project)}`
     + "\n\nOpen the lane to move a phase.";
+  // The folded lane cannot show which bar raised what, so it counts them -- every
+  // phase, dated or not, read off the payload rather than the bars on screen.
+  const raised = project.challenges || [];
+  if (raised.length) {
+    bar.insertBefore(challengeTag(String(raised.length), "span"), bar.lastChild);
+    bar.title += "\n\nChallenges:\n"
+      + raised.map((one) => `  ${one.name} — ${one.challenge}`).join("\n");
+  }
   return bar;
+}
+
+// Who answers for the project, under its rung. Empty says so: the Portfolio
+// draws committed work only, and a gap there is worth seeing (amendment 10).
+function laneOwner(project) {
+  const owner = (project.owner || "").trim();
+  const line = element("div", `lane-owner${owner ? "" : " is-none"}`,
+    owner || "no owner yet");
+  line.title = owner ? `Owner: ${owner}` : "Nobody named as owner yet.";
+  return line;
 }
 
 // The fraction as a whole number, and the two roundings that matter.
@@ -4335,8 +4362,10 @@ function renderPortfolio() {
     };
     const open = state.laneOpen.has(project.id);
     lane.classList.toggle("open", open);
-    lane.appendChild(laneName(title, laneTwisty(project, open),
-      palette.get(trackPath(project.track)[0]), laneMeta(project)));
+    const name = laneName(title, laneTwisty(project, open),
+      palette.get(trackPath(project.track)[0]), laneMeta(project));
+    name.querySelector(".lane-name-text").appendChild(laneOwner(project));
+    lane.appendChild(name);
     // One row per plan row inside the lane, the same shape and the same
     // components as the project timeline: a bar for a phase, a one-mark lane for
     // a checkpoint, interleaved on the shared `sort_order`. Every checkpoint in
