@@ -27,6 +27,7 @@ from app.validation import (
     project_effort_points,
     completion_fraction,
     deliverable_progress,
+    phase_challenges,
     project_progress,
     project_span,
     project_stage,
@@ -442,6 +443,25 @@ def test_progress_counts_only_done_phases():
 
 def test_progress_of_a_project_with_no_phases_is_zero_of_zero():
     assert project_progress([]) == {"done": 0, "total": 0}
+
+
+def test_phase_challenges_keeps_only_the_phases_that_raised_one():
+    phases = [
+        {"id": 1, "name": "Design", "challenge": "", "status": "done"},
+        {"id": 2, "name": "Build", "challenge": "Keys late", "status": "in_progress"},
+        {"id": 3, "name": "Ship", "challenge": "Who signs off?", "status": "done"},
+    ]
+    # In the order given, and a finished phase's challenge still counts: hiding
+    # it by status would be the status deciding what is drawn (amendment 10).
+    assert phase_challenges(phases) == [
+        {"phase_id": 2, "name": "Build", "challenge": "Keys late"},
+        {"phase_id": 3, "name": "Ship", "challenge": "Who signs off?"},
+    ]
+
+
+def test_phase_challenges_ignores_blank_and_missing():
+    phases = [{"id": 1, "name": "Design", "challenge": "  \n"}, {"id": 2, "name": "Old"}]
+    assert phase_challenges(phases) == []
 
 
 def test_deliverable_progress_counts_the_ticks():

@@ -619,6 +619,20 @@ def project_progress(phases):
     }
 
 
+def phase_challenges(phases):
+    """The phases that raised a challenge, in order, for the charts to draw.
+
+    Display only (PROMPT.md amendment 10): no rule, stage or date reads it. A
+    finished phase's challenge still counts -- clearing it is the person's job.
+    """
+    return [
+        {"phase_id": phase["id"], "name": phase["name"],
+         "challenge": phase["challenge"].strip()}
+        for phase in phases
+        if (phase.get("challenge") or "").strip()
+    ]
+
+
 def deliverable_progress(deliverables):
     """Ticked deliverables against the total. A project naming none is 0 of 0.
 

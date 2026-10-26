@@ -1363,6 +1363,32 @@ def test_a_pre_owner_export_imports_with_no_owner_or_challenge(client):
     assert client.get("/api/projects/1").json()["phases"][0]["challenge"] == ""
 
 
+def test_the_map_node_carries_its_owner_and_challenges(client):
+    project = client.post("/api/projects", json={
+        "name": "Payments", "start_date": "2026-01-05", "owner": "Aisha Rahman",
+    }).json()
+    build = make_phase(client, project["id"], "Build", "2026-01-05", 2, 8)
+    make_phase(client, project["id"], "Ship", "2026-01-19", 1, 3)
+    client.put(f"/api/phases/{build['id']}", json={"challenge": "Keys late"})
+
+    node = client.get("/api/graph").json()["projects"][0]
+    assert node["owner"] == "Aisha Rahman"
+    assert node["challenges"] == [
+        {"phase_id": build["id"], "name": "Build", "challenge": "Keys late"}]
+
+
+def test_a_portfolio_lane_counts_a_challenge_on_an_undated_phase(client):
+    """The chart drops undated bars; the lane's count must not drop with them."""
+    project = make_project(client)
+    make_phase(client, project["id"], "Build", "2026-01-05", 2, 8)
+    undated = make_phase(client, project["id"], "Later", "", 1, 3)
+    client.put(f"/api/phases/{undated['id']}", json={"challenge": "Needs a sponsor"})
+
+    lane = client.get("/api/portfolio").json()["projects"][0]
+    assert [one["name"] for one in lane["challenges"]] == ["Later"]
+    assert lane["owner"] == ""
+
+
 def test_migrate_adds_owner_and_challenge_to_an_older_file(tmp_path):
     try:
         db.set_db_path(str(tmp_path / "old.db"))

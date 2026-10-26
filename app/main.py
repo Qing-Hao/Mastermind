@@ -54,6 +54,7 @@ from app.validation import (
     is_track_segment,
     next_phase_boundary,
     overdue_items,
+    phase_challenges,
     phase_end_date,
     phases_ready_to_close,
     project_effort_points,
@@ -1651,6 +1652,10 @@ def read_portfolio():
     # So a swimlane's dot can tell a delivered project from a cancelled one, the
     # same as the picker and the top bar.
     with_milestone_tally(projects, milestones)
+    # Read off every phase, dated or not: a collapsed lane counts what its
+    # project has raised, and an undated phase has no bar to carry its own tag.
+    for project in projects:
+        project["challenges"] = phase_challenges(owned.get(project["id"], []))
 
     return {
         "projects": projects,
@@ -3288,6 +3293,10 @@ def read_graph():
             # What sort of work it is. The map filters on it and tags the node
             # with it; '' means nobody has said. Nothing here derives from it.
             "kind": project["kind"],
+            # Who answers for it, and what its phases have raised: drawn on the
+            # node, never derived from. PROMPT.md amendment 10.
+            "owner": project["owner"],
+            "challenges": phase_challenges(phases),
             "goal": project["goal"],
             "phases_done": progress["done"],
             "phases_total": progress["total"],
