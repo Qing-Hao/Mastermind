@@ -109,7 +109,7 @@ put FR-13 above FR-12, and both are built and gone from this table.
 | FR-4 | Capacity roster — people and their available days | Medium (new table) | Fortnightly | Medium | **P3** — paper until sprint 4 |
 | FR-5 | Velocity learns from delivered history | Medium | Rare | Medium | **P3** — needs 3 baselines |
 | FR-6 | Slippage memory — has this date moved before? | Large | Low | High | **P3** — deferred deliberately |
-| FR-7 | Owners at roadmap level | Small | — | Negative | **Won't build** |
+| FR-7 | Owners on phases | Small | — | Negative | **Won't build** — the project half was built as amendment 10 |
 | FR-26 | Per-block blame inside a sprint file | Large (file format) | — | Medium | **Won't build as asked** — block indices shift |
 | FR-24 | Ask the realm, on every request, whether an account is still valid | Medium | Every request | Low here | **Won't build** — known limitation, decided 2026-09-09 |
 
@@ -423,7 +423,7 @@ has an obvious, tempting, wrong version.
 | Do not add | Why |
 |---|---|
 | `points_per_day`, or points anywhere on a person | The capacity design rests on declared points being a **judgement** with available days as *evidence, not a multiplier* — the template says it in its own words: *"Historical velocity is a planning reference, not a hard capacity limit"* (`templates/sprint.md:36`). A per-person rate is the focus factor coming back in through the roster. |
-| `phase.owner_id`, `deliverable.assignee`, any link from a person to work | The moment a person links to a work item this is a tracker, and tracking is a stated non-goal. The roster exists for arithmetic only — see FR-7. |
+| `phase.owner_id`, `deliverable.assignee`, any link from a person to work | The moment a person links to a work item this is a tracker, and tracking is a stated non-goal. The roster exists for arithmetic only — see FR-7. (`project.owner` exists since 2026-10-27 and is not this: a free-text name to call, keyed to nothing, read by nothing — PROMPT.md amendment 10.) |
 | Logins, roles, permissions | Non-goal, and now doubly so: sign-in exists and is deliberately **a gate, not an account model** — non-negotiable 7 names roles, permissions and any row keyed by a person as never-build. A person here is a name string in a table, and a roster row must not become the thing the gate refused to store. |
 | Deriving velocity from the roster | Velocity comes from **delivered history**, never from headcount. The roster explains why a baseline moved; it does not compute one. See FR-5. |
 
@@ -525,10 +525,19 @@ enough to notice.
 
 ---
 
-## FR-7 · Owners at roadmap level — **Won't build**
+## FR-7 · Owners on phases — **Won't build**
 
 **What:** A name on a phase or project, so Portfolio knows that two projects
 scheduled in the same weeks are really one person.
+
+**The project half was built on 2026-10-27, for a different question.** The
+requester asked for an owner per project as *"a name to call, just
+accountability"* for management, and said outright that who carries how much
+"should come from the sprint planning part". That is `project.owner`, free text,
+read by nothing — PROMPT.md amendment 10 carries the argument. It answers *who
+answers for this*, not the overlap question below, and it does not reopen this
+entry: **the phase half, and the overlap use, are still refused** for every
+reason that follows.
 
 **Verdict: recommend not building.** Listed because it is the obvious next
 thought after FR-4 and should be argued with rather than drifted into. It stays

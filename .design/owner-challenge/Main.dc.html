@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Project tab: owner and blocker</title>
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: #18181b; background: #fafafa; }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+  </style>
+</helmet>
+<div style="width: 780px; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px; padding: 24px">
+  <div style="display: flex; flex-direction: column; gap: 3px">
+    <span style="font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #4f46e5">Affected · Project tab</span>
+    <span style="font-size: 19px; font-weight: 600; letter-spacing: -0.01em">Owner in Details, challenge on the phase</span>
+    <span style="font-size: 12.5px; color: #52525b">Owner joins the Details grid. A challenge is typed in the phase's open row, above its deliverables, and the closed row shows a tag.</span>
+  </div>
+
+  <section style="background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; padding: 20px; margin: 0">
+    <h2 style="font-size: 15px; font-weight: 600; margin: 0 0 2px">Details</h2>
+    <p style="color: #52525b; font-size: 12.5px; margin: 2px 0 14px">Dates are optional — estimate in weeks and points first, then set the project start and lay the phases out.</p>
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+      <div style="display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: #52525b; font-weight: 500">Start date
+        <span style="padding: 5px 9px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff; color: #18181b; font-size: 14px">2026-09-14</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: #52525b; font-weight: 500">Stage
+        <span style="padding: 5px 9px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff; color: #18181b; font-size: 14px; display: flex; justify-content: space-between">committed <span style="color: #71717a; font-size: 10px">▾</span></span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: #52525b; font-weight: 500">Tier
+        <span style="padding: 5px 9px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff; color: #18181b; font-size: 14px; display: flex; justify-content: space-between">1 <span style="color: #71717a; font-size: 10px">▾</span></span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: #52525b; font-weight: 500">Kind
+        <span style="padding: 5px 9px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff; color: #18181b; font-size: 14px; display: flex; justify-content: space-between">new build <span style="color: #71717a; font-size: 10px">▾</span></span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: #52525b; font-weight: 500">Velocity override
+        <span style="padding: 5px 9px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff; color: #71717a; font-size: 14px">global</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: #52525b; font-weight: 500; position: relative">Owner
+        <span style="padding: 5px 9px; border: 1px solid #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18); border-radius: 6px; background: #fff; color: #18181b; font-size: 14px">Aisha R</span>
+        <div style="display: flex; flex-direction: column; background: #fff; border: 1px solid #e6e6ea; border-radius: 8px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08); padding: 4px; font-size: 13px; color: #18181b; font-weight: 400">
+          <span style="display: flex; justify-content: space-between; padding: 5px 8px; border-radius: 5px; background: #f4f4f5">Aisha Rahman <span style="color: #71717a">@aisha</span></span>
+          <span style="display: flex; justify-content: space-between; padding: 5px 8px; border-radius: 5px">Aisha Roslan <span style="color: #71717a">@aroslan</span></span>
+          <span style="padding: 5px 8px; color: #52525b; font-size: 11.5px; border-top: 1px solid #f1f1f4; margin-top: 2px">Or keep typing — someone outside the app is fine too.</span>
+        </div>
+      </div>
+      <div style="grid-column: 1 / -1; display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: #52525b; font-weight: 500">Track
+        <span style="padding: 5px 9px; border: 1px solid #d8d8de; border-radius: 6px; background: #fff; color: #18181b; font-size: 14px">Operations / Fleet</span>
+      </div>
+    </div>
+  </section>
+
+  <section style="background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; padding: 20px; margin: 0">
+    <h2 style="font-size: 15px; font-weight: 600; margin: 0 0 12px">Phases</h2>
+    <div style="display: grid; grid-template-columns: 18px 22px minmax(0, 1fr) 96px 52px 52px 104px 84px 22px; column-gap: 8px; row-gap: 0; font-size: 13px; align-items: center">
+      <span></span><span></span>
+      <span style="font-size: 11px; font-weight: 600; color: #52525b; padding-bottom: 6px">Name</span>
+      <span style="font-size: 11px; font-weight: 600; color: #52525b; padding-bottom: 6px">Start / target</span>
+      <span style="font-size: 11px; font-weight: 600; color: #52525b; padding-bottom: 6px">Weeks</span>
+      <span style="font-size: 11px; font-weight: 600; color: #52525b; padding-bottom: 6px">Points</span>
+      <span style="font-size: 11px; font-weight: 600; color: #52525b; padding-bottom: 6px">Status</span>
+      <span style="font-size: 11px; font-weight: 600; color: #52525b; padding-bottom: 6px">Ends</span>
+      <span></span>
+
+      <span style="color: #a1a1aa; border-top: 1px solid #f1f1f4; padding: 8px 0">⠿</span>
+      <span style="color: #52525b; border-top: 1px solid #f1f1f4; padding: 8px 0">▸</span>
+      <span style="border-top: 1px solid #f1f1f4; padding: 8px 0">Discovery</span>
+      <span style="border-top: 1px solid #f1f1f4; padding: 8px 0">2026-09-14</span>
+      <span style="border-top: 1px solid #f1f1f4; padding: 8px 0">2</span>
+      <span style="border-top: 1px solid #f1f1f4; padding: 8px 0">8</span>
+      <span style="border-top: 1px solid #f1f1f4; padding: 8px 0; display: flex; align-items: center; gap: 6px"><span style="width: 9px; height: 9px; border-radius: 999px; background: #cfd8dc"></span>done</span>
+      <span style="border-top: 1px solid #f1f1f4; padding: 8px 0; color: #71717a">2026-09-28</span>
+      <span style="border-top: 1px solid #f1f1f4; padding: 8px 0; color: #a1a1aa">✕</span>
+
+      <span style="color: #a1a1aa; border-top: 1px solid #f1f1f4; padding: 8px 0">⠿</span>
+      <span style="color: #52525b; border-top: 1px solid #f1f1f4; padding: 8px 0">▾</span>
+      <span style="border-top: 1px solid #f1f1f4; padding: 8px 0; display: flex; align-items: center; gap: 8px">Data pipeline
+        <span style="display: inline-flex; align-items: center; gap: 4px; padding: 0 7px; border-radius: 999px; background: #fff; border: 1px solid #3949ab; color: #3949ab; font-size: 10px; font-weight: 700; line-height: 14px">
+          <svg width="8" height="9" viewBox="0 0 8 9" aria-hidden="true"><path d="M1.2 0.5v8" stroke="#3949ab" stroke-width="1.3"></path><path d="M1.8 0.8h5l-1.3 1.7 1.3 1.7h-5z" fill="#3949ab"></path></svg>challenge</span>
+      </span>
+      <span style="border-top: 1px solid #f1f1f4; padding: 8px 0">2026-09-28</span>
+      <span style="border-top: 1px solid #f1f1f4; padding: 8px 0">4</span>
+      <span style="border-top: 1px solid #f1f1f4; padding: 8px 0">13</span>
+      <span style="border-top: 1px solid #f1f1f4; padding: 8px 0; display: flex; align-items: center; gap: 6px"><span style="width: 9px; height: 9px; border-radius: 999px; background: #a5d6a7"></span>in progress</span>
+      <span style="border-top: 1px solid #f1f1f4; padding: 8px 0; color: #71717a">2026-10-26</span>
+      <span style="border-top: 1px solid #f1f1f4; padding: 8px 0; color: #a1a1aa">✕</span>
+
+      <span></span><span></span>
+      <div style="grid-column: 3 / -1; display: flex; flex-direction: column; gap: 10px; padding: 4px 0 12px">
+        <div style="display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: #52525b; font-weight: 500">Challenge
+          <span style="padding: 7px 9px; border: 1px solid #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18); border-radius: 6px; background: #fff; color: #18181b; font-size: 13.5px; font-weight: 400; min-height: 42px; white-space: pre-line">Vendor API keys from Ops are late — blocks the nightly load if not here by 2 Oct.
+Staging database not provisioned; needs a decision on who runs it.</span>
+          <span style="font-weight: 400; color: #52525b">Something that needs discussion. Empty means none. Shown on the Portfolio bar and the Map node — nothing is worked out from it.</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 4px; font-size: 13px">
+          <span style="font-size: 11px; font-weight: 600; color: #52525b">Deliverables</span>
+          <span style="display: flex; align-items: center; gap: 8px"><span style="width: 13px; height: 13px; border: 1.5px solid #2e7d32; border-radius: 3px; background: #2e7d32; color: #fff; font-size: 9px; line-height: 11px; text-align: center">✓</span>Ingest schema agreed</span>
+          <span style="display: flex; align-items: center; gap: 8px"><span style="width: 13px; height: 13px; border: 1.5px solid #a1a1aa; border-radius: 3px"></span>Nightly load into staging</span>
+        </div>
+      </div>
+
+      <span style="color: #a1a1aa; border-top: 1px solid #f1f1f4; padding: 8px 0">⠿</span>
+      <span style="color: #52525b; border-top: 1px solid #f1f1f4; padding: 8px 0">▸</span>
+      <span style="border-top: 1px solid #f1f1f4; padding: 8px 0">Rollout</span>
+      <span style="border-top: 1px solid #f1f1f4; padding: 8px 0">2026-10-26</span>
+      <span style="border-top: 1px solid #f1f1f4; padding: 8px 0">3</span>
+      <span style="border-top: 1px solid #f1f1f4; padding: 8px 0">8</span>
+      <span style="border-top: 1px solid #f1f1f4; padding: 8px 0; display: flex; align-items: center; gap: 6px"><span style="width: 9px; height: 9px; border-radius: 999px; background: #90caf9"></span>planned</span>
+      <span style="border-top: 1px solid #f1f1f4; padding: 8px 0; color: #71717a">2026-11-16</span>
+      <span style="border-top: 1px solid #f1f1f4; padding: 8px 0; color: #a1a1aa">✕</span>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":780,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

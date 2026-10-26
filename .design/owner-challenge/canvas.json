@@ -1,0 +1,23 @@
+{
+  "v": 3,
+  "createdOnFiles": { "v": 1, "at": "2026-10-27T09:00:00Z" },
+  "title": "Owner and challenge",
+  "launch": { "view": "canvas" },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": { "x": 0, "y": 0, "w": 780, "h": 900, "title": "Project tab · where both are set" },
+    "Portfolio.dc.html": { "x": 860, "y": 0, "w": 860, "h": 620, "title": "Portfolio · owner in the gutter, challenge tag" },
+    "Map.dc.html": { "x": 0, "y": 1020, "w": 900, "h": 520, "title": "Map · owner on every node (A, chosen)" },
+    "Hover.dc.html": { "x": 980, "y": 1020, "w": 740, "h": 560, "title": "What the hover says" }
+  },
+  "order": ["Main.dc.html", "Portfolio.dc.html", "Map.dc.html", "Hover.dc.html"],
+  "notes": {
+    "brief": {
+      "x": 0,
+      "y": -300,
+      "w": 720,
+      "text": "OWNER: one accountable name per project, so management knows who to call. Picked from the directory or typed. Stored as plain text, never a link to a person. No filter by owner, no \"my projects\".\n\nCHALLENGE: free text per phase, raising something that needs discussion. It may block, it may not; the text says which. Empty means none. No severity, no resolved tick. Drawn on Portfolio and Map, never derived: no rule, stage, warning or date reads it.\n\nBoth travel in /api/export. Changes to both are logged in item_version, so the hover can say who raised it and when."
+    }
+  },
+  "designSystems": []
+}

@@ -212,8 +212,10 @@ and argument are in `PROMPT.md`, `feature_request.md` and `git log`.
    *(`created_by` and "an audit log" stood on this list until 2026-09-17 — see the
    fourth narrowing below. A row recording **who last changed a field** is now
    built; a row recording **who owns a thing** is still refused, and the two are
-   not the same.)* Four specific traps, because the directory makes each of
-   them one column away:
+   not the same. The one exception is `project.owner` — see the sixth narrowing
+   below — which is a string on the project, not a row keyed by a person.)*
+   Four specific traps, because the directory makes each of them one column
+   away:
 
    - **`person` gains no timestamp.** No `last_seen`, no `first_seen`. The app
      does not record when it saw you.
@@ -305,6 +307,16 @@ and argument are in `PROMPT.md`, `feature_request.md` and `git log`.
    is the activity feed still refused. Capped by `MASTERMIND_SPRINT_KEEP` per file
    (default 50, `0` unlimited), coalesced to one snapshot per file per ten minutes
    per author.
+
+   **Narrowed a sixth time 2026-10-27 — a project names who answers for it, and
+   a phase can raise a challenge.** `project.owner` is free text for management
+   to call — a string copy, never a foreign key; `phase.challenge` is a note that
+   needs discussion, never a status. PROMPT.md amendment 10 carries the argument,
+   and FR-7 keeps the phase half refused. The lines: **nothing derives from
+   either**; **no owner on a phase, no challenge on a deliverable**; **nothing per
+   owner** (no filter, grouping, total or "my projects"); **no severity or
+   resolved tick**; and **no chart reads who raised a challenge** — amendment 8's
+   "no chart reads a version row" holds. Both travel in `/api/export`.
 
    **A readout is not a notification, and the difference is memory.** The overdue
    bell (`GET /api/late`) counts what is past its date, derived on read from the

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Map: owner and challenge on the node</title>
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: #18181b; background: #fafafa; }
+    a { color: #4f46e5; } a:hover { color: #4338ca; }
+  </style>
+</helmet>
+<div style="width: 900px; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px; padding: 24px">
+  <div style="display: flex; flex-direction: column; gap: 3px">
+    <span style="font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #4f46e5">Chosen · Option A</span>
+    <span style="font-size: 19px; font-weight: 600; letter-spacing: -0.01em">Owner on every node, a challenge badge opposite the tier pip</span>
+    <span style="font-size: 12.5px; color: #52525b">The owner is a third label line, readable in a screenshot or on a slide. The badge counts this project's phases with a challenge when the page loads; nothing is stored. Square and outlined, so it never reads as a second tier pip.</span>
+  </div>
+
+  <div style="background: #fff; border: 1px solid #e6e6ea; border-radius: 10px; padding: 8px 6px">
+    <svg width="600" height="200" viewBox="0 0 600 200" role="img" aria-label="Three map nodes, each with its owner printed under it; two carry a challenge badge">
+      <defs>
+        <clipPath id="c1"><circle cx="100" cy="90" r="25.25"></circle></clipPath>
+        <clipPath id="c2"><circle cx="300" cy="90" r="33.25"></circle></clipPath>
+        <clipPath id="c3"><circle cx="500" cy="90" r="21.25"></circle></clipPath>
+      </defs>
+
+      <circle cx="100" cy="90" r="26" fill="#a5d6a7" stroke="#2e7d32" stroke-width="1.5"></circle>
+      <rect clip-path="url(#c1)" x="74" y="83.76" width="52" height="32.24" fill="#3949ab" fill-opacity="0.28"></rect>
+      <text x="100" y="90" text-anchor="middle" dominant-baseline="central" font-size="11.7" font-weight="700" fill="#1a1a1a" stroke="#fff" stroke-width="2.5" paint-order="stroke">62%</text>
+      <circle cx="118.4" cy="71.6" r="8" fill="#3949ab" stroke="#fff" stroke-width="1.5"></circle>
+      <text x="118.4" y="75" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">1</text>
+      <rect x="69.6" y="64.1" width="24" height="15" rx="3" fill="#fff" stroke="#3949ab" stroke-width="1.5"></rect>
+      <path d="M74.6 67.6v8" stroke="#3949ab" stroke-width="1.3"></path>
+      <path d="M75.2 67.8h4.6l-1.2 1.6 1.2 1.6h-4.6z" fill="#3949ab"></path>
+      <text x="86.4" y="75.2" text-anchor="middle" font-size="10" font-weight="700" fill="#3949ab">1</text>
+      <rect x="67.1" y="101.4" width="29" height="14" rx="7" fill="#3949ab" stroke="#fff" stroke-width="1.5"></rect>
+      <text x="81.6" y="111.7" text-anchor="middle" font-size="9.5" font-weight="700" fill="#fff">new</text>
+      <text x="100" y="132" text-anchor="middle" font-size="12" font-weight="600" fill="#1a1a1a">Vessel tracker</text>
+      <text x="100" y="145" text-anchor="middle" font-size="10" fill="#666">T1 · 4/6 phases</text>
+      <text x="100" y="158" text-anchor="middle" font-size="10" fill="#3949ab" font-weight="600">Aisha Rahman</text>
+
+      <circle cx="300" cy="90" r="34" fill="#d5e6f7" stroke="#5c6bc0" stroke-width="1.5"></circle>
+      <rect clip-path="url(#c2)" x="266" y="113.8" width="68" height="10.2" fill="#3949ab" fill-opacity="0.28"></rect>
+      <text x="300" y="90" text-anchor="middle" dominant-baseline="central" font-size="13" font-weight="700" fill="#1a1a1a" stroke="#fff" stroke-width="2.5" paint-order="stroke">15%</text>
+      <circle cx="324" cy="66" r="8" fill="#3949ab" stroke="#fff" stroke-width="1.5"></circle>
+      <text x="324" y="69.4" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">2</text>
+      <rect x="263" y="107" width="26" height="14" rx="7" fill="#3949ab" stroke="#fff" stroke-width="1.5"></rect>
+      <text x="276" y="117.3" text-anchor="middle" font-size="9.5" font-weight="700" fill="#fff">enh</text>
+      <text x="300" y="140" text-anchor="middle" font-size="12" font-weight="600" fill="#1a1a1a">Client portal</text>
+      <text x="300" y="153" text-anchor="middle" font-size="10" fill="#666">T2 · 1/5 phases</text>
+      <text x="300" y="166" text-anchor="middle" font-size="10" fill="#3949ab" font-weight="600">Daniel Ong</text>
+
+      <circle cx="500" cy="90" r="22" fill="#ffccbc" stroke="#d84315" stroke-width="2.5"></circle>
+      <rect clip-path="url(#c3)" x="478" y="76.8" width="44" height="35.2" fill="#3949ab" fill-opacity="0.28"></rect>
+      <text x="500" y="90" text-anchor="middle" dominant-baseline="central" font-size="9.9" font-weight="700" fill="#1a1a1a" stroke="#fff" stroke-width="2.5" paint-order="stroke">80%</text>
+      <circle cx="515.6" cy="74.4" r="8" fill="#3949ab" stroke="#fff" stroke-width="1.5"></circle>
+      <text x="515.6" y="77.8" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">1</text>
+      <rect x="460.4" y="66.9" width="24" height="15" rx="3" fill="#fff" stroke="#3949ab" stroke-width="1.5"></rect>
+      <path d="M465.4 70.4v8" stroke="#3949ab" stroke-width="1.3"></path>
+      <path d="M466 70.6h4.6l-1.2 1.6 1.2 1.6h-4.6z" fill="#3949ab"></path>
+      <text x="477.2" y="78" text-anchor="middle" font-size="10" font-weight="700" fill="#3949ab">2</text>
+      <rect x="474.4" y="98.6" width="20" height="14" rx="7" fill="#3949ab" stroke="#fff" stroke-width="1.5"></rect>
+      <text x="484.4" y="108.9" text-anchor="middle" font-size="9.5" font-weight="700" fill="#fff">fix</text>
+      <text x="500" y="128" text-anchor="middle" font-size="12" font-weight="600" fill="#1a1a1a">Bunker report</text>
+      <text x="500" y="141" text-anchor="middle" font-size="10" fill="#666">T1 · 4/5 phases</text>
+    </svg>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #3f3f46">
+    <span style="display: flex; gap: 8px"><span style="flex: 0 0 72px; font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #52525b">Owner</span><span>Indigo, like the tier pip and kind tag: somebody decided this. An empty owner draws nothing here (Bunker report), as an unclassified kind draws nothing; the Portfolio gutter is where <i>no owner yet</i> is said.</span></span>
+    <span style="display: flex; gap: 8px"><span style="flex: 0 0 72px; font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #52525b">Challenge</span><span>Counts phases, never points. It never changes the node's colour, size or stage.</span></span>
+    <span style="display: flex; gap: 8px"><span style="flex: 0 0 72px; font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #52525b">Watch</span><span>One more line on every node. Labels are the tightest thing on the map, so <code>map_sweep.js</code> has to show it still holds at 1000px before this ships.</span></span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":900,"height":520}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

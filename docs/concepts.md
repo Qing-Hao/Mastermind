@@ -7,8 +7,8 @@ over these.
 
 | Object | Belongs to | Carries | Deliberately does not carry |
 |---|---|---|---|
-| **Project** | — | Name, description, goal, start date, stage, track, tier, velocity override | Owner, budget, status you type in |
-| **Phase** | A project | Name, description, start date, duration in weeks, effort in points, status, order | An end date (it is derived) |
+| **Project** | — | Name, description, goal, start date, stage, track, tier, kind, owner, velocity override | Budget, assignees, status you type in |
+| **Phase** | A project | Name, description, start date, duration in weeks, effort in points, status, order, challenge | An end date (it is derived), an owner |
 | **Deliverable** | A phase | Name, description, a `done` tick, order | Estimate, dates, assignee, history |
 | **Checkpoint** (milestone) | A project | Name, description, optional target date, an `achieved` tick, order | A parent phase |
 | **Dependency** | Two projects | Predecessor, successor | Lag, lead, anything but finish-to-start |
@@ -26,6 +26,11 @@ swimlane.
 - **Tier** — priority, 1 highest. *Untiered* is a state of its own, not a fourth
   tier: it means nobody has ranked this yet. No rule reads it; it exists so the
   Map can be filtered when the roadmap gets crowded.
+- **Owner** — who answers for the project when management asks: a name to
+  call, not an assignee. Free text, with the sign-in directory offered as
+  suggestions; anyone outside the app is just as valid. Nothing is worked out
+  from it and nothing is filtered by it. Who *does* the work stays in the sprint
+  file's PIC column.
 - **Velocity override** — this project's points-per-sprint, falling back to the
   global setting when empty. Only V1 reads it.
 
@@ -38,6 +43,11 @@ duration edit cannot leave a stale end date behind.
 
 `phase.status` (`planned` / `in_progress` / `done`) has exactly one job: it feeds
 V6 and V7. It does not decide a project's status and never moves a date.
+
+A **challenge** is something about the phase that needs discussion — a vendor
+running late, a decision nobody has made. It is a note, not a status: whether it
+actually blocks anything is said in its own text. Empty means none. It is drawn
+on the Portfolio and the Map and read by no rule; clear it when it is resolved.
 
 A phase with no start date is **unscheduled** — a real state, not an error. It is
 estimated but not yet placed, and it appears in the *Unscheduled* section of the

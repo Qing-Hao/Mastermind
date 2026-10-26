@@ -20,9 +20,9 @@ Top to bottom:
   note on the right is the whole philosophy: *every rule reports; nothing
   repairs*.
 - **Goal** — free text, yours, never parsed.
-- **Details** — start date, stage (idea / committed / closed), tier, velocity
-  override and track. Only three things here are yours to set; everything else
-  about a project's status is derived (see [concepts.md](concepts.md)).
+- **Details** — start date, stage (idea / committed / closed), tier, kind,
+  velocity override, owner and track. Only three things here decide a project's
+  status; everything else about it is derived (see [concepts.md](concepts.md)).
 - **Unscheduled** — phases you have estimated but not placed. Only appears when
   there are some.
 - **Timeline** — this project alone, in **Dates** mode (a calendar; only dated
@@ -31,8 +31,9 @@ Top to bottom:
   Checkpoints draw as diamonds; the vertical line is today.
 - **Phases, checkpoints & deliverables** — one ordered list, because a checkpoint
   sits *between* phases and two separate tables could not say that. Drag a ⠿ grip
-  to reorder either kind. Expand a phase with ▸ to list its deliverables and tick
-  them off. A phase row shows its derived end date and its deliverable tally.
+  to reorder either kind. Expand a phase with ▸ to raise a **challenge** on it and
+  to list its deliverables and tick them off. A phase row shows its derived end
+  date, its deliverable tally, and a ⚑ flag when it has a challenge.
 - **Dependencies** — the projects this one waits on, and the ones waiting on it.
 
 The top bar carries **Lay out sequentially** (date every undated phase, back to
@@ -53,7 +54,10 @@ Every project on one shared time axis.
 - **Swimlanes** — one per committed project. A folded lane is a single bar over
   the project's own dates, filled to how far through it is; **Expand all** (or
   the ▸ beside a name) opens it into one row per phase and per dated checkpoint.
-  Bar colour is the project's track, listed in the key below the chart.
+  Bar colour is the project's track, listed in the key below the chart. The
+  lane's name carries its **owner** (*no owner yet* when nobody is named). A ⚑
+  on a phase bar is a raised challenge, its text on hover; a folded lane shows
+  ⚑ with the count of every challenge in the project.
 - **Not placed yet** — a tray of projects you have estimated but not dated. Drag
   one onto a week to start it there: its undated phases are laid out back to back
   from that Monday, and phases that already have dates keep them. The drop can be
@@ -87,6 +91,9 @@ Where the team is pointed, rather than when things land.
   deliverables named under it. A phase closed by hand counts whole.
 - The **numbered pip** is the project's tier; an unpipped node has never been
   ranked. **Dashed circles** are ideas.
+- The **owner** is the indigo line under a node's name. The **⚑ box** opposite
+  the pip counts the project's phases with a challenge; point at the node to
+  read them.
 - **Point at a project** to dim the map down to it and whatever it links to, with
   arrows running predecessor → successor. **Click one** to open it.
 
