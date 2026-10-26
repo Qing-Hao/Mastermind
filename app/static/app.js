@@ -2912,10 +2912,12 @@ function phaseBar(phase, view, isWarned) {
     + `(${phase.duration_weeks}w, ${phase.effort_points} pts)`;
   // A raised challenge is a tag inside the bar and its text on the hover. The
   // bar keeps its status colour and gains no outline -- an outline is a rule's
-  // warning, and a challenge is not a rule (amendment 10).
+  // warning, and a challenge is not a rule (amendment 10). The flag alone, no
+  // word: a one-week bar is narrower than "challenge", and the word ate the
+  // phase's name on every short bar of the real dataset.
   const challenge = phaseChallenge(phase);
   if (challenge) {
-    bar.appendChild(challengeTag("challenge", "span"));
+    bar.appendChild(challengeTag("", "span"));
     bar.title += `\n\nChallenge: ${challenge}`;
   }
   bar.appendChild(document.createTextNode(phase.name));
