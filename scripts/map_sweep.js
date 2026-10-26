@@ -313,6 +313,21 @@ function harvest(svg) {
         }
         return;
       }
+      // The challenge count, on the shoulder opposite the pip. Measured like a
+      // kind tag -- its own node excluded, anybody else's counted -- and widened
+      // from the numeral to the outlined box, whose flag sits left of it.
+      if (classes.includes("map-challenge-text")) {
+        const box = textBox(node, inherited);
+        if (box) {
+          tags.push({
+            owner: null,
+            left: box.left - CHALLENGE_FLAG_PAD, right: box.right + KIND_TAG_PAD,
+            top: box.top - 2.5, bottom: box.bottom + 2.5,
+            text: `⚑${box.text}`,
+          });
+        }
+        return;
+      }
       const box = textBox(node, inherited);
       if (box) labels.push(box);
       return;  // tspans are the text's own business
@@ -352,12 +367,15 @@ function harvest(svg) {
 // adds to its glyph widths -- keep the two in step, or this measures a shape
 // the map does not draw.
 const KIND_TAG_PAD = 4;
+// The challenge box's left edge sits this far left of its numeral: the flag and
+// the box's own air. Follows `CHALLENGE_BADGE_W` in `app.js`.
+const CHALLENGE_FLAG_PAD = 14;
 
 // A circle has no text of its own; its name is whatever its group is labelled.
 // The pip's numeral and the completion percentage are both skipped: each comes
 // before the label in its group, so taking the first <text> would name every
 // ranked project "1" and every measured one "67%".
-const MARKS_ON_THE_NODE = ["map-pip-text", "map-percent"];
+const MARKS_ON_THE_NODE = ["map-pip-text", "map-percent", "map-challenge-text"];
 
 function circleName(node) {
   const group = node.parent;

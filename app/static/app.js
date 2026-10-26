@@ -7849,6 +7849,9 @@ const TIER_PIP_R = 8;
 // 4px of air either side, so half a pixel out costs nothing. A glyph not in the
 // table takes the average, which errs wide. `KIND_TAG_PAD` is duplicated in
 // `map_sweep.js` -- it measures the text and has to add the same air back.
+// The challenge count's box: wide enough for the flag and two digits.
+const CHALLENGE_BADGE_W = 24;
+const CHALLENGE_BADGE_H = 15;
 const KIND_TAG_H = 14;
 const KIND_TAG_PAD = 4;
 const GLYPH_W = {
@@ -9165,10 +9168,52 @@ function projectNode(project, point, radius, place, branch) {
   // middling rank from no rank -- tier 2 and untiered are both the plain node.
   meta[0] = `${TIER_MARK[tier]} · ${meta[0]}`;
 
+  // **Who answers for it, as a line of its own** -- the one exception to the
+  // rule above, asked for by name (amendment 10, option A): the map is shown to
+  // management as a picture, and a name on hover is a name nobody sees. Only
+  // when there is one: an empty owner draws nothing, for the reason an
+  // unclassified kind does -- a dataset not yet using the field would print the
+  // same words under every node. `map_sweep` measured what the line costs.
+  const owner = (project.owner || "").trim();
   group.appendChild(labelText([
     { text: truncate(project.name, 20), className: "map-name" },
     ...meta.map((line) => ({ text: line, className: "map-meta" })),
+    ...(owner ? [{ text: truncate(owner, 24), className: "map-owner" }] : []),
   ], place, "map-label"));
+
+  // **What its phases have raised, as a count opposite the tier pip.** Square
+  // and outlined where the pip is round and filled, so it never reads as a
+  // second rank; at the pip's own 0.707r diagonal, mirrored, so it is clear of a
+  // left-hand label at every radius in the clamp for the pip's reason.
+  const raised = project.challenges || [];
+  if (raised.length) {
+    //
+    // Fixed, and measured rather than reasoned (`map_sweep`, real dataset, every
+    // project owned, eight challenges): placements beside or above the node
+    // scored a few collisions lower, but only because the sweep does not count
+    // the pip -- each of them lands on the pip or the kind tag somewhere in the
+    // 16-38px clamp. Upper left is the one spot clear of both at every radius.
+    const cx = point.x - radius * 0.707;
+    const cy = point.y - radius * 0.707;
+    const badge = svgElement("g", { class: "map-challenge" });
+    badge.appendChild(svgElement("rect", {
+      x: cx - CHALLENGE_BADGE_W / 2, y: cy - CHALLENGE_BADGE_H / 2,
+      width: CHALLENGE_BADGE_W, height: CHALLENGE_BADGE_H, rx: 3,
+    }));
+    const fx = cx - CHALLENGE_BADGE_W / 2 + 5;
+    const fy = cy - 4;
+    badge.appendChild(svgElement("path", {
+      class: "map-challenge-pole", d: `M${fx} ${fy}v8`,
+    }));
+    badge.appendChild(svgElement("path", {
+      class: "map-challenge-flag",
+      d: `M${fx + 0.6} ${fy + 0.2}h4.6l-1.2 1.6 1.2 1.6h-4.6z`,
+    }));
+    badge.appendChild(svgElement("text", {
+      class: "map-challenge-text", x: cx + 5, y: cy + 3.4, "text-anchor": "middle",
+    }, String(raised.length)));
+    group.appendChild(badge);
+  }
 
   // The full name and goal live in the tooltip, since the label is truncated.
   // Ten lines of equal weight was what the SVG `<title>` could offer; the panel
@@ -9186,6 +9231,11 @@ function projectNode(project, point, radius, place, branch) {
       : `${percentText(project.completion)} complete — each phase an equal `
         + `share, filled by the deliverables under it.`,
     project.goal || null,
+    owner ? `Owner: ${owner}` : null,
+    raised.length
+      ? `${raised.length} challenge${raised.length === 1 ? "" : "s"} raised:\n`
+        + raised.map((one) => `${one.name} — ${one.challenge}`).join("\n")
+      : null,
   ].filter(Boolean);
   const counts = [
     tier === 0 ? "untiered" : `tier ${tier}`,
