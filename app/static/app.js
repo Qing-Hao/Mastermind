@@ -2343,6 +2343,7 @@ const PROJECT_FIELDS = {
   "project-kind": "kind",
   "project-track": "track",
   "project-velocity": "velocity_override",
+  "project-owner": "owner",
 };
 
 function renderProjectFields() {
@@ -2360,6 +2361,22 @@ function renderProjectFields() {
   $("project-kind").value = project.kind || "";
   $("project-track").value = project.track || "";
   $("project-velocity").value = project.velocity_override ?? "";
+  $("project-owner").value = project.owner || "";
+  fillOwnerOptions();
+}
+
+// The directory as suggestions for Owner. Display names, because the reader is
+// management and a login is not a name to call (amendment 10). Asked for once if
+// the Sprint tab has not already loaded it; a failed read leaves the box free text.
+async function fillOwnerOptions() {
+  if (!state.people || !state.people.length) await loadPeople();
+  const list = $("project-owner-options");
+  list.textContent = "";
+  for (const person of state.people || []) {
+    const option = element("option");
+    option.value = person.display_name || person.handle;
+    list.appendChild(option);
+  }
 }
 
 // The checkpoint list. It replaced the drafting switch, which asked the same
@@ -3309,6 +3326,18 @@ function phaseRow(phase, warned) {
     renderPhases();
   };
   toggleCell.appendChild(toggle);
+  // A raised challenge, said on the closed row so it is not only found by
+  // opening it. Pressing it opens the row, where the text is.
+  if (phaseChallenge(phase)) {
+    const flag = challengeTag("");
+    flag.title = `Challenge: ${phaseChallenge(phase)}`;
+    flag.onclick = () => {
+      state.expandedPhases.add(phase.id);
+      renderPhases();
+    };
+    toggleCell.className = "tally-cell";
+    toggleCell.appendChild(flag);
+  }
   // Ticked-off count, so a collapsed phase still says how far along it is.
   // Display only: it never feeds a warning and never sets phase.status by
   // itself. What it does do in two of its three states is offer, which is a
@@ -3443,12 +3472,57 @@ function deliverableTally(phase) {
   return tally;
 }
 
+// --- challenge (PROMPT.md amendment 10) --------------------------------------
+//
+// Something that needs discussion, raised against a phase. A note and not a
+// status: whether it blocks anything is said in its text. Drawn on the charts in
+// the indigo that means "somebody decided this", and read by no rule.
+
+function phaseChallenge(phase) {
+  return (phase.challenge || "").trim();
+}
+
+// The outlined flag pill. A `<button>` because every place it sits, pressing it
+// goes somewhere; `label` is the word or count beside the flag, or "" for the
+// flag alone where the row is narrow.
+function challengeTag(label) {
+  const tag = element("button", "challenge-tag");
+  tag.type = "button";
+  const flag = svgElement("svg", {
+    width: 8, height: 9, viewBox: "0 0 8 9", "aria-hidden": "true",
+  });
+  flag.appendChild(svgElement("path", { d: "M1.2 0.5v8", class: "challenge-pole" }));
+  flag.appendChild(svgElement("path", { d: "M1.8 0.8h5l-1.3 1.7 1.3 1.7h-5z" }));
+  tag.appendChild(flag);
+  if (label) tag.appendChild(document.createTextNode(label));
+  tag.setAttribute("aria-label", label ? `challenge: ${label}` : "challenge");
+  return tag;
+}
+
+// The box itself, at the top of the open row and above the deliverables. Built
+// by `fieldCell`, so it gets presence, the stale-write guard and the who-changed
+// tip like every other typed field -- which is why it carries a placeholder and
+// no `title`: a title would sit where the blame tip goes.
+function challengeField(phase) {
+  const holder = element("div", "phase-challenge");
+  const label = element("label", "phase-challenge-label", "Challenge");
+  const input = fieldCell(phase, "challenge", "textarea", savePhase, {
+    placeholder: "Something that needs discussion — leave empty if nothing does",
+  }, "phase").firstChild;
+  input.classList.add("phase-challenge-input");
+  label.appendChild(input);
+  holder.append(label, element("p", "hint",
+    "Shown on the Portfolio bar and the Map node. Nothing is worked out from it."));
+  return holder;
+}
+
 function deliverableRow(phase) {
   const row = element("tr", "deliverable-row");
   const cell = element("td");
   // Nine now, not eight: the phase table grew a grip column when checkpoints
   // moved into it.
   cell.colSpan = 9;
+  cell.appendChild(challengeField(phase));
 
   const table = element("table", "deliverables");
   const head = element("tr");
@@ -11422,6 +11496,7 @@ function bindEvents() {
       kind: $("project-kind").value,
       track: $("project-track").value,
       velocity_override: velocity === "" ? null : Number(velocity),
+      owner: $("project-owner").value,
     };
     if (loaded) {
       fields.expect = Object.fromEntries(
@@ -11439,7 +11514,7 @@ function bindEvents() {
   };
   for (const id of ["project-name", "project-goal", "project-start",
                     "project-stage", "project-tier", "project-kind",
-                    "project-track", "project-velocity"]) {
+                    "project-track", "project-velocity", "project-owner"]) {
     $(id).onchange = saveProject;
   }
 
