@@ -4091,23 +4091,19 @@ function trackRail(hue) {
 // the title's tooltip. The dot is the sidebar's own `.project-dot`, class and
 // all: the map draws a rung as a circle, the picker as a dot, and this is the
 // picker's dot -- one colour table, and this surface adds only its size.
-function laneMeta(project) {
+//
+// The rung is a pill in its own stage colours and the track is written in its
+// rail's hue: grey 10.5px text was the first shape, and nobody saw either word.
+function laneMeta(project, hue) {
   const meta = element("div", "lane-meta");
-  meta.appendChild(projectDot(project));
+  const stage = element("span", `lane-stage stage-${project.derived_stage}`);
+  stage.append(projectDot(project), project.derived_stage);
+  meta.appendChild(stage);
   const track = trackPath(project.track);
-  meta.appendChild(element("span", "lane-rung",
-    track.length ? `${project.derived_stage} · ${track[0]}` : project.derived_stage));
-  // On this line rather than beside the title, which is where it was first
-  // drawn: the gutter is 176px and sized to the longest name, so a tag up there
-  // pushes a name into its ellipsis one word sooner. Down here it costs
-  // nothing -- the row exists either way -- and the swimlanes are the surface
-  // where somebody is asking "what are we doing", which is the question the
-  // field answers.
-  const tag = KIND_TAG[project.kind || ""];
-  if (tag) {
-    const mark = element("span", "lane-kind", tag);
-    mark.title = KIND_LABEL[project.kind];
-    meta.appendChild(mark);
+  if (track.length) {
+    const word = element("span", "lane-track", track[0]);
+    if (hue) word.style.color = hue;
+    meta.appendChild(word);
   }
   return meta;
 }
@@ -4191,6 +4187,24 @@ function laneOwner(project) {
     owner || "no owner yet");
   line.title = owner ? `Owner: ${owner}` : "Nobody named as owner yet.";
   return line;
+}
+
+// The owner line, with the kind tag at its right end.
+//
+// Neither beside the title, where it pushed names into their ellipsis, nor on
+// the rung line, where the stage pill left the 168px column no room and the
+// track was cut to three letters. The owner is short or "no owner yet", so here
+// the tag costs nothing, and at the column's edge it lines up down the lanes.
+function laneFoot(project) {
+  const foot = element("div", "lane-foot");
+  foot.appendChild(laneOwner(project));
+  const tag = KIND_TAG[project.kind || ""];
+  if (tag) {
+    const mark = element("span", "lane-kind", tag);
+    mark.title = KIND_LABEL[project.kind];
+    foot.appendChild(mark);
+  }
+  return foot;
 }
 
 // The fraction as a whole number, and the two roundings that matter.
@@ -4551,8 +4565,8 @@ function renderPortfolio() {
     const open = state.laneOpen.has(project.id);
     lane.classList.toggle("open", open);
     const hue = palette.get(trackPath(project.track)[0]);
-    const name = laneName(title, laneTwisty(project, open, hue), hue, laneMeta(project));
-    name.querySelector(".lane-name-text").appendChild(laneOwner(project));
+    const name = laneName(title, laneTwisty(project, open, hue), hue, laneMeta(project, hue));
+    name.querySelector(".lane-name-text").appendChild(laneFoot(project));
     lane.appendChild(name);
     // One row per plan row inside the lane, the same shape and the same
     // components as the project timeline: a bar for a phase, a one-mark lane for

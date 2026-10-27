@@ -2371,37 +2371,72 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 
 /* The name over its rung. `min-width: 0` so the title still shrinks to its
    ellipsis with the rail and the twisty holding their own widths. */
-.lane-name-text { min-width: 0; }
+.lane-name-text { min-width: 0; flex: 1 1 auto; }
 .lane-meta {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   font-size: 10.5px;
   line-height: 1.2;
   color: var(--faint);
-  margin-top: -2px;
 }
 /* The sidebar's dot, at the size this surface wants. Geometry only -- every
    colour it wears is `.project-dot.stage-*`, defined once, up with the picker. */
 .lane-meta .project-dot { width: 7px; height: 7px; border-width: 1.5px; }
-.lane-rung { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The rung as a pill in the `--stage-*` colours the dot inside it wears. The
+   word is a shade darker than the line where the line is too pale to read
+   (idea, planning, done). Inline-flex is safe: nothing toggles it `hidden`. */
+.lane-stage {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px 0 3px;
+  border: 1px solid var(--stage-planned-line);
+  border-radius: 999px;
+  background: var(--stage-planned-fill);
+  color: #3949ab;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+}
+.lane-stage.stage-idea { background: var(--stage-idea-fill); border-color: var(--stage-idea-line); color: #757575; }
+.lane-stage.stage-planning { background: var(--stage-planning-fill); border-color: var(--stage-planning-line); color: #3f51b5; }
+.lane-stage.stage-dated { background: var(--stage-dated-fill); border-color: var(--stage-dated-line); }
+.lane-stage.stage-active { background: var(--stage-active-fill); border-color: var(--stage-active-line); color: #1b5e20; }
+.lane-stage.stage-overdue { background: var(--stage-overdue-fill); border-color: var(--stage-overdue-line); color: #bf360c; }
+.lane-stage.stage-done { background: var(--stage-done-fill); border-color: var(--stage-done-line); color: #455a64; }
+/* The top-level track, in its rail's hue (set inline from `trackPalette`).
+   Bold because those hues are picked for 3:1 on white, not 4.5:1. The part of
+   the line allowed to lose characters. */
+.lane-track {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 700;
+}
+/* The owner, then the kind tag pushed to the column's right edge. */
+.lane-foot { display: flex; align-items: center; gap: 6px; }
 /* The map node's tag, in a list. Same indigo, same word, so the two surfaces
-   are speaking one vocabulary; `flex: none` because the rung beside it is the
-   part allowed to lose characters. */
+   are speaking one vocabulary. */
 .lane-kind {
   flex: none;
+  margin-left: auto;
   padding: 0 6px;
   border-radius: 999px;
   background: var(--tier-pip);
   color: #fff;
-  font-size: 9px;
+  font-size: 9.5px;
   font-weight: 700;
-  line-height: 14px;
+  line-height: 15px;
 }
 /* Who answers for the project, under its rung. Ink rather than `--faint`: it is
    the line management reads the lane for. Empty says so in italic, the way an
    untiered project says `T?` -- a gap worth seeing. PROMPT.md amendment 10. */
 .lane-owner {
+  min-width: 0;
   font-size: 10.5px;
   line-height: 1.3;
   color: var(--tier-pip);
