@@ -3873,19 +3873,19 @@ function renderDependencies() {
 
 // --- portfolio view ---------------------------------------------------------
 
-// The width of the swimlane name column, and the only thing that sets a grid
-// gutter anywhere in the app. Wide enough for a typical project name at 13px
-// bold; a longer one is clipped with an ellipsis and keeps the whole name on the
-// tooltip it already had. Sized rather than fitted to the longest name on
-// purpose: the calendar beside it would then be a different width per dataset,
-// and the column is meant to be a straight edge you scan down.
-// 168 rather than 160 since the cell gained a track rail and a second line: the
-// rail and its gap take 9px off the text, and the rung underneath needs the
-// name not to be clipped tighter than it already is. It is spent before
-// `weekGrid` fits the columns, so every bar on this chart moves 8px right and
-// the calendar loses 8px of width -- at the 26-week cap that is a third of a
-// pixel per column.
-const LANE_NAME_PX = 168;
+// The swimlane name column: a quarter of the chart, held between 168px and 400px.
+// Sized off the chart rather than the longest name, so the calendar's width never
+// depends on the dataset; a name still too long keeps its ellipsis and tooltip.
+// 168 is the floor a laptop already had; 400 stops an ultrawide spending on names.
+const LANE_NAME_SHARE = 0.25;
+const LANE_NAME_MIN_PX = 168;
+const LANE_NAME_MAX_PX = 400;
+
+// Width of the name column for this chart, read before `weekGrid` fits weeks.
+function laneNamePx(chart) {
+  const share = Math.round(chart.clientWidth * LANE_NAME_SHARE);
+  return Math.min(Math.max(share, LANE_NAME_MIN_PX), LANE_NAME_MAX_PX);
+}
 
 // The name column of a lane. A cell of its own with the clickable title inside
 // it, rather than the title being the cell: the title stays `fit-content`, so
@@ -4321,9 +4321,11 @@ function renderPortfolio() {
   // of near-black ink, so it cut straight through whichever name it landed on.
   // A column also means the names line up as a list you can scan, which is how
   // you find a lane among a dozen.
-  view.gutterPx = LANE_NAME_PX;
+  view.gutterPx = laneNamePx(chart);
   const visible = phases.filter((phase) => inWindow(phase, view));
-  offWindowNote(chart, phases.length - visible.length);
+  // Said beside the lane count rather than above the ruler, where it was a
+  // paragraph of air between the controls and the calendar.
+  const offWindow = phases.length - visible.length;
 
   // Drawn even with nothing on it: the empty grid is the drop target for the
   // tray, and a dataset where nothing is dated yet is exactly when you need it.
@@ -4417,9 +4419,10 @@ function renderPortfolio() {
   // The lanes actually on screen, not every committed project: a track whose
   // work is all off-window has no rail here to explain.
   renderTrackKey(palette, projects.filter((project) => drawn.includes(project.id)));
-  renderLaneControls(drawn);
+  renderLaneControls(drawn, offWindow);
   // Every lane at once, now that they are all attached and have a layout.
   stackMilestoneLanes(chart);
+  fitSummaryText(chart);
   renderTray(body, view);
   renderPlacementUndo();
   // Redrawn from the slice already in hand: the chart moving underneath it
@@ -4478,10 +4481,17 @@ function renderTrackKey(palette, drawnProjects) {
 // the state: it says the thing it will do next, so with any lane open it offers
 // to collapse. Only the lanes actually **drawn** are counted, so a project whose
 // work is all off-window is neither counted nor opened by it.
-function renderLaneControls(drawn) {
+function renderLaneControls(drawn, offWindow = 0) {
   const bar = $("lane-controls");
   bar.innerHTML = "";
-  if (drawn.length === 0) return;
+  // Before the early return: a window with every lane off it still has to say so.
+  const note = offWindow > 0
+    ? element("span", "muted", `${offWindow} scheduled phase(s) outside this window`)
+    : null;
+  if (drawn.length === 0) {
+    if (note) bar.appendChild(note);
+    return;
+  }
 
   const openCount = drawn.filter((id) => state.laneOpen.has(id)).length;
   const collapse = openCount > 0;
@@ -4500,6 +4510,20 @@ function renderLaneControls(drawn) {
   };
   bar.append(button, element("span", "muted",
     `${drawn.length} lane(s) · ${openCount} open`));
+  if (note) bar.append(element("span", "muted", "·"), note);
+}
+
+// Moves a summary bar's text beside the bar when the bar is too short to hold it.
+// Only where the text then fits before the chart's edge; otherwise it stays
+// clipped and the tooltip carries it. Needs layout, so it runs after attach.
+function fitSummaryText(root) {
+  for (const bar of root.querySelectorAll(".bar.lane-summary")) {
+    const text = bar.querySelector(".bar-text");
+    if (!text || bar.scrollWidth <= bar.clientWidth) continue;
+    const room = bar.parentElement.getBoundingClientRect().right
+      - bar.getBoundingClientRect().right;
+    if (text.offsetWidth + 6 <= room) bar.classList.add("text-outside");
+  }
 }
 
 // The lane's own dates, which its bars cannot say between them: each bar carries

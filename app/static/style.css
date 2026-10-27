@@ -823,10 +823,12 @@ main { padding: 20px; }
 /* 1068, not 1100: the cap used to sit on `main`, so it included the 16px of
    padding either side. Subtracting it keeps these three views the exact width
    they have always been rather than quietly gaining 32px. */
-#empty-state, #workspace, #portfolio-view { max-width: 1068px; }
-#map-view { max-width: 1530px; }
-/* Prose does not want the extra width even where the map does. */
-#map-view .hint, #map-view .directions li { max-width: 900px; }
+#empty-state, #workspace { max-width: 1068px; }
+/* The portfolio takes the map's width: at 1068px a 1920 screen left a third of
+   itself empty while the week columns were squeezed to 32px. */
+#map-view, #portfolio-view { max-width: 1530px; }
+/* Prose does not want the extra width even where the charts do. */
+#map-view .hint, #map-view .directions li, #portfolio-view .hint { max-width: 900px; }
 
 /* Every section is a card. The sections used to be separated by a hairline
    under each heading and 28px of air; a card says the same thing with an edge
@@ -2152,7 +2154,9 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 }
 
 /* --- portfolio gantt --- */
-#portfolio-scroll { overflow-x: auto; border: 1px solid #eee; padding: 10px; }
+/* No frame of its own: the section is already a card, and a box inside it cost
+   the calendar 22px and drew a second edge round the chart. */
+#portfolio-scroll { overflow-x: auto; }
 #portfolio-chart { min-height: 40px; }
 
 /* --- week grid (both charts) --- */
@@ -2521,6 +2525,23 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 }
 /* Above the fill, which is absolutely positioned and would otherwise cover it. */
 .bar-text { position: relative; }
+/* A summary bar too short for its own text prints it beside the bar instead of
+   clipping it to a digit. Set by `fitSummaryText` only where there is room. */
+.bar.lane-summary.text-outside { overflow: visible; }
+.bar.lane-summary.text-outside .bar-text {
+  position: absolute;
+  left: calc(100% + 3px);
+  top: 2px;
+  color: var(--ink-3);
+}
+/* The today line is drawn under the lanes but shows through bare text, so text
+   standing on the grid gets the card's own ground behind it. */
+.bar.lane-summary.text-outside .bar-text,
+#portfolio-chart .milestone-label {
+  background: var(--surface);
+  padding: 2px 3px;
+  border-radius: 3px;
+}
 
 .lane-controls {
   display: flex;
