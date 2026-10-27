@@ -44,7 +44,7 @@ name, the global settings (velocity, sprint length, V1 tolerance) and Delete.
 
 Every project on one shared time axis.
 
-![The Portfolio view: headline counts, a week ruler, three expanded swimlanes and the dependency list](images/portfolio.png)
+![The Portfolio view: headline counts, a week ruler, three expanded swimlanes grouped by tier and the dependency list](images/portfolio.png)
 
 - **Headline counts** — how much is committed, what checkpoints fall in the next
   fortnight, what is overdue, and how many ideas have been captured but not

@@ -25,7 +25,8 @@ swimlane.
   `Source expansion / Metrics` is a track and a subtrack.
 - **Tier** — priority, 1 highest. *Untiered* is a state of its own, not a fourth
   tier: it means nobody has ranked this yet. No rule reads it; it exists so the
-  Map can be filtered when the roadmap gets crowded.
+  Map can be filtered when the roadmap gets crowded, and so the Portfolio can
+  group its swimlanes, Tier 1 first and untiered last.
 - **Owner** — who answers for the project when management asks: a name to
   call, not an assignee. Free text, with the sign-in directory offered as
   suggestions; anyone outside the app is just as valid. Nothing is worked out
