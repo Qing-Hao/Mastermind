@@ -895,7 +895,8 @@ h3 { font-size: 13px; font-weight: 600; margin: 0 0 2px; }
   gap: 12px;
 }
 .field-wide { grid-column: 1 / -1; }
-.field-grid input, .field-grid select, .field-grid .track-picker { width: 100%; }
+.field-grid input, .field-grid select, .field-grid .track-picker,
+.field-grid .owner-picker { width: 100%; }
 
 label { display: flex; flex-direction: column; font-size: 12px; color: var(--ink-3); gap: 5px; font-weight: 500; }
 
@@ -5642,6 +5643,124 @@ body.resizing-column { cursor: col-resize; user-select: none; }
   padding: 1px 5px;
 }
 
+/* --- the owner picker ---------------------------------------------------
+   The track picker's panel, rows and key hints (`ownerPicker` puts those
+   classes on), plus what a person needs: initials in the field and on each
+   row, the handle under the name, a tick on the current owner. The avatars are
+   one indigo for everybody -- a colour per person would read as a grouping by
+   person, which is the line amendment 10 draws. Nothing here toggles `hidden`;
+   the chip is shown by `data-filled`, clear of the `[hidden]` trap. */
+.owner-picker {
+  position: relative;
+  display: inline-block;
+  width: 232px;
+  vertical-align: top;
+}
+.owner-picker input {
+  width: 100%;
+  padding-right: 24px;
+  border: 1px solid var(--field);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.owner-picker[data-filled="true"] input { padding-left: 34px; }
+.owner-picker input:hover { border-color: #b9b9c2; }
+.owner-picker input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-ring);
+}
+.owner-picker::after {
+  content: "";
+  position: absolute;
+  top: 15px;
+  right: 9px;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid #777;
+  border-bottom: 1.5px solid #777;
+  transform: translateY(-2px) rotate(45deg);
+  transform-origin: center;
+  transition: transform .12s ease, border-color .12s ease;
+  pointer-events: none;
+}
+.owner-picker[data-open="true"]::after {
+  border-color: var(--accent);
+  transform: translateY(1px) rotate(-135deg);
+}
+.owner-picker[data-open="false"] .owner-panel { display: none; }
+
+/* The owner's initials, inside the field's left edge. Grey for a name typed by
+   hand, indigo for one the directory knows. */
+.owner-chip {
+  position: absolute;
+  left: 7px;
+  top: 6px;
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: var(--hover);
+  color: var(--faint);
+  pointer-events: none;
+}
+.owner-chip[data-known="true"] { background: var(--accent-soft); color: var(--accent-hover); }
+.owner-picker[data-filled="false"] .owner-chip { display: none; }
+
+.owner-panel { width: max(100%, 300px); }
+
+.owner-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 6px 12px;
+  border-bottom: 1px solid #ededed;
+  background: #f5f6f8;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+}
+.owner-head-count { font-variant-numeric: tabular-nums; }
+
+.owner-opt { align-items: center; gap: 10px; }
+.owner-avatar {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+}
+.owner-avatar[data-current="true"] { background: var(--accent); color: #fff; }
+.owner-words { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.owner-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.owner-name b { font-weight: 700; color: #000; }
+.owner-handle { font-size: 11.5px; color: var(--muted); }
+.owner-check { flex: none; color: var(--accent); font-weight: 700; }
+
+/* Set apart like the track picker's create row: it empties the field rather
+   than naming anybody. */
+.owner-clear {
+  border-top: 1px solid #ededed;
+  margin-top: 4px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+  color: var(--ink-3);
+}
+.owner-clear .track-label::before { content: "× "; color: var(--faint); font-weight: 700; }
+.owner-create + .owner-clear { border-top: 0; margin-top: 0; }
+
 /* --- the track editor ---------------------------------------------------
    The same list the picker draws, with the two edits to the tree's shape
    hung off each row. Indent is set inline per row -- depth is unbounded, so
@@ -5719,5 +5838,5 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 .track-edit-danger:hover { border-color: #7f0018; background: #7f0018; }
 
 @media (prefers-reduced-motion: reduce) {
-  .track-picker::after { transition: none; }
+  .track-picker::after, .owner-picker::after { transition: none; }
 }

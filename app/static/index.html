@@ -329,13 +329,14 @@
             </label>
             <label>Owner
               <!-- A name to call, not an assignee: PROMPT.md amendment 10. The
-                   list is the directory's display names, filled by
-                   `fillOwnerOptions`; anyone typed by hand is just as valid. -->
-              <input id="project-owner" type="text" list="project-owner-options"
-                autocomplete="off" placeholder="nobody named yet"
-                data-tip="Who answers for this project"
-                data-tip-body="A name management can call. Pick from the directory or type anyone — nothing is worked out from it, and nothing is filtered by it.">
-              <datalist id="project-owner-options"></datalist>
+                   panel is built by `ownerPicker` from the directory's display
+                   names; anyone typed by hand is just as valid. -->
+              <span class="owner-picker">
+                <input id="project-owner" type="text"
+                  autocomplete="off" placeholder="nobody named yet"
+                  data-tip="Who answers for this project"
+                  data-tip-body="A name management can call. Pick from the directory or type anyone — nothing is worked out from it, and nothing is filtered by it.">
+              </span>
             </label>
             <label class="field-wide">Track
               <!-- The panel inside is built by `trackPicker`; this wrapper is only

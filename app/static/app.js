@@ -2370,13 +2370,7 @@ function renderProjectFields() {
 // the Sprint tab has not already loaded it; a failed read leaves the box free text.
 async function fillOwnerOptions() {
   if (!state.people || !state.people.length) await loadPeople();
-  const list = $("project-owner-options");
-  list.textContent = "";
-  for (const person of state.people || []) {
-    const option = element("option");
-    option.value = person.display_name || person.handle;
-    list.appendChild(option);
-  }
+  if (ownerPickerControl) ownerPickerControl.refresh(state.people || []);
 }
 
 // The checkpoint list. It replaced the drafting switch, which asked the same
@@ -9913,8 +9907,8 @@ function renderDirections() {
 // simply typed, and it starts existing when the project is saved.
 //
 // Hand-rolled because a <datalist> cannot nest, count or offer a create row:
-// the browser draws that popup and exposes none of it. The one custom control
-// in this codebase, and it is here to stop bad data rather than to look nicer.
+// the browser draws that popup and exposes none of it. Here to stop bad data
+// rather than to look nicer -- `ownerPicker` borrows its panel for the other job.
 const trackPickers = [];
 
 // Any depth, because that is what `trackPath` reads and what the map draws.
@@ -10276,6 +10270,238 @@ function trackPicker(input) {
 
 function refreshTrackPickers() {
   for (const picker of trackPickers) picker.refresh(state.projects);
+}
+
+// --- owner picker -------------------------------------------------------------
+//
+// The Owner field's panel: the directory with initials and handles, the current
+// owner ticked. The second hand-rolled control, and unlike the track picker it
+// is here to read better rather than to stop bad data -- a <datalist> popup is
+// the browser's, so it could show neither. It borrows that picker's panel, rows
+// and key hints so the two read as one family.
+//
+// Still a text box: a name typed by hand is as valid as one picked (amendment
+// 10), so the panel offers it back as a row and a blur keeps it.
+let ownerPickerControl = null;
+
+const ownerInitials = (name) => {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return "";
+  const letters = words.length > 1
+    ? words[0][0] + words[words.length - 1][0]
+    : words[0].slice(0, 2);
+  return letters.toUpperCase();
+};
+
+function ownerPicker(input) {
+  const root = input.parentElement;
+  const chip = element("span", "owner-chip");
+  chip.setAttribute("aria-hidden", "true");
+  const panel = element("div", "track-panel owner-panel");
+  const head = element("div", "owner-head");
+  const rowsBox = element("div", "track-rows");
+  const foot = element("div", "track-foot");
+  rowsBox.setAttribute("role", "listbox");
+  rowsBox.setAttribute("aria-label", "People");
+  foot.append(
+    element("b", null, "↑↓"), element("span", null, "move"), element("span", null, "·"),
+    element("b", null, "Enter"), element("span", null, "picks"), element("span", null, "·"),
+    element("b", null, "Esc"), element("span", null, "closes"));
+  panel.append(head, rowsBox, foot);
+  root.prepend(chip);
+  root.appendChild(panel);
+  root.dataset.open = "false";
+  input.setAttribute("role", "combobox");
+  input.setAttribute("aria-expanded", "false");
+  input.setAttribute("aria-autocomplete", "list");
+  input.spellcheck = false;
+
+  let people = [];
+  let rows = [];
+  let active = 0;
+  // Opening shows everybody with the owner highlighted; typing filters.
+  let browsing = false;
+  // What the field held when the panel opened, which Esc puts back.
+  let before = "";
+
+  const known = (text) => {
+    const wanted = text.trim().toLowerCase();
+    return people.find((person) => person.name.toLowerCase() === wanted);
+  };
+
+  function paintChip() {
+    const value = input.value.trim();
+    const person = known(value);
+    chip.textContent = value ? ownerInitials(person ? person.name : value) : "";
+    chip.dataset.known = String(Boolean(person));
+    root.dataset.filled = String(Boolean(value));
+  }
+
+  function buildRows() {
+    const term = browsing ? "" : input.value.trim();
+    const low = term.toLowerCase();
+    const out = [];
+    for (const person of people) {
+      const at = low ? person.name.toLowerCase().indexOf(low) : -1;
+      if (low && at === -1 && !person.handle.toLowerCase().includes(low)) continue;
+      out.push({
+        kind: "person", value: person.name, person, at, length: term.length,
+        current: person.name.toLowerCase() === before.trim().toLowerCase(),
+      });
+    }
+    if (term && !known(term)) out.push({ kind: "create", value: term });
+    if (before.trim()) out.push({ kind: "clear", value: "" });
+    return out;
+  }
+
+  function personRow(row) {
+    const avatar = element("span", "owner-avatar", ownerInitials(row.person.name));
+    avatar.dataset.current = String(row.current);
+    const name = element("span", "owner-name");
+    if (row.at === -1) {
+      name.textContent = row.person.name;
+    } else {
+      const text = row.person.name;
+      name.append(
+        document.createTextNode(text.slice(0, row.at)),
+        element("b", null, text.slice(row.at, row.at + row.length)),
+        document.createTextNode(text.slice(row.at + row.length)));
+    }
+    const words = element("span", "owner-words");
+    words.append(name, element("span", "owner-handle", `@${row.person.handle}`));
+    const parts = [avatar, words];
+    if (row.current) parts.push(element("span", "owner-check", "✓"));
+    return parts;
+  }
+
+  function paint() {
+    rows = buildRows();
+    active = Math.min(Math.max(active, 0), Math.max(rows.length - 1, 0));
+
+    const shown = rows.filter((row) => row.kind === "person").length;
+    head.textContent = "";
+    head.append(element("span", null, "Directory"),
+      element("span", "owner-head-count", browsing || shown === people.length
+        ? `${people.length} ${people.length === 1 ? "person" : "people"}`
+        : `${shown} of ${people.length}`));
+
+    rowsBox.textContent = "";
+    if (!people.length && !input.value.trim()) {
+      rowsBox.appendChild(element("div", "track-empty",
+        "nobody in the directory yet — type any name"));
+    }
+    rows.forEach((row, index) => {
+      const option = element("div", `track-opt owner-opt owner-${row.kind}`);
+      if (row.kind === "create") option.classList.add("track-create");
+      option.id = `${input.id}-opt-${index}`;
+      option.setAttribute("role", "option");
+      option.setAttribute("aria-selected", String(index === active));
+      option.dataset.active = String(index === active);
+      if (row.kind === "person") {
+        option.append(...personRow(row));
+      } else if (row.kind === "create") {
+        const label = element("span", "track-label");
+        label.append(document.createTextNode("Use "), element("b", null, row.value));
+        option.append(label, element("span", "track-tag", "not in directory"));
+      } else {
+        option.append(element("span", "track-label", "Clear owner"));
+      }
+      // mousedown, not click, for the track picker's reason: a click blurs first.
+      option.onmousedown = (event) => {
+        event.preventDefault();
+        commit(row.value);
+      };
+      option.onmouseenter = () => {
+        active = index;
+        for (const other of rowsBox.children) other.dataset.active = "false";
+        option.dataset.active = "true";
+        input.setAttribute("aria-activedescendant", option.id);
+      };
+      rowsBox.appendChild(option);
+    });
+
+    if (rows[active]) {
+      input.setAttribute("aria-activedescendant", `${input.id}-opt-${active}`);
+      $(`${input.id}-opt-${active}`).scrollIntoView({ block: "nearest" });
+    } else {
+      input.removeAttribute("aria-activedescendant");
+    }
+  }
+
+  function show(browse) {
+    if (root.dataset.open !== "true") before = input.value;
+    browsing = browse;
+    root.dataset.open = "true";
+    input.setAttribute("aria-expanded", "true");
+    if (browsing) {
+      rows = buildRows();
+      const at = rows.findIndex((row) => row.kind === "person" && row.current);
+      active = at === -1 ? 0 : at;
+    }
+    paint();
+  }
+
+  function close() {
+    root.dataset.open = "false";
+    input.setAttribute("aria-expanded", "false");
+    input.removeAttribute("aria-activedescendant");
+  }
+
+  // Fires `change` itself, as the track picker does, because the field's
+  // onchange is what saves the project. Only when something actually changed:
+  // re-picking the owner already there would write a version row for nothing.
+  function commit(value) {
+    input.value = value;
+    close();
+    paintChip();
+    if (value !== before) input.dispatchEvent(new Event("change"));
+  }
+
+  input.onclick = () => {
+    if (root.dataset.open !== "true") show(true);
+  };
+  input.oninput = () => {
+    active = 0;
+    paintChip();
+    show(false);
+  };
+  input.onblur = close;
+
+  input.onkeydown = (event) => {
+    const open = root.dataset.open === "true";
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (!open) return show(true);
+      if (rows.length === 0) return;
+      active = (active + (event.key === "ArrowDown" ? 1 : rows.length - 1)) % rows.length;
+      paint();
+      return;
+    }
+    if (event.key === "Enter" && open) {
+      event.preventDefault();
+      commit(rows[active] ? rows[active].value : input.value.trim());
+      return;
+    }
+    if (event.key === "Escape" && open) {
+      event.preventDefault();
+      input.value = before;
+      close();
+      paintChip();
+    }
+  };
+
+  panel.onmousedown = (event) => event.preventDefault();
+
+  return {
+    refresh(directory) {
+      people = directory.map((person) => ({
+        name: person.display_name || person.handle,
+        handle: person.handle,
+      }));
+      paintChip();
+      if (root.dataset.open === "true") paint();
+    },
+  };
 }
 
 // --- track editor -----------------------------------------------------------
@@ -11603,6 +11829,7 @@ function bindEvents() {
   // is re-read, so a track invented in one field shows up in the other.
   trackPickers.push(trackPicker($("project-track")),
     trackPicker($("new-direction-track")));
+  ownerPickerControl = ownerPicker($("project-owner"));
 
   // The two drawings of the Map tab. A re-render rather than a reload: the
   // payload already carries both, which is the whole reason the span and the
