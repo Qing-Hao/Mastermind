@@ -54,7 +54,7 @@ Every project on one shared time axis.
 - **Swimlanes** — one per committed project. A folded lane is a single bar over
   the project's own dates, filled to how far through it is; **Expand all** (or
   the coloured rail and ▸ beside a name) opens it into one row per phase and per
-  dated checkpoint.
+  dated checkpoint. A bar too short for its own text prints it beside the bar.
   Lanes are grouped under a header per tier — Tier 1 first, then 2 and 3, with
   untiered projects last. A tier with no lanes on screen has no header.
   Bar colour is the project's track, listed in the key below the chart. The
