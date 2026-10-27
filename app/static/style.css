@@ -805,6 +805,11 @@
 .menu-danger { color: #b00020; border-color: transparent; background: transparent; }
 .menu-danger:hover { background: #fdf3f4; border-color: #f3c8ce; color: #7f0018; }
 
+/* The scrollbar's room is always kept. Charts fit their columns to the width they
+   measure, and a re-render measures an emptied page: the scrollbar arriving with
+   the content took 15px back and left the Portfolio scrolling sideways. */
+html { scrollbar-gutter: stable; }
+
 body {
   margin: 0;
   font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
