@@ -2525,10 +2525,10 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 }
 /* Above the fill, which is absolutely positioned and would otherwise cover it. */
 .bar-text { position: relative; }
-/* A summary bar too short for its own text prints it beside the bar instead of
-   clipping it to a digit. Set by `fitSummaryText` only where there is room. */
-.bar.lane-summary.text-outside { overflow: visible; }
-.bar.lane-summary.text-outside .bar-text {
+/* A Portfolio bar too short for its own text prints it beside the bar instead of
+   clipping it to a letter. Set by `fitBarText` only where there is room. */
+.bar.text-outside { position: relative; overflow: visible; }
+.bar.text-outside .bar-text {
   position: absolute;
   left: calc(100% + 3px);
   top: 2px;
@@ -2536,7 +2536,7 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 }
 /* The today line is drawn under the lanes but shows through bare text, so text
    standing on the grid gets the card's own ground behind it. */
-.bar.lane-summary.text-outside .bar-text,
+.bar.text-outside .bar-text,
 #portfolio-chart .milestone-label {
   background: var(--surface);
   padding: 2px 3px;

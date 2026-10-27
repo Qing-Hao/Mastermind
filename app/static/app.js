@@ -2914,7 +2914,9 @@ function phaseBar(phase, view, isWarned) {
     bar.appendChild(challengeTag("", "span"));
     bar.title += `\n\nChallenge: ${challenge}`;
   }
-  bar.appendChild(document.createTextNode(phase.name));
+  // A span rather than a bare text node, so `fitBarText` can move it beside a
+  // bar too short to hold it.
+  bar.appendChild(element("span", "bar-text", phase.name));
   return bar;
 }
 
@@ -4422,7 +4424,7 @@ function renderPortfolio() {
   renderLaneControls(drawn, offWindow);
   // Every lane at once, now that they are all attached and have a layout.
   stackMilestoneLanes(chart);
-  fitSummaryText(chart);
+  fitBarText(chart);
   renderTray(body, view);
   renderPlacementUndo();
   // Redrawn from the slice already in hand: the chart moving underneath it
@@ -4513,11 +4515,11 @@ function renderLaneControls(drawn, offWindow = 0) {
   if (note) bar.append(element("span", "muted", "·"), note);
 }
 
-// Moves a summary bar's text beside the bar when the bar is too short to hold it.
+// Moves a bar's text beside the bar when the bar is too short to hold it.
 // Only where the text then fits before the chart's edge; otherwise it stays
 // clipped and the tooltip carries it. Needs layout, so it runs after attach.
-function fitSummaryText(root) {
-  for (const bar of root.querySelectorAll(".bar.lane-summary")) {
+function fitBarText(root) {
+  for (const bar of root.querySelectorAll(".bar")) {
     const text = bar.querySelector(".bar-text");
     if (!text || bar.scrollWidth <= bar.clientWidth) continue;
     const room = bar.parentElement.getBoundingClientRect().right
@@ -4826,7 +4828,10 @@ function makeDraggable(bar, phase, view) {
     event.preventDefault();
     const startX = event.clientX;
     const { from, to } = phaseSpan(phase, view);
-    const label = bar.textContent;
+    // The name span when there is one, so the readout follows the text beside a
+    // short bar and the challenge tag survives the drag.
+    const text = bar.querySelector(".bar-text") || bar;
+    const label = text.textContent;
     let dayDelta = 0;
     bar.classList.add("dragging");
 
@@ -4841,7 +4846,7 @@ function makeDraggable(bar, phase, view) {
       // shortens it against the boundary instead of overflowing the chart.
       placeBar(bar, from + dayDelta, to + dayDelta, view);
       const landing = shiftDate(phase.start_date, dayDelta);
-      bar.textContent = dayDelta === 0 ? label : `${label} → ${landing}`;
+      text.textContent = dayDelta === 0 ? label : `${label} → ${landing}`;
       showDragPill(moveEvent, dropLabel(landing, moveEvent.altKey));
     };
 
@@ -4850,7 +4855,7 @@ function makeDraggable(bar, phase, view) {
       document.removeEventListener("mouseup", onUp);
       hideDragPill();
       bar.classList.remove("dragging");
-      bar.textContent = label;
+      text.textContent = label;
       if (dayDelta === 0) return;
       // Only this phase moves. Dependents stay put and start warning instead.
       try {
