@@ -2217,6 +2217,7 @@ function taskRow(row) {
   const open = async () => {
     closeTask();
     await openSprintFromTask(row.sprint);
+    revealTaskRow(row);
   };
   card.onclick = (event) => {
     if (event.target.closest("a, button")) return;
@@ -2290,6 +2291,30 @@ async function openSprintFromTask(number) {
   state.view = "sprint";
   await refreshView();
   if (state.sprint && state.sprint.number !== number) await loadSprintFile(number);
+}
+
+// The card's row, once the file has drawn. A list line is found only as its
+// block, because the editor stamps blocks and table cells but not lines. A miss
+// -- the file changed since the scan -- lands on the file with nothing flashed.
+//
+// Looked for again if the row it flashed is gone: a freshly opened file is
+// redrawn when its links and scope land, which replaces every row in it.
+function revealTaskRow(row, tries = 4) {
+  if (row.block === undefined || row.block === null) return;
+  const scope = `${sprintPresenceScope()}:${row.block}`;
+  const field = row.row === null || row.row === undefined
+    ? scope : `${scope}:cell:${row.row}:0`;
+  const node = document.querySelector(`[data-presence="${CSS.escape(field)}"]`);
+  if (!node) {
+    if (tries > 1) setTimeout(() => revealTaskRow(row, tries - 1), 300);
+    return;
+  }
+  const holder = node.closest("tr, .sprint-row") || node;
+  holder.scrollIntoView({ block: "center", behavior: "smooth" });
+  flashArrival(holder);
+  if (tries > 1) {
+    setTimeout(() => { if (!holder.isConnected) revealTaskRow(row, tries - 1); }, 300);
+  }
 }
 
 function closeTask() {

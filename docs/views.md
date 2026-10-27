@@ -195,6 +195,11 @@ grouped by person, busiest first, and it is **not gated** — there is no root u
 and whoever opens it sees the same page. People with nothing against them are
 listed as such, because "Bernard has nothing this fortnight" is an answer.
 
+Pressing a row opens its sprint file scrolled to that row, and flashes it. A
+checklist line lands on its whole list, since lines are not addressed one by one.
+If the file was edited above the row since the bell last read it, the file opens
+with nothing flashed.
+
 Rows a table names but does not assign are left out: the capacity table and the
 carry-over table name people and neither hands out work, so neither is read. What
 makes a table count is having a PIC-style column at all.

@@ -5969,6 +5969,25 @@ def test_the_scan_names_the_sprint_a_row_came_from(client, realm, sprints):
     assert {row["file"] for row in rows} == {"01.md", "02.md"}
 
 
+def test_the_scan_names_the_block_and_row_a_card_jumps_to(client, realm, sprints):
+    """Indices into the blocks `/api/sprints/{n}` serves, so a card lands on its row."""
+    client.put("/api/sso", json={"issuer": STUB_ISSUER, "client_id": "mastermind",
+                                 "identity_claim": "preferred_username",
+                                 "allowlist": "qinghao", "mode": "allowlist"})
+    write_sprint(sprints, "01.md",
+                 WORK_TABLE + "\n## Definition of Done\n\n- [ ] @qinghao wrote it up\n")
+
+    blocks = client.get("/api/sprints/1").json()["blocks"]
+    rows = {row["task"]: row for row in
+            client.get("/api/mine?handle=qinghao").json()["rows"]}
+
+    auth = rows["Auth API"]
+    assert blocks[auth["block"]]["table"]["rows"][auth["row"]][0].strip() == "Auth API"
+    line = next(row for task, row in rows.items() if "wrote it up" in task)
+    assert blocks[line["block"]]["type"] == "list"
+    assert line["row"] is None
+
+
 def test_no_deliverable_ever_gains_an_assignee(client, realm, sprints):
     """Assignment is markdown. Non-negotiable 4 is untouched by any of this."""
     project = make_project(client)

@@ -2647,12 +2647,16 @@ def sprint_task_people(text, handles):
 
     Repeats are kept. One person on two rows is two entries, and what that means
     is the caller's to decide.
+
+    `block` and `row` point a task card at its row in the editor. Both are
+    positions, so they are only as fresh as the scan: a block inserted above
+    moves them, and the card then lands on the file with nothing flashed.
     """
     if not handles:
         return []
     found = []
     section = ""
-    for block in split_blocks(text):
+    for at, block in enumerate(split_blocks(text)):
         if block["type"] == "heading":
             section = heading_text(block["raw"])
             continue
@@ -2665,9 +2669,10 @@ def sprint_task_people(text, handles):
             if not person_columns:
                 continue
             status_at = head.index(STATUS_COLUMN) if STATUS_COLUMN in head else -1
-            for row in table["rows"]:
-                found.extend(row_people(row, head, person_columns, status_at,
-                                        section, handles))
+            for number, row in enumerate(table["rows"]):
+                found.extend({**entry, "block": at, "row": number}
+                             for entry in row_people(row, head, person_columns,
+                                                     status_at, section, handles))
             continue
 
         if block["type"] not in ("list", "quote"):
@@ -2687,7 +2692,8 @@ def sprint_task_people(text, handles):
                 found.append({"handle": handle, "role": "", "task": label,
                               "section": section, "status": status,
                               "state": task_state(status), "points": "",
-                              "priority": "", "others": []})
+                              "priority": "", "others": [],
+                              "block": at, "row": None})
     return found
 
 
