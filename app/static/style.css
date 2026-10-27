@@ -2472,20 +2472,30 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
    Collapsed it is one bar over the project's span with one strip of
    checkpoints under it, which is what fits a dozen projects on a screen. */
 
-/* Sits in the name column beside the title, on the same 24px line so it lands
-   on the first row rather than above it. Stripped back to a glyph: a bordered
-   button per lane would out-weigh the project names, which are what you scan. */
+/* The rail and the chevron as one button, the full height of the lane. The
+   negative margin reaches over `.lane`'s 6px padding and the padding puts the
+   chevron back on the title's 24px line. No border: a bordered button per lane
+   would out-weigh the project names, which are what you scan. */
 .lane-twisty {
   flex: 0 0 auto;
-  padding: 0 2px;
+  align-self: stretch;
+  display: flex;
+  align-items: flex-start;
+  margin: -6px 0;
+  padding: 6px 0;
   border: 0;
+  border-radius: 0 var(--radius) var(--radius) 0;
   background: none;
   color: #aaa;
   font-size: 11px;
+  font-weight: normal;
   line-height: 24px;
   cursor: pointer;
 }
-.lane-twisty:hover { color: #3949ab; }
+.lane-twisty:hover { background: var(--accent-soft); color: #3949ab; }
+/* Thicker on hover without moving the chevron beside it. */
+.lane-twisty:hover .track-rail { transform: scaleX(1.67); transform-origin: left; }
+.lane-chevron { padding: 0 2px; }
 .lane-twisty:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 1px; }
 
 /* Not a phase, so it wears none of the `status-` colours: the track is neutral

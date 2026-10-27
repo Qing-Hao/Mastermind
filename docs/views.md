@@ -53,7 +53,8 @@ Every project on one shared time axis.
   six months at a time. Pick a preset length or *Custom…* for your own range.
 - **Swimlanes** — one per committed project. A folded lane is a single bar over
   the project's own dates, filled to how far through it is; **Expand all** (or
-  the ▸ beside a name) opens it into one row per phase and per dated checkpoint.
+  the coloured rail and ▸ beside a name) opens it into one row per phase and per
+  dated checkpoint.
   Bar colour is the project's track, listed in the key below the chart. The
   lane's name carries its **owner** (*no owner yet* when nobody is named). A ⚑
   on a phase bar is a raised challenge, its text on hover; a folded lane shows

@@ -3904,14 +3904,19 @@ const LANE_NAME_PX = 168;
 // from another.
 function laneName(title, twisty, hue, meta) {
   const cell = element("div", "lane-name");
-  const rail = element("div", "track-rail");
-  rail.style.background = hue || "var(--faint)";
   // The name and the rung it is on, stacked, so the twisty and the rail keep
   // their own widths while the name still shrinks to its ellipsis.
   const text = element("div", "lane-name-text");
-  text.append(title, meta);
-  cell.append(rail, twisty, text);
+  text.append(...[title, meta].filter(Boolean));
+  // A lane with a twisty carries its rail inside it; the tray's ghost has neither.
+  cell.append(twisty || trackRail(hue), text);
   return cell;
+}
+
+function trackRail(hue) {
+  const rail = element("div", "track-rail");
+  rail.style.background = hue || "var(--faint)";
+  return rail;
 }
 
 // The rung the ladder put this project on, said on the lane rather than left in
@@ -3942,9 +3947,13 @@ function laneMeta(project) {
 // Open this lane, or fold it back to one bar. A `<button>` rather than a div
 // with a handler, so it is in the tab order and takes Enter and Space for free
 // -- the same reason the sprint editor's rail grip is one.
-function laneTwisty(project, open) {
-  const twisty = element("button", "lane-twisty", open ? "▾" : "▸");
+//
+// The track rail is inside the button, so the whole strip left of the name is the
+// target: the 11px chevron alone was hard to hit.
+function laneTwisty(project, open, hue) {
+  const twisty = element("button", "lane-twisty");
   twisty.type = "button";
+  twisty.append(trackRail(hue), element("span", "lane-chevron", open ? "▾" : "▸"));
   // Which lane this one belongs to, so the redraw it triggers can hand focus
   // back to its replacement. Without it the press destroys the element the
   // keyboard was on and focus falls to `<body>` -- from where the next Tab
@@ -4358,8 +4367,8 @@ function renderPortfolio() {
     };
     const open = state.laneOpen.has(project.id);
     lane.classList.toggle("open", open);
-    const name = laneName(title, laneTwisty(project, open),
-      palette.get(trackPath(project.track)[0]), laneMeta(project));
+    const hue = palette.get(trackPath(project.track)[0]);
+    const name = laneName(title, laneTwisty(project, open, hue), hue, laneMeta(project));
     name.querySelector(".lane-name-text").appendChild(laneOwner(project));
     lane.appendChild(name);
     // One row per plan row inside the lane, the same shape and the same

@@ -103,7 +103,8 @@ other placement in the app.
 ### 8. Read it on the Portfolio
 
 Open **Portfolio**. Every project is one folded bar over its own dates, filled to
-how far through it is. Open one with the ▸ beside its name to see its phases and
+how far through it is. Open one with the coloured rail and ▸ beside its name to
+see its phases and
 checkpoints. Drag a phase bar sideways to move that phase — it snaps to a week
 column, and <kbd>Alt</kbd> nudges it by single days.
 
