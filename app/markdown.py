@@ -40,7 +40,8 @@ Two invariants live here specifically:
      splitter.
   2. **This module is sprint-agnostic.** It never learns what a capacity table
      is. Any pipe table gets the same treatment, no category is validated and no
-     point is counted. That is the condition the sprint-4 gate override rests
+     point is counted -- a Total row adds whichever columns the file marks, never
+     knowing what they hold. That is the condition the sprint-4 gate override rests
      on: an editor that knows nothing about sprint sections cannot commit the
      storage question early.
 
@@ -53,6 +54,7 @@ place.
 
 import difflib
 import re
+from decimal import Decimal
 from html import escape
 
 from markdown_it import MarkdownIt
@@ -426,8 +428,10 @@ def serialise_table(table):
     """Write a table back as markdown with every column padded to its widest cell.
 
     This is the one place the file is deliberately reformatted, and it is the
-    feature: a grid edit comes back aligned rather than ragged.
+    feature: a grid edit comes back aligned rather than ragged. A Total row is
+    recalculated here too, so every door that writes a grid writes a true sum.
     """
+    table = apply_totals(table)
     head = [_escape_cell(cell) for cell in table.get("head", [])]
     rows = [[_escape_cell(cell) for cell in row] for row in table.get("rows", [])]
     align = list(table.get("align", []))
@@ -516,6 +520,75 @@ def _escape_cell(cell):
     return _CELL_NEWLINE.sub(CELL_BREAK, escaped)
 
 
+# --- a Total row -------------------------------------------------------------
+#
+# A table's **last** row, labelled `**Total**` in its first cell, adds up the
+# columns above it. Which columns is said by the file and nowhere else: a Total
+# cell holding a number is a sum, and an empty or text cell is left alone. So
+# the choice survives a renamed header, a reordered column and a text editor,
+# and nothing here knows which column is points.
+#
+# Removing the bold is how the row stops being one -- `Total` is ordinary text.
+# Only plain numbers are added; `3h`, `1,000`, `~5` and `TBD` are skipped.
+
+TOTAL_LABEL = "**Total**"
+_NUMBER = re.compile(r"^-?\d+(?:\.\d+)?$")
+
+
+def is_number(text):
+    """Whether a cell is a plain number a Total row may add."""
+    return bool(_NUMBER.match(str(text or "").strip()))
+
+
+def total_row(table):
+    """Index of the table's Total row, or None when its last row is not one."""
+    rows = table.get("rows", [])
+    if not rows or not rows[-1]:
+        return None
+    label = str(rows[-1][0] or "").strip().lower()
+    return len(rows) - 1 if label == TOTAL_LABEL.lower() else None
+
+
+def column_total(table, column):
+    """One column's sum above the Total row, as the file writes it, plus cells skipped.
+
+    Added as `Decimal` so `0.1 + 0.2` is `0.3`, and written without a trailing
+    `.0` so a whole sum reads `10`. `editor.js` mirrors this for its preview.
+    """
+    end = total_row(table)
+    rows = table.get("rows", [])[:end]
+    total, skipped = Decimal(0), 0
+    for row in rows:
+        text = str(row[column] if column < len(row) else "").strip()
+        if not text:
+            continue
+        if is_number(text):
+            total += Decimal(text)
+        else:
+            skipped += 1
+    written = format(total, "f")
+    if "." in written:
+        written = written.rstrip("0").rstrip(".")
+    return ("0" if written in ("", "-0") else written), skipped
+
+
+def apply_totals(table):
+    """A copy of `table` with its Total row's summed cells recalculated."""
+    end = total_row(table)
+    fresh = {
+        "head": list(table.get("head", [])),
+        "align": list(table.get("align", [])),
+        "rows": [list(row) for row in table.get("rows", [])],
+    }
+    if end is None:
+        return fresh
+    totals = fresh["rows"][end]
+    for column in range(1, len(totals)):
+        if is_number(totals[column]):
+            totals[column] = column_total(fresh, column)[0]
+    return fresh
+
+
 # --- writing single cells -----------------------------------------------------
 #
 # A finer door still: a write names cells rather than a run of blocks, so two
@@ -579,12 +652,16 @@ def write_cells(table, cells):
     Structure is not writable here on purpose -- no row is added, none is
     removed, and the alignment is left alone. Those change what every other cell
     is addressed by, so they stay a whole-block write.
+
+    A summed Total cell is guarded on being a sum, not on its value: the value
+    moves with every other write, so quoting it would refuse for nothing.
     """
     fresh = {
         "head": list(table.get("head", [])),
         "align": list(table.get("align", [])),
         "rows": [list(row) for row in table.get("rows", [])],
     }
+    totals = total_row(fresh)
     for cell in cells:
         r, column = cell["r"], cell["c"]
         rows = fresh["head"] if r == -1 else (fresh["rows"][r] if 0 <= r < len(fresh["rows"]) else None)
@@ -593,7 +670,9 @@ def write_cells(table, cells):
                 "out of range",
                 f"{_cell_name(r, column)} is not in this table any more.",
             )
-        if not same_cell(rows[column], cell.get("expect", "")):
+        derived = (r == totals and column > 0
+                   and is_number(rows[column]) and is_number(cell.get("expect", "")))
+        if not derived and not same_cell(rows[column], cell.get("expect", "")):
             raise SpliceRefused(
                 "stale",
                 f"{_cell_name(r, column)} changed since it was read. Nothing was written.",

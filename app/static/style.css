@@ -3624,6 +3624,24 @@ body.resizing-column { cursor: col-resize; user-select: none; }
   padding-left: calc(var(--cell-depth, 0) * 14px);
 }
 
+/* A Total row: drawn from the column above it, never typed, so it reads as a
+   button rather than a field. The accent wash marks a cell that is summing. */
+.sprint-table .sprint-total-row {
+  cursor: pointer;
+  background: var(--hover);
+  border-top: 2px solid var(--field);
+}
+.sprint-table .sprint-total-summed { background: var(--accent-soft); }
+.sprint-total {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-height: 18px;
+  font-weight: 600;
+}
+.sprint-total-sign { color: var(--accent); }
+.sprint-total-skipped { font: 400 11px system-ui, sans-serif; color: #92400e; }
+
 /* One glyph per level -- • ◦ ▪ -- where the file holds `- `, `  - `, `    - `. The
    grid draws the affordance; the characters are what everything else sees. Fixed
    width, so the text of every item at one depth starts in the same place, and the
@@ -3796,7 +3814,8 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 .sprint-table-block:hover .sprint-table-tools,
 .sprint-table-block:focus-within .sprint-table-tools { opacity: 1; }
 
-.grid-btn { font-size: 11.5px; padding: 2px 8px; }
+/* Never squeezed: with three buttons the note beside them is what wraps. */
+.grid-btn { font-size: 11.5px; padding: 2px 8px; white-space: nowrap; flex: none; }
 .grid-btn:disabled { opacity: 0.4; }
 .sprint-table-note { margin-left: auto; color: #888; font-size: 11.5px; }
 

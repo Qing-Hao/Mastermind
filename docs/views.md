@@ -146,6 +146,17 @@ under its deliverables. Only the bracketed spelling counts — a bare `M-3` is t
 Ticking a checkpoint can move its project's stage, exactly as it does on the
 Project tab.
 
+**A Total row.** **+ Total** under a table adds a last row labelled `**Total**`
+that adds up its columns as you type. Click any Total cell for its options: **Sum
+this column**, **Stop summing this column**, or **Remove Total format**, which
+turns it back into an ordinary row (its row grip offers **Make this the Total
+row** to undo that). A Total cell cannot be typed into. Only plain numbers are
+added — `5`, `2.5`; `TBD`, `3h` or `~5` are left out and counted as *skipped*. New
+rows always go above the Total row. The new-sprint template starts the Product and
+Enablement tables with one, summing SP. In the file it is an ordinary row, so a
+text editor can open it; a wrong number typed there is replaced with the real sum
+the next time the app saves that table.
+
 **Naming somebody on a row.** Type `@` in a cell to pick a name from the
 directory — it writes `@handle`, which is the convention the team already used in
 the **PIC** and **Reviewer** columns. Picking is only a spelling aid: a name typed

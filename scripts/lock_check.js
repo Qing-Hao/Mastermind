@@ -136,6 +136,7 @@ function load() {
     applyRemoteSprintCells, refuseSprintWrite, SPRINT_REFUSAL_LIMIT,
     sprintUndo, pushSprintUndo, sealSprintUndo, clearSprintUndo, undoBlocks,
     undoRun, undoSprintEdit, redoSprintEdit, insertGridRow, adoptSprintBlocks,
+    totalRow, columnTotal, totalMenuItems, addTotalRow, moveGridRow, editSprintCell,
   };`;
 
   vm.runInContext(
@@ -530,6 +531,73 @@ function run() {
     probe.undoRun(before, probe.undoBlocks(
       document3().map((b, i) => (i === 0 ? { ...b, raw: "one, edited" } : b)),
     )).was.length === 1);
+
+  // --- a Total row ------------------------------------------------------------
+  //
+  // Drawn, never typed, and never sent as an edit when only its sum moved. The
+  // arithmetic must agree with `markdown.column_total`, which writes the file.
+
+  const work = () => ({
+    head: ["Work", "SP", "Actual"],
+    align: ["", "right", ""],
+    rows: [["SSO", "5", "4d"], ["Deploy", "3", ""], ["Restore", "TBD", ""],
+      ["Runbook", "2", "1"], ["**Total**", "0", ""]],
+  });
+  const totalBlock = { raw: "| t |", gap: "\n\n", type: "table", table: work() };
+
+  check("the last row labelled **Total** is the Total row",
+    probe.totalRow(work()) === 4, String(probe.totalRow(work())));
+  const plain = work();
+  plain.rows[4][0] = "Total";
+  check("a plain Total label is an ordinary row", probe.totalRow(plain) === null);
+
+  const sp = probe.columnTotal(work(), 1);
+  check("a total adds the numbers and counts what it skipped",
+    sp.text === "10" && sp.skipped === 1, JSON.stringify(sp));
+  const decimals = { head: ["a", "n"], align: ["", ""],
+    rows: [["x", "0.1"], ["y", "0.2"], ["**Total**", "0"]] };
+  check("a total adds decimals exactly", probe.columnTotal(decimals, 1).text === "0.3",
+    probe.columnTotal(decimals, 1).text);
+
+  const sumWas = work();
+  sumWas.rows[4][1] = "10";
+  const sumNow = work();
+  sumNow.rows[4][1] = "11";
+  check("a Total cell moving from one sum to another is not an edit",
+    probe.changedCells(sumWas, sumNow).length === 0,
+    JSON.stringify(probe.changedCells(sumWas, sumNow)));
+  const switchedOff = work();
+  switchedOff.rows[4][1] = "";
+  check("switching a Total cell off is an edit",
+    probe.changedCells(sumWas, switchedOff).length === 1);
+
+  check("a Total cell cannot be opened for typing",
+    probe.editSprintCell(new FakeNode(".sprint-cell-host"), totalBlock, 0, 4, 1) === null);
+
+  state.sprint.blocks = [totalBlock];
+  check("a row inserted below the Total row lands above it",
+    probe.insertGridRow(totalBlock, 99) === 4 && probe.totalRow(totalBlock.table) === 5);
+  probe.moveGridRow(totalBlock, 0, 5);
+  check("a row dragged below the Total row lands above it",
+    probe.totalRow(totalBlock.table) === 5 && totalBlock.table.rows[4][0] === "SSO",
+    totalBlock.table.rows.map((r) => r[0]).join(","));
+  probe.moveGridRow(totalBlock, 5, 0);
+  check("the Total row itself does not move", probe.totalRow(totalBlock.table) === 5);
+
+  const labels = (column) => probe.totalMenuItems(totalBlock, column).map((one) => one.label);
+  check("a summed cell offers to stop, and to drop the format",
+    labels(1).join("|") === "Stop summing this column|Remove Total format", labels(1).join("|"));
+  check("an unsummed cell offers to start",
+    labels(2)[0] === "Sum this column", labels(2).join("|"));
+  check("the label cell only offers to drop the format",
+    labels(0).join("|") === "Remove Total format");
+
+  const fresh = { raw: "| t |", gap: "\n\n", type: "table", table: work() };
+  fresh.table.rows.pop();
+  probe.addTotalRow(fresh);
+  check("a new Total row sums the columns that are mostly numbers",
+    JSON.stringify(fresh.table.rows[4]) === JSON.stringify(["**Total**", "0", ""]),
+    JSON.stringify(fresh.table.rows[4]));
 }
 
 try {
@@ -542,7 +610,7 @@ try {
 if (failures === 0) {
   console.log("locks clean: holds name the right nodes, locked nodes refuse edits, "
     + "cell writes name the right cells, undo takes back one gesture and refuses "
-    + "a stale one");
+    + "a stale one, a Total row is drawn rather than typed");
   process.exit(0);
 }
 

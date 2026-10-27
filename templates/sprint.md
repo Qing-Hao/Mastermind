@@ -47,11 +47,15 @@ the row already has rather than adding a second. Rows without a reference are
 ordinary tasks; not every task is a deliverable. `[#M-3]` links a checkpoint the
 same way, and its tick is whether the checkpoint is reached.
 
-| Task | PIC | Reviewer | SP  | Priority            | Status      | Dependency / Remarks | Actual |
-| ---- | --- | -------- | --- | ------------------- | ----------- | -------------------- | ------ |
-|      |     |          |     | HIGH / MEDIUM / LOW | Not Started |                      |        |
-|      |     |          |     | HIGH / MEDIUM / LOW | Not Started |                      |        |
-|      |     |          |     | HIGH / MEDIUM / LOW | Not Started |                      |        |
+The **Total** row adds up SP as you type. Click a Total cell to sum another
+column or stop summing one.
+
+| Task      | PIC | Reviewer | SP  | Priority            | Status      | Dependency / Remarks | Actual |
+| --------- | --- | -------- | --- | ------------------- | ----------- | -------------------- | ------ |
+|           |     |          |     | HIGH / MEDIUM / LOW | Not Started |                      |        |
+|           |     |          |     | HIGH / MEDIUM / LOW | Not Started |                      |        |
+|           |     |          |     | HIGH / MEDIUM / LOW | Not Started |                      |        |
+| **Total** |     |          | 0   |                     |             |                      |        |
 
 - **Planned Product SP:**
 - **Must SP:**
@@ -72,11 +76,12 @@ product or internal tooling.
 Examples: internal tooling, CI/CD, infrastructure, self-hosted Git, research,
 documentation, deployment automation, technical improvements.
 
-| Work | PIC | Reviewer | SP  | Commitment          | Status      | Dependency / Remarks | Actual |
-| ---- | --- | -------- | --- | ------------------- | ----------- | -------------------- | ------ |
-|      |     |          |     | HIGH / MEDIUM / LOW | Not Started |                      |        |
-|      |     |          |     | HIGH / MEDIUM / LOW | Not Started |                      |        |
-|      |     |          |     | HIGH / MEDIUM / LOW | Not Started |                      |        |
+| Work      | PIC | Reviewer | SP  | Commitment          | Status      | Dependency / Remarks | Actual |
+| --------- | --- | -------- | --- | ------------------- | ----------- | -------------------- | ------ |
+|           |     |          |     | HIGH / MEDIUM / LOW | Not Started |                      |        |
+|           |     |          |     | HIGH / MEDIUM / LOW | Not Started |                      |        |
+|           |     |          |     | HIGH / MEDIUM / LOW | Not Started |                      |        |
+| **Total** |     |          | 0   |                     |             |                      |        |
 
 - **Planned Enablement SP:**
 

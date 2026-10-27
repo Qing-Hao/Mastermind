@@ -207,13 +207,14 @@ def test_serialise_table_pads_a_ragged_grid():
         {
             "head": ["Person", "Days"],
             "align": ["", ""],
-            "rows": [["@qh", "10"], ["**Total**", "20"]],
+            "rows": [["@qh", "10"], ["@sam", "10"], ["**Total**", "20"]],
         }
     )
     assert written == (
         "| Person    | Days |\n"
         "| --------- | ---- |\n"
         "| @qh       | 10   |\n"
+        "| @sam      | 10   |\n"
         "| **Total** | 20   |"
     )
 
@@ -662,6 +663,89 @@ def test_two_tables_with_one_header_are_refused_rather_than_guessed_at():
 def test_a_written_cell_survives_the_round_trip_to_markdown():
     written = write_cells(capacity(), [cell(1, 2, "", "back Tue")])
     assert parsed(serialise_table(written))["rows"][1] == ["@sam", "8", "back Tue"]
+
+
+# --- a Total row -------------------------------------------------------------
+#
+# The last row, labelled `**Total**`, adds up every column whose Total cell holds
+# a number. Which columns that is lives in the file, never in a column name.
+
+WORK = """| Work      | SP  | Actual |
+| --------- | --: | ------ |
+| SSO       |   5 | 4d     |
+| Deploy    |   3 | 2d     |
+| Restore   | TBD |        |
+| Runbook   |   2 | 1      |
+| **Total** |   0 |        |"""
+
+
+def work(total_sp="0", total_actual=""):
+    table = parsed(WORK)
+    table["rows"][-1] = ["**Total**", total_sp, total_actual]
+    return table
+
+
+def test_a_total_row_sums_only_the_columns_holding_a_number():
+    assert markdown.apply_totals(work())["rows"][-1] == ["**Total**", "10", ""]
+
+
+def test_a_total_skips_what_is_not_a_number_and_counts_it():
+    assert markdown.column_total(work(), 1) == ("10", 1)
+    assert markdown.column_total(work(), 2) == ("1", 2)
+
+
+def test_a_total_cell_holding_text_is_left_alone():
+    assert markdown.apply_totals(work("~8"))["rows"][-1][1] == "~8"
+
+
+def test_a_total_adds_decimals_exactly():
+    table = parsed("| a   | n   |\n| --- | --- |\n| x   | 2.5 |\n| y   | 1   |\n| **Total** | 0 |")
+    assert markdown.apply_totals(table)["rows"][-1][1] == "3.5"
+    table = parsed("| a   | n   |\n| --- | --- |\n| x   | 0.1 |\n| y   | 0.2 |\n| **Total** | 0 |")
+    assert markdown.apply_totals(table)["rows"][-1][1] == "0.3"
+
+
+def test_a_plain_total_label_is_an_ordinary_row():
+    """Remove Total format writes `Total`, and what it leaves is just text."""
+    table = work("99")
+    table["rows"][-1][0] = "Total"
+    assert markdown.total_row(table) is None
+    assert markdown.apply_totals(table)["rows"][-1] == ["Total", "99", ""]
+
+
+def test_a_total_row_above_the_last_is_an_ordinary_row():
+    table = work("99")
+    table["rows"].append(["Later", "1", ""])
+    assert markdown.total_row(table) is None
+    assert markdown.apply_totals(table)["rows"][-2][1] == "99"
+
+
+def test_the_label_is_read_whatever_its_case():
+    table = work("0")
+    table["rows"][-1][0] = "**TOTAL**"
+    assert markdown.total_row(table) == 4
+
+
+def test_apply_totals_leaves_the_grid_it_was_given_alone():
+    table = work("0")
+    markdown.apply_totals(table)
+    assert table["rows"][-1][1] == "0"
+
+
+def test_serialise_table_writes_the_real_sum_over_a_stale_one():
+    """Someone typed 99 over the total in a text editor; the next write mends it."""
+    assert parsed(serialise_table(work("99")))["rows"][-1] == ["**Total**", "10", ""]
+
+
+def test_a_total_cell_is_guarded_on_being_a_sum_not_on_its_value():
+    """The value is derived and moves with every other write, so quoting it is noise."""
+    written = write_cells(work("10"), [cell(4, 1, "12", "")])
+    assert written["rows"][-1][1] == ""
+
+
+def test_switching_a_total_cell_on_is_still_refused_if_somebody_switched_it_off():
+    with pytest.raises(SpliceRefused):
+        write_cells(work(""), [cell(4, 1, "10", "")])
 
 
 # --- comparing two versions of a document ------------------------------------

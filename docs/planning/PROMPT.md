@@ -590,6 +590,41 @@ the text above, **the amendment wins** — the code follows the amendments.
     Both are logged in `item_version` with no extra work, because `project` and
     `phase` are versioned entities already.
 
+11. **A sprint table can add up its own columns.** *(Added 2026-10-27. Clarifies
+    "nothing sums points across a window" rather than narrowing it.)*
+
+    The request: the "Planned Product SP" lines were being added up by hand every
+    fortnight, and the requester wanted the table to do the arithmetic. It is
+    for the requester's own planning, not for a report: *"this SP is just an
+    enhancement for my own sprint planning work."*
+
+    **Why this is not the forbidden sum.** That rule exists because a 55-point,
+    six-week phase split into fortnights invents a points-per-day rate. A Total
+    row invents nothing. It adds the numbers somebody typed into one table of one
+    sprint file, exactly what was being done by hand, and it knows nothing about
+    points: it adds whichever columns the file marks. Under the sprint design's
+    gate (`markdown.py` and `editor.js` know nothing of sprints) that is the only
+    shape it could take.
+
+    The shape: the table's **last** row, labelled `**Total**`, sums each column
+    whose Total cell holds a plain number. An empty or text cell is left alone. So
+    the choice of columns is in the file, survives a renamed header or a
+    reordered column, and reads correctly in a text editor. The row cannot be
+    typed into in the app, only switched per column or unformatted. The server
+    recalculates it on every write that serialises the table, so two people
+    editing two cells never meet on the Total cell.
+
+    The lines:
+
+    - **Nothing reads a Total cell.** No rule, warning, chart, bell or readout. A
+      warning comparing a sprint's total to its velocity was discussed and is
+      **not built**; it would be a sprint-aware reader, so it would sit outside
+      `markdown.py`, and it needs its own decision.
+    - **No total crosses files.** Adding sprints together is the
+      points-per-window sum, and velocity from history is FR-5's question.
+    - **Plain numbers only.** `3h` and `half day` are skipped, not parsed. A unit
+      grammar is a second format inside the first.
+
 Deliverables inside a phase are treated as **sequential**, so durations sum. Work
 that genuinely runs in parallel belongs in separate phases.
 

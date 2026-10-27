@@ -3022,6 +3022,131 @@ function writeCell(grid, r, column, value) {
   else grid.rows[r][column] = value;
 }
 
+// --- a Total row ---------------------------------------------------------------
+//
+// `markdown.py`'s Total row, mirrored for the live preview: the last row labelled
+// `**Total**` adds every column whose Total cell holds a number. The server
+// recalculates on every write, so what this draws never has to be what it sends.
+// The row is drawn, not typed -- its cells open a menu instead of a caret.
+const TOTAL_LABEL = "**Total**";
+const TOTAL_NUMBER = /^-?\d+(?:\.\d+)?$/;
+const isTotalNumber = (value) => TOTAL_NUMBER.test(cellText(value).trim());
+
+function totalRow(grid) {
+  const last = grid.rows.length - 1;
+  if (last < 0) return null;
+  return cellText(grid.rows[last][0]).trim().toLowerCase() === TOTAL_LABEL.toLowerCase()
+    ? last : null;
+}
+
+const isTotalCell = (grid, r) => r !== -1 && r === totalRow(grid);
+
+// Scaled to integers rather than added as floats, so `0.1 + 0.2` is `0.3` here as
+// it is in `column_total`'s `Decimal`.
+function columnTotal(grid, column) {
+  const end = totalRow(grid);
+  const numbers = [];
+  let skipped = 0;
+  for (const row of end === null ? grid.rows : grid.rows.slice(0, end)) {
+    const text = cellText(row[column]).trim();
+    if (!text) continue;
+    if (TOTAL_NUMBER.test(text)) numbers.push(text);
+    else skipped += 1;
+  }
+  const places = Math.max(0, ...numbers.map((text) => (text.split(".")[1] || "").length));
+  const scale = 10 ** places;
+  const sum = numbers.reduce((total, text) => total + Math.round(Number(text) * scale), 0);
+  let text = (sum / scale).toFixed(places);
+  if (text.includes(".")) text = text.replace(/0+$/, "").replace(/\.$/, "");
+  return { text: text === "-0" ? "0" : text, skipped, count: numbers.length };
+}
+
+// A new Total row starts summing the columns that are mostly numbers already --
+// a first guess the file then records, and every cell's menu can change.
+function addTotalRow(block) {
+  pushSprintUndo();
+  const grid = block.table;
+  const columns = squareGrid(grid);
+  const row = new Array(columns).fill("");
+  row[0] = TOTAL_LABEL;
+  for (let column = 1; column < columns; column += 1) {
+    const { count, skipped } = columnTotal(grid, column);
+    if (count > skipped) row[column] = "0";
+  }
+  grid.rows.push(row);
+}
+
+// What a Total cell offers instead of a caret: change its type, or drop the format.
+function totalMenuItems(block, column) {
+  const grid = block.table;
+  const r = totalRow(grid);
+  const write = (at, value) => () => {
+    pushSprintUndo();
+    writeCell(grid, r, at, value);
+    tableEdited(block);
+    renderSprintDocument();
+  };
+  // Unbolded, the label is ordinary text and the row an ordinary row.
+  const unformat = { label: "Remove Total format", run: write(0, "Total") };
+  if (column === 0) return [unformat];
+  if (isTotalNumber(cellValue(grid, r, column))) {
+    return [{ label: "Stop summing this column", run: write(column, "") }, unformat];
+  }
+  const numbers = columnTotal(grid, column).count;
+  return [
+    {
+      label: numbers ? "Sum this column" : "Sum this column (no numbers)",
+      disabled: !numbers,
+      run: write(column, "0"),
+    },
+    unformat,
+  ];
+}
+
+// The resting view of a Total cell: the sum, with a count of what it left out.
+function totalCellView(grid, r, column) {
+  const view = element("div", "sprint-cell-view sprint-total");
+  view.dataset.r = r;
+  view.dataset.c = column;
+  const align = grid.align[column];
+  view.style.justifyContent = align === "right" ? "flex-end" : align === "center" ? "center" : "";
+  const raw = cellText(cellValue(grid, r, column));
+  if (column === 0) {
+    view.appendChild(element("strong", "", "Total"));
+  } else if (isTotalNumber(raw)) {
+    const { text, skipped } = columnTotal(grid, column);
+    if (skipped) {
+      const note = element("span", "sprint-total-skipped", `${skipped} skipped`);
+      note.title = "Not plain numbers, so left out of the sum";
+      view.appendChild(note);
+    }
+    const sign = element("span", "sprint-total-sign", "Σ");
+    sign.setAttribute("aria-hidden", "true");
+    view.append(sign, element("span", "", text));
+  } else if (raw) {
+    // Text in a Total cell is left alone, and drawn as the text it is.
+    view.appendChild(element("span", "", raw));
+  }
+  return view;
+}
+
+// The Total row's cells after anything in the table moved, so the sum keeps up
+// with the typing. Nothing else in the grid is touched.
+function repaintTotals(block) {
+  const r = totalRow(block.table);
+  const at = state.sprint.blocks.indexOf(block);
+  const doc = $("sprint-document");
+  const node = r === null || at < 0 || !doc ? null : doc.children[at];
+  if (!node) return;
+  block.table.rows[r].forEach((_, column) => {
+    const view = node.querySelector(`.sprint-cell-view[data-r="${r}"][data-c="${column}"]`);
+    if (!view) return;
+    const host = view.parentElement;
+    view.replaceWith(cellViewFor(block, at, r, column));
+    markTotalHost(host, block.table, r, column);
+  });
+}
+
 function sprintTable(block, index) {
   const node = element("div", "sprint-block sprint-table-block");
   const scroller = element("div", "sprint-grid");
@@ -3279,13 +3404,18 @@ function sprintCellHost(block, index, r, column) {
   // two people can be inside at once: the nearest `[data-presence]` above the
   // caret is the cell, so the block's own key is never claimed from in here.
   host.dataset.presence = sprintCellField(index, r, column);
-  host.title = "Click to edit";
   host.onclick = (event) => {
     // A table lives inside a `.sprint-row` with drag handlers of its own.
     event.stopPropagation();
     // A link in a cell is there to be followed, the same conclusion `sprintBlock`
     // reached for a link in a paragraph. The checkbox stops its own click.
     if (event.target.closest("a")) return;
+    // Asked at the click, not at the render: the row a cell sits in can become
+    // the Total row, or stop being it, without this host being redrawn.
+    if (isTotalCell(block.table, r)) {
+      openGripMenu(block, index, totalMenuItems(block, column), host);
+      return;
+    }
     const editor = host.querySelector(".sprint-cell");
     // Already editing: a press in the margin around the textarea puts you in it,
     // and a press inside it is the browser's to place the caret with.
@@ -3301,8 +3431,23 @@ function sprintCellHost(block, index, r, column) {
 
 function showSprintCell(host, block, index, r, column) {
   host.innerHTML = "";
-  host.appendChild(sprintCellView(block, index, r, column));
+  host.appendChild(cellViewFor(block, index, r, column));
   paintCellHost(host, block.table, r, column);
+  markTotalHost(host, block.table, r, column);
+}
+
+const cellViewFor = (block, index, r, column) => (isTotalCell(block.table, r)
+  ? totalCellView(block.table, r, column)
+  : sprintCellView(block, index, r, column));
+
+// On the `<td>`, for `paintCellHost`'s reason: it has to survive the view swap.
+function markTotalHost(host, grid, r, column) {
+  if (!host) return;
+  const total = isTotalCell(grid, r);
+  host.classList.toggle("sprint-total-row", total);
+  host.classList.toggle("sprint-total-summed",
+    total && column > 0 && isTotalNumber(cellValue(grid, r, column)));
+  host.title = total ? "Calculated · click for options" : "Click to edit";
 }
 
 // The press a cell-line action is drawn as, at the end of the line it belongs to.
@@ -3436,7 +3581,8 @@ const cellHost = (node) => node.parentElement;
 // surface is an ordinary block element and sizes itself, which is one thing the
 // inline surfaces gave back.
 function editSprintCell(host, block, index, r, column, select) {
-  if (!host) return null;
+  // A Total row is drawn, never typed: every road into a caret ends here.
+  if (!host || isTotalCell(block.table, r)) return null;
   // **Arriving in a cell is the boundary**, so one `Ctrl+Z` takes the whole visit
   // back rather than its last character -- and the five redraws that happen
   // without leaving the cell need no snapshot of their own.
@@ -3760,10 +3906,10 @@ function stepSprintCell(block, index, r, column, [down, across]) {
   if (next < 0) { next = columns - 1; row -= 1; }
 
   // Off the end grows the table rather than leaving it -- `Tab`'s old job,
-  // carried over so nothing was lost when the key changed.
-  if (row > grid.rows.length - 1) {
-    insertGridRow(block, grid.rows.length);
-    applyGridChange(block, index, grid.rows.length - 1, next);
+  // carried over so nothing was lost when the key changed. A Total row counts as
+  // the end: `Tab` into it grows a row above it, since it cannot be typed in.
+  if (row > grid.rows.length - 1 || (across !== 0 && row === totalRow(grid))) {
+    applyGridChange(block, index, insertGridRow(block, row), next);
     return;
   }
   if (row < -1) return;   // up out of the header row stays put
@@ -3899,8 +4045,14 @@ function pasteIntoTable(block, r, column, text) {
   pushSprintUndo();
   const grid = block.table;
   const rows = text.replace(/\r\n?/g, "\n").replace(/\n$/, "").split("\n");
+  let total = totalRow(grid);
 
   rows.forEach((line, downwards) => {
+    // A paste running into the Total row pushes it down rather than over it.
+    if (total !== null && r !== -1 && r + downwards >= total) {
+      grid.rows.splice(total, 0, new Array(grid.head.length).fill(""));
+      total += 1;
+    }
     line.split("\t").forEach((value, across) => {
       const targetRow = r + downwards;
       const targetColumn = column + across;
@@ -4090,11 +4242,16 @@ function squareGrid(grid) {
 // One thing an undo does not restore: a column's stored **width**. That lives in
 // `localStorage` keyed on the header text, and it is a per-browser preference
 // rather than anything the file says.
+// A Total row stays last, so a row asked for below it lands above it instead.
+// Returns where the row actually went.
 function insertGridRow(block, at) {
   pushSprintUndo();
   const grid = block.table;
   const columns = squareGrid(grid);
-  grid.rows.splice(at, 0, new Array(columns).fill(""));
+  const total = totalRow(grid);
+  const where = total === null ? at : Math.min(at, total);
+  grid.rows.splice(where, 0, new Array(columns).fill(""));
+  return where;
 }
 
 function deleteGridRow(block, at) {
@@ -4103,11 +4260,16 @@ function deleteGridRow(block, at) {
   block.table.rows.splice(at, 1);
 }
 
+// The same rule for a drag: nothing lands below a Total row, and the Total row
+// itself does not move, since anywhere else it would stop being one.
 function moveGridRow(block, from, to) {
+  const total = totalRow(block.table);
+  if (total !== null && from === total) return;
   pushSprintUndo();
   const rows = block.table.rows;
   squareGrid(block.table);
-  rows.splice(to, 0, rows.splice(from, 1)[0]);
+  const where = total === null ? to : Math.min(to, total - 1);
+  rows.splice(where, 0, rows.splice(from, 1)[0]);
 }
 
 // **A column is its cells and its alignment marker.** `align` is a parallel array,
@@ -4281,9 +4443,9 @@ const gripMenu = {
 function gridMenuItems(block, kind, position) {
   const grid = block.table;
   if (kind === "row") {
-    return [
-      { label: "Insert row above", run: () => { insertGridRow(block, position); return [position, 0]; } },
-      { label: "Insert row below", run: () => { insertGridRow(block, position + 1); return [position + 1, 0]; } },
+    const items = [
+      { label: "Insert row above", run: () => [insertGridRow(block, position), 0] },
+      { label: "Insert row below", run: () => [insertGridRow(block, position + 1), 0] },
       {
         label: "Delete row",
         run: () => {
@@ -4294,6 +4456,22 @@ function gridMenuItems(block, kind, position) {
         },
       },
     ];
+    // The way back from Remove Total format: a last row labelled plain `Total`,
+    // or with nothing in its first cell, can be made the Total row again.
+    const label = cellText(grid.rows[position] && grid.rows[position][0]).trim().toLowerCase();
+    if (position === grid.rows.length - 1 && totalRow(grid) === null
+        && (label === "" || label === "total")) {
+      items.push({
+        label: "Make this the Total row",
+        run: () => {
+          pushSprintUndo();
+          writeCell(grid, position, 0, TOTAL_LABEL);
+          tableEdited(block);
+          renderSprintDocument();
+        },
+      });
+    }
+    return items;
   }
   return [
     { label: "Insert column left", run: () => { insertGridColumn(block, position); return [-1, position]; } },
@@ -4420,6 +4598,9 @@ function sprintTableTools(block, index) {
   tools.append(
     gridButton("+ Row", change(() => insertGridRow(block, grid.rows.length))),
     gridButton("+ Column", change(() => insertGridColumn(block, grid.head.length))),
+    // One per table, and a table of one column has nothing to add up.
+    gridButton("+ Total", change(() => addTotalRow(block)),
+      totalRow(grid) !== null || grid.head.length < 2),
     // Short, because the full map is a held `Ctrl` away now -- this strip had
     // grown past the width it has and was being cut off mid-word.
     element("span", "sprint-table-note",
@@ -4460,6 +4641,7 @@ function focusSprintCell(index, r, column) {
 // flagged rather than re-serialised here -- there is no markdown in this file.
 function tableEdited(block) {
   block.tableEdited = true;
+  repaintTotals(block);
   scheduleSprintSave();
 }
 
@@ -4704,17 +4886,21 @@ function sameGridShape(was, now) {
     && (was.align || []).join(" ") === (now.align || []).join(" ");
 }
 
+// A summed Total cell moving from one number to another is the server's sum
+// arriving, not an edit -- sending it back would only race the next write.
 function changedCells(was, now) {
   const cells = [];
+  const total = totalRow(now);
   was.head.forEach((value, column) => {
     if (!sameCellText(value, now.head[column])) {
       cells.push({ r: -1, c: column, expect: value, text: now.head[column] });
     }
   });
   was.rows.forEach((row, r) => row.forEach((value, column) => {
-    if (!sameCellText(value, now.rows[r][column])) {
-      cells.push({ r, c: column, expect: value, text: now.rows[r][column] });
-    }
+    const next = now.rows[r][column];
+    if (sameCellText(value, next)) return;
+    if (r === total && column > 0 && isTotalNumber(value) && isTotalNumber(next)) return;
+    cells.push({ r, c: column, expect: value, text: next });
   }));
   return cells;
 }
@@ -4803,8 +4989,10 @@ function repaintSprintCells(at, cells) {
   for (const { r, c } of cells) {
     const view = node.querySelector(`.sprint-cell-view[data-r="${r}"][data-c="${c}"]`);
     if (!view) continue;
-    const fresh = sprintCellView(block, at, r, c);
+    const host = view.parentElement;
+    const fresh = cellViewFor(block, at, r, c);
     view.replaceWith(fresh);
+    markTotalHost(host, block.table, r, c);
     flashArrival(fresh);
   }
 }
@@ -5237,6 +5425,8 @@ function applyRemoteSprintCells(message) {
   sprint.mtime = message.mtime;
 
   repaintSprintCells(at, splice.cells);
+  // Their cells move the sum, and the cells they named never include it.
+  repaintTotals(block);
   if (over) {
     showToast("Somebody else wrote a cell you had unsaved changes in. The file holds theirs.");
   }

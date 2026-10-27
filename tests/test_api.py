@@ -3076,6 +3076,73 @@ def test_a_cell_write_announces_the_splice_and_the_cells_it_wrote(client, cell_f
     assert splice["cells"] == [{"r": 0, "c": 1, "expect": "10", "text": "12"}]
 
 
+# A Total row is recalculated by the server on every write that serialises its
+# table, so two people changing two SP cells never meet on the Total cell.
+
+TOTAL_FILE = """# Sprint 1 · 2026-08-03 → 2026-08-17
+
+## 4. Enablement
+
+| Work      | SP  |
+| --------- | --: |
+| SSO       |   5 |
+| Deploy    |   3 |
+| Restore   | TBD |
+| Runbook   |   2 |
+| **Total** |  10 |
+"""
+
+TOTAL_HEAD = ["Work", "SP"]
+
+
+@pytest.fixture
+def total_file(sprints):
+    return write_sprint(sprints, "01.md", TOTAL_FILE)
+
+
+def test_a_cell_write_recalculates_the_total_row(client, total_file):
+    response = client.patch("/api/sprints/1/cells", json=cells(
+        CAPACITY_AT, TOTAL_HEAD, [capacity_cell(0, 1, "5", "6")]))
+    assert response.status_code == 200, response.text
+    assert table_of(client)["rows"][-1] == ["**Total**", "11"]
+
+
+def test_two_people_in_two_sp_cells_both_land_and_the_total_is_both(client, total_file):
+    assert client.patch("/api/sprints/1/cells", json=cells(
+        CAPACITY_AT, TOTAL_HEAD, [capacity_cell(0, 1, "5", "6")])).status_code == 200
+    assert client.patch("/api/sprints/1/cells", json=cells(
+        CAPACITY_AT, TOTAL_HEAD, [capacity_cell(1, 1, "3", "4")])).status_code == 200
+    assert table_of(client)["rows"][-1] == ["**Total**", "12"]
+
+
+def test_switching_a_total_off_lands_after_somebody_moved_it(client, total_file):
+    assert client.patch("/api/sprints/1/cells", json=cells(
+        CAPACITY_AT, TOTAL_HEAD, [capacity_cell(0, 1, "5", "6")])).status_code == 200
+    # Quoted as the 10 this page last saw; the file now says 11.
+    response = client.patch("/api/sprints/1/cells", json=cells(
+        CAPACITY_AT, TOTAL_HEAD, [capacity_cell(4, 1, "10", "")]))
+    assert response.status_code == 200, response.text
+    assert table_of(client)["rows"][-1] == ["**Total**", ""]
+
+
+def test_a_structural_edit_writes_the_real_total(client):
+    """The grid comes back through `/api/sprints/table` whenever its shape moved."""
+    response = client.post("/api/sprints/table", json={
+        "head": ["Work", "SP"], "align": ["", "right"],
+        "rows": [["SSO", "5"], ["Deploy", "3"], ["New", ""], ["**Total**", "99"]],
+    })
+    assert response.status_code == 200, response.text
+    assert response.json()["blocks"][0]["table"]["rows"][-1] == ["**Total**", "8"]
+
+
+def test_the_announced_splice_carries_the_recalculated_total(client, total_file):
+    with client.websocket_connect("/ws") as socket:
+        assert client.patch("/api/sprints/1/cells", json=cells(
+            CAPACITY_AT, TOTAL_HEAD, [capacity_cell(0, 1, "5", "6")])).status_code == 200
+        message = next_change(socket)
+    assert message["splice"]["blocks"][0]["table"]["rows"][-1] == ["**Total**", "11"]
+
+
 TEMPLATE_WITH_TABLE = """# Sprint N · YYYY-MM-DD → YYYY-MM-DD
 
 ## 2. Capacity
