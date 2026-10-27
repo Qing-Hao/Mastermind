@@ -80,8 +80,13 @@
                   text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
                   width: fit-content; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .lane-meta { font-size: 10.5px; color: #a1a1aa; line-height: 1.2; display: flex; align-items: center; gap: 4px; }
-    .lane-twisty { flex: 0 0 auto; padding: 0 2px; border: 0; background: none; color: #aaa;
-                   font-size: 11px; line-height: 24px; cursor: pointer; }
+    /* The rail and the chevron as one button, the full height of the lane. */
+    .lane-twisty { flex: 0 0 auto; align-self: stretch; display: flex; align-items: flex-start;
+                   margin: -6px 0; padding: 6px 0; border: 0; border-radius: 0 6px 6px 0;
+                   background: none; color: #aaa; font-size: 11px; line-height: 24px; cursor: pointer; }
+    .lane-twisty:hover { background: #eef2ff; color: #3949ab; }
+    .lane-twisty:hover .track-rail { transform: scaleX(1.67); transform-origin: left; }
+    .lane-chevron { padding: 0 2px; }
     .sdot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 7px; }
 
     .bar { height: 24px; margin-bottom: 4px; padding: 2px 6px; border-radius: 3px; background: #90caf9;
@@ -224,8 +229,7 @@
               <div class="lane">
                 <div class="lane-name">
                   <!-- NEW: the track rail, in the map's own hue -->
-                  <div class="track-rail" style="{{l.railStyle}}"></div>
-                  <button class="lane-twisty">▸</button>
+                  <button class="lane-twisty"><div class="track-rail" style="{{l.railStyle}}"></div><span class="lane-chevron">▸</span></button>
                   <div style="min-width: 0;">
                     <div class="lane-title">{{l.name}}</div>
                     <!-- NEW: the stage the ladder derived, said rather than hidden in a tooltip -->
