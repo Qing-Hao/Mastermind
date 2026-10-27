@@ -55,6 +55,8 @@ Every project on one shared time axis.
   the project's own dates, filled to how far through it is; **Expand all** (or
   the coloured rail and ▸ beside a name) opens it into one row per phase and per
   dated checkpoint.
+  Lanes are grouped under a header per tier — Tier 1 first, then 2 and 3, with
+  untiered projects last. A tier with no lanes on screen has no header.
   Bar colour is the project's track, listed in the key below the chart. The
   lane's name carries its **owner** (*no owner yet* when nobody is named). A ⚑
   on a phase bar is a raised challenge, its text on hover; a folded lane shows

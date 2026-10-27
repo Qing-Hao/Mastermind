@@ -4350,13 +4350,26 @@ function renderPortfolio() {
   // window, or was filtered out somewhere else.
   const palette = trackPalette(state.projects);
 
+  // Bars decide which lanes exist, as they always have. A project whose work
+  // is all off-window keeps its checkpoints off-window with it rather than
+  // opening a lane holding nothing but a diamond.
+  //
+  // Grouped by tier, 1 first and untiered last. `sort` is stable, so inside a
+  // tier the server's order (stage, start date) stands. Display only.
+  const laned = projects
+    .filter((project) => visible.some((phase) => phase.project_id === project.id))
+    .sort((a, b) => tierRank(a) - tierRank(b));
+
   const drawn = [];
-  for (const project of projects) {
+  let heading = null;
+  for (const project of laned) {
     const own = visible.filter((phase) => phase.project_id === project.id);
-    // Bars decide which lanes exist, as they always have. A project whose work
-    // is all off-window keeps its checkpoints off-window with it rather than
-    // opening a lane holding nothing but a diamond.
-    if (own.length === 0) continue;
+    const tier = project.tier ?? 0;
+    if (tier !== heading) {
+      heading = tier;
+      body.appendChild(tierHeading(tier,
+        laned.filter((other) => (other.tier ?? 0) === tier).length));
+    }
     drawn.push(project.id);
 
     const lane = element("div", "lane");
@@ -4433,6 +4446,17 @@ function renderPortfolio() {
 
   // Last, once everything that decides the chart's width is attached.
   restorePortfolioPlace(place);
+}
+
+// The header row over one tier's lanes: its pip, its name, how many lanes.
+function tierHeading(tier, count) {
+  const row = element("div", `lane-tier tier-${tier}`);
+  row.appendChild(element("span", "lane-tier-pip", tier ? String(tier) : "?"));
+  row.appendChild(element("span", "lane-tier-name", tier ? `Tier ${tier}` : "Untiered"));
+  row.appendChild(element("span", "lane-tier-count",
+    `${count} lane${count === 1 ? "" : "s"}`
+    + (tier ? "" : " · nobody has ranked these yet")));
+  return row;
 }
 
 // What the rails stand for. Only the tracks with a lane on this chart are

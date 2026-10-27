@@ -2432,6 +2432,35 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
    to that before shrinking it back. */
 .lane-rows { flex: 1 1 0; min-width: 0; }
 
+/* A tier's header row over its lanes. The negative margin pulls it back over
+   the name gutter, so its label sits where the lane names do. Untiered wears
+   the quiet greys, as `.project-tier.tier-0` does. */
+.lane-tier {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: calc(-1 * var(--lane-name-px, 0));
+  padding: 12px 0 5px;
+  border-bottom: 1px solid #c5cae9;
+}
+.lane-tier-pip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--tier-pip);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.lane-tier-name { font-size: 12px; font-weight: 700; color: var(--tier-pip); }
+.lane-tier-count { font-size: 11.5px; color: var(--faint); }
+.lane-tier.tier-0 .lane-tier-pip { background: var(--hover); color: var(--faint); }
+.lane-tier.tier-0 .lane-tier-name { color: var(--ink-3); font-style: italic; font-weight: 600; }
+
 /* What the rails stand for, under the chart rather than in it: the chart is as
    wide as its window and scrolls sideways, and a key that scrolled away from
    what it explains would be worse than none. */
