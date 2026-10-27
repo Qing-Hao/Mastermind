@@ -2081,14 +2081,13 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 }
 /* Flex so the mark sits beside the name field rather than above it -- the field
    still takes the rest of the cell, as it does in every other cell here. The mark
-   sits on the first line of a name that wrapped rather than in the middle of the
-   block, which is where `align-items: center` would put it. */
-#phase-table td.checkpoint-name { display: flex; align-items: flex-start; gap: 6px; }
+   is centred on the field, level with the tick, date and grip; held to the first
+   line, a wrapped name left it floating above the rest of the row. */
+#phase-table td.checkpoint-name { display: flex; align-items: center; gap: 6px; }
 #phase-table td.checkpoint-name textarea { flex: 1; min-width: 0; }
 .checkpoint-mark { color: #6a1b9a; font-size: 11px; line-height: 1; }
-/* Held to the first line of the name, and held to its own width: the cell is flex
-   and the name beside it now grows. */
-.checkpoint-name .checkpoint-mark { flex: none; margin-top: 7px; }
+/* Held to its own width: the cell is flex and the name beside it grows. */
+.checkpoint-name .checkpoint-mark { flex: none; }
 
 /* The status cell. It was a bare select showing `in_progress` with the
    underscore in it, in a column of identical grey controls -- so the column read
