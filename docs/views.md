@@ -50,7 +50,12 @@ Every project on one shared time axis.
   fortnight, what is overdue, and how many ideas have been captured but not
   committed to.
 - **Window bar** — one column per week, labelled with the Monday it starts, up to
-  six months at a time. Pick a preset length or *Custom…* for your own range.
+  six months at a time. Pick a preset length, a **quarter** or **half-year**
+  (*Q3 2026*, *H2 2026*), or *Custom…* for your own range. A quarter is the weeks
+  whose Monday falls in it — Q3 2026 is 6 Jul – 4 Oct — and ‹ › then step a whole
+  quarter. **Today** goes back to the opening view: two weeks before this week,
+  pulled back to the start of any project already running then, by at most half
+  the window.
 - **Swimlanes** — one per committed project. A folded lane is a single bar over
   the project's own dates, filled to how far through it is; **Expand all** (or
   the coloured rail and ▸ beside a name) opens it into one row per phase and per

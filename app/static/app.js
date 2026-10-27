@@ -258,10 +258,11 @@ let state = {
   //
   // In each: `start` is an ISO date, or null meaning "the default framing for
   // this chart" (`defaultOrigin`). `weeks` is null while a custom range is set,
-  // in which case `customEnd` holds it.
+  // in which case `customEnd` holds it. The portfolio's `period` ("2026-Q3",
+  // "2026-H2") overrides all three while set; see `periodWindow`.
   windows: {
     project: { start: null, weeks: MAX_WINDOW_WEEKS, customEnd: null },
-    portfolio: { start: null, weeks: MAX_WINDOW_WEEKS, customEnd: null },
+    portfolio: { start: null, weeks: MAX_WINDOW_WEEKS, customEnd: null, period: null },
   },
   // The project the project window was last fitted to. Fitting happens when you
   // *change* project, never on a reload -- every edit calls `loadPlan`, and
@@ -789,11 +790,86 @@ const PORTFOLIO_LOOKBACK_WEEKS = 2;
 // The origin a chart falls back to with no start of its own. The project view
 // is normally fitted to its project by `fitProjectWindow`, so this is what an
 // undated project -- which has nothing to fit to -- opens on.
-function defaultOrigin() {
+function defaultOrigin(weeks) {
   const monday = weekStart(new Date());
-  return state.view === "project"
-    ? monday
-    : addDays(monday, -PORTFOLIO_LOOKBACK_WEEKS * 7);
+  return state.view === "project" ? monday : portfolioOrigin(monday, weeks);
+}
+
+// The run-up, pulled back to the start of any project with a phase running across
+// it, so work in flight is drawn whole rather than cut at the left edge. Never
+// more than half the window behind this week -- past that today drifts to the far
+// right of the chart -- so a project older than that is still cut.
+function portfolioOrigin(monday, weeks) {
+  const runUp = addDays(monday, -PORTFOLIO_LOOKBACK_WEEKS * 7);
+  const halfBack = addDays(monday, -Math.floor(weeks / 2) * 7);
+  const furthest = halfBack < runUp ? halfBack : runUp;
+  const edge = formatDate(runUp);
+  const phases = ((state.portfolio && state.portfolio.phases) || [])
+    .filter((phase) => phase.start_date && phase.end_date);
+  // ISO dates, so string order is date order. `end_date` is exclusive, as in
+  // `inWindow`, so a phase ending on the edge is not running across it.
+  const running = new Set(phases
+    .filter((phase) => phase.start_date < edge && phase.end_date > edge)
+    .map((phase) => phase.project_id));
+
+  let origin = runUp;
+  for (const phase of phases) {
+    if (!running.has(phase.project_id)) continue;
+    const start = weekStart(parseDate(phase.start_date));
+    if (start < origin) origin = start;
+  }
+  return origin < furthest ? furthest : origin;
+}
+
+// A calendar period the portfolio can be framed on, keyed "2026-Q3" or "2026-H2".
+const periodMonths = (kind) => (kind === "Q" ? 3 : 6);
+const periodKey = ({ year, kind, n }) => `${year}-${kind}${n}`;
+const periodLabel = ({ year, kind, n }) => `${kind}${n} ${year}`;
+
+function parsePeriod(key) {
+  const match = /^(\d{4})-([QH])([1-4])$/.exec(key || "");
+  if (!match) return null;
+  const period = { year: Number(match[1]), kind: match[2], n: Number(match[3]) };
+  return period.n > 12 / periodMonths(period.kind) ? null : period;
+}
+
+function periodOf(kind, date) {
+  return {
+    year: date.getFullYear(), kind, n: Math.floor(date.getMonth() / periodMonths(kind)) + 1,
+  };
+}
+
+function stepPeriod({ year, kind, n }, direction) {
+  const count = 12 / periodMonths(kind);
+  const index = year * count + (n - 1) + direction;
+  return { year: Math.floor(index / count), kind, n: (index % count) + 1 };
+}
+
+// The weeks whose Monday falls inside the period -- the quarter row's own rule, so
+// the ruler draws Q3 2026 as one block (6 Jul – 4 Oct). A half-year can take 27
+// columns (H2 2024 starts on a Monday), one past MAX_WINDOW_WEEKS, and is not
+// clamped: dropping its last week would make it not the half-year it names.
+function periodWindow(period) {
+  const months = periodMonths(period.kind);
+  const first = new Date(period.year, (period.n - 1) * months, 1);
+  const last = new Date(period.year, period.n * months, 0);
+  const monday = weekStart(first);
+  const origin = monday < first ? addDays(monday, 7) : monday;
+  return { origin, weeks: Math.floor(daysBetween(origin, last) / 7) + 1 };
+}
+
+// The periods offered in the window picker: a year either side of today, plus the
+// one on screen when paging has gone past them.
+function periodChoices(kind, current) {
+  const here = periodOf(kind, weekStart(new Date()));
+  const reach = 12 / periodMonths(kind);
+  const keys = [];
+  for (let step = -reach; step <= reach; step += 1) keys.push(periodKey(stepPeriod(here, step)));
+  if (current && current.kind === kind && !keys.includes(periodKey(current))) {
+    keys.push(periodKey(current));
+    keys.sort();
+  }
+  return keys;
 }
 
 // The dates the open plan occupies, which is what the project page frames
@@ -843,7 +919,14 @@ function fitProjectWindow() {
 // this -- the grid is drawn for the full window even where nothing is planned.
 function resolveWindow() {
   const win = activeWindow();
-  const origin = win.start ? weekStart(parseDate(win.start)) : defaultOrigin();
+  const period = parsePeriod(win.period);
+  if (period) {
+    const { origin, weeks } = periodWindow(period);
+    return { origin, weeks, totalDays: weeks * 7, clamped: false, period };
+  }
+  const origin = win.start
+    ? weekStart(parseDate(win.start))
+    : defaultOrigin(win.weeks || MAX_WINDOW_WEEKS);
   // A custom range is rounded out to whole weeks, since a week is the column.
   const requested = win.weeks === null
     ? Math.ceil((daysBetween(origin, parseDate(win.customEnd)) + 1) / 7)
@@ -854,7 +937,9 @@ function resolveWindow() {
   const weeks = Number.isFinite(requested)
     ? Math.min(Math.max(requested, 1), MAX_WINDOW_WEEKS)
     : MAX_WINDOW_WEEKS;
-  return { origin, weeks, totalDays: weeks * 7, clamped: requested > MAX_WINDOW_WEEKS };
+  return {
+    origin, weeks, totalDays: weeks * 7, clamped: requested > MAX_WINDOW_WEEKS, period: null,
+  };
 }
 
 // Sizes `chart` to the window, gives it a ruler, and returns the element bars
@@ -1013,10 +1098,18 @@ function redraw() {
 function renderWindowBar(container) {
   container.innerHTML = "";
   const win = activeWindow();
-  const { origin, weeks, clamped } = resolveWindow();
-  const custom = win.weeks === null;
+  const { origin, weeks, clamped, period } = resolveWindow();
+  const custom = win.weeks === null && !period;
+  const unit = !period ? "period" : period.kind === "Q" ? "quarter" : "half-year";
 
   const step = (direction) => {
+    // A period pages to the next one rather than by its width, since a quarter
+    // is 13 columns or 14 and a fixed shift would drift off its boundaries.
+    if (period) {
+      win.period = periodKey(stepPeriod(period, direction));
+      redraw();
+      return;
+    }
     // Page by exactly the span on screen, so consecutive windows tile with no
     // gap or overlap and stay Monday-aligned.
     const shift = direction * weeks * 7;
@@ -1028,45 +1121,88 @@ function renderWindowBar(container) {
   };
 
   const back = element("button", "nav", "‹");
-  back.title = "Previous period";
+  back.title = `Previous ${unit}`;
   back.onclick = () => step(-1);
 
   // Back to this chart's own default framing, which on the portfolio is two
   // weeks of run-up rather than a window starting today. Clearing `start`
   // rather than writing today's Monday is what keeps the button and the
   // default one thing: a button that framed the week differently from the way
-  // the tab opens would be a second opinion about where "now" is.
+  // the tab opens would be a second opinion about where "now" is. So it leaves a
+  // quarter too, rather than jumping to the one holding today.
   const today = element("button", null, "Today");
   today.title = state.view === "project"
     ? "Jump back to the period starting this week"
-    : `Jump back to now, with ${PORTFOLIO_LOOKBACK_WEEKS} weeks of run-up`;
+    : `Jump back to now, with ${PORTFOLIO_LOOKBACK_WEEKS} weeks of run-up, `
+      + "or from the start of a project already running";
   today.onclick = () => {
     win.start = null;
+    if (period) {
+      win.period = null;
+      // A period entered from a custom range has no length of its own to go back to.
+      if (win.weeks === null) {
+        win.weeks = MAX_WINDOW_WEEKS;
+        win.customEnd = null;
+      }
+    }
     if (custom) {
-      win.customEnd = formatDate(addDays(defaultOrigin(), weeks * 7 - 1));
+      // Pinned, not cleared: the run-up depends on the length, and a custom range
+      // has none until it is resolved.
+      const home = defaultOrigin(weeks);
+      win.start = formatDate(home);
+      win.customEnd = formatDate(addDays(home, weeks * 7 - 1));
     }
     redraw();
   };
 
   const forward = element("button", "nav", "›");
-  forward.title = "Next period";
+  forward.title = `Next ${unit}`;
   forward.onclick = () => step(1);
 
+  // Only the portfolio offers periods: the project page fits itself to its plan.
+  const portfolio = state.view !== "project";
   const select = element("select");
+  const lengths = portfolio ? element("optgroup") : select;
+  lengths.label = "Length";
   for (const preset of WINDOW_PRESETS) {
     const option = element("option", null, preset.label);
     option.value = String(preset.weeks);
-    select.appendChild(option);
+    lengths.appendChild(option);
+  }
+  if (portfolio) {
+    select.appendChild(lengths);
+    for (const [kind, label] of [["Q", "Quarter"], ["H", "Half-year"]]) {
+      const group = element("optgroup");
+      group.label = label;
+      for (const key of periodChoices(kind, period)) {
+        const option = element("option", null, periodLabel(parsePeriod(key)));
+        option.value = key;
+        group.appendChild(option);
+      }
+      select.appendChild(group);
+    }
   }
   const customOption = element("option", null, "Custom…");
   customOption.value = "custom";
   select.appendChild(customOption);
-  select.value = custom ? "custom" : String(win.weeks);
+  select.value = period ? periodKey(period) : custom ? "custom" : String(win.weeks);
 
   select.onchange = () => {
+    if (parsePeriod(select.value)) {
+      win.period = select.value;
+      redraw();
+      return;
+    }
+    // Leaving a period starts where it did, so nothing jumps.
+    if (period) {
+      win.period = null;
+      win.start = formatDate(origin);
+    }
     if (select.value === "custom") {
       win.weeks = null;
-      // Seed the range from whatever was on screen, so nothing jumps.
+      // Seed the range from whatever was on screen, so nothing jumps -- both
+      // ends, since the default start now depends on the length.
+      win.start = formatDate(origin);
       win.customEnd = formatDate(addDays(origin, weeks * 7 - 1));
     } else {
       win.weeks = Number(select.value);
@@ -1110,6 +1246,7 @@ function renderWindowBar(container) {
   }
 
   const last = addDays(origin, weeks * 7 - 1);
+  if (period) container.appendChild(element("span", "window-period", periodLabel(period)));
   const range = element("span", "window-range",
     `${origin.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}`
     + ` – ${last.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}`
