@@ -2973,6 +2973,9 @@ function milestoneLane(marks) {
 // overlap it fixes, which is why it is a sweep and not a step.
 const MILESTONE_ROW_PX = 16;
 const MILESTONE_LABEL_GAP_PX = 8;
+// A bar's height, and the inset that centres a 10px mark in it -- mirrors the CSS.
+const MILESTONE_LANE_PX = 24;
+const MILESTONE_INSET_PX = 7;
 
 function stackMilestoneLanes(root) {
   for (const lane of root.querySelectorAll(".milestone-lane")) {
@@ -2987,9 +2990,10 @@ function stackMilestoneLanes(root) {
       let row = 0;
       while (row < rowEnds.length && rowEnds[row] > left) row += 1;
       rowEnds[row] = left + mark.offsetWidth + MILESTONE_LABEL_GAP_PX;
-      mark.style.top = `${row * MILESTONE_ROW_PX}px`;
+      mark.style.top = `${MILESTONE_INSET_PX + row * MILESTONE_ROW_PX}px`;
     }
-    lane.style.height = `${Math.max(rowEnds.length, 1) * MILESTONE_ROW_PX + 4}px`;
+    const extraRows = Math.max(rowEnds.length - 1, 0);
+    lane.style.height = `${MILESTONE_LANE_PX + extraRows * MILESTONE_ROW_PX}px`;
   }
 }
 

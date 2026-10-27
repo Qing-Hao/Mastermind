@@ -1770,16 +1770,19 @@ td input { width: 100%; min-width: 80px; }
 
    The height and each mark's `top` are written by `stackMilestoneLanes` in
    app.js, which measures the labels and moves colliding ones down a row. What is
-   here is the one-row case, which is what the values below add up to. */
+   here is the one-row case, which is what the values below add up to.
+
+   One row is a bar's slot -- 24px plus a 4px margin -- with the 10px mark
+   centred 7px down, so a diamond sits midway between the bars either side. */
 .milestone-lane {
   position: relative;
-  height: 20px;
-  margin-bottom: 6px;
+  height: 24px;
+  margin-bottom: 4px;
   overflow: visible;
 }
 .milestone-mark {
   position: absolute;
-  top: 0;
+  top: 7px;
   display: flex;
   align-items: center;
   gap: 4px;
