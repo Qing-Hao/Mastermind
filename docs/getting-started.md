@@ -128,7 +128,7 @@ Two things can happen:
 ### 10. Export it
 
 **Export** at the foot of the sidebar writes the entire dataset to JSON;
-**Import** replaces it. Sign-in configuration is stripped from the export, so an
+**Import**, under **More** beside it, replaces it. Sign-in configuration is stripped from the export, so an
 export is safe to email; the database file is not.
 
 ## Where to go next

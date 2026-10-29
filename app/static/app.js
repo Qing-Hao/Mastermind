@@ -1262,7 +1262,8 @@ function renderWindowBar(container) {
 // --- loading ----------------------------------------------------------------
 
 async function loadProjectList() {
-  state.projects = await api("/api/projects");
+  state.projects = (await api("/api/projects"))
+    .filter((project) => !isPendingDelete("project", project.id));
   renderProjectList();
   // The track suggestions come off the same read, so naming a new track is
   // enough to make it offerable everywhere -- nothing stores the list.
@@ -2394,6 +2395,7 @@ async function refreshView() {
 async function loadPlan() {
   if (!state.currentProjectId) return;
   state.plan = await api(`/api/projects/${state.currentProjectId}`);
+  state.plan.phases = state.plan.phases.filter((phase) => !isPendingDelete("phase", phase.id));
   state.settings = state.plan.settings;
   // Before the render, because the deliverable list draws the badge from it. Read
   // on every plan load rather than cached: the references it counts are typed
@@ -2440,6 +2442,10 @@ async function loadPortfolio() {
 
 async function loadGraph() {
   state.graph = await api("/api/graph");
+  const gone = (id) => isPendingDelete("project", id);
+  state.graph.projects = state.graph.projects.filter((project) => !gone(project.id));
+  state.graph.dependencies = state.graph.dependencies.filter((link) =>
+    !gone(link.predecessor_project_id) && !gone(link.successor_project_id));
   renderMap();
   renderDirections();
 }
@@ -3553,11 +3559,11 @@ function phaseRow(phase, warned) {
   // small, and the title is what makes it readable.
   const remove = element("button", "btn-ghost", "✕");
   remove.title = "Delete phase";
-  remove.onclick = async () => {
-    if (!confirm(`Delete phase "${phase.name}" and its deliverables?`)) return;
-    await api(`/api/phases/${phase.id}`, { method: "DELETE" });
-    state.expandedPhases.delete(phase.id);
-    await loadPlan();
+  remove.onclick = () => {
+    const count = (phase.deliverables || []).length;
+    deferDelete("phase", phase.id, `/api/phases/${phase.id}`,
+      `Deleted phase "${phase.name}" and its ${count} deliverable${count === 1 ? "" : "s"}`,
+      loadPlan);
   };
   actionCell.appendChild(remove);
   row.appendChild(actionCell);
@@ -6874,13 +6880,17 @@ async function insertRoadmapTasks(number, index, ids) {
 // This exists for one message -- a sprint file rewritten by a tick you made
 // somewhere else -- and should stay that narrow. An app that announces its every
 // success is one you stop reading.
-const toast = { node: null, timer: null };
+const toast = { node: null, timer: null, onClose: null };
 
+// `onClose` runs on every way out except Undo -- timeout, ×, or a newer toast.
 function hideToast() {
   clearTimeout(toast.timer);
   if (toast.node) toast.node.remove();
+  const onClose = toast.onClose;
   toast.node = null;
   toast.timer = null;
+  toast.onClose = null;
+  if (onClose) onClose();
 }
 
 // `extras.action` is an offer rather than a reversal -- `{label, title, run}`,
@@ -6914,6 +6924,7 @@ function showToast(text, undo, extras) {
     back.title = (extras && extras.undoTitle)
       || "Put the marker back and clear the tick";
     back.onclick = () => {
+      toast.onClose = null;
       hideToast();
       undo();
     };
@@ -6928,8 +6939,53 @@ function showToast(text, undo, extras) {
 
   document.body.appendChild(node);
   toast.node = node;
+  toast.onClose = (extras && extras.onClose) || null;
   toast.timer = setTimeout(hideToast, 8000);
 }
+
+// --- deferred deletes --------------------------------------------------------
+
+// A delete is held for the toast's eight seconds, then sent. Undo just forgets
+// it, so ids, deliverables, links and history all survive -- nothing to restore.
+// Key is `kind:id`; the loaders filter these out so every view agrees.
+const pendingDeletes = new Map();
+
+const isPendingDelete = (kind, id) => pendingDeletes.has(`${kind}:${id}`);
+
+function deferDelete(kind, id, path, text, reload) {
+  const key = `${kind}:${id}`;
+  const settle = () => {
+    const live = pendingDeletes.has(key);
+    pendingDeletes.delete(key);
+    return live;
+  };
+  const commit = async () => {
+    if (!settle()) return;
+    try {
+      await api(path, { method: "DELETE" });
+    } catch (failure) {
+      showToast(`Could not delete: ${failure.message}`);
+    }
+    await reload();
+  };
+  const undo = async () => {
+    if (settle()) await reload();
+  };
+  pendingDeletes.set(key, path);
+  showToast(text, undo, {
+    undoTitle: "Bring it back -- nothing has been deleted yet",
+    onClose: commit,
+  });
+  return reload();
+}
+
+// Leaving inside the window still deletes: `keepalive` outlives the page.
+window.addEventListener("pagehide", () => {
+  for (const path of pendingDeletes.values()) {
+    fetch(path, { method: "DELETE", keepalive: true });
+  }
+  pendingDeletes.clear();
+});
 
 // --- the sync picker ---------------------------------------------------------
 
@@ -7743,6 +7799,175 @@ function revealMilestoneRow(id) {
   if (!row) return;
   row.scrollIntoView({ block: "center", behavior: "smooth" });
   flashArrival(row);
+}
+
+// --- Ctrl+K search -------------------------------------------------------------
+
+// One box over every tab: roadmap names, then lines in sprint files. Built and
+// removed like the toast, so there is no `hidden` to trip over. Remembers nothing.
+const SEARCH_LABEL = {
+  project: "Projects", idea: "Ideas", phase: "Phases",
+  checkpoint: "Checkpoints", deliverable: "Deliverables", sprint: "Sprint files",
+};
+const SEARCH_ORDER = Object.keys(SEARCH_LABEL);
+const finder = { node: null, hits: [], active: 0, asked: 0, timer: null, opener: null };
+
+function closeSearch(restoreFocus = true) {
+  clearTimeout(finder.timer);
+  if (finder.node) finder.node.remove();
+  const opener = finder.opener;
+  finder.node = null;
+  finder.hits = [];
+  finder.opener = null;
+  if (restoreFocus && opener && opener.isConnected) opener.focus();
+}
+
+function openSearch() {
+  if (finder.node) {
+    finder.node.querySelector(".search-input").select();
+    return;
+  }
+  finder.opener = document.activeElement;
+  finder.hits = [];
+  finder.active = 0;
+
+  const backdrop = element("div", "search-backdrop");
+  const box = element("div", "search-box");
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-label", "Go to");
+  const field = element("div", "search-field");
+  const input = element("input", "search-input");
+  input.type = "text";
+  input.autocomplete = "off";
+  input.placeholder = "Go to a project, phase, checkpoint, deliverable or sprint file";
+  input.setAttribute("aria-label", "Search");
+  field.append(input, element("kbd", "", "Esc"));
+  const list = element("div", "search-results");
+  list.setAttribute("role", "listbox");
+  const foot = element("div", "search-foot",
+    "↑ ↓ to move · Enter to open · D-5 jumps to a deliverable");
+  box.append(field, list, foot);
+  backdrop.appendChild(box);
+
+  backdrop.onmousedown = (event) => {
+    if (event.target === backdrop) closeSearch();
+  };
+  input.oninput = () => {
+    clearTimeout(finder.timer);
+    finder.timer = setTimeout(() => runSearch(input.value), 150);
+  };
+  input.onkeydown = (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeSearch();
+    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (!finder.hits.length) return;
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      finder.active = (finder.active + step + finder.hits.length) % finder.hits.length;
+      drawSearchResults(input.value);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      const hit = finder.hits[finder.active];
+      if (hit) goToSearchHit(hit);
+    }
+  };
+
+  document.body.appendChild(backdrop);
+  finder.node = backdrop;
+  drawSearchResults("");
+  input.focus();
+}
+
+async function runSearch(text) {
+  const asked = ++finder.asked;
+  let hits = [];
+  if (text.trim().length >= 2) {
+    try {
+      hits = await api(`/api/search?q=${encodeURIComponent(text)}`);
+    } catch (_) {
+      hits = [];
+    }
+  }
+  // A later keystroke, or a closed box, wins over this answer.
+  if (asked !== finder.asked || !finder.node) return;
+  finder.hits = hits.slice().sort(
+    (a, b) => SEARCH_ORDER.indexOf(a.kind) - SEARCH_ORDER.indexOf(b.kind));
+  finder.active = 0;
+  drawSearchResults(text);
+}
+
+// `text` with the first match of `query` marked. Text nodes only, never HTML.
+function markedText(className, text, query) {
+  const span = element("span", className);
+  const at = query ? text.toLowerCase().indexOf(query.toLowerCase()) : -1;
+  if (at < 0) {
+    span.textContent = text;
+    return span;
+  }
+  span.append(text.slice(0, at), element("mark", "", text.slice(at, at + query.length)),
+    text.slice(at + query.length));
+  return span;
+}
+
+function drawSearchResults(text) {
+  const list = finder.node && finder.node.querySelector(".search-results");
+  if (!list) return;
+  list.innerHTML = "";
+  const query = text.trim().replace(/\s+/g, " ");
+  if (query.length < 2) {
+    list.appendChild(element("p", "search-empty", "Type two letters or more."));
+    return;
+  }
+  if (!finder.hits.length) {
+    list.appendChild(element("p", "search-empty", `Nothing matches "${query}".`));
+    return;
+  }
+  let kind = null;
+  finder.hits.forEach((hit, index) => {
+    if (hit.kind !== kind) {
+      kind = hit.kind;
+      list.appendChild(element("div", "search-caption", SEARCH_LABEL[kind] || kind));
+    }
+    const row = element("button", "search-hit");
+    row.type = "button";
+    row.setAttribute("role", "option");
+    row.setAttribute("aria-selected", String(index === finder.active));
+    row.append(markedText("search-title", hit.title || "", query),
+      markedText("search-meta", hit.meta || "", query));
+    row.onmousemove = () => {
+      if (finder.active === index) return;
+      finder.active = index;
+      list.querySelectorAll(".search-hit").forEach(
+        (one, at) => one.setAttribute("aria-selected", String(at === index)));
+    };
+    row.onclick = () => goToSearchHit(hit);
+    list.appendChild(row);
+  });
+  const current = list.querySelector('[aria-selected="true"]');
+  if (current) current.scrollIntoView({ block: "nearest" });
+}
+
+// Each kind lands where its own existing jump lands, row flashed.
+async function goToSearchHit(hit) {
+  closeSearch(false);
+  if (hit.kind === "sprint") {
+    await openSprintFromTask(hit.number);
+    revealTaskRow(hit);
+  } else if (hit.kind === "deliverable") {
+    await jumpToSliceDeliverable(hit.project_id, hit.phase_id, hit.id);
+  } else if (hit.kind === "checkpoint") {
+    await jumpToMilestone(hit.project_id, hit.id);
+  } else if (hit.kind === "phase") {
+    await openProject(hit.project_id);
+    const row = document.querySelector(`tr[data-phase="${hit.id}"]`);
+    if (row) {
+      row.scrollIntoView({ block: "center", behavior: "smooth" });
+      flashArrival(row);
+    }
+  } else {
+    await openProject(hit.id);
+  }
 }
 
 // The other direction. The chip is `deliverableChip`'s and carries the id as the
@@ -10128,11 +10353,8 @@ function renderDirections() {
 
     const remove = element("button", "btn-ghost", "✕");
     remove.title = "Delete this direction";
-    remove.onclick = async () => {
-      if (!confirm(`Delete the direction "${idea.name}"?`)) return;
-      await api(`/api/projects/${idea.id}`, { method: "DELETE" });
-      await loadProjects();
-    };
+    remove.onclick = () => deferDelete("project", idea.id, `/api/projects/${idea.id}`,
+      `Deleted the direction "${idea.name}"`, loadProjects);
 
     item.append(link, promote, remove, form);
     list.appendChild(item);
@@ -11929,6 +12151,15 @@ function bindEvents() {
   $("sidebar-toggle").onclick = () => applySidebar(
     !document.querySelector(".app").classList.contains("sidebar-collapsed"));
 
+  // Search: the sidebar button, and Ctrl+K (Cmd+K) from anywhere.
+  $("open-search").onclick = () => openSearch();
+  document.addEventListener("keydown", (event) => {
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      openSearch();
+    }
+  });
+
   // The ⋯ menu: rename, the global settings, delete. `aria-expanded` is on the
   // button rather than tracked in `state`, because the panel's own `hidden` is
   // already the truth and a second copy of it could disagree.
@@ -12229,7 +12460,24 @@ function bindEvents() {
     URL.revokeObjectURL(link.href);
   };
 
-  $("import").onclick = () => $("import-file").click();
+  // The foot's More menu, wired like the ⋯ menu: `hidden` is the truth.
+  const dataMenu = (open) => {
+    $("data-menu-panel").hidden = !open;
+    $("data-menu").setAttribute("aria-expanded", String(open));
+  };
+  $("data-menu").onclick = (event) => {
+    event.stopPropagation();
+    dataMenu($("data-menu-panel").hidden);
+  };
+  document.addEventListener("click", () => dataMenu(false));
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") dataMenu(false);
+  });
+
+  $("import").onclick = () => {
+    dataMenu(false);
+    $("import-file").click();
+  };
   $("import-file").onchange = async (event) => {
     const file = event.target.files[0];
     if (!file) return;

@@ -6550,3 +6550,80 @@ def test_history_is_asked_of_one_file_and_never_across_them(client, sprints):
     paths = [getattr(route, "path", "") for route in app.routes]
     assert "/api/sprint-edits" not in paths
     assert "/api/history" not in paths
+
+
+# --- Ctrl+K search ------------------------------------------------------------
+
+
+def search_plan(client, sprints):
+    project = make_project(client, name="Unified Search", start="2026-06-01")
+    phase = make_phase(client, project["id"], "Beta rollout", "2026-07-13", 3, 30)
+    make_phase(client, project["id"], "Index rebuild", "2026-06-15", 4, 40)
+    make_milestone(client, project["id"], "Search beta to 10 teams")
+    harness = make_deliverable(client, phase["id"], "Relevance harness")
+    stage_sprint(sprints, 1, (
+        "# Sprint 1 · 2026-08-17 → 2026-08-31\n\n"
+        "## 1. Sprint Goal\n\n"
+        "Get the harness running, so the beta decision is made on numbers.\n\n"
+        "| Task | PIC |\n|---|---|\n| Fork list | @sam |\n| Beta smoke test | @avery |\n"
+    ))
+    return project, phase, harness
+
+
+def search(client, q):
+    response = client.get("/api/search", params={"q": q})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_search_finds_phases_checkpoints_and_sprint_text(client, sprints):
+    project, phase, _ = search_plan(client, sprints)
+    hits = search(client, "BETA")
+    kinds = [(hit["kind"], hit["title"]) for hit in hits]
+    assert ("phase", "Beta rollout") in kinds
+    assert ("checkpoint", "Search beta to 10 teams") in kinds
+    assert ("phase", "Index rebuild") not in kinds
+    beta = next(hit for hit in hits if hit["kind"] == "phase")
+    assert beta["id"] == phase["id"] and beta["project_id"] == project["id"]
+    assert "Unified Search" in beta["meta"]
+    sprint = next(hit for hit in hits if hit["kind"] == "sprint")
+    assert sprint["number"] == 1
+    assert sprint["title"].startswith("Sprint 1")
+    assert "beta decision" in sprint["meta"]
+    # The paragraph comes first in the file, so it is the block the jump lands on.
+    assert sprint["block"] == 2 and sprint["row"] is None
+
+
+def test_search_lands_a_table_hit_on_its_row(client, sprints):
+    search_plan(client, sprints)
+    sprint = next(hit for hit in search(client, "smoke") if hit["kind"] == "sprint")
+    assert sprint["block"] == 3 and sprint["row"] == 1
+    assert "Beta smoke test" in sprint["meta"]
+
+
+def test_a_deliverable_reference_finds_exactly_that_deliverable(client, sprints):
+    project, phase, harness = search_plan(client, sprints)
+    for spelling in (f"D-{harness['id']}", f"d{harness['id']}", f"[#D-{harness['id']}]"):
+        hits = [hit for hit in search(client, spelling) if hit["kind"] == "deliverable"]
+        assert [hit["id"] for hit in hits] == [harness["id"]], spelling
+        assert hits[0]["project_id"] == project["id"]
+        assert hits[0]["phase_id"] == phase["id"]
+
+
+def test_a_query_under_two_characters_finds_nothing(client, sprints):
+    search_plan(client, sprints)
+    assert search(client, "") == []
+    assert search(client, " b ") == []
+
+
+def test_an_idea_is_found_as_an_idea(client):
+    client.post("/api/projects", json={"name": "Mobile offline mode", "start_date": "",
+                                       "stage": "idea"})
+    hits = search(client, "offline")
+    assert [(hit["kind"], hit["title"]) for hit in hits] == [("idea", "Mobile offline mode")]
+
+
+def test_search_reads_only_the_disposable_sprint_folder(client, sprints):
+    # `sprints` points SPRINTS_DIR at tmp_path; nothing staged there, nothing found.
+    assert main.SPRINTS_DIR == str(sprints)
+    assert [hit for hit in search(client, "sprint") if hit["kind"] == "sprint"] == []

@@ -2810,6 +2810,122 @@ def read_mine(request: Request, handle: str = ""):
     }
 
 
+# --- Ctrl+K search -------------------------------------------------------------
+
+SEARCH_MIN_CHARS = 2
+SEARCH_PER_KIND = 6
+SEARCH_SNIPPET = 120
+# `D-5`, `d5`, `#D-5` and `[#D-5]` all name deliverable 5.
+_DELIVERABLE_REF = re.compile(r"^\[?#?d-?(\d+)\]?$", re.IGNORECASE)
+
+
+def snippet_around(line, at, length=SEARCH_SNIPPET):
+    """Up to `length` characters of `line` around position `at`, marked where cut."""
+    start = max(0, min(at - length // 3, len(line) - length))
+    end = start + length
+    return f"{'…' if start else ''}{line[start:end]}{'…' if end < len(line) else ''}"
+
+
+def find_in_sprint(text, needle):
+    """First place `needle` appears in a sprint file: block, table row, snippet."""
+    for at, block in enumerate(split_blocks(text)):
+        table = block.get("table")
+        for number, row in enumerate(table["rows"] if table else []):
+            cells = " | ".join(cell.strip() for cell in row)
+            found = cells.casefold().find(needle)
+            if found >= 0:
+                return {"block": at, "row": number, "snippet": snippet_around(cells, found)}
+        for line in block["raw"].splitlines():
+            line = line.strip()
+            found = line.casefold().find(needle)
+            if found >= 0:
+                return {"block": at, "row": None, "snippet": snippet_around(line, found)}
+    return None
+
+
+@app.get("/api/search")
+def search(q: str = ""):
+    """Ctrl+K's whole payload: roadmap names first, then lines in sprint files.
+
+    Read through on every keystroke, stores nothing: no recent searches, which
+    would be a memory keyed to a person (non-negotiable 7).
+    """
+    needle = " ".join(q.split()).casefold()
+    if len(needle) < SEARCH_MIN_CHARS:
+        return []
+    ref = _DELIVERABLE_REF.match(needle)
+    projects = {project["id"]: project for project in db.list_projects()}
+    phases = {phase["id"]: phase for phase in db.list_all_phases()}
+
+    def project_name(project_id):
+        return projects[project_id]["name"] if project_id in projects else ""
+
+    def facts(*parts):
+        return " · ".join(part for part in parts if part)
+
+    found_projects = [{
+        "kind": "idea" if project["stage"] == STAGE_IDEA else "project",
+        "id": project["id"], "project_id": project["id"], "title": project["name"],
+        "meta": facts(project["stage"], project["track"]),
+    } for project in projects.values() if needle in project["name"].casefold()]
+
+    found_phases = []
+    for phase in phases.values():
+        if needle not in phase["name"].casefold():
+            continue
+        dated = with_end_date(phase)
+        span = (f"{dated['start_date']} → {dated['end_date']}"
+                if dated["start_date"] else "unscheduled")
+        found_phases.append({
+            "kind": "phase", "id": phase["id"], "project_id": phase["project_id"],
+            "title": phase["name"],
+            "meta": facts(project_name(phase["project_id"]), span,
+                          phase["status"].replace("_", " ")),
+        })
+
+    found_checkpoints = [{
+        "kind": "checkpoint", "id": one["id"], "project_id": one["project_id"],
+        "title": one["name"],
+        "meta": facts(project_name(one["project_id"]),
+                      f"due {one['target_date']}" if one["target_date"] else "no date",
+                      "reached" if one["achieved"] else "not reached"),
+    } for group in db.milestones_by_project().values() for one in group
+        if needle in one["name"].casefold()]
+
+    found_deliverables = []
+    for group in db.deliverables_by_project().values():
+        for one in group:
+            named = (int(ref.group(1)) == one["id"]) if ref else needle in one["name"].casefold()
+            if not named:
+                continue
+            phase = phases.get(one["phase_id"], {})
+            found_deliverables.append({
+                "kind": "deliverable", "id": one["id"], "project_id": one["project_id"],
+                "phase_id": one["phase_id"], "title": one["name"],
+                "meta": facts(f"D-{one['id']}", project_name(one["project_id"]),
+                              phase.get("name", ""), "done" if one["done"] else ""),
+            })
+
+    found_sprints = []
+    for number, name in reversed(sprint_files(SPRINTS_DIR)):
+        if len(found_sprints) >= SEARCH_PER_KIND:
+            break
+        try:
+            where = find_in_sprint(read_sprint_file(os.path.join(SPRINTS_DIR, name)), needle)
+        except (OSError, UnicodeDecodeError):
+            continue
+        if where:
+            found_sprints.append({
+                "kind": "sprint", "number": number,
+                "title": sprint_summary(number, name)["heading"] or name,
+                "meta": where["snippet"], "block": where["block"], "row": where["row"],
+            })
+
+    return [hit for group in (found_projects, found_phases, found_checkpoints,
+                              found_deliverables, found_sprints)
+            for hit in group[:SEARCH_PER_KIND]]
+
+
 @app.get("/api/workload")
 def read_workload():
     """What everybody is carrying, grouped by person. The same scan as `/api/mine`.

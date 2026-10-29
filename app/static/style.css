@@ -183,6 +183,8 @@
 .nav-item:hover { background: var(--hover); }
 /* `refreshView` toggles this class, on the same four ids the tab strip used. */
 .nav-item.active { background: var(--accent-soft); color: var(--accent-hover); }
+.nav-kbd { margin-left: auto; }
+.app.sidebar-collapsed .nav-kbd { display: none; }
 
 .sidebar-rule { height: 1px; background: var(--line-soft); margin: 16px 8px; }
 
@@ -208,6 +210,26 @@
    than setting the row's width -- see `.sidebar-link`. */
 .sidebar-foot { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 4px 0; }
 .sidebar-foot button { flex: 1 1 0; min-width: 0; font-size: 12px; }
+
+/* More opens upward and spans the whole foot: the sidebar scrolls, so a panel
+   wider than it would be clipped rather than overflow. */
+.sidebar-foot { position: relative; }
+.foot-menu { flex: 1 1 0; min-width: 0; display: flex; }
+.foot-menu > button { width: 100%; }
+/* Doubled class: `.menu-panel` is declared further down and would win a tie. */
+.menu-panel.foot-menu-panel { top: auto; bottom: calc(100% - 2px); left: 4px; right: 4px; width: auto; padding: 6px; }
+.sidebar-foot .foot-menu-item {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 600;
+}
+.foot-menu-sub { font-size: 11.5px; font-weight: 400; color: var(--muted); }
 
 /* --- the project list ---------------------------------------------------
    One row per project: where it stands, its name, its rank. The row is the
@@ -1957,6 +1979,19 @@ h2 + .hint, .section-head + .hint { margin: 2px 0 14px; }
 
 details summary { cursor: pointer; color: var(--muted); font-size: 12.5px; margin-top: 8px; }
 
+/* A long instruction folded behind its first line. Native `<details>`: no
+   script, and nothing remembers who opened it. Sets no `display`, so the map's
+   two folds can still be toggled with `hidden`. */
+.hint-fold { margin: 6px 0 0; }
+h2 + .hint-fold, .section-head + .hint-fold { margin: 2px 0 14px; }
+#map-view .hint-fold, #portfolio-view .hint-fold { max-width: 900px; }
+.hint-fold > summary { margin-top: 0; list-style: none; }
+.hint-fold > summary::-webkit-details-marker { display: none; }
+.hint-more { margin-left: 8px; color: var(--accent); white-space: nowrap; }
+.hint-more::after { content: " \25BE"; }
+.hint-fold[open] .hint-more::after { content: " \25B4"; }
+.hint-fold > .hint { margin: 6px 0 0; }
+
 /* --- deliverables --- */
 .toggle { border: 0; background: none; font-size: 13px; padding: 2px 4px; }
 
@@ -3611,6 +3646,32 @@ kbd {
 /* --- the table grid --- */
 /* A table block is edited as a grid and never as raw pipes, so it gets no reveal
    affordance: the cells are the editor. */
+/* "On this page": sticky under the top bar, so a long file can be crossed in one
+   press. A jump lands its section just below the strip. `--topbar-h` counts the
+   Project tab's meta line, which the Sprint tab's bar does not have -- hence -11. */
+.sprint-outline {
+  position: sticky;
+  top: calc(var(--topbar-h) - 11px);
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px 0;
+  background: var(--surface);
+}
+.sprint-outline[hidden] { display: none; }
+.sprint-outline-jump {
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-3);
+  font-size: 12px;
+}
+.sprint-outline-jump:hover { background: var(--hover); }
+.sprint-outline-jump.current { background: var(--accent-soft); border-color: transparent; color: var(--accent-hover); }
+.sprint-doc > * { scroll-margin-top: calc(var(--topbar-h) + 64px); }
+
 .sprint-table-block { cursor: default; }
 .sprint-table-block:hover { background: transparent; border-left-color: transparent; }
 
@@ -3732,6 +3793,13 @@ body.resizing-column { cursor: col-resize; user-select: none; }
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   padding-left: calc(var(--cell-depth, 0) * 14px);
+}
+/* A short cell holds its line, so its column is never squeezed into splitting a
+   word. Auto layout only: a dragged width is the width, and text would spill. */
+.sprint-table:not(.sized) .sprint-cell-view.cell-short,
+.sprint-table:not(.sized) .cell-short .sprint-cell-line {
+  white-space: pre;
+  overflow-wrap: normal;
 }
 
 /* A Total row: drawn from the column above it, never typed, so it reads as a
@@ -4110,6 +4178,75 @@ body.resizing-column { cursor: col-resize; user-select: none; }
 .sprint-table tbody tr:hover .sprint-cell-act,
 .sprint-cell-act:focus-visible { visibility: visible; }
 .sprint-cell-act:hover { border-color: var(--accent); color: var(--accent); }
+
+/* --- Ctrl+K search --- */
+/* Over everything but the toast's job: it is a place you go, not a notice. */
+.search-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 12vh 16px 0;
+  background: rgba(20, 24, 33, 0.38);
+}
+.search-box {
+  width: min(640px, 100%);
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--surface);
+  border-radius: 12px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.3);
+}
+.search-field { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+/* Out-ranks the global `input:not(...):focus` rule, which would box the field. */
+.search-field input.search-input:not([type="checkbox"]),
+.search-field input.search-input:not([type="checkbox"]):focus {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  box-shadow: none;
+  padding: 6px 0;
+  font-size: 16px;
+  background: transparent;
+}
+.search-field kbd, .nav-kbd {
+  font: 11px system-ui, sans-serif;
+  color: var(--muted);
+  border: 1px solid var(--field);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.search-results { overflow-y: auto; padding: 6px; }
+.search-caption {
+  padding: 10px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.search-hit {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+}
+.search-hit[aria-selected="true"] { background: var(--accent-soft); }
+.search-title { font-size: 14px; font-weight: 600; color: var(--ink); }
+.search-meta { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.search-hit mark { background: #fff1b8; color: inherit; border-radius: 2px; }
+.search-empty { margin: 0; padding: 14px 10px; font-size: 13px; color: var(--muted); }
+.search-foot { padding: 8px 16px; border-top: 1px solid var(--line); background: var(--page); font-size: 11.5px; color: var(--muted); }
 
 /* --- the notice --- */
 /* One line at the foot of the window, for the one thing that happens without you

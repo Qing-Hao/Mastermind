@@ -35,6 +35,13 @@
          Each button carries its own `title` for the same reason: collapsed, the
          icon is all there is. -->
     <div class="nav-group">
+      <!-- Not a tab: opens the Ctrl+K box over whichever tab is showing. -->
+      <button id="open-search" class="nav-item" title="Search (Ctrl+K)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="6.5"></circle><path d="M16 16l4.5 4.5"></path>
+        </svg><span class="nav-label">Search</span><kbd class="nav-kbd">Ctrl K</kbd>
+      </button>
       <button id="tab-map" class="nav-item" title="Map">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
              stroke-linecap="round" aria-hidden="true">
@@ -95,7 +102,18 @@
     <span class="spacer"></span>
     <div class="sidebar-foot">
       <button id="export" class="btn-ghost">Export</button>
-      <button id="import" class="btn-ghost">Import</button>
+      <!-- Import replaces everything, so it sits one press further away than the
+           Export beside it rather than a misclick from it. -->
+      <span class="foot-menu">
+        <button id="data-menu" class="btn-ghost" aria-expanded="false"
+                title="Import a JSON export">More</button>
+        <div id="data-menu-panel" class="menu-panel foot-menu-panel" hidden>
+          <button id="import" class="menu-danger foot-menu-item">
+            <span>Import JSON…</span>
+            <span class="foot-menu-sub">Replaces every project, phase and idea</span>
+          </button>
+        </div>
+      </span>
       <input type="file" id="import-file" accept="application/json" hidden>
       <!-- A plain link, not a tab: the Sign-in page is its own document so it
            still works when the shell cannot load. `app.js` fills the label in
@@ -391,14 +409,18 @@
             <button id="promote-project" hidden>Promote to plan</button>
           </span>
         </div>
-        <p class="hint">
-          Phases are the work; a ◆ row is a checkpoint the plan is aiming at,
-          between the phases rather than inside one. Drag a ⠿ grip to put either
-          where it belongs in the sequence. Expand a phase to list what it
-          produces &mdash; deliverables are named, not estimated, so the weeks
-          and points stay on the phase. Reaching every checkpoint is what
-          finishes a project; closing phases does not.
-        </p>
+        <details class="hint-fold">
+          <summary>Phases are the work; ◆ rows are checkpoints. Reaching every
+            checkpoint finishes a project.<span class="hint-more">How this works</span></summary>
+          <p class="hint">
+            Phases are the work; a ◆ row is a checkpoint the plan is aiming at,
+            between the phases rather than inside one. Drag a ⠿ grip to put either
+            where it belongs in the sequence. Expand a phase to list what it
+            produces &mdash; deliverables are named, not estimated, so the weeks
+            and points stay on the phase. Reaching every checkpoint is what
+            finishes a project; closing phases does not.
+          </p>
+        </details>
         <table id="phase-table">
           <thead>
             <tr>
@@ -455,23 +477,27 @@
     <div id="portfolio-view" hidden>
       <section>
         <h2>All projects</h2>
-        <p class="hint">
-          One column per week, labelled with the Monday it starts. The window
-          shows up to six months at a time &mdash; pick a length, or
-          <em>Custom&hellip;</em> for your own range.
-          Each project starts folded to a single bar over its own dates, filled
-          to how far through it is &mdash; each phase an equal share, filled by
-          the deliverables named under it; open one with the
-          <code>&#9656;</code> beside its name to see every phase and
-          checkpoint. Drag a phase bar sideways to
-          move that phase; it snaps to a week column, hold <kbd>Alt</kbd> to
-          nudge it by single days. The date you are about to drop on follows the
-          cursor, with the weekday added while <kbd>Alt</kbd> is held.
-          Nothing else reschedules itself &mdash; a
-          project waiting on this one only starts warning.
-          Click a week number on the ruler to read that fortnight day by day;
-          the drawer that opens is read-only.
-        </p>
+        <details class="hint-fold">
+          <summary>One column per week. Drag a bar to move a phase; nothing else
+            reschedules itself.<span class="hint-more">How this works</span></summary>
+          <p class="hint">
+            One column per week, labelled with the Monday it starts. The window
+            shows up to six months at a time &mdash; pick a length, or
+            <em>Custom&hellip;</em> for your own range.
+            Each project starts folded to a single bar over its own dates, filled
+            to how far through it is &mdash; each phase an equal share, filled by
+            the deliverables named under it; open one with the
+            <code>&#9656;</code> beside its name to see every phase and
+            checkpoint. Drag a phase bar sideways to
+            move that phase; it snaps to a week column, hold <kbd>Alt</kbd> to
+            nudge it by single days. The date you are about to drop on follows the
+            cursor, with the weekday added while <kbd>Alt</kbd> is held.
+            Nothing else reschedules itself &mdash; a
+            project waiting on this one only starts warning.
+            Click a week number on the ruler to read that fortnight day by day;
+            the drawer that opens is read-only.
+          </p>
+        </details>
 
         <!-- What the chart cannot say between its bars: how much is committed,
              what is being aimed at next, and how much has never been committed
@@ -549,29 +575,37 @@
         <!-- One hint per mode. Two paragraphs rather than one that covers both,
              because half of either is wrong for the drawing on screen. Toggled
              by `renderMap`; see the `[hidden]` guard in style.css. -->
-        <p class="hint" id="map-hint-graph">
-          Your department at the centre, tracks around it, projects on the
-          outside. Write a track as <code>Source expansion / Metrics</code> to
-          split it into a subtrack. Circle size is total effort points; the
-          percentage inside &mdash; and how far the circle is filled &mdash;
-          counts each phase as an equal share filled by the deliverables under
-          it, and a numbered pip is the project's tier. Each
-          label shows phases done and what lands next. Dashed circles are future
-          directions &mdash; ideas nobody has committed to yet, switched off here
-          by default and listed in full below. Point at a
-          project to dim the map down to it and whatever it is linked to, with
-          arrows running predecessor &rarr; successor. Click a project to open it.
-        </p>
-        <p class="hint" id="map-hint-roadmap" hidden>
-          The same projects, placed on the quarter their dates land in. Rows are
-          tracks and a project's subtrack rides on its chip; a project that runs
-          past a quarter is drawn again in the next one as a tail. Write what a
-          quarter is <em>for</em> in its header &mdash; that goal and its target
-          are the only stored things here, and nothing under them is rewritten
-          by either. The last column is committed work carrying no dates: give
-          one a date and it moves into a quarter. Nothing on this grid
-          reschedules anything.
-        </p>
+        <details class="hint-fold" id="map-hint-graph">
+          <summary>Your department at the centre, tracks around it, projects on the
+            outside. Click a project to open it.<span class="hint-more">How this works</span></summary>
+          <p class="hint">
+            Your department at the centre, tracks around it, projects on the
+            outside. Write a track as <code>Source expansion / Metrics</code> to
+            split it into a subtrack. Circle size is total effort points; the
+            percentage inside &mdash; and how far the circle is filled &mdash;
+            counts each phase as an equal share filled by the deliverables under
+            it, and a numbered pip is the project's tier. Each
+            label shows phases done and what lands next. Dashed circles are future
+            directions &mdash; ideas nobody has committed to yet, switched off here
+            by default and listed in full below. Point at a
+            project to dim the map down to it and whatever it is linked to, with
+            arrows running predecessor &rarr; successor. Click a project to open it.
+          </p>
+        </details>
+        <details class="hint-fold" id="map-hint-roadmap" hidden>
+          <summary>The same projects, placed on the quarter their dates land in.
+            Nothing here reschedules.<span class="hint-more">How this works</span></summary>
+          <p class="hint">
+            The same projects, placed on the quarter their dates land in. Rows are
+            tracks and a project's subtrack rides on its chip; a project that runs
+            past a quarter is drawn again in the next one as a tail. Write what a
+            quarter is <em>for</em> in its header &mdash; that goal and its target
+            are the only stored things here, and nothing under them is rewritten
+            by either. The last column is committed work carrying no dates: give
+            one a date and it moves into a quarter. Nothing on this grid
+            reschedules anything.
+          </p>
+        </details>
         <div class="row">
           <label>Department
             <input id="department-name" type="text"
@@ -645,12 +679,16 @@
 
       <section>
         <h2>Future directions <span id="direction-count" class="pill">0</span></h2>
-        <p class="hint">
-          Somewhere to park an idea as it occurs to you. Promoting one keeps
-          its id and anything you have already written against it. Links here
-          are the same project-to-project dependencies the Project tab writes,
-          so an idea can be tied to the work around it without opening it.
-        </p>
+        <details class="hint-fold">
+          <summary>Somewhere to park an idea as it occurs to you.<span
+            class="hint-more">How this works</span></summary>
+          <p class="hint">
+            Somewhere to park an idea as it occurs to you. Promoting one keeps
+            its id and anything you have already written against it. Links here
+            are the same project-to-project dependencies the Project tab writes,
+            so an idea can be tied to the work around it without opening it.
+          </p>
+        </details>
         <ul id="direction-list" class="directions"></ul>
         <div class="row">
           <input id="new-direction-name" type="text" placeholder="New future direction">
@@ -680,6 +718,9 @@
           Sprint file
           <span id="sprint-status" class="save-state"></span>
         </h2>
+        <details class="hint-fold">
+          <summary>The sprint file itself, edited in place. Saving happens on its
+            own.<span class="hint-more">How this works</span></summary>
         <p class="hint">
           The sprint file itself, edited in place, and saving happens on its own.
           A marker applies as you type it and stays applied: <kbd>##</kbd> and a
@@ -700,6 +741,7 @@
           in Reflection, and phase dates are changed by hand in the Project tab
           or not at all.
         </p>
+        </details>
         <div class="row">
           <label>File
             <select id="sprint-select"
@@ -760,6 +802,8 @@
           the work it is for.
         </p>
 
+        <!-- The file's own headings as jumps, filled by `renderSprintOutline`. -->
+        <nav id="sprint-outline" class="sprint-outline" aria-label="On this page" hidden></nav>
         <div id="sprint-document" class="sprint-doc"></div>
 
         <div id="sprint-raw-pane" class="sprint-raw-pane" hidden>

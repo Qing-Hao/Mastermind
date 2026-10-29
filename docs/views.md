@@ -5,7 +5,20 @@ captured on the **Map**, costed on **Project**, dated on **Portfolio**, and run
 in a **Sprint**. The sidebar lists every project with a stage dot and its tier
 digit, and the bell in the top bar is the same on all four.
 
+Each panel's instructions are folded to one line; **How this works** opens the
+rest.
+
 The screenshots below are a seeded demo dataset, not a real roadmap.
+
+## Search
+
+**Search** at the top of the sidebar, or <kbd>Ctrl</kbd>+<kbd>K</kbd> from any
+tab, opens one box over everything: projects, ideas, phases, checkpoints,
+deliverables and the text of every sprint file. Type two letters or more; ↑ ↓
+move, <kbd>Enter</kbd> opens. Each result lands where its own link would — a
+phase or checkpoint on its row in the Project tab, a deliverable with its phase
+expanded, a sprint line on its row in the file, flashed. `D-5` finds deliverable
+5 directly. Nothing about a search is kept.
 
 ## Project
 
@@ -33,12 +46,15 @@ Top to bottom:
   sits *between* phases and two separate tables could not say that. Drag a ⠿ grip
   to reorder either kind. Expand a phase with ▸ to raise a **challenge** on it and
   to list its deliverables and tick them off. A phase row shows its derived end
-  date, its deliverable tally, and a ⚑ flag when it has a challenge.
+  date, its deliverable tally, and a ⚑ flag when it has a challenge. Deleting a
+  phase (✕) takes effect after eight seconds; **Undo** in the notice keeps it,
+  deliverables and history intact.
 - **Dependencies** — the projects this one waits on, and the ones waiting on it.
 
 The top bar carries **Lay out sequentially** (date every undated phase, back to
 back from the project start), **Add phase**, and a **⋯** menu holding the project
 name, the global settings (velocity, sprint length, V1 tolerance) and Delete.
+Deleting a whole project still asks first; it has no Undo.
 
 ## Portfolio
 
@@ -112,7 +128,7 @@ canvas still spells out all seven stages, so nothing you hide is lost.
 **Future directions** below the canvas is where ideas are captured and listed in
 full. Promoting one keeps its id and everything already written against it, and
 links made here are the same project-to-project dependencies the Project tab
-writes.
+writes. Deleting one waits eight seconds for an **Undo**, as a phase does.
 
 ## Sprint
 
@@ -131,6 +147,12 @@ One markdown file per fortnight, edited in place.
 - **Rendered / Raw file** switches between the document and the whole file as
   text. The file is the record; the document is a view of it. Saving happens on
   its own.
+- **On this page** is a strip of the file's own section headings, stuck under
+  the top bar as you scroll. Press one to jump there; the one you are reading is
+  highlighted.
+- **Tables size to their content.** A cell of short words (14 characters or
+  fewer, such as `Not Started`) keeps to one line, so its column is never
+  squeezed into splitting a word. Dragging a column's width overrides this.
 - **Deliverables in scope** on the right is the roadmap read-only, drawn from the
   fortnight in this file's own heading. It writes nothing and offers no insert —
   putting a deliverable into a sprint is the Phase 2 line.

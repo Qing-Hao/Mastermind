@@ -130,7 +130,7 @@ and a VPN that is not connected — none of which anything inside the app can fi
   hazard recoverable; it does not make it safe, because the copy is only ever as
   old as the last start.
 - **Export** at the foot of the sidebar writes the whole dataset to JSON.
-  **Import** replaces it entirely. Export → wipe → import restores an identical
+  **Import**, under **More** beside it, replaces it entirely. Export → wipe → import restores an identical
   dataset; it is the guard against the tool being a dead end.
 - An export carries **no sign-in configuration**: every such column is named
   `sso_` and the whole prefix is stripped on the way out. That strip is the one

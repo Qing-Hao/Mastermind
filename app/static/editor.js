@@ -459,6 +459,66 @@ async function commitSprintRawFile(text) {
   scheduleSprintSave();
 }
 
+// --- on this page -------------------------------------------------------------
+
+// The file's section headings as jumps. Shows the shallowest heading level used
+// at least twice, so a lone title line is skipped. Knows only headings.
+function sprintOutline(blocks) {
+  const heads = [];
+  blocks.forEach((block, index) => {
+    const hoist = block.type === "heading" ? hoistHeading(block.raw) : null;
+    const text = hoist ? hoist.body.replace(/[*_`~]/g, "").trim() : "";
+    if (text) heads.push({ index, level: hoist.level, text });
+  });
+  const count = (level) => heads.filter((head) => head.level === level).length;
+  const level = [1, 2, 3, 4, 5, 6].find((one) => count(one) > 1);
+  return level ? heads.filter((head) => head.level === level) : [];
+}
+
+function renderSprintOutline() {
+  const strip = $("sprint-outline");
+  if (!strip) return;
+  const sprint = state.sprint;
+  const heads = sprint.view === "raw" ? [] : sprintOutline(sprint.blocks);
+  strip.innerHTML = "";
+  strip.hidden = heads.length < 2;
+  for (const head of heads) {
+    const jump = element("button", "sprint-outline-jump", head.text);
+    jump.type = "button";
+    jump.dataset.index = String(head.index);
+    jump.onclick = () => {
+      const node = $("sprint-document").children[head.index];
+      if (node) node.scrollIntoView({ block: "start", behavior: "smooth" });
+    };
+    strip.appendChild(jump);
+  }
+  markSprintOutline();
+}
+
+// The section being read: the last heading at or above the strip's lower edge.
+function markSprintOutline() {
+  const strip = $("sprint-outline");
+  if (!strip || strip.hidden) return;
+  const doc = $("sprint-document");
+  const edge = strip.getBoundingClientRect().bottom + 8;
+  const jumps = Array.from(strip.children);
+  let current = jumps[0];
+  for (const jump of jumps) {
+    const node = doc.children[Number(jump.dataset.index)];
+    if (node && node.getBoundingClientRect().top <= edge) current = jump;
+  }
+  jumps.forEach((jump) => jump.classList.toggle("current", jump === current));
+}
+
+let outlineFrame = 0;
+window.addEventListener("scroll", () => {
+  if (outlineFrame || state.view !== "sprint") return;
+  outlineFrame = requestAnimationFrame(() => {
+    outlineFrame = 0;
+    markSprintOutline();
+  });
+}, { passive: true });
+
 function renderSprintDocument() {
   const sprint = state.sprint;
   const doc = $("sprint-document");
@@ -528,6 +588,7 @@ function renderSprintDocument() {
   // Also after the append, and for the same reason: a diagram is measured text,
   // and a detached node has no measurements.
   drawSprintDiagrams(doc);
+  renderSprintOutline();
 
   // Every row was just replaced, so every badge on one went with it.
   drawPresence();
@@ -3436,9 +3497,19 @@ function showSprintCell(host, block, index, r, column) {
   markTotalHost(host, block.table, r, column);
 }
 
-const cellViewFor = (block, index, r, column) => (isTotalCell(block.table, r)
-  ? totalCellView(block.table, r, column)
-  : sprintCellView(block, index, r, column));
+// A cell of short lines never wraps. Auto layout would otherwise squeeze its
+// column until a word split ("Developmen|t"). Judged on length alone.
+const SHORT_CELL_CHARS = 14;
+const isShortCell = (value) => cellText(value).split("\n")
+  .every((line) => line.trim().length <= SHORT_CELL_CHARS);
+
+const cellViewFor = (block, index, r, column) => {
+  const view = isTotalCell(block.table, r)
+    ? totalCellView(block.table, r, column)
+    : sprintCellView(block, index, r, column);
+  view.classList.toggle("cell-short", isShortCell(cellValue(block.table, r, column)));
+  return view;
+};
 
 // On the `<td>`, for `paintCellHost`'s reason: it has to survive the view swap.
 function markTotalHost(host, grid, r, column) {

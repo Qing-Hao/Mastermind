@@ -137,6 +137,7 @@ function load() {
     sprintUndo, pushSprintUndo, sealSprintUndo, clearSprintUndo, undoBlocks,
     undoRun, undoSprintEdit, redoSprintEdit, insertGridRow, adoptSprintBlocks,
     totalRow, columnTotal, totalMenuItems, addTotalRow, moveGridRow, editSprintCell,
+    isShortCell, sprintOutline,
   };`;
 
   vm.runInContext(
@@ -598,6 +599,32 @@ function run() {
   check("a new Total row sums the columns that are mostly numbers",
     JSON.stringify(fresh.table.rows[4]) === JSON.stringify(["**Total**", "0", ""]),
     JSON.stringify(fresh.table.rows[4]));
+
+  // Short cells hold their line; anything longer may wrap.
+  const short = ["@avery", "8", "HIGH", "Development", "Not Started", "", "Reviewer",
+    "Available Days", "a<br>b"];
+  const long = ["Relevance harness", "Dependency / Remarks", "Needs the backfill to land",
+    "short<br>but this line is long"];
+  check("short cells are marked to hold their line",
+    short.every(probe.isShortCell), short.filter((v) => !probe.isShortCell(v)).join(" / "));
+  check("long cells are left to wrap",
+    long.every((v) => !probe.isShortCell(v)), long.filter(probe.isShortCell).join(" / "));
+
+  // The outline lists the shallowest level used twice; a lone title is skipped.
+  const outline = probe.sprintOutline([
+    { type: "heading", raw: "# Title" },
+    { type: "heading", raw: "## 1. First" },
+    { type: "paragraph", raw: "text" },
+    { type: "heading", raw: "## 2. **Second**" },
+    { type: "heading", raw: "### deeper" },
+  ]);
+  check("the outline lists the repeated level, markers stripped",
+    JSON.stringify(outline.map((h) => [h.index, h.text]))
+      === JSON.stringify([[1, "1. First"], [3, "2. Second"]]),
+    JSON.stringify(outline));
+  check("a file with one heading per level has no outline",
+    probe.sprintOutline([{ type: "heading", raw: "# A" }, { type: "heading", raw: "## B" }])
+      .length === 0);
 }
 
 try {

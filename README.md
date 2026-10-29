@@ -158,7 +158,7 @@ no sprint table. Nothing in the Sprint tab writes back to the roadmap.
 **Back up, or move the data somewhere else**
 
 **Export** at the foot of the sidebar writes the whole dataset to JSON;
-**Import** replaces it. Sign-in configuration is stripped from the export. Every
+**Import**, under **More** beside it, replaces it. Sign-in configuration is stripped from the export. Every
 start also copies the database to `data/backups/`, keeping the last ten.
 
 ## Documentation
