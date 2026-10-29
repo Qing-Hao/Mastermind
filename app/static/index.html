@@ -148,26 +148,20 @@
          both are derived from rows already on the plan, and nothing about them
          is stored -- no dismissal, no "new since you looked", nothing keyed by a
          person. See non-negotiable 7, and `Scope.dc.html` for the line it must
-         not cross. Filled by `drawLate`.
+         not cross. Filled by `drawLate`. -->
+    <!-- **One bell, three tabs** *(two bells until 2026-09-09, two tabs until
+         2026-10-29)*. A slipped date, a phase waiting to be closed and a row
+         with your name on it are three different pieces of news, so each has its
+         own badge, its own colour and its own tab, and no count adds two of
+         them. Pressing a badge opens its tab. The order is Assigned, Late, To
+         close, and the slide between panes follows it.
 
-         Two counts rather than one, because a slipped date and a finished phase
-         are different news: the amber mark is late, the green is ready to close,
-         and folding them into one number would make red mean both. Either one
-         alone is enough to show the bell. -->
-    <!-- **One bell, two tabs** *(was two bells side by side until 2026-09-09)*.
-         They answer different questions off different sources -- the roadmap's
-         rows against today, and the `@handle` rows in the sprint files -- but two
-         identical bells in one corner read as one thing gone wrong twice. The
-         marks stay separate on the one button, because a slipped date, a phase
-         waiting to be closed and a row with your name on it are three different
-         pieces of news.
-
-         Both halves are **readouts, not notifications**: everyone sees the same
-         lists, both are derived on read, and nothing about either is stored --
+         All three are **readouts, not notifications**: everyone sees the same
+         lists, all are derived on read, and nothing about them is stored --
          no dismissal, no snooze, no "new since you last looked". See
          non-negotiable 7, PROMPT.md amendment 6, and `Scope.dc.html` for the
-         line this must not cross. Filled by `drawLate` and `drawMine`; the panes
-         keep their own ids and their own renderers. -->
+         line this must not cross. Filled by `drawLate` and `drawMine`; each pane
+         keeps its own id and its own renderer. -->
     <span class="late-menu">
       <button id="late-alert" class="late-bell" aria-expanded="false"
               aria-haspopup="true" hidden>
@@ -176,19 +170,21 @@
           <path d="M18 8a6 6 0 0 0-12 0c0 5-2 6-2 6h16s-2-1-2-6"></path>
           <path d="M10.5 19a1.8 1.8 0 0 0 3 0"></path>
         </svg>
-        <span id="late-count" class="late-count" hidden></span>
-        <span id="ready-count" class="late-count late-count-ready" hidden></span>
-        <span id="task-count" class="late-count task-count" hidden></span>
+        <span id="late-count" class="late-count" data-tab="late" hidden></span>
+        <span id="ready-count" class="late-count late-count-ready" data-tab="ready" hidden></span>
+        <span id="task-count" class="late-count late-count-task" data-tab="task" hidden></span>
       </button>
       <div id="alert-panel" class="menu-panel late-panel alert-panel" hidden>
         <span class="mode-switch alert-tabs">
-          <button id="alert-tab-late" type="button" class="mode active">Overdue</button>
+          <span id="alert-tab-thumb" class="alert-tab-thumb" aria-hidden="true"></span>
           <button id="alert-tab-task" type="button" class="mode">Assigned</button>
+          <button id="alert-tab-late" type="button" class="mode">Late</button>
+          <button id="alert-tab-ready" type="button" class="mode">To close</button>
         </span>
-        <!-- Two panes, one visible at a time. Each keeps the id its renderer
-             already writes into, so neither renderer knows this moved. -->
-        <div id="late-panel" class="late-panel alert-pane"></div>
-        <div id="task-panel" class="late-panel task-panel alert-pane" hidden></div>
+        <!-- Three panes, one visible at a time, in tab order. -->
+        <div id="task-panel" class="late-panel task-panel alert-pane"></div>
+        <div id="late-panel" class="late-panel alert-pane" hidden></div>
+        <div id="ready-panel" class="late-panel alert-pane" hidden></div>
       </div>
     </span>
     <!-- One field's history, opened by Alt+click on the field itself and

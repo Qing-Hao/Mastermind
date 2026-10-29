@@ -60,7 +60,7 @@ Everything built on top of it derives on read and remembers nothing:
 
 - **Assignment stays markdown.** A PIC cell is text in a file the team edits. No
   deliverable gains an `assignee` column.
-- **The task bell has no unread state.** It rings while a row naming you is not
+- **The bell has no unread state.** It rings while a row naming you is not
   `Done`, and stops when it is. There is no dismiss, no snooze and no "new since
   you last looked" — each of those would mean storing something about you.
 - **The who-has-what page is not gated and there is no root user.** Everyone
@@ -135,13 +135,14 @@ cycle.
 
 **Check what is slipping**
 
-The bell in the top bar counts two things across every committed project: what
-is past its date, and what is finished but still open. It is derived on every
+The bell in the top bar has three tabs, each with its own badge: **Assigned**,
+**Late** (past its date, across every committed project) and **To close**
+(finished but still open). Press a badge to open its tab. It is derived on every
 read and nothing about it is stored — no dismissals, no "new since you looked".
 
 **See what is on your plate**
 
-The second bell beside it reads the sprint files rather than the roadmap. Type
+The bell's **Assigned** tab reads the sprint files rather than the roadmap. Type
 `@` in a sprint cell to pick a name from the directory; a row whose **PIC** or
 **Reviewer** names you is yours. The bell rings gently while any of those rows is
 not `Done`, and stops when they all are. Switch it to **Everyone** for the same

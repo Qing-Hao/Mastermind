@@ -71,7 +71,7 @@ handed for as long as the socket is open. It records nothing.
 One thing about a person *is* stored, and it is deliberately the smallest thing
 that works: a `person` row of `sub`, `handle` and `display_name`. It exists so
 that `@QingHao` in a sprint file's **PIC** column can be picked from a list
-rather than spelled from memory, and so the task bell has a name to match rows
+rather than spelled from memory, and so the bell's Assigned tab has a name to match rows
 against. There is **no timestamp on it** — the app does not record when it last
 saw you — and no role, no permissions and no preferences. The argument in full is
 [PROMPT.md](planning/PROMPT.md) amendment 6.

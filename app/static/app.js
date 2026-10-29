@@ -1750,9 +1750,8 @@ async function refreshLate() {
 // case, and it should say nothing about itself -- the same argument the offline
 // badge beside it makes for being absent while the connection is fine.
 //
-// Two marks, either one enough to show the bell. Amber is late, green is ready
-// to close, and they are never added together: one number for both would make
-// the same red mean a slipped date and a finished phase.
+// Three marks, any one enough to show the bell, and never added together: one
+// number for two of them would make one colour mean two kinds of news.
 function drawLate() {
   const count = $("late-count");
   const ready = $("ready-count");
@@ -1765,60 +1764,70 @@ function drawLate() {
   if (!$("alert-panel").hidden) renderAlertPanel();
 }
 
-// --- one bell, two tabs -------------------------------------------------------
+// --- one bell, three tabs -----------------------------------------------------
 //
 // Which pane the panel is showing. Not in `state`: it is where a menu is parked,
 // the same kind of thing as `projectMenu`'s own open flag, and nothing reloads
 // because of it.
-let alertTab = "late";
+let alertTab = "task";
+// The pane last drawn while the panel stayed open, and null once it closes, so
+// opening never slides and only a change of tab does.
+let alertTabDrawn = null;
 
-const lateRinging = () => state.late.count > 0 || state.late.readyCount > 0;
+// Left to right in the tab strip. The slide direction is read off this order.
+const ALERT_TABS = ["task", "late", "ready"];
+const ALERT_LABELS = { task: "Assigned", late: "Late", ready: "To close" };
+const ALERT_PANES = { task: "task-panel", late: "late-panel", ready: "ready-panel" };
+
 const taskRinging = () => state.mine.asked
   && ((state.mine.tally.ringing || 0) > 0 || state.mine.tally.total > 0
       || !state.mine.known);
+const alertNews = {
+  task: taskRinging,
+  late: () => state.late.count > 0,
+  ready: () => state.late.readyCount > 0,
+};
+const alertCount = {
+  task: () => state.mine.tally.ringing || 0,
+  late: () => state.late.count,
+  ready: () => state.late.readyCount,
+};
 
-// Which half to open on. The one with news wins; with news on both, whichever
-// tab was last read, because a press should not move you off what you were
-// looking at.
+// The last tab read while it still has news, else the first with news in tab
+// order: a press lands on news, and does not move you off what you were reading.
 function alertTabWanted() {
-  if (alertTab === "late" && !lateRinging() && taskRinging()) return "task";
-  if (alertTab === "task" && !taskRinging() && lateRinging()) return "late";
-  return alertTab;
+  if (alertNews[alertTab]()) return alertTab;
+  return ALERT_TABS.find((tab) => alertNews[tab]()) || alertTab;
 }
 
-// The bell is silent when neither half has anything, for the reason it always
-// was: a plan where nothing has slipped and a fortnight with nothing against
-// your name are the ordinary case, and should say nothing about themselves.
+// The bell is silent when no tab has anything, for the reason it always was: a
+// plan where nothing has slipped and a fortnight with nothing against your name
+// are the ordinary case, and should say nothing about themselves.
 function syncAlertBell() {
   const bell = $("late-alert");
-  const nothing = !lateRinging() && !taskRinging();
-  bell.hidden = nothing;
-  // The bell's own amber says "something slipped". With nothing late it would be
-  // saying that about a plan where nothing has.
-  bell.classList.toggle("is-ready-only",
-    state.late.count === 0 && (state.late.readyCount > 0 || taskRinging()));
-  bell.title = [
-    state.late.count
-      ? `${state.late.count} thing${state.late.count === 1 ? "" : "s"} past its`
-        + " date. Nothing here reschedules itself."
-      : "",
-    state.late.readyCount
-      ? `${state.late.readyCount} phase${state.late.readyCount === 1 ? "" : "s"}`
-        + " finished but still open. Closing one is your click, not the tool's."
-      : "",
-    state.mine.tally.ringing
-      ? `${state.mine.tally.ringing} row${state.mine.tally.ringing === 1 ? "" : "s"}`
-        + " in the sprint files with your name on it."
-      : "",
-  ].filter(Boolean).join(" ");
-  if (nothing) closeAlerts();
+  const ringing = ALERT_TABS.filter((tab) => alertNews[tab]());
+  bell.hidden = !ringing.length;
+  // Amber, the bell's own colour, says "something slipped". One kind of news
+  // wears its own colour; more than one goes grey, since no colour speaks for all.
+  const only = ringing.length === 1 ? ringing[0] : "";
+  bell.classList.toggle("is-task-only", only === "task");
+  bell.classList.toggle("is-ready-only", only === "ready");
+  bell.classList.toggle("is-mixed", ringing.length > 1);
+  bell.title = ALERT_TABS
+    .filter((tab) => alertCount[tab]())
+    .map((tab) => `${alertCount[tab]()} ${tab === "ready" ? "to close" : ALERT_LABELS[tab].toLowerCase()}`)
+    .join(" · ") || ALERT_LABELS.task;
+  if (!ringing.length) closeAlerts();
 }
 
 function openAlerts(open, tab) {
   if (tab) alertTab = tab;
   $("alert-panel").hidden = !open;
   $("late-alert").setAttribute("aria-expanded", String(open));
-  if (!open) return;
+  if (!open) {
+    alertTabDrawn = null;
+    return;
+  }
   // Looking at the list is the thing the ring was asking for, so it stops while
   // the panel is up -- and starts again on the next refresh if the rows are
   // still open. Nothing is stored about having looked.
@@ -1830,41 +1839,80 @@ function closeAlerts() {
   openAlerts(false);
 }
 
-// The tab strip, its two counts, and whichever pane is showing. Both panes keep
-// their own renderer and their own id -- this only decides which one is drawn.
+// The tab strip, its three counts, and whichever pane is showing. Each pane keeps
+// its own renderer and its own id -- this only decides which one is drawn.
 function renderAlertPanel() {
-  const onTask = alertTab === "task";
-  $("alert-tab-late").classList.toggle("active", !onTask);
-  $("alert-tab-task").classList.toggle("active", onTask);
-  $("alert-tab-late").textContent =
-    `Overdue${lateRinging() ? ` · ${state.late.count + state.late.readyCount}` : ""}`;
-  $("alert-tab-task").textContent =
-    `Assigned${state.mine.tally.ringing ? ` · ${state.mine.tally.ringing}` : ""}`;
-  $("late-panel").hidden = onTask;
-  $("task-panel").hidden = !onTask;
-  if (onTask) renderTaskPanel();
-  else renderLatePanel();
+  const from = alertTabDrawn;
+  alertTabDrawn = alertTab;
+  for (const tab of ALERT_TABS) {
+    const button = $(`alert-tab-${tab}`);
+    button.classList.toggle("active", tab === alertTab);
+    button.classList.toggle("is-zero", !alertNews[tab]());
+    button.textContent = "";
+    button.append(element("span", `alert-dot alert-dot-${tab}`),
+      element("span", null, ALERT_LABELS[tab]),
+      element("span", "alert-tab-count", String(alertCount[tab]())));
+    const pane = $(ALERT_PANES[tab]);
+    pane.hidden = tab !== alertTab;
+    pane.classList.remove("is-entering-right", "is-entering-left");
+  }
+  if (alertTab === "task") renderTaskPanel();
+  else if (alertTab === "late") renderLatePanel();
+  else renderReadyPanel();
+  slideAlertTab(from);
+}
+
+// The thumb slides from the old tab to the new one and the pane enters from that
+// side. Nothing moves on opening or on a redraw of the same tab: a refresh is not
+// a move. `prefers-reduced-motion` is honoured in the stylesheet.
+function slideAlertTab(from) {
+  const thumb = $("alert-tab-thumb");
+  const place = (tab) => {
+    const button = $(`alert-tab-${tab}`);
+    thumb.style.width = `${button.offsetWidth}px`;
+    thumb.style.transform = `translateX(${button.offsetLeft}px)`;
+  };
+  const moved = Boolean(from) && from !== alertTab;
+  thumb.style.transition = "none";
+  place(moved ? from : alertTab);
+  void thumb.offsetWidth;   // commit the start position before the transition
+  thumb.style.transition = "";
+  if (!moved) return;
+  place(alertTab);
+  const pane = $(ALERT_PANES[alertTab]);
+  void pane.offsetWidth;    // restart the animation if this pane played one before
+  const forward = ALERT_TABS.indexOf(alertTab) > ALERT_TABS.indexOf(from);
+  pane.classList.add(forward ? "is-entering-right" : "is-entering-left");
 }
 
 function renderLatePanel() {
   const panel = $("late-panel");
   panel.innerHTML = "";
-
-  // Two sections, drawn only when they hold something, and the order is the
-  // order to act in: a slipped date is a decision, a finished phase is a click.
-  if (state.late.count) {
-    lateSection(panel, "Past their date", "pill-warn", state.late.count,
-      state.late.groups, lateRow);
+  if (!state.late.count) {
+    panel.appendChild(element("div", "task-empty", "Nothing is past its date."));
+    return;
   }
-  if (state.late.readyCount) {
-    lateSection(panel, "Ready to close", "pill-ready", state.late.readyCount,
-      state.late.ready, readyRow);
-  }
+  lateSection(panel, "Past their date", "pill-warn", state.late.count,
+    state.late.groups, lateRow);
+  panel.appendChild(element("div", "late-foot",
+    "A row leaves when the date moves or the work closes. Nothing here is"
+    + " dismissed or marked read."));
+}
 
-  const foot = element("div", "late-foot",
-    "A row leaves when the date moves, the work closes or the phase is marked"
-    + " done. Nothing here is dismissed or marked read.");
-  panel.appendChild(foot);
+// Its own tab rather than a section under Late: a finished phase is not late,
+// and sharing a tab put it in the late count.
+function renderReadyPanel() {
+  const panel = $("ready-panel");
+  panel.innerHTML = "";
+  if (!state.late.readyCount) {
+    panel.appendChild(element("div", "task-empty", "No phase is waiting to be closed."));
+    return;
+  }
+  lateSection(panel, "Ready to close", "pill-ready", state.late.readyCount,
+    state.late.ready, readyRow);
+  panel.appendChild(element("div", "late-foot",
+    "A row leaves when the phase is marked done. Nothing here is dismissed or"
+    + " marked read."));
 }
 
 // One heading and its project groups. Both sections share this so a group header
@@ -2089,12 +2137,19 @@ function renderTaskPanel() {
   const panel = $("task-panel");
   panel.innerHTML = "";
 
-  const tabs = element("div", "task-tabs");
-  tabs.appendChild(taskTab("mine", state.mine.who ? `@${state.mine.who}` : "Mine"));
-  tabs.appendChild(taskTab("everyone", "Everyone"));
-  panel.appendChild(tabs);
+  // Mine and Everyone are a filter on the heading, not a second row of tabs
+  // inside the first.
+  const everyone = state.mine.tab === "everyone";
+  const head = element("div", "late-head");
+  head.appendChild(element("span", "late-title", everyone ? "Assigned, everyone"
+    : `Assigned to ${state.mine.who ? `@${state.mine.who}` : "you"}`));
+  head.appendChild(element("span", "spacer"));
+  const filter = element("span", "task-filter");
+  filter.append(taskTab("mine", "Mine"), taskTab("everyone", "Everyone"));
+  head.appendChild(filter);
+  panel.appendChild(head);
 
-  if (state.mine.tab === "everyone") renderWorkload(panel);
+  if (everyone) renderWorkload(panel);
   else renderMyRows(panel);
 }
 
@@ -12182,14 +12237,15 @@ function bindEvents() {
   // not race the document handler that would close it.
   $("late-alert").onclick = (event) => {
     event.stopPropagation();
-    // Opens on whichever half has something to say, so one press lands on the
-    // news rather than on an empty pane you then have to switch out of.
-    openAlerts($("alert-panel").hidden, alertTabWanted());
+    // A badge opens its own tab, and keeps the panel open if it already is.
+    // Anywhere else toggles, landing on a tab with news rather than an empty one.
+    const badge = event.target.closest && event.target.closest("[data-tab]");
+    if (badge) openAlerts(true, badge.dataset.tab);
+    else openAlerts($("alert-panel").hidden, alertTabWanted());
   };
   $("alert-panel").onclick = (event) => event.stopPropagation();
   document.addEventListener("click", () => closeAlerts());
-  $("alert-tab-late").onclick = () => openAlerts(true, "late");
-  $("alert-tab-task").onclick = () => openAlerts(true, "task");
+  for (const tab of ALERT_TABS) $(`alert-tab-${tab}`).onclick = () => openAlerts(true, tab);
 
   // Both reveals, and the topbar's primary action is the third caller. Focus
   // follows, because the button's whole purpose is to get you into the first

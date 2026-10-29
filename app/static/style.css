@@ -474,15 +474,21 @@
   color: #2e7d32;
 }
 .late-bell.is-ready-only:hover { background: #e4f2e5; color: #1b5e20; }
+/* Only rows with your name: the task indigo. More than one kind: neutral, since
+   no one colour speaks for all of them. Set by `syncAlertBell`. */
+.late-bell.is-task-only { border-color: #cfd4f5; background: #f3f4fd; color: #3730a3; }
+.late-bell.is-task-only:hover { background: #e8eafc; color: #312e81; }
+.late-bell.is-mixed { border-color: var(--field); background: var(--surface); color: var(--ink-2); }
+.late-bell.is-mixed:hover { background: var(--hover); color: var(--ink); }
 
 /* Sat on the corner rather than beside the glyph: the bar is a row of 33px
    controls and a bell that grew wider with the count would move presence along
    with it.
 
-   **Two marks, never summed.** Red is past its date, green is finished and still
-   open, and they take opposite corners so either can be absent without the other
-   moving. One number for both would make the same red mean a slipped date and a
-   finished phase -- see the comment on the bell in `index.html`. */
+   **Three marks, never summed, one corner each** so any can be absent without
+   another moving: red top right is past its date, green bottom right is finished
+   and still open, indigo top left is a row with your name. See the comment on
+   the bell in `index.html`. */
 .late-count {
   position: absolute;
   top: -4px;
@@ -503,6 +509,13 @@
   bottom: -4px;
   background: var(--stage-active-line);
 }
+/* Indigo rather than the amber beside it: amber is "the plan slipped", this is
+   "somebody's name is on this". Chrome, not data. */
+.late-count-task {
+  right: auto;
+  left: -4px;
+  background: #4f46e5;
+}
 .late-count[hidden] { display: none; }
 
 /* Wider than the ⋯ menu because it holds sentences rather than fields, and
@@ -521,16 +534,59 @@
   gap: 12px;
 }
 
-/* One bell, two panes *(2026-09-09 — it was two bells and two panels)*. The
-   wrapper is the panel and the scroller; each pane keeps `.late-panel` so every
-   descendant rule inside it still matches, and neither pane is a `.menu-panel`,
+/* One bell, three panes *(2026-10-29 — two before, and two bells before that)*.
+   The wrapper is the panel and the scroller; each pane keeps `.late-panel` so
+   every descendant rule inside it still matches, and no pane is a `.menu-panel`,
    so the width and padding above apply once rather than twice. */
-.alert-tabs { margin-left: 0; align-self: flex-start; }
+.alert-tabs { position: relative; margin-left: 0; align-self: flex-start; }
 .alert-pane { display: flex; flex-direction: column; gap: 12px; }
 /* Load-bearing: the rule above sets `display`, and `renderAlertPanel` folds the
    pane that is not showing with the `hidden` attribute. Same trap as
    `.sprint-scope[hidden]`. */
 .alert-pane[hidden] { display: none; }
+
+/* The active tab's white is drawn by the thumb, which `slideAlertTab` moves, so
+   the button's own `.mode.active` fill is taken off here. */
+.alert-tab-thumb {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 0;
+  border-radius: 5px;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  transition: transform 180ms ease-out, width 180ms ease-out;
+}
+.alert-tabs .mode {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.alert-tabs .mode.active { background: transparent; box-shadow: none; }
+.alert-tabs .mode.is-zero { opacity: 0.5; }
+.alert-dot { width: 7px; height: 7px; border-radius: 999px; }
+.alert-dot-task { background: #4f46e5; }
+.alert-dot-late { background: var(--stage-overdue-line); }
+.alert-dot-ready { background: var(--stage-active-line); }
+.alert-tab-count { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* The pane enters from the side its tab sits on. `animation` only, never
+   `display`: the panes are folded with `hidden`. */
+@keyframes alert-enter-right {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes alert-enter-left {
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: none; }
+}
+.alert-pane.is-entering-right { animation: alert-enter-right 160ms ease-out; }
+.alert-pane.is-entering-left { animation: alert-enter-left 160ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .alert-tab-thumb { transition: none; }
+  .alert-pane.is-entering-right, .alert-pane.is-entering-left { animation: none; }
+}
 
 .late-head { display: flex; align-items: baseline; gap: 8px; }
 .late-title { font-size: 13px; font-weight: 700; }
@@ -621,10 +677,6 @@
   color: var(--muted);
 }
 
-/* Indigo rather than the amber late count beside it: amber is "the plan
-   slipped", this is "somebody's name is on this". Chrome, not data. */
-.task-count { background: #4f46e5; }
-
 /* Rings while a row naming you is not Done, and it is deliberately a nudge
    rather than an alarm: `keepRinging` adds this class for under a second at a
    time and takes it off again. A bell that shakes without stopping is a bell
@@ -649,16 +701,11 @@
 }
 
 /* Mine and Everyone. Two halves of one scan rather than two panels: the
-   Everyone half is ungated and there is no root user, so it is a tab and not a
-   thing you have to be somebody to reach. */
-.task-tabs {
-  display: flex;
-  gap: 4px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--line-soft);
-}
+   Everyone half is ungated and there is no root user, so it is a filter anyone
+   can press. On the heading line rather than a row of tabs inside the tabs. */
+.task-filter { display: inline-flex; gap: 2px; align-self: center; }
 .task-tab {
-  padding: 4px 11px;
+  padding: 2px 9px;
   border: 1px solid transparent;
   border-radius: 999px;
   background: none;

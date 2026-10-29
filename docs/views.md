@@ -196,26 +196,37 @@ No deliverable gains an assignee.
 Nothing in this tab writes to the roadmap. A sprint that overruns is recorded in
 the file; phase dates change by hand on the Project tab or not at all.
 
-## The two bells
+## The bell
 
-Both sit in the top bar, both are **readouts rather than notifications**: each is
-derived on every read, everyone sees the same answer, and neither remembers that
-you looked. No dismissal, no snooze, no "new since you last looked".
+One bell in the top bar, with three kinds of news. Each has its own badge, its
+own colour and its own tab, and no count adds two of them together. All three are
+**readouts rather than notifications**: derived on every read, the same answer
+for everyone, and nothing remembers that you looked. No dismissal, no snooze, no
+"new since you last looked".
 
-| Bell | Reads | Shows |
-|---|---|---|
-| Amber | The roadmap rows and today's date | What is past its date, and what is finished but still open |
-| Indigo | The sprint files on disk | Rows whose **PIC** or **Reviewer** names you, or that mention `@you` |
+| Tab | Badge | Reads | Shows |
+|---|---|---|---|
+| **Assigned** | Indigo, top left | The sprint files on disk | Rows whose **PIC** or **Reviewer** names you, or that mention `@you` |
+| **Late** | Red, top right | The roadmap rows and today's date | Phases and checkpoints past their date |
+| **To close** | Green, bottom right | The roadmap rows | Phases with every deliverable ticked that are not yet marked done |
 
-The indigo one **rings** — a short shake every twenty seconds — while any row
-against your name is not `Done`. Setting that row's Status cell to `Done` is what
-stops it; there is nothing to dismiss. `Blocked` keeps ringing, because stuck work
-is exactly what wants a reminder.
+Pressing a badge opens its tab; pressing the bell itself opens the last tab you
+read if it still has news, otherwise the first one that does, in the order
+above. The bell takes the colour of its news when there is one kind, and goes
+grey when there is more than one. Hovering it names the counts. A tab with
+nothing in it stays in its place, dimmed, and moving between tabs slides the
+pane in from the side of the tab you moved to.
 
-Its panel has two halves. **Mine** is your rows. **Everyone** is the same scan
-grouped by person, busiest first, and it is **not gated** — there is no root user,
-and whoever opens it sees the same page. People with nothing against them are
-listed as such, because "Bernard has nothing this fortnight" is an answer.
+The bell **rings** — a short shake every twenty seconds — while any row against
+your name is not `Done`. Setting that row's Status cell to `Done` is what stops
+it; there is nothing to dismiss. `Blocked` keeps ringing, because stuck work is
+exactly what wants a reminder.
+
+**Assigned** has a **Mine | Everyone** switch on its heading. **Mine** is your
+rows. **Everyone** is the same scan grouped by person, busiest first, and it is
+**not gated** — there is no root user, and whoever opens it sees the same page.
+People with nothing against them are listed as such, because "Bernard has
+nothing this fortnight" is an answer.
 
 Pressing a row opens its sprint file scrolled to that row, and flashes it. A
 checklist line lands on its whole list, since lines are not addressed one by one.
