@@ -3238,24 +3238,64 @@ function renderTimeline() {
   }
   milestoneNotes(timeline, undated, offWindow);
   stackMilestoneLanes(timeline);  // needs layout, so after the chart is attached
-  if (view.long) fitBarDates(timeline);
+  fitBarLabels(timeline);
 }
 
-// A long view's bars carry their own two dates. Inside the bar where the name
-// and the dates both fit; otherwise beside it -- right, or left where the bar
-// runs to the chart's edge -- since every bar owns its row and the space beside
-// it is empty. Where neither side has room the dates go, and the hover still
-// has them. Needs layout, like `fitBarText`, so it runs after attach.
-function fitBarDates(root) {
+// A phase name cut to "Disc…" by its own bar is a chart that cannot be shown to
+// anyone, so on the project timeline a label that does not fit inside its bar
+// moves beside it. Every bar owns its row, so the space either side is empty.
+//
+// The label is the flag, the name and -- month scale only -- the dates, and
+// they leave together: half a label inside and half outside reads as two
+// things. The name is what has to survive, so the order of preference is
+//   right with dates, right without, left with dates, left without,
+// and only past all four is the name cut, on whichever side is wider, with an
+// ellipsis rather than mid-letter. A dropped date is still on the hover.
+//
+// The Portfolio has its own `fitBarText` and is not touched here: its lanes put
+// several bars on one row, where the space beside a bar is somebody else's.
+// Needs layout, so it runs after the chart is attached.
+const LABEL_GAP_PX = 8;
+const BAR_PADDING_PX = 12;  // `.bar`'s 6px either side -- mirrors the CSS
+
+function fitBarLabels(root) {
   for (const bar of root.querySelectorAll(".bar")) {
-    const dates = bar.querySelector(".bar-dates");
-    if (!dates || bar.scrollWidth <= bar.clientWidth) continue;
-    const need = dates.offsetWidth + 10;
+    const label = bar.querySelector(".bar-label");
+    if (!label || bar.scrollWidth <= bar.clientWidth) continue;
+    const dates = label.querySelector(".bar-dates");
+    const full = label.offsetWidth + LABEL_GAP_PX;
+    const bare = full - (dates ? dates.offsetWidth + LABEL_GAP_PX : 0);
     const row = bar.parentElement.getBoundingClientRect();
     const box = bar.getBoundingClientRect();
-    if (need <= row.right - box.right) bar.classList.add("dates-outside");
-    else if (need <= box.left - row.left) bar.classList.add("dates-outside", "dates-left");
-    else bar.classList.add("dates-hidden");
+    const right = row.right - box.right;
+    const left = box.left - row.left;
+
+    // A bar wide enough for its name but not its dates keeps the name: an empty
+    // bar with its own name printed beside it reads as a mistake. Only the dates
+    // step out, on the same right-then-left preference.
+    const inside = bar.clientWidth - BAR_PADDING_PX;
+    const datesNeed = dates ? dates.offsetWidth + LABEL_GAP_PX : 0;
+    if (dates && bare - LABEL_GAP_PX <= inside) {
+      if (datesNeed <= right) bar.classList.add("dates-outside");
+      else if (datesNeed <= left) bar.classList.add("dates-outside", "dates-left");
+      else bar.classList.add("label-no-dates");
+      continue;
+    }
+
+    bar.classList.add("label-outside");
+    const choice = [
+      [right, full, false, false], [right, bare, false, true],
+      [left, full, true, false], [left, bare, true, true],
+    ].find(([room, need]) => need <= room);
+    if (choice) {
+      const [, , onLeft, noDates] = choice;
+      bar.classList.toggle("label-left", onLeft);
+      bar.classList.toggle("label-no-dates", noDates);
+      continue;
+    }
+    bar.classList.add("label-no-dates");
+    bar.classList.toggle("label-left", left > right);
+    label.style.maxWidth = `${Math.max(left, right) - LABEL_GAP_PX}px`;
   }
 }
 
@@ -3301,19 +3341,23 @@ function phaseBar(phase, view, isWarned) {
   // warning, and a challenge is not a rule (amendment 10). The flag alone, no
   // word: a one-week bar is narrower than "challenge", and the word ate the
   // phase's name on every short bar of the real dataset.
+  // Everything written on the bar sits in one `.bar-label`, so the project
+  // timeline's `fitBarLabels` can move it beside the bar as a whole.
+  const label = element("span", "bar-label");
   const challenge = phaseChallenge(phase);
   if (challenge) {
-    bar.appendChild(challengeTag("", "span"));
+    label.appendChild(challengeTag("", "span"));
     bar.title += `\n\nChallenge: ${challenge}`;
   }
   // A span rather than a bare text node, so `fitBarText` can move it beside a
   // bar too short to hold it.
-  bar.appendChild(element("span", "bar-text", phase.name));
+  label.appendChild(element("span", "bar-text", phase.name));
   // Month scale only: with week columns the ruler already dates both ends.
   if (view.long) {
-    bar.appendChild(element("span", "bar-dates",
+    label.appendChild(element("span", "bar-dates",
       `${shortDate(phase.start_date)} – ${shortDate(phase.end_date)}`));
   }
+  bar.appendChild(label);
   return bar;
 }
 
@@ -3532,6 +3576,7 @@ function renderRelativeTimeline() {
   }
   milestoneNotes(timeline, undated, offWindow);
   stackMilestoneLanes(timeline);
+  fitBarLabels(timeline);
 }
 
 function relativeRuler(view) {
@@ -3573,7 +3618,10 @@ function relativeBar(phase, offset, view, warned) {
   const span = `W${Math.floor(offset) + 1}–W${Math.ceil(offset + phaseWeeks(phase))}`;
   bar.title = `${phase.name}: ${span} (${phase.duration_weeks}w, `
     + `${phase.effort_points} pts)  (drag to re-order)`;
-  bar.textContent = phase.name;
+  // The date timeline's label shape, so `fitBarLabels` handles both modes.
+  const label = element("span", "bar-label");
+  label.appendChild(element("span", "bar-text", phase.name));
+  bar.appendChild(label);
   return bar;
 }
 

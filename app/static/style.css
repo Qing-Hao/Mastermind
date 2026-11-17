@@ -2743,22 +2743,39 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 }
 .unscheduled-name { font-weight: 500; }
 
-/* A phase's own two dates, long view only. In the bar after the name when both
-   fit; `fitBarDates` moves them beside the bar when they do not, and then the
-   name is what gets the ellipsis -- `overflow: visible` on the bar would
-   otherwise let it run out over the dates. */
+/* A phase's own two dates, long view only, after the name inside the bar. */
 .bar-dates {
   margin-left: 8px;
   font-size: 11px;
   opacity: .75;
   font-variant-numeric: tabular-nums;
 }
-.bar.dates-outside { position: relative; overflow: visible; display: flex; }
-.bar.dates-outside .bar-text {
-  min-width: 0;
+
+/* Project timeline: a label too long for its bar is moved beside it by
+   `fitBarLabels`, flag, name and dates together. On the card's own ground for
+   the reason the Portfolio's outside text is: the gridlines and the today line
+   would otherwise run through the letters. `.label-no-dates` is the label that
+   only fits once its dates are dropped -- the hover keeps them. A label that
+   fits neither side gets a max-width inline and an ellipsis. */
+.bar.label-outside { position: relative; overflow: visible; }
+.bar.label-outside .bar-label {
+  position: absolute;
+  left: calc(100% + 4px);
+  top: 2px;
+  padding: 0 3px;
+  border-radius: 3px;
+  color: var(--ink-3);
+  background: var(--surface);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.bar.label-outside.label-left .bar-label { left: auto; right: calc(100% + 4px); }
+.bar.label-outside .bar-dates { opacity: 1; color: var(--muted); }
+.bar.label-no-dates .bar-dates { display: none; }
+/* The name fits its bar and only the dates do not: they step out alone. The
+   bar is the positioning box -- `.bar-label` is a plain inline span here. */
+.bar.dates-outside { position: relative; overflow: visible; }
 .bar.dates-outside .bar-dates {
   position: absolute;
   left: calc(100% + 4px);
@@ -2767,11 +2784,11 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   padding: 0 3px;
   border-radius: 3px;
   opacity: 1;
-  color: var(--ink-3);
+  color: var(--muted);
   background: var(--surface);
+  white-space: nowrap;
 }
 .bar.dates-outside.dates-left .bar-dates { left: auto; right: calc(100% + 4px); }
-.bar.dates-hidden .bar-dates { display: none; }
 
 .bar.draggable { cursor: grab; }
 .bar.dragging { cursor: grabbing; opacity: 0.75; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3); }
