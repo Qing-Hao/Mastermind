@@ -394,6 +394,73 @@ def test_layout_leaves_already_dated_phases_alone(client):
     assert pinned["start_date"] == "2026-10-01"
 
 
+# --- shift later items -----------------------------------------------------
+
+
+def shift_setup(client):
+    project = make_project(client, start="2026-11-16")
+    design = make_phase(client, project["id"], "Design", "2026-11-16", 2, 10)
+    build = make_phase(client, project["id"], "Build", "2026-11-30", 3, 30)
+    milestone = client.post(f"/api/projects/{project['id']}/milestones",
+                            json={"name": "Launch", "target_date": "2026-12-21"}).json()
+    return project, design, build, milestone
+
+
+def test_shift_preview_lists_later_items_and_writes_nothing(client):
+    project, design, build, milestone = shift_setup(client)
+    response = client.get(f"/api/projects/{project['id']}/shift",
+                          params={"phase": design["id"], "after": "2026-11-30", "days": 7})
+    assert response.status_code == 200
+    assert [(i["kind"], i["id"], i["to"]) for i in response.json()["move"]] == [
+        ("phase", build["id"], "2026-12-07"), ("milestone", milestone["id"], "2026-12-28")]
+    phases = plan_of(client, project["id"])["phases"]
+    assert [p["start_date"] for p in phases] == ["2026-11-16", "2026-11-30"]
+
+
+def test_shift_moves_exactly_the_items_sent_and_undo_puts_them_back(client):
+    project, design, build, milestone = shift_setup(client)
+    url = f"/api/projects/{project['id']}/shift"
+    items = [{"kind": "phase", "id": build["id"], "expect": "2026-11-30"},
+             {"kind": "milestone", "id": milestone["id"], "expect": "2026-12-21"}]
+    assert client.post(url, json={"days": 7, "items": items}).json() == {"moved": 2}
+    plan = plan_of(client, project["id"])
+    assert [p["start_date"] for p in plan["phases"]] == ["2026-11-16", "2026-12-07"]
+    assert plan["milestones"][0]["target_date"] == "2026-12-28"
+    versions = client.get(f"/api/versions/phase/{build['id']}",
+                          params={"field": "start_date"}).json()["rows"]
+    assert versions[0]["old_value"] == "2026-11-30"
+
+    back = [{"kind": "phase", "id": build["id"], "expect": "2026-12-07"},
+            {"kind": "milestone", "id": milestone["id"], "expect": "2026-12-28"}]
+    assert client.post(url, json={"days": -7, "items": back}).json() == {"moved": 2}
+    plan = plan_of(client, project["id"])
+    assert plan["phases"][1]["start_date"] == "2026-11-30"
+    assert plan["milestones"][0]["target_date"] == "2026-12-21"
+
+
+def test_shift_refuses_the_whole_batch_if_one_date_moved_meanwhile(client):
+    project, design, build, milestone = shift_setup(client)
+    client.put(f"/api/milestones/{milestone['id']}", json={"target_date": "2026-12-24"})
+    items = [{"kind": "phase", "id": build["id"], "expect": "2026-11-30"},
+             {"kind": "milestone", "id": milestone["id"], "expect": "2026-12-21"}]
+    response = client.post(f"/api/projects/{project['id']}/shift",
+                           json={"days": 7, "items": items})
+    assert response.status_code == 409
+    assert response.json()["detail"]["stale"] == [
+        {"kind": "milestone", "id": milestone["id"], "current": "2026-12-24"}]
+    # All or nothing: the phase that was still as shown did not move either.
+    assert plan_of(client, project["id"])["phases"][1]["start_date"] == "2026-11-30"
+
+
+def test_shift_refuses_a_row_from_another_project(client):
+    project, design, build, milestone = shift_setup(client)
+    other = make_project(client, name="Other")
+    response = client.post(f"/api/projects/{other['id']}/shift", json={
+        "days": 7, "items": [{"kind": "phase", "id": build["id"], "expect": "2026-11-30"}]})
+    assert response.status_code == 409
+    assert plan_of(client, project["id"])["phases"][1]["start_date"] == "2026-11-30"
+
+
 def test_layout_refuses_without_a_project_start_date(client):
     project = make_project(client, start="")
     make_phase(client, project["id"], "Dev", "", 1, 10)

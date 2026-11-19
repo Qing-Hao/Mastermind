@@ -166,6 +166,8 @@ and argument are in `PROMPT.md`, `feature_request.md` and `git log`.
 1. **The timeline never auto-reschedules.** Dates belong to the user. Every rule
    reports; nothing repairs. A plan may sit in a warning state forever. Layout and
    placement are user-triggered — a drop supplies the date, nothing is invented.
+   The "move the later items too?" banner (PROMPT.md amendment 12) is the same
+   footing: it lists every date it would write and moves nothing until Move.
 2. **Write-time refusals are for malformed data only, never for scheduling
    opinions.** There are exactly two: a dependency cycle (409) and a sprint file
    overlapping one on disk (409). Both refuse to *write* something bad; neither

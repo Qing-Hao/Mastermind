@@ -42,6 +42,7 @@ from app.validation import (
     shift_quarter,
     same_stored_value,
     sequential_layout,
+    shift_offer,
     stage_next_steps,
     stale_expectations,
     task_rings,
@@ -282,6 +283,78 @@ def test_relative_layout_agrees_with_sequential_layout():
     for phase_id, offset in relative_layout(phases).items():
         expected = project_start + timedelta(days=offset * 7)
         assert placements[phase_id] == expected.isoformat()
+
+
+# --- shift offer ------------------------------------------------------------
+
+
+def shift_plan():
+    """Design ends (exclusive) on 30 Nov. Build API and Build UI run side by side
+    from that day; Hardening sits a week after them, behind a buffer."""
+    phases = [
+        {**make_phase(1, "Discovery", start="2026-11-02", weeks=2), "status": "done"},
+        {**make_phase(2, "Design", start="2026-11-16", weeks=2), "status": "active"},
+        {**make_phase(3, "Build API", start="2026-11-30", weeks=3), "status": "planned"},
+        {**make_phase(4, "Build UI", start="2026-11-30", weeks=3), "status": "planned"},
+        {**make_phase(5, "Hardening", start="2026-12-28", weeks=2), "status": "planned"},
+        {**make_phase(6, "Someday", start="", weeks=2), "status": "planned"},
+    ]
+    milestones = [
+        {"id": 10, "name": "Kick-off", "target_date": "2026-11-02", "achieved": 1},
+        {"id": 11, "name": "Sign-off", "target_date": "2026-11-30", "achieved": 0},
+        {"id": 12, "name": "Launch", "target_date": "2027-01-11", "achieved": 0},
+        {"id": 13, "name": "Undated", "target_date": "", "achieved": 0},
+    ]
+    return phases, milestones
+
+
+def test_shift_offer_moves_everything_from_the_old_end_by_the_same_days():
+    phases, milestones = shift_plan()
+    offer = shift_offer(phases, milestones, 2, "2026-11-30", 7)
+    moved = [(item["kind"], item["id"], item["from"], item["to"]) for item in offer["move"]]
+    assert moved == [
+        ("phase", 3, "2026-11-30", "2026-12-07"),
+        ("phase", 4, "2026-11-30", "2026-12-07"),   # alongside Build API, still later
+        ("milestone", 11, "2026-11-30", "2026-12-07"),
+        ("phase", 5, "2026-12-28", "2027-01-04"),   # the week of buffer survives
+        ("milestone", 12, "2027-01-11", "2027-01-18"),
+    ]
+    assert offer["skip"] == []
+
+
+def test_shift_offer_never_offers_the_edited_phase_or_anything_before_it():
+    phases, milestones = shift_plan()
+    ids = {item["id"] for item in shift_offer(phases, milestones, 2, "2026-11-30", 7)["move"]}
+    assert not ids & {1, 2, 10}
+
+
+def test_shift_offer_leaves_done_and_achieved_items_and_says_why():
+    phases, milestones = shift_plan()
+    phases[2]["status"] = "done"
+    milestones[2]["achieved"] = 1
+    offer = shift_offer(phases, milestones, 2, "2026-11-30", 7)
+    assert [(item["id"], item["reason"]) for item in offer["skip"]] == [
+        (3, "done"), (12, "achieved")]
+    assert {item["id"] for item in offer["move"]} == {4, 5, 11}
+
+
+def test_shift_offer_ignores_undated_rows():
+    phases, milestones = shift_plan()
+    offer = shift_offer(phases, milestones, 2, "2026-11-30", 7)
+    listed = {item["id"] for item in offer["move"] + offer["skip"]}
+    assert 6 not in listed and 13 not in listed
+
+
+def test_shift_offer_pulls_earlier_when_a_phase_got_shorter():
+    phases, milestones = shift_plan()
+    offer = shift_offer(phases, milestones, 2, "2026-11-30", -7)
+    assert offer["move"][0]["to"] == "2026-11-23"
+
+
+def test_shift_offer_is_empty_with_no_movement_or_no_old_end():
+    phases, milestones = shift_plan()
+    assert shift_offer(phases, milestones, 2, "2026-11-30", 0) == {"move": [], "skip": []}
+    assert shift_offer(phases, milestones, 2, "", 7) == {"move": [], "skip": []}
 
 
 # --- V2 ---------------------------------------------------------------------

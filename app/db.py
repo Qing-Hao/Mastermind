@@ -1587,6 +1587,44 @@ def update_milestone(milestone_id, fields, author=""):
     return get_milestone(milestone_id)
 
 
+SHIFT_COLUMNS = {"phase": "start_date", "milestone": "target_date"}
+
+
+def shift_dates(project_id, moves, author=""):
+    """Re-date several rows of one project in one transaction, or none of them.
+
+    `moves` is a list of (kind, id, expected, new): `kind` is "phase" or
+    "milestone", `expected` the date the caller was looking at. If any row is
+    missing, belongs to another project, or no longer holds `expected`, nothing
+    is written and the offending items come back -- the caller answers 409. The
+    `expect` guard of a single-field PUT, for a batch: a shift that landed on
+    half its rows would be worse than one that landed on none.
+
+    Each row moved is logged in `item_version` under the same stamp, so the
+    hover tip on each date names who shifted it.
+    """
+    stale = []
+    with connect() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        stamp = now_iso()
+        for kind, row_id, expected, new in moves:
+            column = SHIFT_COLUMNS[kind]
+            row = connection.execute(
+                f"SELECT * FROM {kind} WHERE id = ?", (row_id,)).fetchone()
+            if (row is None or row["project_id"] != project_id
+                    or (row[column] or "") != (expected or "")):
+                stale.append({"kind": kind, "id": row_id,
+                              "current": row[column] if row is not None else None})
+                continue
+            changes = changed_fields(dict(row), {column: new}, [column])
+            connection.execute(
+                f"UPDATE {kind} SET {column} = ? WHERE id = ?", (new, row_id))
+            record_version(connection, kind, row_id, changes, author, stamp)
+        if stale:
+            connection.rollback()
+    return stale
+
+
 def delete_milestone(milestone_id):
     with connect() as connection:
         forget_many(connection, "milestone", [milestone_id])

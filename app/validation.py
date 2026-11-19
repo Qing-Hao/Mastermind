@@ -408,6 +408,66 @@ def relative_layout(phases):
     return offsets
 
 
+def shift_offer(phases, milestones, edited_phase_id, after, days):
+    """What a confirmed shift would move, after one phase's dates changed.
+
+    The rule behind the Project page's "move the later items too?" banner.
+    **This proposes; it never writes.** Non-negotiable 1 stands: nothing moves
+    until somebody presses Move, and the write that follows names every row it
+    touches (`/api/projects/{id}/shift`).
+
+    `after` is the edited phase's end date *before* the edit (exclusive, as
+    `phase_end_date` returns it). Everything starting -- or, for a checkpoint,
+    targeted -- on or after it is "later", whatever its place in the table,
+    so a phase running alongside the next one moves with it. The edited phase
+    itself is never offered; it has already been saved.
+
+    A done phase or an achieved checkpoint is history and stays put; it is
+    returned under `skip` with the reason, so the banner can say why. Undated
+    rows are neither: there is nothing to move.
+
+    Every item moves by the same `days`, so a gap somebody left between two
+    phases survives the shift. Returns {"move": [...], "skip": [...]}, each item
+    a dict of kind, id, name, from (and to, for a move), in date order.
+    """
+    threshold = as_optional_date(after)
+    days = int(days)
+    if threshold is None or days == 0:
+        return {"move": [], "skip": []}
+
+    rows = []
+    for phase in phases:
+        if phase["id"] == edited_phase_id:
+            continue
+        rows.append(("phase", phase, phase.get("start_date"),
+                     "done" if phase.get("status") == "done" else ""))
+    for milestone in milestones:
+        rows.append(("milestone", milestone, milestone.get("target_date"),
+                     "achieved" if milestone.get("achieved") else ""))
+
+    move, skip = [], []
+    for kind, row, value, held in rows:
+        when = as_optional_date(value)
+        if when is None or when < threshold:
+            continue
+        item = {"kind": kind, "id": row["id"], "name": row.get("name", ""),
+                "from": when.isoformat()}
+        if held:
+            skip.append({**item, "reason": held})
+        else:
+            move.append({**item, "to": shift_date(when, days)})
+
+    def order(item):
+        return (item["from"], item["kind"] != "phase", item["id"])
+    return {"move": sorted(move, key=order), "skip": sorted(skip, key=order)}
+
+
+def shift_date(value, days):
+    """`value` moved by whole `days`, as an ISO date. Calendar days, so a
+    shift of whole weeks keeps every row on its weekday."""
+    return (as_date(value) + timedelta(days=int(days))).isoformat()
+
+
 def effective_velocity(project, settings):
     """A project's velocity override, falling back to the global default."""
     override = project.get("velocity_override")
