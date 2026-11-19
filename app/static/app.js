@@ -20,6 +20,20 @@ const MS_PER_DAY = 86400000;
 // inverses -- month-derived widths vary between 13 and 14 weeks, and stepping
 // back by the current width would then drift.
 const MAX_WINDOW_WEEKS = 26;
+
+// Past that many columns the project timeline stops naming weeks and reads by
+// month instead -- the *same* week grid, squeezed, with a ruler that prints
+// months and a gridline per month. Nothing else changes scale: a bar is still
+// placed by the day, so its ends are exact even where the ruler no longer says
+// so, which is what the pinned dates are for. Two years is the cap; a column
+// narrower than MIN_LONG_WEEK_PX is a hairline nobody can hover.
+//
+// Project timeline only. The portfolio keeps the 26: its ruler is week cells
+// you click to open a fortnight, and a 6px cell is not a target.
+const MAX_PROJECT_WEEKS = 104;
+const MIN_LONG_WEEK_PX = 6;
+// The relative timeline has no months, so its long ruler counts in blocks.
+const LONG_BLOCK_WEEKS = 4;
 const WINDOW_PRESETS = [
   { label: "1 month", weeks: 4 },
   { label: "2 months", weeks: 9 },
@@ -902,9 +916,9 @@ function planDateRange() {
 
 // Frame the project window on the open plan. A custom range rather than a week
 // count, because the span is whatever it is and the preset list holds five
-// numbers; `resolveWindow` rounds it out to whole columns and caps it at
-// MAX_WINDOW_WEEKS, which is where the "capped at 26 weeks" note comes from on
-// a long plan.
+// numbers; `resolveWindow` rounds it out to whole columns. Past MAX_WINDOW_WEEKS
+// the chart draws at month scale (see MAX_PROJECT_WEEKS), so a long plan is
+// framed whole rather than cut at six months.
 function fitProjectWindow() {
   const range = planDateRange();
   if (!range) return;
@@ -934,11 +948,15 @@ function resolveWindow() {
 
   // A cleared or reversed custom range would otherwise give NaN or a negative,
   // and a chart sized NaN renders as nothing at all.
+  const cap = state.view === "project" ? MAX_PROJECT_WEEKS : MAX_WINDOW_WEEKS;
   const weeks = Number.isFinite(requested)
-    ? Math.min(Math.max(requested, 1), MAX_WINDOW_WEEKS)
+    ? Math.min(Math.max(requested, 1), cap)
     : MAX_WINDOW_WEEKS;
   return {
-    origin, weeks, totalDays: weeks * 7, clamped: requested > MAX_WINDOW_WEEKS, period: null,
+    origin, weeks, totalDays: weeks * 7, clamped: requested > cap, cap, period: null,
+    // Only ever true on the project page, since the portfolio's cap is the
+    // threshold itself.
+    long: weeks > MAX_WINDOW_WEEKS,
   };
 }
 
@@ -963,7 +981,8 @@ function weekGrid(chart, view, ruler = weekRuler) {
   // otherwise be what we measured, and the chart would never resize back down.
   chart.style.width = "";
   const gutter = view.gutterPx || 0;
-  view.pxPerWeek = fitWeekPx(chart, view.weeks, gutter);
+  view.pxPerWeek = fitWeekPx(chart, view.weeks, gutter,
+    view.long ? MIN_LONG_WEEK_PX : MIN_WEEK_PX);
   view.pxPerDay = view.pxPerWeek / 7;
 
   // Set on the chart rather than the document, since each chart fits its own
@@ -994,8 +1013,25 @@ function weekGrid(chart, view, ruler = weekRuler) {
 
   const body = element("div", "grid-body");
   body.style.width = `${width}px`;
+  // A long ruler says where its own lines go; the stylesheet's stripe is one per
+  // week column, which at month scale is a line every few pixels.
+  if (view.lines) drawGridLines(body, view.lines);
   chart.appendChild(body);
   return body;
+}
+
+// Gridlines as background layers rather than elements, for the reason the weekly
+// stripe is one: a positioned line paints *over* the bars, and these belong
+// under them. One 1px-wide layer per line, since months are four columns or five
+// and no repeating gradient lands on both. Inline, so it replaces the stripe
+// without the stylesheet having to know this mode exists.
+function drawGridLines(body, lines) {
+  body.style.backgroundImage = lines.length
+    ? lines.map(({ color }) => `linear-gradient(${color}, ${color})`).join(", ")
+    : "none";
+  body.style.backgroundSize = lines.map(({ width }) => `${width || 1}px 100%`).join(", ");
+  body.style.backgroundPosition = lines.map(({ x }) => `${x}px 0`).join(", ");
+  body.style.backgroundRepeat = "no-repeat";
 }
 
 // With its own width cleared the chart is a plain block, so it reports exactly
@@ -1005,11 +1041,13 @@ function weekGrid(chart, view, ruler = weekRuler) {
 //
 // The gutter is spent before the columns are fitted, so a name column narrows the
 // weeks rather than widening the chart past its container.
-function fitWeekPx(chart, weeks, gutter = 0) {
+function fitWeekPx(chart, weeks, gutter = 0, floor = MIN_WEEK_PX) {
   const available = chart.clientWidth - gutter;
-  if (available <= 0) return FALLBACK_WEEK_PX;  // hidden or not yet laid out
+  // Hidden or not yet laid out. The fallback is a weekly width, so a long view
+  // takes its own floor instead of drawing two years at 42px a week.
+  if (available <= 0) return floor < MIN_WEEK_PX ? floor * 2 : FALLBACK_WEEK_PX;
   const fitted = Math.floor(available / weeks);
-  return Math.min(Math.max(fitted, MIN_WEEK_PX), MAX_WEEK_PX);
+  return Math.min(Math.max(fitted, floor), MAX_WEEK_PX);
 }
 
 function weekRuler({ origin, weeks, pxPerWeek }) {
@@ -1052,6 +1090,108 @@ function weekRuler({ origin, weeks, pxPerWeek }) {
 
   ruler.append(monthRow, weekRow);
   return ruler;
+}
+
+// The long view's ruler: years over months, and no week row -- a week column is
+// 6-20px here and its Monday's date would not fit in it. Same rule as
+// `weekRuler` for which month a column belongs to (its Monday's), so a month
+// line still lands on a column edge and the two rulers agree about where March
+// starts.
+//
+// It also says where the gridlines go, on `view.lines`, and draws `view.pins`:
+// the project's first and last date, exact to the day, which is what the ruler
+// can no longer be read for.
+function monthRuler(view) {
+  const { origin, weeks, pxPerWeek } = view;
+  const ruler = element("div", "ruler");
+  const yearRow = element("div", "ruler-row ruler-months");
+  const monthRow = element("div", "ruler-row ruler-months");
+  // "Jan" needs about 26px; below that a month block holds one letter.
+  const narrow = pxPerWeek * 4 < 28;
+  const lines = [];
+
+  let year = null;
+  let yearKey = null;
+  let yearWeeks = 0;
+  let month = null;
+  let monthKey = null;
+  let monthWeeks = 0;
+
+  for (let index = 0; index < weeks; index += 1) {
+    const monday = addDays(origin, index * 7);
+    const newYear = monday.getFullYear() !== yearKey;
+    if (newYear) {
+      yearKey = monday.getFullYear();
+      yearWeeks = 0;
+      year = element("div", "month", String(yearKey));
+      yearRow.appendChild(year);
+    }
+    yearWeeks += 1;
+    year.style.width = `${yearWeeks * pxPerWeek}px`;
+
+    const key = `${monday.getFullYear()}-${monday.getMonth()}`;
+    if (key !== monthKey) {
+      monthKey = key;
+      monthWeeks = 0;
+      month = element("div", "month",
+        monday.toLocaleString(undefined, { month: narrow ? "narrow" : "short" }));
+      month.title = monday.toLocaleString(undefined, { month: "long", year: "numeric" });
+      monthRow.appendChild(month);
+      if (index > 0) {
+        lines.push({ x: index * pxPerWeek, color: newYear ? "#c8c8c8" : "#e6e6e6" });
+      }
+    }
+    monthWeeks += 1;
+    month.style.width = `${monthWeeks * pxPerWeek}px`;
+  }
+  ruler.append(yearRow, monthRow);
+
+  const pins = pinRow(view);
+  if (pins) {
+    ruler.appendChild(pins.row);
+    lines.push(...pins.lines);
+  }
+  view.lines = lines;
+  return ruler;
+}
+
+// The project's start and end, flagged on the ruler with the date written out.
+// A pin off the window is absent, the today line's rule: a flag parked at the
+// edge would say the project starts there.
+//
+// The start label reads rightwards from its pin and the end label leftwards
+// into its own, so both sit over the span they bound. Where the span is too
+// short for the two of them the end label turns outwards instead.
+const PIN_COLOR = "#5c6bc0";
+const PIN_PAIR_PX = 250;
+
+function pinRow(view) {
+  const placed = (view.pins || [])
+    .map((pin) => ({ ...pin, day: daysBetween(view.origin, parseDate(pin.date)) }))
+    .filter((pin) => pin.day >= 0 && pin.day <= view.totalDays)
+    .map((pin) => ({ ...pin, x: pin.day * view.pxPerDay }));
+  if (placed.length === 0) return null;
+
+  const width = view.weeks * view.pxPerWeek;
+  const start = placed.find((pin) => pin.side === "start");
+  const row = element("div", "ruler-row ruler-pins");
+  const lines = [];
+  for (const pin of placed) {
+    const label = `${pin.label} ${parseDate(pin.date).toLocaleDateString(
+      undefined, { day: "numeric", month: "short", year: "numeric" })}`;
+    const flag = element("div", "ruler-pin", label);
+    flag.title = `${pin.title}: ${pin.date}`;
+    const inward = pin.side === "end" && (!start || pin.x - start.x >= PIN_PAIR_PX);
+    if (inward) {
+      flag.classList.add("pin-end");
+      flag.style.right = `${width - pin.x}px`;
+    } else {
+      flag.style.left = `${pin.x}px`;
+    }
+    row.appendChild(flag);
+    lines.push({ x: Math.min(pin.x, width - 2), color: PIN_COLOR, width: 2 });
+  }
+  return { row, lines };
 }
 
 // The line marking today, for the body `weekGrid` returns. Both calendar charts
@@ -1098,7 +1238,7 @@ function redraw() {
 function renderWindowBar(container) {
   container.innerHTML = "";
   const win = activeWindow();
-  const { origin, weeks, clamped, period } = resolveWindow();
+  const { origin, weeks, clamped, cap, period } = resolveWindow();
   const custom = win.weeks === null && !period;
   const unit = !period ? "period" : period.kind === "Q" ? "quarter" : "half-year";
 
@@ -1255,7 +1395,7 @@ function renderWindowBar(container) {
 
   if (clamped) {
     container.appendChild(element("span", "error",
-      `Capped at ${MAX_WINDOW_WEEKS} weeks (about 6 months).`));
+      `Capped at ${cap} weeks (about ${cap > MAX_WINDOW_WEEKS ? "2 years" : "6 months"}).`));
   }
 }
 
@@ -3064,7 +3204,17 @@ function renderTimeline() {
     .map((phase) => phase.id));
   offWindowNote(timeline, phases.length - visible.size);
 
-  const body = weekGrid(timeline, view);
+  // Past six months the ruler reads by month, so the two dates it can no longer
+  // be read for are pinned on it. `span_end` is exclusive -- the day after the
+  // last phase's last day -- exactly as a bar's own right edge is.
+  if (view.long) {
+    const { span_start: spanStart, span_end: spanEnd } = state.plan.project;
+    view.pins = [
+      spanStart && { side: "start", label: "Start", title: "Project start", date: spanStart },
+      spanEnd && { side: "end", label: "End", title: "Project end", date: spanEnd },
+    ].filter(Boolean);
+  }
+  const body = weekGrid(timeline, view, view.long ? monthRuler : weekRuler);
   // Before the milestone rows, deliberately: both are positioned, so DOM order
   // is what decides which paints over the other, and a diamond and its label
   // must not be cut by the line. Bars need no such care -- they are plain block
@@ -3088,6 +3238,65 @@ function renderTimeline() {
   }
   milestoneNotes(timeline, undated, offWindow);
   stackMilestoneLanes(timeline);  // needs layout, so after the chart is attached
+  fitBarLabels(timeline);
+}
+
+// A phase name cut to "Disc…" by its own bar is a chart that cannot be shown to
+// anyone, so on the project timeline a label that does not fit inside its bar
+// moves beside it. Every bar owns its row, so the space either side is empty.
+//
+// The label is the flag, the name and -- month scale only -- the dates, and
+// they leave together: half a label inside and half outside reads as two
+// things. The name is what has to survive, so the order of preference is
+//   right with dates, right without, left with dates, left without,
+// and only past all four is the name cut, on whichever side is wider, with an
+// ellipsis rather than mid-letter. A dropped date is still on the hover.
+//
+// The Portfolio has its own `fitBarText` and is not touched here: its lanes put
+// several bars on one row, where the space beside a bar is somebody else's.
+// Needs layout, so it runs after the chart is attached.
+const LABEL_GAP_PX = 8;
+const BAR_PADDING_PX = 12;  // `.bar`'s 6px either side -- mirrors the CSS
+
+function fitBarLabels(root) {
+  for (const bar of root.querySelectorAll(".bar")) {
+    const label = bar.querySelector(".bar-label");
+    if (!label || bar.scrollWidth <= bar.clientWidth) continue;
+    const dates = label.querySelector(".bar-dates");
+    const full = label.offsetWidth + LABEL_GAP_PX;
+    const bare = full - (dates ? dates.offsetWidth + LABEL_GAP_PX : 0);
+    const row = bar.parentElement.getBoundingClientRect();
+    const box = bar.getBoundingClientRect();
+    const right = row.right - box.right;
+    const left = box.left - row.left;
+
+    // A bar wide enough for its name but not its dates keeps the name: an empty
+    // bar with its own name printed beside it reads as a mistake. Only the dates
+    // step out, on the same right-then-left preference.
+    const inside = bar.clientWidth - BAR_PADDING_PX;
+    const datesNeed = dates ? dates.offsetWidth + LABEL_GAP_PX : 0;
+    if (dates && bare - LABEL_GAP_PX <= inside) {
+      if (datesNeed <= right) bar.classList.add("dates-outside");
+      else if (datesNeed <= left) bar.classList.add("dates-outside", "dates-left");
+      else bar.classList.add("label-no-dates");
+      continue;
+    }
+
+    bar.classList.add("label-outside");
+    const choice = [
+      [right, full, false, false], [right, bare, false, true],
+      [left, full, true, false], [left, bare, true, true],
+    ].find(([room, need]) => need <= room);
+    if (choice) {
+      const [, , onLeft, noDates] = choice;
+      bar.classList.toggle("label-left", onLeft);
+      bar.classList.toggle("label-no-dates", noDates);
+      continue;
+    }
+    bar.classList.add("label-no-dates");
+    bar.classList.toggle("label-left", left > right);
+    label.style.maxWidth = `${Math.max(left, right) - LABEL_GAP_PX}px`;
+  }
 }
 
 // Half-open against the window: a phase touching the last day is still in.
@@ -3132,14 +3341,23 @@ function phaseBar(phase, view, isWarned) {
   // warning, and a challenge is not a rule (amendment 10). The flag alone, no
   // word: a one-week bar is narrower than "challenge", and the word ate the
   // phase's name on every short bar of the real dataset.
+  // Everything written on the bar sits in one `.bar-label`, so the project
+  // timeline's `fitBarLabels` can move it beside the bar as a whole.
+  const label = element("span", "bar-label");
   const challenge = phaseChallenge(phase);
   if (challenge) {
-    bar.appendChild(challengeTag("", "span"));
+    label.appendChild(challengeTag("", "span"));
     bar.title += `\n\nChallenge: ${challenge}`;
   }
   // A span rather than a bare text node, so `fitBarText` can move it beside a
   // bar too short to hold it.
-  bar.appendChild(element("span", "bar-text", phase.name));
+  label.appendChild(element("span", "bar-text", phase.name));
+  // Month scale only: with week columns the ruler already dates both ends.
+  if (view.long) {
+    label.appendChild(element("span", "bar-dates",
+      `${shortDate(phase.start_date)} – ${shortDate(phase.end_date)}`));
+  }
+  bar.appendChild(label);
   return bar;
 }
 
@@ -3318,10 +3536,13 @@ function renderRelativeTimeline() {
   }
 
   // Sized to the whole plan rather than a six-month window: there is no date to
-  // scroll to, so a plan longer than the page just scrolls sideways.
+  // scroll to. Only a plan too long for MIN_LONG_WEEK_PX scrolls sideways.
   const total = phases.reduce((sum, phase) => sum + phaseWeeks(phase), 0);
+  // Past six months of them the columns squeeze to fit the page and the ruler
+  // counts in blocks, the date timeline's long view with the calendar taken out.
   const view = { weeks: Math.max(Math.ceil(total), 1) };
   view.totalDays = view.weeks * 7;
+  view.long = view.weeks > MAX_WINDOW_WEEKS;
 
   const body = weekGrid(timeline, view, relativeRuler);
   const { marks, undated, offWindow } = relativeMilestoneMarks(view);
@@ -3355,11 +3576,29 @@ function renderRelativeTimeline() {
   }
   milestoneNotes(timeline, undated, offWindow);
   stackMilestoneLanes(timeline);
+  fitBarLabels(timeline);
 }
 
-function relativeRuler({ weeks }) {
+function relativeRuler(view) {
+  const { weeks } = view;
   const ruler = element("div", "ruler");
   const weekRow = element("div", "ruler-row ruler-weeks");
+  // Long: one cell per LONG_BLOCK_WEEKS, named for the week it opens on, and a
+  // gridline per block. Deliberately not "M1, M2" -- four weeks is not a month,
+  // and this view has no calendar to make it one.
+  if (view.long) {
+    view.lines = [];
+    for (let index = 0; index < weeks; index += LONG_BLOCK_WEEKS) {
+      const span = Math.min(LONG_BLOCK_WEEKS, weeks - index);
+      const cell = element("div", "month", `W${index + 1}`);
+      cell.style.width = `${span * view.pxPerWeek}px`;
+      cell.title = `Weeks ${index + 1}–${index + span} of the project`;
+      weekRow.appendChild(cell);
+      if (index > 0) view.lines.push({ x: index * view.pxPerWeek, color: "#e6e6e6" });
+    }
+    ruler.appendChild(weekRow);
+    return ruler;
+  }
   for (let index = 0; index < weeks; index += 1) {
     const cell = element("div", "week", `W${index + 1}`);
     cell.title = `Week ${index + 1} of the project`;
@@ -3379,7 +3618,10 @@ function relativeBar(phase, offset, view, warned) {
   const span = `W${Math.floor(offset) + 1}–W${Math.ceil(offset + phaseWeeks(phase))}`;
   bar.title = `${phase.name}: ${span} (${phase.duration_weeks}w, `
     + `${phase.effort_points} pts)  (drag to re-order)`;
-  bar.textContent = phase.name;
+  // The date timeline's label shape, so `fitBarLabels` handles both modes.
+  const label = element("span", "bar-label");
+  label.appendChild(element("span", "bar-text", phase.name));
+  bar.appendChild(label);
   return bar;
 }
 

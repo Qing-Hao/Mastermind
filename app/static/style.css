@@ -2303,6 +2303,26 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
    and the calendar. The grid body's first gridline draws the same edge, so the
    two line up down the whole chart without either being a rule of its own. */
 .ruler-gutter { flex: 0 0 auto; }
+
+/* The long (month-scale) project timeline: the project's first and last date,
+   flagged under the months. The row is a positioning box and nothing else, so
+   it takes its height from here rather than from its absolutely placed flags.
+   The colour is the clipped-bar edge's, the other mark that means "the plan
+   continues to here". */
+.ruler-pins { position: relative; height: 18px; }
+.ruler-pin {
+  position: absolute;
+  top: 2px;
+  padding: 0 5px;
+  border-left: 2px solid #5c6bc0;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  color: #3949ab;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.ruler-pin.pin-end { border-left: 0; border-right: 2px solid #5c6bc0; }
 .month:first-child, .week:first-child { border-left-color: transparent; }
 
 /* One line per week column, so a bar's start and length are readable off the
@@ -2722,6 +2742,53 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   background: var(--page);
 }
 .unscheduled-name { font-weight: 500; }
+
+/* A phase's own two dates, long view only, after the name inside the bar. */
+.bar-dates {
+  margin-left: 8px;
+  font-size: 11px;
+  opacity: .75;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Project timeline: a label too long for its bar is moved beside it by
+   `fitBarLabels`, flag, name and dates together. On the card's own ground for
+   the reason the Portfolio's outside text is: the gridlines and the today line
+   would otherwise run through the letters. `.label-no-dates` is the label that
+   only fits once its dates are dropped -- the hover keeps them. A label that
+   fits neither side gets a max-width inline and an ellipsis. */
+.bar.label-outside { position: relative; overflow: visible; }
+.bar.label-outside .bar-label {
+  position: absolute;
+  left: calc(100% + 4px);
+  top: 2px;
+  padding: 0 3px;
+  border-radius: 3px;
+  color: var(--ink-3);
+  background: var(--surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bar.label-outside.label-left .bar-label { left: auto; right: calc(100% + 4px); }
+.bar.label-outside .bar-dates { opacity: 1; color: var(--muted); }
+.bar.label-no-dates .bar-dates { display: none; }
+/* The name fits its bar and only the dates do not: they step out alone. The
+   bar is the positioning box -- `.bar-label` is a plain inline span here. */
+.bar.dates-outside { position: relative; overflow: visible; }
+.bar.dates-outside .bar-dates {
+  position: absolute;
+  left: calc(100% + 4px);
+  top: 2px;
+  margin: 0;
+  padding: 0 3px;
+  border-radius: 3px;
+  opacity: 1;
+  color: var(--muted);
+  background: var(--surface);
+  white-space: nowrap;
+}
+.bar.dates-outside.dates-left .bar-dates { left: auto; right: calc(100% + 4px); }
 
 .bar.draggable { cursor: grab; }
 .bar.dragging { cursor: grabbing; opacity: 0.75; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3); }
