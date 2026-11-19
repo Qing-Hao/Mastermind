@@ -1112,10 +1112,14 @@ def with_end_date(phase):
     empty <input type="date"> produces and accepts.
     """
     end = phase_end_date(phase)
+    last = last_weekday_before(end)
     return {
         **phase,
         "start_date": phase.get("start_date") or UNSCHEDULED,
         "end_date": end.isoformat() if end else UNSCHEDULED,
+        # The end is exclusive; this is the last weekday of work, for labels a
+        # customer reads (`validation.last_weekday_before`). Display only.
+        "last_weekday": last.isoformat() if last else UNSCHEDULED,
         "scheduled": end is not None,
     }
 

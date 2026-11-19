@@ -65,6 +65,8 @@ def test_phase_end_date_is_returned_and_correct(client):
     project = make_project(client)
     phase = make_phase(client, project["id"], "Design", "2026-01-05", 4, 40)
     assert phase["end_date"] == "2026-02-02"
+    # Exclusive Monday end: the last weekday of work is the Friday before.
+    assert phase["last_weekday"] == "2026-01-30"
 
 
 # --- criterion 5: the V1 worked example -------------------------------------

@@ -1927,6 +1927,33 @@ tr.row-warn td { background: #fff8e1; }
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
 
+/* The project timeline's screenshot switch, beside Dates/Weeks. Quiet, because it
+   is in the picture it helps take. */
+.shot-toggle {
+  margin-left: 8px;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ink-3);
+  vertical-align: middle;
+}
+.shot-toggle[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+
+/* Clean for screenshot: everything on the timeline that is for the team rather
+   than a customer. Hidden, not removed -- the rows keep their places, and the
+   switch's own redraw re-fits the labels without the flags. `display: none` on
+   ids that are also toggled with `hidden` is safe: it only ever hides. */
+.shot-mode .bar-warn { outline: none; }
+.shot-mode .today-line,
+.shot-mode .bar .challenge-tag,
+.shot-mode #mode-hint,
+.shot-mode #timeline-window,
+.shot-mode #timeline > p.muted { display: none; }
+.shot-mode .week.week-now { color: #999; font-weight: 400; }  /* `.week`'s own */
+
 /* --- the project view's own furniture ------------------------------------ */
 /* Goal and Details side by side. The sections keep their card rules and lose only
    the margin the grid's own gap replaces. Stacked below 900px, which is where two
