@@ -15,7 +15,7 @@ import tempfile
 import time
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
-
+from typing import Literal
 from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket
@@ -69,6 +69,8 @@ from app.validation import (
     roadmap_quarters,
     retrack,
     sequential_layout,
+    shift_date,
+    shift_offer,
     stage_next_steps,
     stale_expectations,
     task_state,
@@ -959,6 +961,19 @@ class PhasePatch(BaseModel):
     sort_order: int | None = None
     challenge: str | None = None
     expect: Expectation = None
+
+
+class ShiftItem(BaseModel):
+    kind: Literal["phase", "milestone"]
+    id: int
+    # The date the banner showed. The write is refused if the row holds anything
+    # else by now -- see `db.shift_dates`.
+    expect: str
+
+
+class ShiftIn(BaseModel):
+    days: int
+    items: list[ShiftItem]
 
 
 class DeliverableIn(BaseModel):
@@ -3596,6 +3611,53 @@ def layout_project(request: Request, project_id: int):
     # Once for the batch, not once per phase: every listener reloads whole.
     announce_roadmap()
     return {"placed": len(placements), "placements": placements}
+
+
+@app.get("/api/projects/{project_id}/shift")
+def preview_shift(project_id: int, phase: int, after: str, days: int):
+    """What the "move the later items too?" banner would offer. Reads only.
+
+    Asked after a phase's start or weeks were saved: `phase` is the one edited,
+    `after` its end date before the edit, `days` how far that end moved. The
+    rule is `validation.shift_offer`; nothing is written here.
+    """
+    require_project(project_id)
+    return shift_offer(db.list_phases(project_id), db.list_milestones(project_id),
+                       phase, after, days)
+
+
+@app.post("/api/projects/{project_id}/shift")
+def apply_shift(request: Request, project_id: int, body: ShiftIn):
+    """Move the items somebody ticked in the banner, by the same number of days.
+
+    **User-triggered, and only ever what was listed** -- the same footing as
+    `/layout`, and the reason this is not the auto-rescheduling non-negotiable 1
+    refuses. Each item carries the date the banner showed; if any row has moved
+    since, nothing is written and the answer is 409. Undo is this same call with
+    `days` negated and each item's new date as its `expect`.
+    """
+    require_project(project_id)
+    if not body.items or body.days == 0:
+        return {"moved": 0}
+    moves = []
+    for item in body.items:
+        expected = clean_date(item.expect)
+        if not expected:
+            raise HTTPException(status_code=422,
+                                detail="An undated item cannot be shifted.")
+        moves.append((item.kind, item.id, expected, shift_date(expected, body.days)))
+    stale = db.shift_dates(project_id, moves, author=signed_in_name(request))
+    if stale:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "Some of these dates changed since the offer was shown. "
+                         "Nothing was moved.",
+                "stale": stale,
+            },
+        )
+    announce_roadmap()
+    return {"moved": len(moves)}
 
 
 @app.put("/api/projects/{project_id}")

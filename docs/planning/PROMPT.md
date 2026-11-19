@@ -625,6 +625,38 @@ the text above, **the amendment wins** — the code follows the amendments.
     - **Plain numbers only.** `3h` and `half day` are skipped, not parsed. A unit
       grammar is a second format inside the first.
 
+12. **A changed phase can offer to move what comes after it.** *(Added
+    2026-11-19. Clarifies "never auto-reschedules" rather than narrowing it.)*
+
+    The request: lengthening a phase left every later phase and checkpoint where
+    it was, and re-dating each one by hand was the annoying part. The requester
+    wanted to be *asked*, every time, and to be able to say no: *"I want it
+    optional, not necessarily it is needed."*
+
+    **Why this is not auto-rescheduling.** Nothing moves on its own. Saving a
+    phase's start or weeks saves that phase and nothing else; a banner then lists
+    each later item with its old and new date, and only **Move** writes them.
+    That is "Lay out sequentially"'s footing: user-triggered, and every date
+    written is one somebody was shown.
+
+    The shape (`validation.shift_offer`, `POST /api/projects/{id}/shift`):
+
+    - **Later means by date, not by row:** everything starting or targeted on or
+      after the edited phase's *old* end, so a phase running alongside the next
+      one moves with it.
+    - **Everything moves by the same days**, so a buffer left between two phases
+      survives. Shortening offers to pull items earlier the same way.
+    - **Done phases and achieved checkpoints stay**, listed with the reason.
+    - **Each item can be unticked**; the write is all-or-nothing against the
+      dates the banner showed (409 if any has moved since), and **Undo** is the
+      same call reversed, for fifteen seconds.
+
+    The lines: **never across projects** (a dependency still warns, never
+    moves); **never without the banner** (no setting that makes it automatic, and
+    no remembered answer, which would be a per-user preference); and **nothing
+    derives from it** (it is a write of dates, logged in `item_version` like any
+    other).
+
 Deliverables inside a phase are treated as **sequential**, so durations sum. Work
 that genuinely runs in parallel belongs in separate phases.
 

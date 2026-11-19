@@ -2625,6 +2625,11 @@ async function loadPlan() {
   // could edit a field and hover it and get nothing, which is exactly what
   // happened. The write that just landed is the one that changed the answer.
   loadBlame();
+  // The shift offer is re-asked on every load, not only after the save that
+  // opened it: somebody else moving a date under an open offer changes what it
+  // should list, and a stale list would write over their move (the server would
+  // refuse it, but the banner should not be offering it in the first place).
+  await refreshShiftOffer();
   // Naming a deliverable, setting a date or ticking the last milestone all
   // change the badge on the project you are looking at, and every edit lands
   // here. Re-reading the list is one localhost query, and it keeps the ladder
@@ -3349,6 +3354,7 @@ function placeBar(bar, from, to, view) {
 function phaseBar(phase, view, isWarned) {
   const { from, to } = phaseSpan(phase, view);
   const bar = element("div", `bar status-${phase.status}${isWarned ? " bar-warn" : ""}`);
+  bar.dataset.shiftKey = `phase:${phase.id}`;  // what `slideFrom` follows across a redraw
   placeBar(bar, from, to, view);
   bar.title = `${phase.name}: ${phase.start_date} to ${phase.end_date} `
     + `(${phase.duration_weeks}w, ${phase.effort_points} pts)`
@@ -3411,6 +3417,7 @@ function milestoneLane(marks) {
     const mark = element("div",
       `milestone-mark${milestone.achieved ? " reached" : ""}`);
     mark.style.left = `${x}px`;
+    mark.dataset.shiftKey = `milestone:${milestone.id}`;
     mark.title = `${milestone.name}${milestone.target_date ? ` — ${milestone.target_date}` : ""}`
       + (milestone.achieved ? " (reached)" : "");
     mark.appendChild(element("span", "milestone-diamond"));
@@ -3858,8 +3865,8 @@ function phaseRow(phase, warned) {
     nameInput.blur();
   };
   row.appendChild(nameCell);
-  row.appendChild(fieldCell(phase, "start_date", "date", savePhase, {}, "phase"));
-  row.appendChild(fieldCell(phase, "duration_weeks", "number", savePhase,
+  row.appendChild(fieldCell(phase, "start_date", "date", savePhaseDates, {}, "phase"));
+  row.appendChild(fieldCell(phase, "duration_weeks", "number", savePhaseDates,
     { step: "0.5", min: "0" }, "phase"));
   row.appendChild(fieldCell(phase, "effort_points", "number", savePhase,
     { step: "1", min: "0" }, "phase"));
@@ -4278,6 +4285,277 @@ async function savePhase(phaseId, fields) {
     reportStaleWrite(failure);
   }
   await loadPlan();
+}
+
+// --- shifting the later items --------------------------------------------------
+//
+// After a phase's start or weeks change, the banner above the phase table offers
+// to move everything later by the same number of days. **An offer, never a
+// move:** the edit itself saves as it always did, and nothing else moves until
+// Move is pressed -- non-negotiable 1. Which items count as later is
+// `validation.shift_offer`, asked of the server rather than copied here.
+//
+// One offer at a time, for one phase. Several edits to the same phase add up
+// into it (`after` is that phase's end before the *first* of them), so nudging
+// Weeks up three clicks is one offer of three half-weeks, and nudging it back
+// to where it was closes the offer. Editing a different phase starts afresh.
+// Not in `state` and never stored: a reload forgets it, as it should.
+let shiftState = null;
+
+const shiftItemKey = (item) => `${item.kind}:${item.id}`;
+
+async function savePhaseDates(phaseId, fields) {
+  const phase = state.plan.phases.find((one) => one.id === phaseId);
+  const current = shiftState;
+  const continuing = current && !current.done && current.phaseId === phaseId
+    && current.projectId === state.currentProjectId;
+  if (!continuing) {
+    if (current && current.done) clearTimeout(current.done.timer);
+    // `end_date` is exclusive, the day after the last day -- exactly what
+    // `shift_offer` measures "later" from. An undated phase has none, and so
+    // nothing to measure a shift by: giving it its first date offers nothing.
+    shiftState = phase && phase.end_date ? {
+      projectId: state.currentProjectId,
+      phaseId,
+      after: phase.end_date,
+      days: 0,
+      offer: null,
+      unticked: new Set(),
+      done: null,
+    } : null;
+  }
+  await savePhase(phaseId, fields);
+}
+
+async function refreshShiftOffer() {
+  const offer = shiftState;
+  if (offer && !offer.done) {
+    const phase = offer.projectId === state.currentProjectId
+      && state.plan.phases.find((one) => one.id === offer.phaseId);
+    offer.days = phase && phase.end_date
+      ? daysBetween(parseDate(offer.after), parseDate(phase.end_date)) : 0;
+    if (!offer.days) {
+      shiftState = null;
+    } else {
+      offer.phaseName = phase.name;
+      const query = new URLSearchParams({
+        phase: offer.phaseId, after: offer.after, days: offer.days });
+      try {
+        offer.offer = await api(`/api/projects/${offer.projectId}/shift?${query}`);
+      } catch (_) {
+        offer.offer = null;
+      }
+      // A newer edit replaced this offer while it was being asked for.
+      if (shiftState !== offer) return;
+      if (!offer.offer || offer.offer.move.length === 0) shiftState = null;
+    }
+  } else if (offer && offer.done && offer.projectId !== state.currentProjectId) {
+    clearTimeout(offer.done.timer);
+    shiftState = null;
+  }
+  renderShiftOffer();
+}
+
+// "1 week", "3 weeks", or "10 days" when it is not whole weeks.
+function shiftAmount(days) {
+  const size = Math.abs(days);
+  if (size % 7 === 0) return `${size / 7} week${size === 7 ? "" : "s"}`;
+  return `${size} day${size === 1 ? "" : "s"}`;
+}
+
+function shiftWhat(items) {
+  const phases = items.filter((item) => item.kind === "phase").length;
+  const checkpoints = items.length - phases;
+  return [
+    phases && `${phases} later phase${phases === 1 ? "" : "s"}`,
+    checkpoints && `${checkpoints} checkpoint${checkpoints === 1 ? "" : "s"}`,
+  ].filter(Boolean).join(" and ");
+}
+
+function renderShiftOffer() {
+  const box = $("shift-offer");
+  const body = $("shift-offer-body");
+  const offer = shiftState;
+  const open = Boolean(offer && (offer.done || (offer.offer && offer.offer.move.length)));
+  box.classList.toggle("is-open", open);
+  // Shut, it still holds its last content while it slides away -- so it is
+  // taken out of the tab order and away from screen readers rather than emptied.
+  box.inert = !open;
+  if (!open) return;
+
+  body.replaceChildren();
+  body.classList.toggle("is-done", Boolean(offer.done));
+  const later = (offer.done ? offer.done.days : offer.days) > 0;
+  const direction = later ? "later" : "earlier";
+
+  if (offer.done) {
+    const head = element("div", "shift-head");
+    const count = offer.done.items.length;
+    head.appendChild(element("span", "",
+      `Moved ${count} item${count === 1 ? "" : "s"} ${shiftAmount(offer.done.days)} ${direction}.`));
+    const undo = element("button", "btn-ghost", "Undo");
+    undo.type = "button";
+    undo.onclick = undoShift;
+    head.appendChild(undo);
+    body.appendChild(head);
+    return;
+  }
+
+  const { move, skip } = offer.offer;
+  const chosen = move.filter((item) => !offer.unticked.has(shiftItemKey(item)));
+  const amount = shiftAmount(offer.days);
+
+  const head = element("div", "shift-head");
+  head.appendChild(element("strong", "",
+    `${offer.phaseName} now ends ${amount} ${direction}. `
+    + `Move ${shiftWhat(move)} ${direction} by ${amount} too?`));
+  head.appendChild(element("span", "spacer"));
+  const dismiss = element("button", "", "Only this phase");
+  dismiss.type = "button";
+  dismiss.onclick = () => {
+    shiftState = null;
+    renderShiftOffer();
+  };
+  const apply = element("button", "btn-primary",
+    `Move ${chosen.length} item${chosen.length === 1 ? "" : "s"}`);
+  apply.type = "button";
+  apply.disabled = chosen.length === 0;
+  apply.onclick = applyShift;
+  head.append(dismiss, apply);
+
+  const list = element("ul", "shift-list");
+  const glyph = (item) => (item.kind === "milestone" ? "◆ " : "");
+  for (const item of move) {
+    const key = shiftItemKey(item);
+    const line = element("li", offer.unticked.has(key) ? "is-off" : "");
+    const tick = element("input");
+    tick.type = "checkbox";
+    tick.id = `shift-tick-${item.kind}-${item.id}`;
+    tick.checked = !offer.unticked.has(key);
+    tick.onchange = () => {
+      if (tick.checked) offer.unticked.delete(key); else offer.unticked.add(key);
+      renderShiftOffer();
+      $(tick.id)?.focus();
+    };
+    const label = element("label", "", glyph(item) + item.name);
+    label.htmlFor = tick.id;
+    const when = element("span", "shift-when");
+    when.append(element("s", "", shortDate(item.from)), " → ",
+      element("b", "", shortDate(item.to)));
+    line.append(tick, label, when);
+    list.appendChild(line);
+  }
+  for (const item of skip) {
+    const line = element("li");
+    line.append(element("span"),
+      element("span", "shift-skip", glyph(item) + item.name),
+      element("span", "shift-skip", `stays (${item.reason})`));
+    list.appendChild(line);
+  }
+
+  body.append(head, list, element("div", "shift-foot",
+    "Your change to this phase is already saved. This only decides about the "
+    + "items listed. Nothing else moves unless you press Move."));
+}
+
+async function applyShift() {
+  const offer = shiftState;
+  if (!offer || !offer.offer || offer.done) return;
+  const chosen = offer.offer.move.filter((item) => !offer.unticked.has(shiftItemKey(item)));
+  if (chosen.length === 0) return;
+  const before = chartPositions();
+  try {
+    await api(`/api/projects/${offer.projectId}/shift`, {
+      method: "POST",
+      body: JSON.stringify({
+        days: offer.days,
+        items: chosen.map((item) => ({ kind: item.kind, id: item.id, expect: item.from })),
+      }),
+    });
+  } catch (failure) {
+    // Somebody moved one of these since the offer was drawn. Nothing was
+    // written; the reload re-asks the offer against the dates as they are now.
+    reportStaleWrite(failure);
+    await loadPlan();
+    return;
+  }
+  offer.done = { items: chosen, days: offer.days };
+  offer.done.timer = setTimeout(() => {
+    if (shiftState === offer) {
+      shiftState = null;
+      renderShiftOffer();
+    }
+  }, 15000);
+  await loadPlan();
+  slideFrom(before);
+  flashShifted(chosen);
+}
+
+// The same call with the days negated, each item expected where the shift put
+// it. Refused like any shift if one has moved again since.
+async function undoShift() {
+  const offer = shiftState;
+  if (!offer || !offer.done) return;
+  clearTimeout(offer.done.timer);
+  const { items, days } = offer.done;
+  shiftState = null;
+  const before = chartPositions();
+  try {
+    await api(`/api/projects/${offer.projectId}/shift`, {
+      method: "POST",
+      body: JSON.stringify({
+        days: -days,
+        items: items.map((item) => ({ kind: item.kind, id: item.id, expect: item.to })),
+      }),
+    });
+  } catch (failure) {
+    reportStaleWrite(failure);
+  }
+  await loadPlan();
+  slideFrom(before);
+  flashShifted(items);
+}
+
+// Where every bar and checkpoint on the project timeline sits right now, so the
+// redraw after a shift can start each one there and slide it to its new place.
+function chartPositions() {
+  const where = new Map();
+  for (const node of $("timeline").querySelectorAll("[data-shift-key]")) {
+    where.set(node.dataset.shiftKey, node.getBoundingClientRect().left);
+  }
+  return where;
+}
+
+// FLIP: put each redrawn node back where it was with `translate`, let the
+// browser see that, then drop it and let the transition carry it home. A node
+// that was not on the chart before (scrolled in from outside the window) just
+// appears.
+function slideFrom(before) {
+  if (!before.size || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  for (const node of $("timeline").querySelectorAll("[data-shift-key]")) {
+    const was = before.get(node.dataset.shiftKey);
+    if (was === undefined) continue;
+    const dx = was - node.getBoundingClientRect().left;
+    if (Math.abs(dx) < 1) continue;
+    node.style.translate = `${dx}px 0`;
+    node.getBoundingClientRect();
+    node.classList.add("is-sliding");
+    node.style.translate = "";
+    node.addEventListener("transitionend",
+      () => node.classList.remove("is-sliding"), { once: true });
+  }
+}
+
+function flashShifted(items) {
+  for (const item of items) {
+    const field = item.kind === "phase" ? "start_date" : "target_date";
+    const input = document.querySelector(
+      `#phase-table [data-presence="${presenceKey(item.kind, item.id, field)}"]`);
+    if (!input) continue;
+    input.classList.add("shift-moved");
+    input.addEventListener("animationend",
+      () => input.classList.remove("shift-moved"), { once: true });
+  }
 }
 
 async function saveDeliverable(deliverableId, fields) {

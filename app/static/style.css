@@ -2004,6 +2004,68 @@ tr.row-warn td { background: #fff8e1; }
 .warnings-banner.is-clear .warnings-note { display: none; }
 .warnings-banner.is-clear .warnings-head strong { color: #2e7d32; font-weight: 500; }
 
+/* The "move the later items too?" offer above the phase table. **Not toggled
+   with `hidden`** -- `.is-open` drives it -- so the `display: grid` here is not
+   the `[hidden]` trap. The 0fr -> 1fr row is what lets it slide open and shut
+   rather than shove the table down in one frame; the clip is the row's only
+   child, so its padding cannot leak out while the row is at zero. Chrome, not
+   data: the accent wash is the one accent, and nothing here means a state. */
+.shift-offer {
+  display: grid;
+  grid-template-rows: 0fr;
+  margin-bottom: 0;
+  transition: grid-template-rows 0.28s ease, margin-bottom 0.28s ease;
+}
+.shift-offer.is-open { grid-template-rows: 1fr; margin-bottom: 12px; }
+.shift-offer-clip { min-height: 0; overflow: hidden; }
+.shift-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--accent-ring);
+  border-radius: var(--radius-card);
+  background: var(--accent-soft);
+  padding: 12px 14px;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+.shift-offer.is-open .shift-card { opacity: 1; transform: none; }
+.shift-card.is-done { border-color: var(--line); background: var(--surface); }
+.shift-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.shift-head strong { font-size: 13.5px; font-weight: 600; }
+.shift-head .spacer { flex: 1; }
+.shift-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-size: 13px; max-width: 36rem; }
+.shift-list li {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: var(--radius);
+}
+.shift-list li:hover { background: var(--surface); }
+.shift-list input { min-width: 0; margin: 0; }
+.shift-when { white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; }
+.shift-when s { color: var(--faint); }
+.shift-when b { color: var(--accent-hover); font-weight: 600; }
+.shift-list li.is-off .shift-when b { color: var(--faint); font-weight: 400; text-decoration: line-through; }
+.shift-skip { color: var(--faint); font-style: italic; }
+.shift-foot { font-size: 12px; color: var(--muted); }
+/* A date the shift just wrote, in the table. Fades out on its own. */
+input.shift-moved { animation: shift-moved 1.8s ease-out; }
+@keyframes shift-moved {
+  from { background: var(--accent-soft); box-shadow: 0 0 0 3px var(--accent-ring); }
+}
+/* A bar or checkpoint sliding from where it was to where the shift put it.
+   `translate`, not `transform`: a checkpoint already uses `transform` to
+   centre its diamond, and the two compose rather than fight. Set and cleared
+   by `slideFrom` in app.js. Motion only -- no colour, so it is not a chart rule. */
+.is-sliding { transition: translate 0.5s cubic-bezier(0.2, 0.7, 0.2, 1); }
+@media (prefers-reduced-motion: reduce) {
+  .shift-offer, .shift-card, .is-sliding { transition: none; }
+  input.shift-moved { animation: none; }
+}
+
 /* The steps left to `active`. Toggled with `hidden`, so no `display` here on
    `.road-panel` itself -- the `[hidden]` trap. */
 .road-panel {
