@@ -223,6 +223,27 @@ def project_span(project, phases):
     return (min(starts) if starts else None, max(finals) if finals else None)
 
 
+def last_weekday_before(end):
+    """The last Monday-to-Friday day of work that finishes before `end`.
+
+    Every end date here is exclusive -- start plus whole weeks lands on the day
+    after the last day, so a phase started on a Monday "ends" on a Monday. That
+    is right for arithmetic and wrong for a customer reading a chart, who takes
+    "ends 20 Sep" to mean work on the 20th. This is the date to say instead: the
+    day before, stepped back over a weekend.
+
+    Weekends only. There is no holiday calendar, and inventing one would be a
+    store of dates nobody entered. Display only -- no rule, stage or warning
+    reads it, and `end` itself is unchanged. None in, None out.
+    """
+    if end is None:
+        return None
+    day = end - timedelta(days=1)
+    while day.weekday() >= 5:  # Saturday 5, Sunday 6
+        day -= timedelta(days=1)
+    return day
+
+
 # --- quarters ---------------------------------------------------------------
 #
 # The roadmap mode of the map reads a plan by calendar quarter instead of by

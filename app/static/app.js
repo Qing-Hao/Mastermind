@@ -1163,7 +1163,7 @@ function monthRuler(view) {
 // into its own, so both sit over the span they bound. Where the span is too
 // short for the two of them the end label turns outwards instead.
 const PIN_COLOR = "#5c6bc0";
-const PIN_PAIR_PX = 250;
+const PIN_PAIR_PX = 420;
 
 function pinRow(view) {
   const placed = (view.pins || [])
@@ -1181,6 +1181,16 @@ function pinRow(view) {
       undefined, { day: "numeric", month: "short", year: "numeric" })}`;
     const flag = element("div", "ruler-pin", label);
     flag.title = `${pin.title}: ${pin.date}`;
+    // The end date is exclusive -- the day after the last day -- so the pin
+    // also names the last weekday of work (`validation.last_weekday_before`),
+    // which is what a customer reading a screenshot takes "End" to mean.
+    if (pin.lastWeekday) {
+      flag.appendChild(element("span", "pin-last",
+        ` · last working day ${parseDate(pin.lastWeekday).toLocaleDateString(
+          undefined, { weekday: "short", day: "numeric", month: "short" })}`));
+      flag.title += `\nLast working day: ${pin.lastWeekday} (weekends skipped, `
+        + "holidays not known)";
+    }
     const inward = pin.side === "end" && (!start || pin.x - start.x >= PIN_PAIR_PX);
     if (inward) {
       flag.classList.add("pin-end");
@@ -3208,10 +3218,14 @@ function renderTimeline() {
   // be read for are pinned on it. `span_end` is exclusive -- the day after the
   // last phase's last day -- exactly as a bar's own right edge is.
   if (view.long) {
-    const { span_start: spanStart, span_end: spanEnd } = state.plan.project;
+    const {
+      span_start: spanStart, span_end: spanEnd, span_last_weekday: lastWeekday,
+    } = state.plan.project;
     view.pins = [
       spanStart && { side: "start", label: "Start", title: "Project start", date: spanStart },
-      spanEnd && { side: "end", label: "End", title: "Project end", date: spanEnd },
+      spanEnd && {
+        side: "end", label: "End", title: "Project end", date: spanEnd, lastWeekday,
+      },
     ].filter(Boolean);
   }
   const body = weekGrid(timeline, view, view.long ? monthRuler : weekRuler);

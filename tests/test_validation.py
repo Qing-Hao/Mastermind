@@ -30,6 +30,7 @@ from app.validation import (
     phase_challenges,
     project_progress,
     project_span,
+    last_weekday_before,
     project_stage,
     is_quarter_period,
     quarter_bounds,
@@ -181,6 +182,25 @@ def test_span_runs_from_the_earliest_start_to_the_latest_end():
         make_phase(2, "Build", start="2026-02-02", weeks=6),    # ends 2026-03-16
     ]
     assert project_span(PROJECT, phases) == (date(2026, 1, 5), date(2026, 3, 16))
+
+
+def test_last_weekday_steps_back_over_the_weekend():
+    """A Monday end is exclusive: the last day worked is the Friday before."""
+    assert last_weekday_before(date(2027, 9, 20)) == date(2027, 9, 17)  # Mon -> Fri
+
+
+def test_last_weekday_is_the_day_before_midweek():
+    """A fractional-week phase can end midweek; then it is simply the day before."""
+    assert last_weekday_before(date(2026, 3, 18)) == date(2026, 3, 17)  # Wed -> Tue
+
+
+def test_last_weekday_from_a_sunday_or_saturday_end():
+    assert last_weekday_before(date(2026, 3, 22)) == date(2026, 3, 20)  # Sun -> Fri
+    assert last_weekday_before(date(2026, 3, 21)) == date(2026, 3, 20)  # Sat -> Fri
+
+
+def test_last_weekday_of_no_end_is_none():
+    assert last_weekday_before(None) is None
 
 
 def test_span_start_can_precede_the_project_start_date():

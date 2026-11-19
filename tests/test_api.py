@@ -699,6 +699,8 @@ def test_a_project_payload_carries_the_same_span_the_portfolio_reports(client):
 
     assert plan["span_start"] == lane["span_start"] == "2026-01-05"
     assert plan["span_end"] == lane["span_end"] == "2026-03-16"
+    # 2026-03-16 is a Monday, exclusive: the last day worked is the Friday.
+    assert plan["span_last_weekday"] == lane["span_last_weekday"] == "2026-03-13"
     assert plan["phase_count"] == lane["phase_count"] == 2
     assert plan["total_points"] == lane["total_points"] == 95
     assert plan["completion"] == lane["completion"]
@@ -712,6 +714,7 @@ def test_an_undated_project_reports_no_span_on_its_own_payload_either(client):
     plan = client.get(f"/api/projects/{project['id']}").json()["project"]
     assert plan["span_start"] == ""
     assert plan["span_end"] == ""
+    assert plan["span_last_weekday"] == ""
     assert plan["phase_count"] == 1
 
 

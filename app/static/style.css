@@ -2323,6 +2323,7 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
   font-variant-numeric: tabular-nums;
 }
 .ruler-pin.pin-end { border-left: 0; border-right: 2px solid #5c6bc0; }
+.ruler-pin .pin-last { font-weight: 500; color: var(--muted); }
 .month:first-child, .week:first-child { border-left-color: transparent; }
 
 /* One line per week column, so a bar's start and length are readable off the
