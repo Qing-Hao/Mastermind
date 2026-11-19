@@ -60,6 +60,7 @@ from app.validation import (
     project_effort_points,
     project_progress,
     project_span,
+    last_weekday_before,
     project_stage,
     quarter_bounds,
     quarter_of,
@@ -1111,10 +1112,14 @@ def with_end_date(phase):
     empty <input type="date"> produces and accepts.
     """
     end = phase_end_date(phase)
+    last = last_weekday_before(end)
     return {
         **phase,
         "start_date": phase.get("start_date") or UNSCHEDULED,
         "end_date": end.isoformat() if end else UNSCHEDULED,
+        # The end is exclusive; this is the last weekday of work, for labels a
+        # customer reads (`validation.last_weekday_before`). Display only.
+        "last_weekday": last.isoformat() if last else UNSCHEDULED,
         "scheduled": end is not None,
     }
 
@@ -1411,6 +1416,10 @@ def with_project_span(projects, phases_by_project, deliverables_by_project):
         start, end = project_span(project, own)
         project["span_start"] = start.isoformat() if start else UNSCHEDULED
         project["span_end"] = end.isoformat() if end else UNSCHEDULED
+        # What the timeline's End pin names beside `span_end`, for a reader who
+        # takes "ends Monday" to mean working on Monday. Display only.
+        last = last_weekday_before(end)
+        project["span_last_weekday"] = last.isoformat() if last else UNSCHEDULED
         project["phase_count"] = len(own)
         project["total_points"] = project_effort_points(own)
         project["phases_done"] = project_progress(own)["done"]

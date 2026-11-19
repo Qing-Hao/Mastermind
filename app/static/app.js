@@ -187,6 +187,8 @@ const ROADMAP_STAGE_DEFAULT = ["planning", "dated", "active"];
 
 let state = {
   view: "project",
+  // The timeline's "Clean for screenshot" switch. Never saved: off on every load.
+  shotMode: false,
   projects: [],
   // What the sidebar's project list is narrowed to. A way of looking, like
   // `mapTiers` and `timelineMode`: nothing is stored, the open project stays open
@@ -1163,7 +1165,7 @@ function monthRuler(view) {
 // into its own, so both sit over the span they bound. Where the span is too
 // short for the two of them the end label turns outwards instead.
 const PIN_COLOR = "#5c6bc0";
-const PIN_PAIR_PX = 250;
+const PIN_PAIR_PX = 420;
 
 function pinRow(view) {
   const placed = (view.pins || [])
@@ -1181,6 +1183,16 @@ function pinRow(view) {
       undefined, { day: "numeric", month: "short", year: "numeric" })}`;
     const flag = element("div", "ruler-pin", label);
     flag.title = `${pin.title}: ${pin.date}`;
+    // The end date is exclusive -- the day after the last day -- so the pin
+    // also names the last weekday of work (`validation.last_weekday_before`),
+    // which is what a customer reading a screenshot takes "End" to mean.
+    if (pin.lastWeekday) {
+      flag.appendChild(element("span", "pin-last",
+        ` · last working day ${parseDate(pin.lastWeekday).toLocaleDateString(
+          undefined, { weekday: "short", day: "numeric", month: "short" })}`));
+      flag.title += `\nLast working day: ${pin.lastWeekday} (weekends skipped, `
+        + "holidays not known)";
+    }
     const inward = pin.side === "end" && (!start || pin.x - start.x >= PIN_PAIR_PX);
     if (inward) {
       flag.classList.add("pin-end");
@@ -3208,10 +3220,14 @@ function renderTimeline() {
   // be read for are pinned on it. `span_end` is exclusive -- the day after the
   // last phase's last day -- exactly as a bar's own right edge is.
   if (view.long) {
-    const { span_start: spanStart, span_end: spanEnd } = state.plan.project;
+    const {
+      span_start: spanStart, span_end: spanEnd, span_last_weekday: lastWeekday,
+    } = state.plan.project;
     view.pins = [
       spanStart && { side: "start", label: "Start", title: "Project start", date: spanStart },
-      spanEnd && { side: "end", label: "End", title: "Project end", date: spanEnd },
+      spanEnd && {
+        side: "end", label: "End", title: "Project end", date: spanEnd, lastWeekday,
+      },
     ].filter(Boolean);
   }
   const body = weekGrid(timeline, view, view.long ? monthRuler : weekRuler);
@@ -3335,7 +3351,8 @@ function phaseBar(phase, view, isWarned) {
   const bar = element("div", `bar status-${phase.status}${isWarned ? " bar-warn" : ""}`);
   placeBar(bar, from, to, view);
   bar.title = `${phase.name}: ${phase.start_date} to ${phase.end_date} `
-    + `(${phase.duration_weeks}w, ${phase.effort_points} pts)`;
+    + `(${phase.duration_weeks}w, ${phase.effort_points} pts)`
+    + (phase.last_weekday ? `\nLast working day: ${phase.last_weekday}` : "");
   // A raised challenge is a tag inside the bar and its text on the hover. The
   // bar keeps its status colour and gains no outline -- an outline is a rule's
   // warning, and a challenge is not a rule (amendment 10). The flag alone, no
@@ -3354,8 +3371,10 @@ function phaseBar(phase, view, isWarned) {
   label.appendChild(element("span", "bar-text", phase.name));
   // Month scale only: with week columns the ruler already dates both ends.
   if (view.long) {
+    // Ends on the last working day, as the End pin does: the stored end is the
+    // day after, which on a slide reads as one more day of work.
     label.appendChild(element("span", "bar-dates",
-      `${shortDate(phase.start_date)} – ${shortDate(phase.end_date)}`));
+      `${shortDate(phase.start_date)} – ${shortDate(phase.last_weekday || phase.end_date)}`));
   }
   bar.appendChild(label);
   return bar;
@@ -12533,6 +12552,21 @@ function bindEvents() {
   $("mode-weeks").onclick = () => {
     state.timelineMode = "weeks";
     renderTimeline();
+  };
+  // A view of the chart for a customer's slide: the rule outlines, today, the
+  // challenge flags, the controls and the notes are all ours, not theirs. A
+  // class on the section, so the CSS does the hiding and nothing about a phase
+  // changes. Not saved anywhere -- a reload turns it off, so nobody plans for a
+  // week without seeing the warnings, and there is no per-person setting.
+  // Redrawn rather than restyled, because hiding a flag changes how much room a
+  // label needs and `fitBarLabels` has to measure again.
+  $("shot-mode").onclick = () => {
+    state.shotMode = !state.shotMode;
+    const on = state.shotMode;
+    $("timeline").closest("section").classList.toggle("shot-mode", on);
+    $("shot-mode").setAttribute("aria-pressed", String(on));
+    $("shot-mode").textContent = on ? "Show everything" : "Clean for screenshot";
+    if (state.plan) renderTimeline();
   };
 
   $("new-project").onclick = async () => {
