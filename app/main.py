@@ -69,6 +69,7 @@ from app.validation import (
     roadmap_quarters,
     retrack,
     sequential_layout,
+    reorder_by_date,
     shift_date,
     shift_offer,
     stage_next_steps,
@@ -971,9 +972,22 @@ class ShiftItem(BaseModel):
     expect: str
 
 
+class ShiftOrder(BaseModel):
+    kind: Literal["phase", "milestone"]
+    id: int
+    sort_order: int
+
+
 class ShiftIn(BaseModel):
     days: int
     items: list[ShiftItem]
+    # The banner's "re-place by date" tickbox. The server works out the order
+    # itself (`validation.reorder_by_date`); the page only says yes.
+    replace: bool = False
+    # An explicit order to put back -- what Undo sends, from the `reordered`
+    # this call returned. Mutually useful with `replace` only in theory; Undo
+    # never sends both.
+    order: list[ShiftOrder] = []
 
 
 class DeliverableIn(BaseModel):
@@ -3614,16 +3628,27 @@ def layout_project(request: Request, project_id: int):
 
 
 @app.get("/api/projects/{project_id}/shift")
-def preview_shift(project_id: int, phase: int, after: str, days: int):
-    """What the "move the later items too?" banner would offer. Reads only.
+def preview_shift(project_id: int, phase: int, after: str, days: int,
+                  exclude: str = ""):
+    """What the "move the later items too?" offer would do. Reads only.
 
     Asked after a phase's start or weeks were saved: `phase` is the one edited,
-    `after` its end date before the edit, `days` how far that end moved. The
-    rule is `validation.shift_offer`; nothing is written here.
+    `after` its end date before the edit, `days` how far that end moved, and
+    `exclude` the rows unticked in the table, as `kind:id,kind:id`. The rules
+    are `validation.shift_offer` and `reorder_by_date`; nothing is written here.
+
+    `replace` names the rows "re-place by date" would move in the table, for
+    the ticked rows only -- so the banner can say how many before anyone ticks.
     """
     require_project(project_id)
-    return shift_offer(db.list_phases(project_id), db.list_milestones(project_id),
-                       phase, after, days)
+    phases = db.list_phases(project_id)
+    milestones = db.list_milestones(project_id)
+    offer = shift_offer(phases, milestones, phase, after, days)
+    left_out = {part.strip() for part in exclude.split(",") if part.strip()}
+    new_dates = {(item["kind"], item["id"]): item["to"] for item in offer["move"]
+                 if f"{item['kind']}:{item['id']}" not in left_out}
+    offer["replace"] = reorder_by_date(phases, milestones, new_dates)["replaced"]
+    return offer
 
 
 @app.post("/api/projects/{project_id}/shift")
@@ -3634,19 +3659,30 @@ def apply_shift(request: Request, project_id: int, body: ShiftIn):
     `/layout`, and the reason this is not the auto-rescheduling non-negotiable 1
     refuses. Each item carries the date the banner showed; if any row has moved
     since, nothing is written and the answer is 409. Undo is this same call with
-    `days` negated and each item's new date as its `expect`.
+    `days` negated, each item's new date as its `expect`, and `order` built
+    from the `reordered` this call returned (each row's `from`).
     """
     require_project(project_id)
-    if not body.items or body.days == 0:
-        return {"moved": 0}
+    if (not body.items or body.days == 0) and not body.order:
+        return {"moved": 0, "reordered": []}
     moves = []
-    for item in body.items:
+    for item in body.items if body.days else []:
         expected = clean_date(item.expect)
         if not expected:
             raise HTTPException(status_code=422,
                                 detail="An undated item cannot be shifted.")
         moves.append((item.kind, item.id, expected, shift_date(expected, body.days)))
-    stale = db.shift_dates(project_id, moves, author=signed_in_name(request))
+
+    reordered = []
+    if body.replace and moves:
+        reordered = reorder_by_date(
+            db.list_phases(project_id), db.list_milestones(project_id),
+            {(kind, row_id): new for kind, row_id, _, new in moves})["orders"]
+    orders = [(row["kind"], row["id"], row["to"]) for row in reordered]
+    orders += [(row.kind, row.id, row.sort_order) for row in body.order]
+
+    stale = db.shift_dates(project_id, moves, author=signed_in_name(request),
+                           orders=orders)
     if stale:
         raise HTTPException(
             status_code=409,
@@ -3657,7 +3693,7 @@ def apply_shift(request: Request, project_id: int, body: ShiftIn):
             },
         )
     announce_roadmap()
-    return {"moved": len(moves)}
+    return {"moved": len(moves), "reordered": reordered}
 
 
 @app.put("/api/projects/{project_id}")

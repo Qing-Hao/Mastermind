@@ -422,7 +422,8 @@
         <!-- The "move the later items too?" offer, after a phase's start or weeks
              changed. Never `hidden`: it opens and closes by `.is-open`, so it can
              slide rather than jump the table, and the CSS is free to set
-             `display` on it. Drawn by `renderShiftOffer` in app.js. -->
+             `display` on it. Drawn by `renderShiftOffer` in app.js; the new dates
+             themselves are drawn in the table, under each row (`shiftPreview`). -->
         <div id="shift-offer" class="shift-offer" aria-live="polite" inert>
           <div class="shift-offer-clip"><div id="shift-offer-body" class="shift-card"></div></div>
         </div>

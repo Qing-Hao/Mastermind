@@ -42,6 +42,7 @@ from app.validation import (
     shift_quarter,
     same_stored_value,
     sequential_layout,
+    reorder_by_date,
     shift_offer,
     stage_next_steps,
     stale_expectations,
@@ -355,6 +356,44 @@ def test_shift_offer_is_empty_with_no_movement_or_no_old_end():
     phases, milestones = shift_plan()
     assert shift_offer(phases, milestones, 2, "2026-11-30", 0) == {"move": [], "skip": []}
     assert shift_offer(phases, milestones, 2, "", 7) == {"move": [], "skip": []}
+
+
+def gate_rows():
+    """Table order as dragged: Design, Build, Beta, Launch, then Sign-off at the
+    bottom as a gate, although it is dated with Build."""
+    phases = [{"id": 1, "name": "Design", "sort_order": 0},
+              {"id": 2, "name": "Build", "sort_order": 1}]
+    milestones = [{"id": 10, "name": "Beta", "sort_order": 2},
+                  {"id": 11, "name": "Launch", "sort_order": 3},
+                  {"id": 12, "name": "Sign-off", "sort_order": 4}]
+    return phases, milestones
+
+
+def test_reorder_by_date_lifts_only_the_out_of_order_row():
+    phases, milestones = gate_rows()
+    new = {("phase", 2): "2026-12-07", ("milestone", 10): "2026-12-28",
+           ("milestone", 11): "2027-01-18", ("milestone", 12): "2026-12-07"}
+    result = reorder_by_date(phases, milestones, new)
+    order = {(row["kind"], row["id"]): row["to"] for row in result["orders"]}
+    assert order == {("milestone", 12): 2, ("milestone", 10): 3, ("milestone", 11): 4}
+    # Beta and Launch went down one each, but only Sign-off was re-placed.
+    assert [row["name"] for row in result["replaced"]] == ["Sign-off"]
+
+
+def test_reorder_by_date_never_moves_a_row_the_shift_does_not_touch():
+    phases, milestones = gate_rows()
+    # Launch is unticked: it keeps its slot, and Sign-off climbs only past Beta.
+    new = {("phase", 2): "2026-12-07", ("milestone", 10): "2026-12-28",
+           ("milestone", 12): "2026-12-07"}
+    order = {(row["kind"], row["id"]): row["to"]
+             for row in reorder_by_date(phases, milestones, new)["orders"]}
+    assert order == {("milestone", 12): 2, ("milestone", 10): 4}
+
+
+def test_reorder_by_date_keeps_the_table_order_on_a_tie():
+    phases, milestones = gate_rows()
+    new = {("phase", 2): "2026-12-07", ("milestone", 10): "2026-12-07"}
+    assert reorder_by_date(phases, milestones, new) == {"orders": [], "replaced": []}
 
 
 # --- V2 ---------------------------------------------------------------------

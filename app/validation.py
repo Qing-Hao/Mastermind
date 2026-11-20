@@ -468,6 +468,85 @@ def shift_date(value, days):
     return (as_date(value) + timedelta(days=int(days))).isoformat()
 
 
+def plan_rows(phases, milestones):
+    """Phases and checkpoints as the phase table lists them: one `sort_order`
+    line, a phase before a checkpoint on a tie. The twin of `mergePlanRows` in
+    app.js -- the two must agree or a re-place lands somewhere the table does
+    not show it."""
+    rows = [("phase", phase) for phase in phases]
+    rows += [("milestone", milestone) for milestone in milestones]
+    return sorted(rows, key=lambda row: (row[1].get("sort_order") or 0,
+                                         row[0] != "phase"))
+
+
+def reorder_by_date(phases, milestones, new_dates):
+    """Where the shift's "re-place by date" would put each row in the table.
+
+    `new_dates` maps (kind, id) to the date a shift is about to give that row.
+    **Only those rows move, and only among the places they already hold**: their
+    slots in the table are kept, and the rows are dealt back into them in date
+    order -- a tie keeps the order they were in. Every other row, earlier work,
+    a done phase, an achieved or unticked checkpoint, stays exactly where it
+    was dragged. So a checkpoint left at the bottom as a gate climbs only past
+    the moved rows dated after it, never past anything the shift did not touch.
+
+    The list is renumbered from zero, as a drag renumbers it (`savePlanOrder`).
+    Returns {"orders": [...], "replaced": [...]}: every row whose `sort_order`
+    value changes, as kind, id, from, to; and, of those, the moved rows whose
+    *position* changes, as kind, id, name -- what the banner names.
+    """
+    rows = plan_rows(phases, milestones)
+    slots = [index for index, (kind, row) in enumerate(rows)
+             if (kind, row["id"]) in new_dates]
+    moving = [rows[index] for index in slots]
+    dealt = sorted(moving, key=lambda row: new_dates[(row[0], row[1]["id"])])
+    arranged = list(rows)
+    for slot, row in zip(slots, dealt):
+        arranged[slot] = row
+
+    orders = []
+    for index, (kind, row) in enumerate(arranged):
+        if (row.get("sort_order") or 0) != index:
+            orders.append({"kind": kind, "id": row["id"],
+                           "from": row.get("sort_order") or 0, "to": index})
+
+    # Which rows a reader would say "moved". Lifting one checkpoint three places
+    # also pushes three rows down one each, but nobody calls those re-placed: the
+    # rows that kept their order relative to each other (the longest run that
+    # stays in sequence) did not move, and the rest did.
+    before = [moving.index(row) for row in dealt]
+    kept = longest_increasing(before)
+    replaced = [{"kind": kind, "id": row["id"], "name": row.get("name", "")}
+                for position, (kind, row) in enumerate(dealt) if position not in kept]
+    return {"orders": orders, "replaced": replaced}
+
+
+def longest_increasing(values):
+    """Positions in `values` of one longest strictly increasing run, as a set.
+
+    Where several runs are equally long, the one made of the smallest values is
+    kept. Here the values are rows' places in the table before the shift, so a
+    tie keeps the rows that sat higher up and names the lower one as re-placed:
+    two rows swapping is one move, and the row somebody had dragged down out of
+    date order is the one that moved. Quadratic, which is fine for a phase table.
+    """
+    count = len(values)
+    # ahead[i]: the longest increasing run that starts at position i.
+    ahead = [1] * count
+    for i in range(count - 1, -1, -1):
+        for j in range(i + 1, count):
+            if values[j] > values[i]:
+                ahead[i] = max(ahead[i], ahead[j] + 1)
+    kept, need, start, floor = set(), max(ahead, default=0), 0, None
+    while need:
+        choices = [k for k in range(start, count)
+                   if ahead[k] == need and (floor is None or values[k] > floor)]
+        pick = min(choices, key=lambda k: values[k])
+        kept.add(pick)
+        need, start, floor = need - 1, pick + 1, values[pick]
+    return kept
+
+
 def effective_velocity(project, settings):
     """A project's velocity override, falling back to the global default."""
     override = project.get("velocity_override")

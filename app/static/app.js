@@ -2618,6 +2618,10 @@ async function loadPlan() {
     fitProjectWindow();
     state.windowFittedTo = state.plan.project.id;
   }
+  // The shift offer is re-asked on every load, not only after the save that
+  // opened it: somebody else moving a date under an open offer changes what it
+  // should list. Before the render, because the table draws its preview lines.
+  await refreshShiftOffer();
   renderProjectView();
   // **Here and not in `refreshView`, because every edit lands here.** `savePhase`
   // and its siblings end with `loadPlan()` and never touch `refreshView`, so a
@@ -2625,11 +2629,6 @@ async function loadPlan() {
   // could edit a field and hover it and get nothing, which is exactly what
   // happened. The write that just landed is the one that changed the answer.
   loadBlame();
-  // The shift offer is re-asked on every load, not only after the save that
-  // opened it: somebody else moving a date under an open offer changes what it
-  // should list, and a stale list would write over their move (the server would
-  // refuse it, but the banner should not be offering it in the first place).
-  await refreshShiftOffer();
   // Naming a deliverable, setting a date or ticking the last milestone all
   // change the badge on the project you are looking at, and every edit lands
   // here. Re-reading the list is one localhost query, and it keeps the ladder
@@ -2676,6 +2675,7 @@ function renderProjectView() {
   renderRoad();
   renderUnscheduled();
   renderTimeline();
+  renderShiftOffer();
   // Checkpoints are rows in the phase table now, so `renderPhases` draws both
   // kinds and there is no milestone render of its own to call.
   renderPhases();
@@ -2783,6 +2783,7 @@ function milestoneRow(milestone) {
     `checkpoint-row${milestone.achieved ? " done" : ""}`);
   // What `revealMilestoneRow` finds, the twin of the deliverable row's own.
   line.dataset.milestone = milestone.id;
+  line.dataset.shiftKey = `milestone:${milestone.id}`;
 
   const gripCell = element("td", "grip");
   const grip = element("span", "grip-handle", "⠿");
@@ -2819,8 +2820,11 @@ function milestoneRow(milestone) {
   };
   line.appendChild(nameCell);
 
-  line.appendChild(fieldCell(milestone, "target_date", "date", saveMilestone,
-    {}, "milestone"));
+  const dateCell = fieldCell(milestone, "target_date", "date", saveMilestone,
+    {}, "milestone");
+  const dateNext = shiftPreview("milestone", milestone.id);
+  if (dateNext) dateCell.appendChild(dateNext);
+  line.appendChild(dateCell);
 
   const spanCell = element("td", "muted", "checkpoint");
   spanCell.colSpan = 4;
@@ -3805,6 +3809,7 @@ function phaseRow(phase, warned) {
   // every render, so nothing can hold the node -- the deliverable rows carry the
   // same marker for `revealDeliverableRow`, and for the same reason.
   row.dataset.phase = phase.id;
+  row.dataset.shiftKey = `phase:${phase.id}`;  // what `slideFrom` follows
   const isOpen = state.expandedPhases.has(phase.id);
 
   // Its own column, the same conclusion the deliverable list reached: a drag
@@ -3865,7 +3870,10 @@ function phaseRow(phase, warned) {
     nameInput.blur();
   };
   row.appendChild(nameCell);
-  row.appendChild(fieldCell(phase, "start_date", "date", savePhaseDates, {}, "phase"));
+  const startCell = fieldCell(phase, "start_date", "date", savePhaseDates, {}, "phase");
+  const startNext = shiftPreview("phase", phase.id);
+  if (startNext) startCell.appendChild(startNext);
+  row.appendChild(startCell);
   row.appendChild(fieldCell(phase, "duration_weeks", "number", savePhaseDates,
     { step: "0.5", min: "0" }, "phase"));
   row.appendChild(fieldCell(phase, "effort_points", "number", savePhase,
@@ -4295,6 +4303,16 @@ async function savePhase(phaseId, fields) {
 // Move is pressed -- non-negotiable 1. Which items count as later is
 // `validation.shift_offer`, asked of the server rather than copied here.
 //
+// The banner holds the question and the buttons; **the new dates are drawn in
+// the table**, under each row's own date, each with its tickbox -- so there is
+// no second list to match against the rows. Rows that stay (done, achieved) say
+// so in the same place.
+//
+// "Re-place by date" is a second, opt-in tickbox in the banner: the moved rows
+// are dealt back into the slots they already hold, in date order
+// (`validation.reorder_by_date`). Unticked by default, because it undoes an
+// order somebody may have dragged on purpose.
+//
 // One offer at a time, for one phase. Several edits to the same phase add up
 // into it (`after` is that phase's end before the *first* of them), so nudging
 // Weeks up three clicks is one offer of three half-weeks, and nudging it back
@@ -4321,12 +4339,16 @@ async function savePhaseDates(phaseId, fields) {
       days: 0,
       offer: null,
       unticked: new Set(),
+      replace: false,
       done: null,
     } : null;
   }
   await savePhase(phaseId, fields);
 }
 
+// Brings the offer up to date with `state.plan`. Draws nothing: `loadPlan` calls
+// it before `renderProjectView`, so the banner and the table's preview lines are
+// drawn by the same render as everything else.
 async function refreshShiftOffer() {
   const offer = shiftState;
   if (offer && !offer.done) {
@@ -4336,24 +4358,46 @@ async function refreshShiftOffer() {
       ? daysBetween(parseDate(offer.after), parseDate(phase.end_date)) : 0;
     if (!offer.days) {
       shiftState = null;
-    } else {
-      offer.phaseName = phase.name;
-      const query = new URLSearchParams({
-        phase: offer.phaseId, after: offer.after, days: offer.days });
-      try {
-        offer.offer = await api(`/api/projects/${offer.projectId}/shift?${query}`);
-      } catch (_) {
-        offer.offer = null;
-      }
-      // A newer edit replaced this offer while it was being asked for.
-      if (shiftState !== offer) return;
-      if (!offer.offer || offer.offer.move.length === 0) shiftState = null;
+      return;
     }
+    offer.phaseName = phase.name;
+    const query = new URLSearchParams({
+      phase: offer.phaseId, after: offer.after, days: offer.days,
+      exclude: [...offer.unticked].join(","),
+    });
+    let answer = null;
+    try {
+      answer = await api(`/api/projects/${offer.projectId}/shift?${query}`);
+    } catch (_) { /* no offer is the safe answer */ }
+    // A newer edit replaced this offer while it was being asked for.
+    if (shiftState !== offer) return;
+    offer.offer = answer;
+    if (!answer || answer.move.length === 0) shiftState = null;
   } else if (offer && offer.done && offer.projectId !== state.currentProjectId) {
     clearTimeout(offer.done.timer);
     shiftState = null;
   }
+}
+
+// The banner and every preview line in the table, after a change only the offer
+// knows about -- a tick, a dismissal. The rows are rebuilt, so presence and the
+// blame tips go back on, as `renderProjectView` does.
+function redrawShift(focusId) {
   renderShiftOffer();
+  renderPhases();
+  drawPresence();
+  drawBlame();
+  if (focusId) $(focusId)?.focus();
+}
+
+async function toggleShiftItem(key, on, focusId) {
+  const offer = shiftState;
+  if (!offer || offer.done) return;
+  if (on) offer.unticked.delete(key); else offer.unticked.add(key);
+  // Re-asked, because which rows "re-place by date" would move depends on
+  // which ones are moving at all.
+  await refreshShiftOffer();
+  redrawShift(focusId);
 }
 
 // "1 week", "3 weeks", or "10 days" when it is not whole weeks.
@@ -4371,6 +4415,9 @@ function shiftWhat(items) {
     checkpoints && `${checkpoints} checkpoint${checkpoints === 1 ? "" : "s"}`,
   ].filter(Boolean).join(" and ");
 }
+
+const shiftChosen = (offer) =>
+  offer.offer.move.filter((item) => !offer.unticked.has(shiftItemKey(item)));
 
 function renderShiftOffer() {
   const box = $("shift-offer");
@@ -4391,8 +4438,10 @@ function renderShiftOffer() {
   if (offer.done) {
     const head = element("div", "shift-head");
     const count = offer.done.items.length;
+    const placed = offer.done.reordered.length ? ", and re-placed by date" : "";
     head.appendChild(element("span", "",
-      `Moved ${count} item${count === 1 ? "" : "s"} ${shiftAmount(offer.done.days)} ${direction}.`));
+      `Moved ${count} item${count === 1 ? "" : "s"} ${shiftAmount(offer.done.days)} `
+      + `${direction}${placed}.`));
     const undo = element("button", "btn-ghost", "Undo");
     undo.type = "button";
     undo.onclick = undoShift;
@@ -4401,8 +4450,8 @@ function renderShiftOffer() {
     return;
   }
 
-  const { move, skip } = offer.offer;
-  const chosen = move.filter((item) => !offer.unticked.has(shiftItemKey(item)));
+  const { move, replace } = offer.offer;
+  const chosen = shiftChosen(offer);
   const amount = shiftAmount(offer.days);
 
   const head = element("div", "shift-head");
@@ -4414,7 +4463,7 @@ function renderShiftOffer() {
   dismiss.type = "button";
   dismiss.onclick = () => {
     shiftState = null;
-    renderShiftOffer();
+    redrawShift();
   };
   const apply = element("button", "btn-primary",
     `Move ${chosen.length} item${chosen.length === 1 ? "" : "s"}`);
@@ -4422,53 +4471,71 @@ function renderShiftOffer() {
   apply.disabled = chosen.length === 0;
   apply.onclick = applyShift;
   head.append(dismiss, apply);
+  body.appendChild(head);
 
-  const list = element("ul", "shift-list");
-  const glyph = (item) => (item.kind === "milestone" ? "◆ " : "");
-  for (const item of move) {
-    const key = shiftItemKey(item);
-    const line = element("li", offer.unticked.has(key) ? "is-off" : "");
+  // Offered only when re-placing would actually change the table.
+  if (replace.length) {
+    const line = element("label", "shift-replace");
     const tick = element("input");
     tick.type = "checkbox";
-    tick.id = `shift-tick-${item.kind}-${item.id}`;
-    tick.checked = !offer.unticked.has(key);
+    tick.id = "shift-replace";
+    tick.checked = offer.replace;
     tick.onchange = () => {
-      if (tick.checked) offer.unticked.delete(key); else offer.unticked.add(key);
-      renderShiftOffer();
-      $(tick.id)?.focus();
+      offer.replace = tick.checked;
+      redrawShift("shift-replace");
     };
-    const label = element("label", "", glyph(item) + item.name);
-    label.htmlFor = tick.id;
-    const when = element("span", "shift-when");
-    when.append(element("s", "", shortDate(item.from)), " → ",
-      element("b", "", shortDate(item.to)));
-    line.append(tick, label, when);
-    list.appendChild(line);
-  }
-  for (const item of skip) {
-    const line = element("li");
-    line.append(element("span"),
-      element("span", "shift-skip", glyph(item) + item.name),
-      element("span", "shift-skip", `stays (${item.reason})`));
-    list.appendChild(line);
+    const names = replace.map((row) => (row.kind === "milestone" ? "◆ " : "") + row.name);
+    line.append(tick, element("span", "",
+      `Also re-place ${names.join(", ")} by ${replace.length === 1 ? "its" : "their"} `
+      + "new date in the table. This changes the order you arranged."));
+    body.appendChild(line);
   }
 
-  body.append(head, list, element("div", "shift-foot",
-    "Your change to this phase is already saved. This only decides about the "
-    + "items listed. Nothing else moves unless you press Move."));
+  body.appendChild(element("div", "shift-foot",
+    "The new dates are shown in the table under each row. Untick a row there to "
+    + "leave it where it is. Your change to this phase is already saved."));
+}
+
+// The line under a row's date while an offer is open: its new date and tickbox,
+// or why it stays. Null for a row the offer does not touch.
+function shiftPreview(kind, id) {
+  const offer = shiftState;
+  if (!offer || offer.done || !offer.offer) return null;
+  const key = `${kind}:${id}`;
+  const moving = offer.offer.move.find((item) => shiftItemKey(item) === key);
+  if (moving) {
+    const on = !offer.unticked.has(key);
+    const line = element("label", `shift-next${on ? "" : " is-off"}`);
+    const tick = element("input");
+    tick.type = "checkbox";
+    tick.id = `shift-tick-${kind}-${id}`;
+    tick.checked = on;
+    tick.title = on ? "Moves with the shift" : "Stays where it is";
+    tick.onchange = () => toggleShiftItem(key, tick.checked, tick.id);
+    line.append(tick, `→ ${shortDate(moving.to)}`);
+    if (on && offer.replace && offer.offer.replace.some((row) => shiftItemKey(row) === key)) {
+      line.appendChild(element("span", "shift-tag", "re-placed by date"));
+    }
+    return line;
+  }
+  const held = offer.offer.skip.find((item) => shiftItemKey(item) === key);
+  return held ? element("div", "shift-next is-held", `stays (${held.reason})`) : null;
 }
 
 async function applyShift() {
   const offer = shiftState;
   if (!offer || !offer.offer || offer.done) return;
-  const chosen = offer.offer.move.filter((item) => !offer.unticked.has(shiftItemKey(item)));
+  const chosen = shiftChosen(offer);
   if (chosen.length === 0) return;
-  const before = chartPositions();
+  const replace = offer.replace && offer.offer.replace.length > 0;
+  const before = shiftPositions();
+  let answer;
   try {
-    await api(`/api/projects/${offer.projectId}/shift`, {
+    answer = await api(`/api/projects/${offer.projectId}/shift`, {
       method: "POST",
       body: JSON.stringify({
         days: offer.days,
+        replace,
         items: chosen.map((item) => ({ kind: item.kind, id: item.id, expect: item.from })),
       }),
     });
@@ -4479,7 +4546,7 @@ async function applyShift() {
     await loadPlan();
     return;
   }
-  offer.done = { items: chosen, days: offer.days };
+  offer.done = { items: chosen, days: offer.days, reordered: answer.reordered || [] };
   offer.done.timer = setTimeout(() => {
     if (shiftState === offer) {
       shiftState = null;
@@ -4492,20 +4559,22 @@ async function applyShift() {
 }
 
 // The same call with the days negated, each item expected where the shift put
-// it. Refused like any shift if one has moved again since.
+// it, and the table order the re-place changed put back. Refused like any shift
+// if a date has moved again since.
 async function undoShift() {
   const offer = shiftState;
   if (!offer || !offer.done) return;
   clearTimeout(offer.done.timer);
-  const { items, days } = offer.done;
+  const { items, days, reordered } = offer.done;
   shiftState = null;
-  const before = chartPositions();
+  const before = shiftPositions();
   try {
     await api(`/api/projects/${offer.projectId}/shift`, {
       method: "POST",
       body: JSON.stringify({
         days: -days,
         items: items.map((item) => ({ kind: item.kind, id: item.id, expect: item.to })),
+        order: reordered.map((row) => ({ kind: row.kind, id: row.id, sort_order: row.from })),
       }),
     });
   } catch (failure) {
@@ -4516,33 +4585,46 @@ async function undoShift() {
   flashShifted(items);
 }
 
-// Where every bar and checkpoint on the project timeline sits right now, so the
-// redraw after a shift can start each one there and slide it to its new place.
-function chartPositions() {
+// Where every bar and checkpoint on the project timeline, and every row of the
+// phase table, sits right now -- so the redraw after a shift can start each one
+// there and slide it to its new place, across the chart or up the table.
+const SHIFT_NODES = "#timeline [data-shift-key], #phase-table tr[data-shift-key]";
+
+function shiftPositions() {
   const where = new Map();
-  for (const node of $("timeline").querySelectorAll("[data-shift-key]")) {
-    where.set(node.dataset.shiftKey, node.getBoundingClientRect().left);
+  for (const node of document.querySelectorAll(SHIFT_NODES)) {
+    const box = node.getBoundingClientRect();
+    // Page coordinates, not the window's: a shorter table can move the scroll
+    // position, and that is not something any row did.
+    where.set(`${node.tagName}:${node.dataset.shiftKey}`,
+      { x: box.left + scrollX, y: box.top + scrollY });
   }
   return where;
 }
 
 // FLIP: put each redrawn node back where it was with `translate`, let the
 // browser see that, then drop it and let the transition carry it home. A node
-// that was not on the chart before (scrolled in from outside the window) just
-// appears.
+// that was not there before (scrolled in from outside the window) just appears.
 function slideFrom(before) {
   if (!before.size || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  for (const node of $("timeline").querySelectorAll("[data-shift-key]")) {
-    const was = before.get(node.dataset.shiftKey);
-    if (was === undefined) continue;
-    const dx = was - node.getBoundingClientRect().left;
-    if (Math.abs(dx) < 1) continue;
-    node.style.translate = `${dx}px 0`;
+  for (const node of document.querySelectorAll(SHIFT_NODES)) {
+    const was = before.get(`${node.tagName}:${node.dataset.shiftKey}`);
+    if (!was) continue;
+    const box = node.getBoundingClientRect();
+    const dx = was.x - (box.left + scrollX);
+    const dy = was.y - (box.top + scrollY);
+    if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+    node.style.translate = `${dx}px ${dy}px`;
+    // Table rows only, and kept under the sticky top bar's 10: the chart's marks
+    // are positioned already, and a climbing row must not paint over the bar.
+    if (node.tagName === "TR") node.style.zIndex = String(1 + Math.min(8, Math.round(Math.abs(dy) / 24)));
     node.getBoundingClientRect();
     node.classList.add("is-sliding");
     node.style.translate = "";
-    node.addEventListener("transitionend",
-      () => node.classList.remove("is-sliding"), { once: true });
+    node.addEventListener("transitionend", () => {
+      node.classList.remove("is-sliding");
+      node.style.zIndex = "";
+    }, { once: true });
   }
 }
 

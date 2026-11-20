@@ -1590,7 +1590,7 @@ def update_milestone(milestone_id, fields, author=""):
 SHIFT_COLUMNS = {"phase": "start_date", "milestone": "target_date"}
 
 
-def shift_dates(project_id, moves, author=""):
+def shift_dates(project_id, moves, author="", orders=()):
     """Re-date several rows of one project in one transaction, or none of them.
 
     `moves` is a list of (kind, id, expected, new): `kind` is "phase" or
@@ -1602,6 +1602,12 @@ def shift_dates(project_id, moves, author=""):
 
     Each row moved is logged in `item_version` under the same stamp, so the
     hover tip on each date names who shifted it.
+
+    `orders` is a list of (kind, id, sort_order) written in the same transaction
+    -- the banner's "re-place by date", or an undo putting the order back. Not
+    guarded and not logged, as a drag is not (`savePlanOrder`): order is
+    arrangement, and `sort_order` is in `UNLOGGED`. A row of another project is
+    skipped rather than refused, since nothing about it was shown.
     """
     stale = []
     with connect() as connection:
@@ -1620,6 +1626,11 @@ def shift_dates(project_id, moves, author=""):
             connection.execute(
                 f"UPDATE {kind} SET {column} = ? WHERE id = ?", (new, row_id))
             record_version(connection, kind, row_id, changes, author, stamp)
+        if not stale:
+            for kind, row_id, sort_order in orders:
+                connection.execute(
+                    f"UPDATE {kind} SET sort_order = ? WHERE id = ? AND project_id = ?",
+                    (int(sort_order), row_id, project_id))
         if stale:
             connection.rollback()
     return stale

@@ -2008,22 +2008,29 @@ tr.row-warn td { background: #fff8e1; }
    with `hidden`** -- `.is-open` drives it -- so the `display: grid` here is not
    the `[hidden]` trap. The 0fr -> 1fr row is what lets it slide open and shut
    rather than shove the table down in one frame; the clip is the row's only
-   child, so its padding cannot leak out while the row is at zero. Chrome, not
-   data: the accent wash is the one accent, and nothing here means a state. */
+   child, so its padding cannot leak out while the row is at zero.
+   **Sticky under the top bar**, because the new dates are drawn down the table
+   and on a long plan the rows that move are below the fold: Move has to stay in
+   reach while you read them. Chrome, not data: the accent wash is the one
+   accent, and nothing here means a state. */
 .shift-offer {
   display: grid;
   grid-template-rows: 0fr;
   margin-bottom: 0;
+  position: sticky;
+  top: calc(var(--topbar-h) + 8px);
+  z-index: 5;
   transition: grid-template-rows 0.28s ease, margin-bottom 0.28s ease;
 }
 .shift-offer.is-open { grid-template-rows: 1fr; margin-bottom: 12px; }
 .shift-offer-clip { min-height: 0; overflow: hidden; }
 .shift-card {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   border: 1px solid var(--accent-ring);
   border-radius: var(--radius-card);
   background: var(--accent-soft);
+  box-shadow: 0 4px 14px rgba(24, 24, 27, 0.08);
   padding: 12px 14px;
   opacity: 0;
   transform: translateY(-6px);
@@ -2032,35 +2039,65 @@ tr.row-warn td { background: #fff8e1; }
 .shift-offer.is-open .shift-card { opacity: 1; transform: none; }
 .shift-card.is-done { border-color: var(--line); background: var(--surface); }
 .shift-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-.shift-head strong { font-size: 13.5px; font-weight: 600; }
-.shift-head .spacer { flex: 1; }
-.shift-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-size: 13px; max-width: 36rem; }
-.shift-list li {
+.shift-head strong { font-size: 13.5px; font-weight: 600; flex: 1 1 320px; }
+.shift-head .spacer { flex: 0; }
+.shift-replace {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) auto;
-  align-items: center;
+  color: var(--ink);            /* the global `label` rule mutes and shrinks */
+  font-weight: 400;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
   gap: 8px;
-  padding: 3px 6px;
-  border-radius: var(--radius);
+  max-width: 44rem;
+  padding-top: 8px;
+  border-top: 1px dashed var(--accent-ring);
+  font-size: 13px;
+  cursor: pointer;
 }
-.shift-list li:hover { background: var(--surface); }
-.shift-list input { min-width: 0; margin: 0; }
-.shift-when { white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; }
-.shift-when s { color: var(--faint); }
-.shift-when b { color: var(--accent-hover); font-weight: 600; }
-.shift-list li.is-off .shift-when b { color: var(--faint); font-weight: 400; text-decoration: line-through; }
-.shift-skip { color: var(--faint); font-style: italic; }
+.shift-replace input { min-width: 0; margin: 2px 0 0; }
 .shift-foot { font-size: 12px; color: var(--muted); }
+/* The preview line under a row's own date, while an offer is open: its tickbox
+   and the date it would get, or why it stays. */
+.shift-next {
+  display: flex;
+  flex-direction: row;          /* the global `label` rule stacks a column */
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent-hover);
+  white-space: nowrap;
+  cursor: pointer;
+}
+#phase-table .shift-next input { width: auto; min-width: 0; margin: 0; }  /* `td input` is full width */
+.shift-next.is-off { color: var(--faint); font-weight: 400; text-decoration: line-through; }
+.shift-next.is-held { color: var(--faint); font-weight: 400; font-style: italic; cursor: default; }
+.shift-tag {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+  background: var(--surface);
+  border: 1px solid var(--accent-ring);
+  border-radius: 999px;
+  padding: 0 6px;
+}
 /* A date the shift just wrote, in the table. Fades out on its own. */
 input.shift-moved { animation: shift-moved 1.8s ease-out; }
 @keyframes shift-moved {
   from { background: var(--accent-soft); box-shadow: 0 0 0 3px var(--accent-ring); }
 }
-/* A bar or checkpoint sliding from where it was to where the shift put it.
+/* A bar, checkpoint or table row sliding from where it was to where the shift
+   put it.
    `translate`, not `transform`: a checkpoint already uses `transform` to
    centre its diamond, and the two compose rather than fight. Set and cleared
    by `slideFrom` in app.js. Motion only -- no colour, so it is not a chart rule. */
 .is-sliding { transition: translate 0.5s cubic-bezier(0.2, 0.7, 0.2, 1); }
+/* A table row paints under the rows after it, so one climbing past them would
+   travel hidden. `slideFrom` sets each row's z-index from how far it travels:
+   the re-placed row passes over the rows that only step down one. */
+tr.is-sliding { position: relative; }
 @media (prefers-reduced-motion: reduce) {
   .shift-offer, .shift-card, .is-sliding { transition: none; }
   input.shift-moved { animation: none; }
@@ -2253,6 +2290,10 @@ table.deliverables tr.dragging .grip-handle { cursor: grabbing; }
 #phase-table td.tick { width: 1%; text-align: center; }
 #phase-table td.tick input { min-width: 0; }
 #phase-table tr.checkpoint-row > td { background: #faf6fd; }
+/* The row too, not only its cells: the name cell is `display: flex`, so it stops
+   being a table cell and does not stretch when the row grows -- a shift preview
+   under the date did that, and left a white block under the name. */
+#phase-table tr.checkpoint-row { background: #faf6fd; }
 #phase-table tr.checkpoint-row.done textarea {
   color: #999;
   text-decoration: line-through;

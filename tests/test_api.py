@@ -12,6 +12,8 @@ from urllib.parse import parse_qsl, urlsplit
 
 import httpx
 import pytest
+
+from app.validation import shift_date
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
@@ -422,7 +424,7 @@ def test_shift_moves_exactly_the_items_sent_and_undo_puts_them_back(client):
     url = f"/api/projects/{project['id']}/shift"
     items = [{"kind": "phase", "id": build["id"], "expect": "2026-11-30"},
              {"kind": "milestone", "id": milestone["id"], "expect": "2026-12-21"}]
-    assert client.post(url, json={"days": 7, "items": items}).json() == {"moved": 2}
+    assert client.post(url, json={"days": 7, "items": items}).json()["moved"] == 2
     plan = plan_of(client, project["id"])
     assert [p["start_date"] for p in plan["phases"]] == ["2026-11-16", "2026-12-07"]
     assert plan["milestones"][0]["target_date"] == "2026-12-28"
@@ -432,10 +434,64 @@ def test_shift_moves_exactly_the_items_sent_and_undo_puts_them_back(client):
 
     back = [{"kind": "phase", "id": build["id"], "expect": "2026-12-07"},
             {"kind": "milestone", "id": milestone["id"], "expect": "2026-12-28"}]
-    assert client.post(url, json={"days": -7, "items": back}).json() == {"moved": 2}
+    assert client.post(url, json={"days": -7, "items": back}).json()["moved"] == 2
     plan = plan_of(client, project["id"])
     assert plan["phases"][1]["start_date"] == "2026-11-30"
     assert plan["milestones"][0]["target_date"] == "2026-12-21"
+
+
+def gate_setup(client):
+    """Build, then a Launch checkpoint, then a Sign-off checkpoint dragged to the
+    bottom as a gate although it is dated with Build."""
+    project, design, build, launch = shift_setup(client)
+    sign = client.post(f"/api/projects/{project['id']}/milestones",
+                       json={"name": "Sign-off", "target_date": "2026-11-30"}).json()
+    for kind, row_id, order in (("phases", design["id"], 0), ("phases", build["id"], 1),
+                                ("milestones", launch["id"], 2), ("milestones", sign["id"], 3)):
+        client.put(f"/api/{kind}/{row_id}", json={"sort_order": order})
+    return project, design, build, launch, sign
+
+
+def table_order(client, project_id):
+    plan = plan_of(client, project_id)
+    rows = [(p["sort_order"], 0, p["name"]) for p in plan["phases"]]
+    rows += [(m["sort_order"], 1, m["name"]) for m in plan["milestones"]]
+    return [name for _, _, name in sorted(rows)]
+
+
+def test_shift_preview_names_the_rows_re_place_would_move(client):
+    project, design, build, launch, sign = gate_setup(client)
+    url = f"/api/projects/{project['id']}/shift"
+    params = {"phase": design["id"], "after": "2026-11-30", "days": 7}
+    assert [r["name"] for r in client.get(url, params=params).json()["replace"]] == ["Sign-off"]
+    # Unticked in the table, it is not moving, so there is nothing to re-place.
+    params["exclude"] = f"milestone:{sign['id']}"
+    assert client.get(url, params=params).json()["replace"] == []
+
+
+def test_shift_re_place_reorders_and_undo_puts_the_order_back(client):
+    project, design, build, launch, sign = gate_setup(client)
+    url = f"/api/projects/{project['id']}/shift"
+    items = [{"kind": "phase", "id": build["id"], "expect": "2026-11-30"},
+             {"kind": "milestone", "id": launch["id"], "expect": "2026-12-21"},
+             {"kind": "milestone", "id": sign["id"], "expect": "2026-11-30"}]
+    answer = client.post(url, json={"days": 7, "items": items, "replace": True}).json()
+    assert table_order(client, project["id"]) == ["Design", "Build", "Sign-off", "Launch"]
+
+    back = [{"kind": i["kind"], "id": i["id"],
+             "expect": shift_date(i["expect"], 7)} for i in items]
+    order = [{"kind": r["kind"], "id": r["id"], "sort_order": r["from"]}
+             for r in answer["reordered"]]
+    client.post(url, json={"days": -7, "items": back, "order": order})
+    assert table_order(client, project["id"]) == ["Design", "Build", "Launch", "Sign-off"]
+    assert plan_of(client, project["id"])["phases"][1]["start_date"] == "2026-11-30"
+
+
+def test_shift_without_re_place_keeps_the_dragged_order(client):
+    project, design, build, launch, sign = gate_setup(client)
+    items = [{"kind": "milestone", "id": sign["id"], "expect": "2026-11-30"}]
+    client.post(f"/api/projects/{project['id']}/shift", json={"days": 7, "items": items})
+    assert table_order(client, project["id"]) == ["Design", "Build", "Launch", "Sign-off"]
 
 
 def test_shift_refuses_the_whole_batch_if_one_date_moved_meanwhile(client):
