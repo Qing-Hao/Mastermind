@@ -647,9 +647,17 @@ the text above, **the amendment wins** — the code follows the amendments.
     - **Everything moves by the same days**, so a buffer left between two phases
       survives. Shortening offers to pull items earlier the same way.
     - **Done phases and achieved checkpoints stay**, listed with the reason.
-    - **Each item can be unticked**; the write is all-or-nothing against the
-      dates the banner showed (409 if any has moved since), and **Undo** is the
-      same call reversed, for fifteen seconds.
+    - **The new dates are drawn in the table**, under each row's own date, with
+      a tickbox to leave that row behind. The banner holds only the question and
+      the buttons, and sticks under the top bar so Move stays in reach on a long
+      plan. The write is all-or-nothing against the dates shown (409 if any has
+      moved since), and **Undo** is the same call reversed, for fifteen seconds.
+    - **"Re-place by date" is opt-in, unticked by default.** The moved rows are
+      dealt back into the slots they already hold, in date order
+      (`validation.reorder_by_date`), so a checkpoint dragged to the bottom as a
+      gate climbs past the moved rows only, never past anything the shift did
+      not touch. Off by default because it undoes an order somebody may have
+      chosen on purpose; Undo puts the order back too. *(Added 2026-11-20.)*
 
     The lines: **never across projects** (a dependency still warns, never
     moves); **never without the banner** (no setting that makes it automatic, and
